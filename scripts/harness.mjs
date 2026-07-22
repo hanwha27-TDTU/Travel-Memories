@@ -7,6 +7,8 @@ const gates = [
   { name: 'check-secret-leak', cmd: 'node scripts/check-secret-leak.mjs' },
   { name: 'check-domain-wiring', cmd: 'node scripts/check-domain-wiring.mjs' },
   { name: 'check-csp', cmd: 'node scripts/check-csp.mjs' },
+  { name: 'check-base-consistency', cmd: 'node scripts/check-base-consistency.mjs' },
+  { name: 'unit-tests', cmd: 'npm run -s test' },
 ];
 
 let failed = 0;
