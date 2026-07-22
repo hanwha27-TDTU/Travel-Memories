@@ -28,7 +28,17 @@ push → GitHub Actions:
 ```
 - **완료 = 병합이 아니라 배포 그린 확인**(AGENTS.md). Actions가 배포 성공을 보고한 뒤에만 완료 처리.
 - `check-secret-leak`가 빌드 아티팩트를 스캔해 시크릿 유출 없음을 확인한 뒤 배포.
-- 환경변수(anon 키 등)는 GitHub Actions Secrets에서 주입(저장소에 커밋 금지). `.env.example`로 형태만 문서화.
+- 클라이언트 설정(`VITE_SUPABASE_URL`·`VITE_SUPABASE_PUBLISHABLE_KEY`·`VITE_MAP_STYLE_URL`)은
+  **Repository Variables**로 주입한다(`deploy-pages.yml`의 `env:`, `vars.*` 참조).
+  publishable 키는 설계상 공개 값이라 Secrets가 아니라 Variables가 맞다(마스킹 불필요·감사 용이).
+  진짜 비밀(secret/service_role/DB 비밀번호)은 Secrets에도 넣지 않는다 — 클라이언트 빌드에 쓸 일이 없어야 정상.
+  Variables 미설정 시 빈 값으로 빌드되고 앱은 로컬 전용 모드로 동작한다(null 폴백). `.env.example`로 형태만 문서화.
+
+### 배포 활성화 절차 (1회, 저장소 관리자)
+
+1. **Settings → Pages → Build and deployment → Source = "GitHub Actions"** 로 설정한다. 이 설정 없이는 `deploy-pages.yml`이 실패한다.
+2. (Supabase 프로비저닝 후) **Settings → Secrets and variables → Actions → Variables**에 `VITE_SUPABASE_URL`·`VITE_SUPABASE_PUBLISHABLE_KEY` 등록. 그 전까지는 로컬 전용 모드로 배포된다.
+3. `deploy-pages.yml`은 **`main` push에만 발동**한다 — 작업 브랜치가 main에 병합되기 전에는 어떤 배포도 일어나지 않으며, "배포 그린"은 병합 후에만 확인할 수 있다.
 
 ## 보안 헤더 · 롤백 (S-05 결정)
 
