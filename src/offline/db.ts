@@ -41,7 +41,11 @@ export class JourneyDB extends Dexie {
     super('journey-archive');
     this.version(1).stores({
       // 인덱스만 선언. Blob/대용량은 별도 store로 Phase 1에서 추가.
-      localTrips: 'id, updatedAt, deletedAt, status',
+      // deletedAt은 인덱스로 걸지 않는다: IndexedDB는 null을 인덱스 키로 저장할 수
+      // 없어 활성 행(deletedAt=null)이 인덱스에서 통째로 빠진다(M-0005).
+      // tombstone 필터는 .filter()로 하고, 인덱스가 필요해지면 Phase 1에서
+      // 센티널(0 | ISO 문자열) 마이그레이션으로 도입한다(docs/SYNC_PROTOCOL.md).
+      localTrips: 'id, updatedAt, status',
       syncQueue: 'operationId, entityId, state, createdAt',
     });
   }
