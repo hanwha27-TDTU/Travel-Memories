@@ -7,7 +7,7 @@
 ### Phase 1 thin slice — trips 로컬층 (2026-07-22)
 - 여행 생성·목록 실동작: 내구성 로컬 커밋(Dexie entity+operation 원자 트랜잭션) + 정확한 read-back.
 - 브라우저 왕복 검증: 생성→새로고침→IndexedDB 영속·대기열 정합·에러 0.
-- `supabase/migrations/0001_trips.sql`(소유자 RLS·UNIQUE(id,user_id)·DELETE 정책 없음=tombstone 전용) + `supabase/tests/rls_attack_trips.sql`(2사용자 공격검사) — 프로젝트 생성 대기(Q4: 무료 한도 초과).
+- **서버층 적용(ADR-0020)**: 공유 프로젝트 Travel&Accounting의 `journey` 스키마 분리 — `journey.trips` migration 적용, RLS 공격검사 6종 실행 **RLS_ATTACK_PASS**(위조 INSERT·타인 조회/수정/삭제·소유자 하드삭제·anon 차단), advisor journey 0건. 클라이언트 `db.schema=journey`.
 - trip rowmap(toRow/fromRow) 경계 + 왕복 단위테스트.
 
 

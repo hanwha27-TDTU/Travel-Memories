@@ -1,8 +1,15 @@
--- 0001_trips.sql · Journey Archive thin slice
--- 계약: docs/DATA_MODEL.md(공통 열·tombstone·UNIQUE(id,user_id)) · docs/SECURITY.md(소유자 RLS)
--- 적용: Supabase 프로젝트 생성 후 apply_migration. 적용된 migration은 수정 금지.
+-- 0001_journey_schema_trips.sql · Journey Archive thin slice
+-- 공유 프로젝트(Travel&Accounting) 내 스키마 분리(ADR-0020):
+--   회계 앱 = public 스키마(불가침) · 여행 앱 = journey 스키마 전용.
+-- 이 마이그레이션은 journey 스키마만 생성하며 public의 어떤 객체도 건드리지 않는다.
+-- 계약: docs/DATA_MODEL.md · docs/SECURITY.md(소유자 RLS). 적용된 migration 수정 금지.
 
-create table public.trips (
+create schema if not exists journey;
+
+-- anon에는 스키마 접근 자체를 주지 않는다. authenticated만 사용.
+grant usage on schema journey to authenticated;
+
+create table journey.trips (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
   title text not null,
@@ -28,10 +35,10 @@ create table public.trips (
   constraint trips_id_user_unique unique (id, user_id)
 );
 
-comment on table public.trips is 'Journey Archive 여행. 하드 삭제 금지 — deleted_at tombstone(DEL-CONTRACT).';
+comment on table journey.trips is 'Journey Archive 여행. 하드 삭제 금지 — deleted_at tombstone(DEL-CONTRACT).';
 
 -- updated_at 서버 시각 갱신 (LWW는 서버 시각 read-back 기준 — SYNC_PROTOCOL 불변식 1)
-create or replace function public.set_updated_at()
+create or replace function journey.set_updated_at()
 returns trigger
 language plpgsql
 security invoker
@@ -44,27 +51,27 @@ end;
 $$;
 
 create trigger trips_set_updated_at
-  before update on public.trips
-  for each row execute function public.set_updated_at();
+  before update on journey.trips
+  for each row execute function journey.set_updated_at();
+
+-- 테이블 권한: authenticated에 SELECT/INSERT/UPDATE만. DELETE 권한 자체를 주지 않음
+-- (DELETE 정책 없음과 이중 방어 — tombstone 전용, DEL-CONTRACT).
+grant select, insert, update on journey.trips to authenticated;
 
 -- RLS: 소유자 범위, operation별 분리, TO authenticated 명시 (SECURITY.md)
-alter table public.trips enable row level security;
+alter table journey.trips enable row level security;
 
-create policy trips_select_own on public.trips
+create policy trips_select_own on journey.trips
   for select to authenticated
   using (auth.uid() = user_id);
 
-create policy trips_insert_own on public.trips
+create policy trips_insert_own on journey.trips
   for insert to authenticated
   with check (auth.uid() = user_id);
 
-create policy trips_update_own on public.trips
+create policy trips_update_own on journey.trips
   for update to authenticated
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
--- DELETE 정책 없음 = 클라이언트 하드 삭제 불가(RLS default deny).
--- 삭제는 tombstone(update deleted_at)만 가능 — check-no-hard-delete와 이중 방어.
-
--- anon은 정책이 없어 기본 거부되지만, 명시적으로 권한도 회수(이중 방어)
-revoke all on public.trips from anon;
+-- DELETE 정책 없음 + DELETE grant 없음 = 클라이언트 하드 삭제 불가.

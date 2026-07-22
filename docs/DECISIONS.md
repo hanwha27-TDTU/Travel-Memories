@@ -5,6 +5,13 @@
 
 ---
 
+## ADR-0020 · Supabase 공유 프로젝트 + journey 스키마 분리
+- 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-07-22
+- 무료 한도(2개)로 신규 프로젝트 불가 → 사용자가 기존 News&Accounting을 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`, ap-south-1 뭄바이)으로 개명해 공유 결정. 분리: 회계 앱 = `public` 스키마(불가침) / 여행 앱 = **`journey` 스키마 전용**(클라이언트 `db.schema='journey'`).
+- 적용 완료: `journey.trips` migration + RLS 공격검사 6종 **RLS_ATTACK_PASS**(위조 INSERT·타인 조회/수정/삭제·소유자 하드삭제·anon 전부 차단, ROLLBACK). advisor에서 journey 지적 0건.
+- **문서화된 공유 위험**: 무료 쿼터 공유(DB 500MB·Storage 1GB·egress 5GB — 사진이 Storage 먼저 소진), Auth 설정 프로젝트 전역(Google provider·redirect·signup), **백업 복원 프로젝트 단위**(한 앱 복원 = 다른 앱도 롤백 — 복구 전 상호 확인 필수), pause/upgrade 공동 영향, 뭄바이 리전 지연(~100ms대).
+- 잔여 수동 1단계: 대시보드 Settings → Data API → Exposed schemas에 `journey` 추가(Q7).
+
 ## ADR-0019 · 설정 화면에 개발자 정보 필수 포함
 - 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-07-22
 - 사용자 지시("앱 설계시 개발자 정보도 꼭 추가"). 선행 앱(dr-bugeon)의 개발자 정보 화면 준거: 개발자·버전·최초 개발일·코드 최종 수정·업데이트 이력(펼치기). **버전·이력은 package.json·CHANGELOG에서 파생 생성**(손편집 금지, M-0001 규율) — 하드코딩 시 게이트 차단. 표기값(이름·소속)은 A-015 잠정, 구현 전 확인(Q6). 구현 Phase 5~6(설정 화면). 명세 PROJECT_SPEC §4.

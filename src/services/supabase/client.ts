@@ -7,13 +7,20 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
 
-let _client: SupabaseClient | null = null;
+/** 여행 앱 클라이언트 타입 — journey 스키마 고정(ADR-0020). */
+export type JourneyClient = SupabaseClient<Record<string, never>, 'journey'>;
+
+let _client: JourneyClient | null = null;
 
 /** 환경변수가 있을 때만 클라이언트를 만든다. 없으면 null(로컬 전용 동작). */
-export function supabase(): SupabaseClient | null {
+export function supabase(): JourneyClient | null {
   if (_client) return _client;
   if (!url || !publishableKey) return null;
   _client = createClient(url, publishableKey, {
+    // 공유 프로젝트(Travel&Accounting) 내 스키마 분리(ADR-0020):
+    // 여행 앱은 journey 스키마만 사용한다. public(회계 앱)은 접근하지 않는다.
+    // 주의: 대시보드 Settings → Data API → Exposed schemas에 'journey' 추가 필요.
+    db: { schema: 'journey' },
     auth: {
       flowType: 'pkce',
       persistSession: true,
