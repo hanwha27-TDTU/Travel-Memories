@@ -1,9 +1,15 @@
 name: CI
 
+# push만으로 충분: 개인 저장소(fork 없음)에서는 같은 커밋이 push와 pull_request로
+# 두 번 돌던 중복을 제거. fork PR을 받게 되면 pull_request 트리거를 재도입할 것.
 on:
   push:
     branches: ['**']
-  pull_request:
+
+# 같은 브랜치에 연속 push 시 이전 실행 취소(최신 커밋만 의미 있음)
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   harness:
