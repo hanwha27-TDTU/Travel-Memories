@@ -1,6 +1,6 @@
 # LESSONS · 선행 프로젝트에서 얻은 교훈
 
-두 선행 자료 — **Dr. Bugeon Medical Note** 스킬(성숙한 오프라인 우선·Supabase·Dexie·RLS·에이전트 팀 앱)과 **appdevpromptsall.md**(74개 재사용 프롬프트) — 에서 추출한 교훈. 도메인(의료)은 이식하지 않고 **규율·계약·안티패턴만** Journey Archive에 적용한다.
+두 선행 자료 — **Dr. Bugeon Medical Note** 스킬(성숙한 오프라인 우선·Supabase·Dexie·RLS·에이전트 팀 앱)과 **appdevpromptsall.md**(74개 재사용 프롬프트) — 에서 추출한 교훈. 도메인(의료)은 이식하지 않고 **규율·계약·안티패턴만** Bugeon Journey에 적용한다.
 
 > 메타 교훈: **"품질은 모델이 아니라 규율에서 나온다."** 그리고 **"실수는 고치는 것이 아니라 기록하는 것이다 — 기록 없이 고친 실수는, 원장 대신 기억에서 시작하는 다음 세션에 재발한다."** 기록과 기계화(게이트 추가)는 두 단계가 아니라 한 쌍이다.
 
@@ -21,7 +21,7 @@
 ## 2. 보안·개인정보 (SECURITY / PRIVACY의 근거)
 
 - **"RLS 켬" ≠ 격리.** 실효 접근 = 스키마 노출 + 테이블 grant + RLS 역할/명령/`USING`/`WITH CHECK` + 앱 인증/소유컬럼 + Edge Function 키 + Storage 버킷 동작의 **교집합**. 읽기전용 SQL로 grant·정책을 확인하고 Supabase security advisor를 돌린다. 토글만 보고 "안전" 결론 금지.
-- Journey Archive는 **다중 사용자**이므로 처음부터 `auth.uid()` 소유자 범위 RLS로 간다. 선행 앱의 anon-write 호환 자세를 물려받지 않는다.
+- Bugeon Journey는 **다중 사용자**이므로 처음부터 `auth.uid()` 소유자 범위 RLS로 간다. 선행 앱의 anon-write 호환 자세를 물려받지 않는다.
 - **비밀키:** service_role/DB 비밀번호/Storage·CDN 시크릿/사설 토큰을 브라우저·저장소·로그·리포트에 넣지 않는다. 게이트는 **키워드가 아니라 자격증명 형태**(JWT 디코드해 `service_role` 확인, `postgres://`·엔트로피)로 스캔.
 - **advisor 경고를 계약 확인 전에 "고치지" 마라.** 의도된 자세일 수 있다.
 - **운영 변경 게이트:** migration 아티팩트 → 영향 테이블/역할/동사/롤백/손실위험 명시 → 승인 → 1회 적용(적용된 migration 수정 금지) → grant/정책/행 read-back → advisor → 하네스. 파괴적 작업은 별도 확인. 자동 적용 SQL에서 `drop/delete/truncate/update…set`/RLS 비활성/`revoke` 차단.
@@ -76,7 +76,7 @@
 
 ---
 
-### Journey Archive 최우선 10 (Day-1부터 내재화)
+### Bugeon Journey 최우선 10 (Day-1부터 내재화)
 1. 실수 원장(`docs/records/coding-mistakes.md`) + 기계화(게이트)를 수정과 같은 변경에서.
 2. `DOMAIN_REGISTRY` + 대칭 게이트를 초기에.
 3. 저장/동기화 계약을 코드보다 먼저(`docs/SYNC_PROTOCOL.md`), 신성하게.

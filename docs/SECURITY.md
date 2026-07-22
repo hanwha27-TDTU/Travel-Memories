@@ -1,6 +1,6 @@
-# SECURITY · Journey Archive
+# SECURITY · Bugeon Journey
 
-설계지시서 §10·§11 + LESSONS §2. Journey Archive는 **다중 사용자**이므로 처음부터 소유자 범위 RLS로 간다. 선행 앱의 anon-write 호환 자세를 물려받지 않는다.
+설계지시서 §10·§11 + LESSONS §2. Bugeon Journey는 **다중 사용자**이므로 처음부터 소유자 범위 RLS로 간다. 선행 앱의 anon-write 호환 자세를 물려받지 않는다.
 
 ## 핵심 원칙: "RLS 켬 ≠ 격리"
 

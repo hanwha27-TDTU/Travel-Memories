@@ -1,4 +1,4 @@
-# ACTIVE TASKS · Journey Archive
+# ACTIVE TASKS · Bugeon Journey
 
 활성 task 소유권 등록부 (S-08). 동시 수정 방지는 **worktree만으로 보장하지 않는다** — 각 활성 task가 여기에 branch·worktree·예상 수정 경로를 등록하고, hook과 CI가 소유권 충돌을 검사한다. 다른 활성 task가 소유한 파일은 수정하지 않는다.
 

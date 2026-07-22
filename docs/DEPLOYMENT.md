@@ -1,10 +1,10 @@
-# DEPLOYMENT · Journey Archive
+# DEPLOYMENT · Bugeon Journey
 
 **GitHub Pages 정적 배포가 필수 목표다** (ADR-0010). 모든 설계는 정적 호스팅 제약에 맞춘다.
 
 ## 왜 정적으로 가능한가
 
-GitHub Pages는 서버 없이 정적 파일만 제공한다. Journey Archive는 서버가 필요 없다 — 백엔드는 **Supabase(BaaS)**가 담당하고, 브라우저가 Supabase를 직접 호출한다. Vite는 정적 파일로 빌드되고, Service Worker·IndexedDB·MapLibre는 모두 브라우저에서 동작한다. 따라서 정적 배포와 완벽히 호환된다.
+GitHub Pages는 서버 없이 정적 파일만 제공한다. Bugeon Journey는 서버가 필요 없다 — 백엔드는 **Supabase(BaaS)**가 담당하고, 브라우저가 Supabase를 직접 호출한다. Vite는 정적 파일로 빌드되고, Service Worker·IndexedDB·MapLibre는 모두 브라우저에서 동작한다. 따라서 정적 배포와 완벽히 호환된다.
 
 ## 정적 배포 제약 (설계에 못박음)
 

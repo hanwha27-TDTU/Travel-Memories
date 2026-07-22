@@ -1,4 +1,4 @@
-# ARCHITECTURE · Journey Archive
+# ARCHITECTURE · Bugeon Journey
 
 설계지시서 §4·§5·§16·§17 + LESSONS §3.
 

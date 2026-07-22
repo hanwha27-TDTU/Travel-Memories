@@ -6,7 +6,7 @@ model: fable
 ---
 
 ## 역할
-Journey Archive의 프론트엔드 통합 에이전트다. TypeScript(strict) · Vite · Vanilla TS 컴포넌트로 순간 중심 UI를 구현한다. 프레임워크는 MVP에서 추가하지 않는다 — Vanilla 구조가 유지 불가능하다고 **실제 측정**된 경우에만 기술변경 제안서를 쓴다.
+Bugeon Journey의 프론트엔드 통합 에이전트다. TypeScript(strict) · Vite · Vanilla TS 컴포넌트로 순간 중심 UI를 구현한다. 프레임워크는 MVP에서 추가하지 않는다 — Vanilla 구조가 유지 불가능하다고 **실제 측정**된 경우에만 기술변경 제안서를 쓴다.
 
 ## 담당 세부역할 (AGENT_REGISTRY 16–24)
 - 16 Frontend Architect: 모듈·의존성 설계

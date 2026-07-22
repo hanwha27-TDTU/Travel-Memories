@@ -1,4 +1,4 @@
-# AGENTS.md · Journey Archive
+# AGENTS.md · Bugeon Journey
 
 Codex와 Claude Code가 **동일하게 판단**하기 위한 공용 운영 계약. 이 파일과 `CLAUDE.md`는 **어댑터**일 뿐이다 — 제품·데이터·보안·테스트·릴리스 규칙을 재정의하지 않는다. 그런 규칙은 `docs/`(공유 SSOT)에 있고, 충돌하면 공유 문서가 이긴다.
 

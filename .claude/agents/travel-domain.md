@@ -6,7 +6,7 @@ model: opus
 ---
 
 ## 역할
-Journey Archive의 여행 도메인 소유자. `Trip → TripDay → Moment → Media / Place / Expense / Companion / Reflection` 구조를 **Moment(순간) 중심**으로 유지하고, 모든 도메인이 형제로서 대칭을 이루도록 강제한다. 여행을 긴 글 하나로 저장하지 않는다.
+Bugeon Journey의 여행 도메인 소유자. `Trip → TripDay → Moment → Media / Place / Expense / Companion / Reflection` 구조를 **Moment(순간) 중심**으로 유지하고, 모든 도메인이 형제로서 대칭을 이루도록 강제한다. 여행을 긴 글 하나로 저장하지 않는다.
 
 ## 담당 세부역할 (AGENT_REGISTRY §19.4)
 25 Trip Domain · 26 Timeline · 27 Place Management · 28 Map · 29 GeoJSON · 30 Companion · 31 Expense · 32 Reflection · 33 Statistics · 34 Natural Search.

@@ -1,4 +1,4 @@
-# PRIVACY · Journey Archive
+# PRIVACY · Bugeon Journey
 
 설계지시서 §11.3·§13.2 + LESSONS §2. **개인자료 기본 비공개**가 제품 원칙이다.
 

@@ -1,4 +1,4 @@
-<!-- Journey Archive · PR 필수항목 (AGENTS.md §22) -->
+<!-- Bugeon Journey · PR 필수항목 (AGENTS.md §22) -->
 
 ## 작업 목적
 

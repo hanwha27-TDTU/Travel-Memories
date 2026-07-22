@@ -1,4 +1,4 @@
-# CLAUDE.md · Journey Archive
+# CLAUDE.md · Bugeon Journey
 
 이 파일은 프로젝트 맥락 제공용이다. **반드시 차단해야 하는 행위는 `.claude/settings.json`의 hooks로 통제할 예정이다**(Phase 0에서 활성화; 현재 `settings.json` hooks는 비어 있음). 이 문서는 판단 기준과 작업 규율을 제공한다. 저장소 자체가 최종 정보원이다.
 

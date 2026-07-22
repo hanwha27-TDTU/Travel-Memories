@@ -1,4 +1,4 @@
-# DECISIONS · Journey Archive (ADR)
+# DECISIONS · Bugeon Journey (ADR)
 
 추가 전용, 최신이 위. 결정을 기록하는 경우: ≥2 대안 존재, 사용자가 제안/선택/거부, 되돌리기 어려움, 관례에 반하지만 근거 있음.
 **정직한 귀속** — 결정유형(`[user-decided]` / `[AI-proposed→user-approved]` / `[AI-autonomous]` / `[user-review-pending]`) × 어느 AI. 일어나지 않은 승인을 기록하지 않는다. (LESSONS §4)
@@ -82,7 +82,7 @@
 
 ## ADR-0002 · 다중 사용자 소유자 범위 RLS를 처음부터
 - 유형: `[AI-autonomous]` · AI: Claude Code · 날짜: 2026-07-22
-- 근거: Journey Archive는 다중 사용자. 선행 앱의 anon-write 호환 자세를 물려받지 않고 `auth.uid()` 소유자 예측자로 시작(LESSONS §2). 다중 사용자·기본 비공개의 강제 귀결이며 사용자 override 가능. 인증(ADR-0009) 확정으로 블로커 해소.
+- 근거: Bugeon Journey는 다중 사용자. 선행 앱의 anon-write 호환 자세를 물려받지 않고 `auth.uid()` 소유자 예측자로 시작(LESSONS §2). 다중 사용자·기본 비공개의 강제 귀결이며 사용자 override 가능. 인증(ADR-0009) 확정으로 블로커 해소.
 
 ## ADR-0001 · 정본 기준 문서를 저장소 SSOT로
 - 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-07-22

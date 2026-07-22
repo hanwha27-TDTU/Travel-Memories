@@ -1,4 +1,4 @@
-# .claude/agents · Journey Archive 에이전트 팀
+# .claude/agents · Bugeon Journey 에이전트 팀
 
 139개 논리 역할(`docs/AGENT_REGISTRY.md`)을 **통합 에이전트 10개 + 디자인 에이전트 16개**로 구현. 동시에 다 돌리지 않고 Orchestrator가 변경유형별로 필요한 역할만 호출한다(AGENTS.md 보증 매트릭스).
 

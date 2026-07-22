@@ -1,4 +1,4 @@
-# ROADMAP · Journey Archive
+# ROADMAP · Bugeon Journey
 
 설계지시서 §27·§28. 각 Phase는 명시적 완료조건을 갖는다. 완료조건 미달은 다음 Phase로 넘어가지 않는다.
 

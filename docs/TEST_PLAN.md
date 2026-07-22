@@ -1,4 +1,4 @@
-# TEST PLAN · Journey Archive
+# TEST PLAN · Bugeon Journey
 
 설계지시서 §23 + LESSONS §6. **단일 `harness` 문**이 모든 Required 게이트를 돈다. 작업 중엔 좁은 검사, 완료 선언 전 전체 하네스.
 

@@ -1,4 +1,4 @@
-# REPOSITORY AUDIT · Journey Archive
+# REPOSITORY AUDIT · Bugeon Journey
 
 문서 버전: Gate 0A  
 기준일: 2026-07-22  

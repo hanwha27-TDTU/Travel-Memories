@@ -1,4 +1,4 @@
-# CODING MISTAKES · Journey Archive (실수 원장)
+# CODING MISTAKES · Bugeon Journey (실수 원장)
 
 > LESSONS §7·최우선10 #1: **실수는 고치는 것이 아니라 기록하는 것이다.** 체크포인트를 넘은(병합·배포·게이트 거짓통과) 또는 재발한 실수는 **수정과 같은 변경에서** 여기에 기록하고, 가능하면 게이트/hook로 기계화한다. 기록 없이 고친 실수는 다음 세션에 재발한다.
 

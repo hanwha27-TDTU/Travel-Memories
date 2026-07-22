@@ -1,4 +1,4 @@
-# PROJECT SPEC · Journey Archive
+# PROJECT SPEC · Bugeon Journey
 
 **최상위 제품·설계 기준.** 설계지시서(개인 여행기록 앱 통합 설계제안서 v0.1)를 저장소 SSOT로 반영한다. 충돌 시 이 문서가 이긴다. 세부는 각 도메인 문서(`DATA_MODEL`, `SECURITY`, `PRIVACY`, `SYNC_PROTOCOL`, `MEDIA_PIPELINE`, `ARCHITECTURE`) 참조.
 
@@ -54,7 +54,7 @@
 설정 화면에 **개발자 정보** 항목을 반드시 포함한다(선행 앱 dr-bugeon의 개발자 정보 화면 준거).
 | 항목 | 내용 | 원천 |
 |------|------|------|
-| 앱 이름·아이콘 | Journey Archive | 고정 |
+| 앱 이름·아이콘 | Bugeon Journey | 고정 |
 | 개발자 | 이름·소속 표기 | 설정값(ASSUMPTIONS A-015) |
 | 버전 | 현재 앱 버전 | `package.json` version — 손편집 금지, 빌드 시 주입 |
 | 최초 개발일 | 프로젝트 시작일 | 고정(2026-07-22) |

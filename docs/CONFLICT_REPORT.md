@@ -1,4 +1,4 @@
-# CONFLICT REPORT · Journey Archive (v0.1 baseline ↔ v0.2 spec)
+# CONFLICT REPORT · Bugeon Journey (v0.1 baseline ↔ v0.2 spec)
 
 문서 버전: Gate 0A  
 기준일: 2026-07-22  

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://journey-archive/schemas/agent-report.schema.json",
-  "title": "Journey Archive Agent Report",
+  "title": "Bugeon Journey Agent Report",
   "description": "AGENTS.md §18.1 공통 출력계약. 모든 에이전트는 결과를 이 스키마에 맞는 JSON으로 artifacts/agent-reports/{TASK_ID}-{agent}.json 에 남긴다. S-07(agent chat output만으로 인계 금지: JSON Schema로 검증되는 report artifact).",
   "type": "object",
   "additionalProperties": false,

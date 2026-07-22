@@ -1,4 +1,4 @@
-# HANDOFF · Journey Archive
+# HANDOFF · Bugeon Journey
 
 각 작업 종료 시 인계 기록. 최신이 위. 표면 전환(Claude↔Codex) 시 commit+push 후 GitHub에서 재pull하며, 미커밋 변경을 표면 간 이월하지 않는다. (AGENTS.md)
 

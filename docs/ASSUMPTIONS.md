@@ -1,11 +1,11 @@
-# ASSUMPTIONS · Journey Archive
+# ASSUMPTIONS · Bugeon Journey
 
 > 설계지시서 §0 원칙: "불명확한 사항이 있어도 개발을 중단하지 말고, 가장 보수적이고 복구 가능한 기본값을 선택한 뒤 이 문서에 기록한다."
 > 각 가정은 확정되면 `docs/DECISIONS.md`로 승격하고 여기서는 상태를 갱신한다.
 
 | ID | 가정 / 기본값 | 근거 | 상태 |
 |----|----------------|------|------|
-| A-001 | 저장소는 "Journey Archive" 신규 구조(TypeScript + Vite + Supabase + Dexie + MapLibre + PWA)로 재구축한다. | 설계지시서 v0.1 §5, §16 | 사용자 승인됨 |
+| A-001 | 저장소는 "Bugeon Journey" 신규 구조(TypeScript + Vite + Supabase + Dexie + MapLibre + PWA)로 재구축한다. | 설계지시서 v0.1 §5, §16 | 사용자 승인됨 |
 | A-002 | 기존 순수 HTML/JS MVP(index.html, css/, js/)는 **삭제**한다. git 히스토리에는 보존되어 복구 가능. | 사용자 지시("삭제 후 새로"), §0 "원본 임의 삭제 금지"는 사용자 자료(여행기록)에 대한 것이며 프로토타입 코드에는 미적용 | 사용자 승인됨 |
 | A-003 | 이번 단계는 **기능 구현 없이** 문서·에이전트 스캐폴딩(Gate 0A)만 수행한다. Phase 0B(Vite·CI·hook·Supabase local)는 별도. | §28·§29 / v0.2 S-10 | Gate 0A 완료 |
 | A-004 | 서브에이전트는 통합 10개 + 디자인 확장 16개(레지스트리 124~139)를 생성한다. 전체 139개 역할은 `docs/AGENT_REGISTRY.md`에 등록. | §18~20 + 디자인 에이전트 제안서 | 사용자 승인됨 |
