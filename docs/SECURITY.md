@@ -45,7 +45,7 @@ Supabase 신규 키 체계를 채택한다. 브라우저에는 **publishable key
 |------|------|
 | Supabase URL, **publishable key**(legacy 호환 필요 시 anon key), 공개 지도 style/식별자 | **Supabase secret key**, **legacy service_role key**, DB 비밀번호, 관리자 JWT, 비공개 지도·AI·지오코딩 API 키 |
 
-시크릿을 번들·저장소·로그·리포트에 넣지 않는다. **시크릿 스캔은 키워드가 아니라 자격증명 형태로**(JWT 디코드해 `service_role` 확인, `postgres://`·CDN 시크릿을 엔트로피로). secret/`service_role` 키로 RLS 오류를 "고치지" 않는다.
+시크릿을 번들·저장소·로그·리포트에 넣지 않는다. **시크릿 스캔은 키워드가 아니라 자격증명 형태로.** 구현(`scripts/check-secret-leak.mjs`): git 추적 파일 전체(docs/ 제외 — 계약 문서는 차단 형태 자체를 서술함) + 빌드 산출물 대상, JWT는 payload 디코드로 role 판정(anon/publishable 허용), `postgres://` URL·`sb_secret_`/`sbp_` 접두어·Google API 키·PEM 개인키는 형태 패턴, `.env` 계열 추적 자체를 차단, 매 실행 알려진-실패 셀프테스트로 게이트 비공허성 증명(M-0004). **고엔트로피 일반 토큰 탐지는 미구현(후속)** — 새 제공자 키 도입 시 형태 패턴을 같은 커밋에서 추가한다. secret/`service_role` 키로 RLS 오류를 "고치지" 않는다.
 
 ## Storage 보안 (버킷 `travel-private`, 비공개)
 
