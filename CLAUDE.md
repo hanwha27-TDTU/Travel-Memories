@@ -1,6 +1,6 @@
 # CLAUDE.md · Journey Archive
 
-이 파일은 프로젝트 맥락 제공용이다. **반드시 차단해야 하는 행위는 `.claude/settings.json`의 hooks로 통제**하며, 이 문서는 판단 기준과 작업 규율을 제공한다. 저장소 자체가 최종 정보원이다.
+이 파일은 프로젝트 맥락 제공용이다. **반드시 차단해야 하는 행위는 `.claude/settings.json`의 hooks로 통제할 예정이다**(Phase 0에서 활성화; 현재 `settings.json` hooks는 비어 있음). 이 문서는 판단 기준과 작업 규율을 제공한다. 저장소 자체가 최종 정보원이다.
 
 ---
 
@@ -78,7 +78,7 @@ TypeScript(strict) · Vite · Vanilla TS 컴포넌트 · Supabase(Auth/Postgres/
 
 ## 문서 지도 (SSOT)
 
-`docs/PROJECT_SPEC.md`(요구사항·최상위) · `ARCHITECTURE.md` · `DATA_MODEL.md` · `SECURITY.md` · `PRIVACY.md` · `SYNC_PROTOCOL.md` · `MEDIA_PIPELINE.md` · `AGENT_REGISTRY.md` · `LESSONS.md` · `ROADMAP.md` · `TEST_PLAN.md` · `DECISIONS.md` · `ASSUMPTIONS.md` · `HANDOFF.md` · `CHANGELOG.md`.
+`docs/PROJECT_SPEC.md`(요구사항·최상위) · `ARCHITECTURE.md` · `DATA_MODEL.md` · `SECURITY.md` · `PRIVACY.md` · `SYNC_PROTOCOL.md` · `MEDIA_PIPELINE.md` · `DEPLOYMENT.md`(배포 계약) · `AGENT_REGISTRY.md` · `LESSONS.md` · `ROADMAP.md` · `TEST_PLAN.md` · `DECISIONS.md` · `ASSUMPTIONS.md` · `HANDOFF.md` · `CHANGELOG.md`.
 충돌하면 공유 문서(SPEC)가 이긴다. 특정 AI 도구 대화가 아니라 이 문서들이 기준이다.
 
 ## 에이전트 운영

@@ -5,6 +5,14 @@
 
 ---
 
+## ADR-0012 · SPA 라우팅 + OAuth PKCE + Service Worker 캐시
+- 유형: `[AI-autonomous]` · AI: Claude Code · 날짜: 2026-07-22 · (revisable — override 가능)
+- history 라우팅 + `404.html`→`index.html` 복제(GitHub Pages 딥링크 대응) + Supabase PKCE OAuth(쿼리 콜백) + Service Worker 캐시 버저닝/`skipWaiting`. 정적 호스팅·하위경로(`base=/Travel-Memories/`) 제약의 귀결. 기본값이며 사용자 검토 시 조정 가능. 상세 `docs/DEPLOYMENT.md`·`docs/ROADMAP.md`.
+
+## ADR-0011 · 삭제 계약(DEL-CONTRACT) — tombstone 전용
+- 유형: `[AI-autonomous]` · AI: Claude Code · 날짜: 2026-07-22
+- 동기화 엔티티 행은 **tombstone 전용**(`deleted_at`, 하드 삭제 금지). Storage 바이트 삭제는 **사용자 확인 + tombstone 전파 후** 별도 단계이며, 고아 파일 스윕으로 정합한다. 비가역 삭제 경로의 문서 간 상충을 계약으로 고정(`docs/records/coding-mistakes.md` M-0002). 상세 `docs/SECURITY.md`·`docs/SYNC_PROTOCOL.md`.
+
 ## ADR-0010 · GitHub Pages 정적 배포를 필수 목표로 확정
 - 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-07-22
 - 사용자 "무조건 GitHub로 배포". 정적 호스팅 제약을 설계에 못박음: Vite `base=/Travel-Memories/`, Service Worker scope·라우터 하위경로 대응, 서버 없음 → 백엔드는 클라이언트가 Supabase 직접 호출(anon 키만 번들, service_role 금지), GitHub Actions 빌드→Pages 자동배포. 단일 HTML은 보조 빌드. 상세 `docs/DEPLOYMENT.md`.
@@ -38,8 +46,8 @@
 - 사용자 "다른 앱 자료인데 교훈들이 많으니 참고해". dr-bugeon 스킬과 appdevpromptsall.md의 도메인은 이식하지 않고 규율·계약·안티패턴만 `docs/LESSONS.md`로 추출.
 
 ## ADR-0002 · 다중 사용자 소유자 범위 RLS를 처음부터
-- 유형: `[AI-proposed→user-review-pending]` · AI: Claude Code · 날짜: 2026-07-22
-- 근거: Journey Archive는 다중 사용자. 선행 앱의 anon-write 호환 자세를 물려받지 않고 `auth.uid()` 소유자 예측자로 시작(LESSONS §2). 사용자 최종 확인 대기(인증 방식 Q와 연동).
+- 유형: `[AI-autonomous]` · AI: Claude Code · 날짜: 2026-07-22
+- 근거: Journey Archive는 다중 사용자. 선행 앱의 anon-write 호환 자세를 물려받지 않고 `auth.uid()` 소유자 예측자로 시작(LESSONS §2). 다중 사용자·기본 비공개의 강제 귀결이며 사용자 override 가능. 인증(ADR-0009) 확정으로 블로커 해소.
 
 ## ADR-0001 · 정본 기준 문서를 저장소 SSOT로
 - 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-07-22
@@ -48,5 +56,6 @@
 ---
 ## 확인 대기 (사용자 결정 필요)
 - 지도 타일 제공자·예산 — A-006 (GitHub Pages 정적 배포 + 무료 티어 호환).
-- Supabase 프로젝트 생성 시점 — A-004/Q4.
+- Supabase 프로젝트 생성 시점 — Q4.
 - Google OAuth 클라이언트 설정 시점 — Q5 (Phase 1).
+- SPA 라우팅·삭제 계약 기본값 검토(override 가능) — ADR-0011/0012.

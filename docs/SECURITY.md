@@ -35,10 +35,12 @@ DELETE  : auth.uid() = user_id
 
 업로드 검증: 확장자만 믿지 않음 · MIME 검사 · 실제 디코딩 가능 여부 · 최대 파일크기·개수 · 비정상 폭/높이 · 빈 파일 차단 · 경로 서버규칙 일치.
 
-## 삭제 처리 (복구 가능성 우선)
+## 삭제 처리 (복구 가능성 우선 — DEL-CONTRACT)
 
-1. 삭제 대상 자원 목록 생성 → 2. DB에 삭제 요청 상태 기록 → 3. Storage 파일 삭제 → 4. 삭제 결과 확인 → 5. 관계 데이터 삭제/`deleted_at` → 6. 고아 파일 검사 → 7. 삭제 완료 기록.
-**Storage 삭제 일부 실패해도 DB 기록을 먼저 완전히 없애지 않는다.**
+동기화 엔티티 행은 **tombstone 전용**(하드 삭제 금지). Storage 바이트 삭제는 **사용자 확인 + tombstone 전파 후** 별도 단계이며, 고아 파일 스윕으로 정합한다.
+
+1. 삭제 대상 자원 목록 생성 → 2. DB에 삭제 요청 상태 기록 → 3. 관계 데이터 행에 `deleted_at` tombstone 기록(**하드 삭제 아님**) → 4. tombstone 다기기 전파 확인 → 5. **사용자 확인 + tombstone 전파 후** Storage 바이트 삭제(별도 단계) → 6. 고아 파일 스윕으로 정합 → 7. 삭제 완료 기록.
+**Storage 삭제 일부 실패해도 DB tombstone/기록을 먼저 완전히 없애지 않는다.** 상세 동기화 계약 `docs/SYNC_PROTOCOL.md`.
 
 ## 운영 변경 게이트 (파괴적 prod 변경 전)
 
@@ -51,6 +53,8 @@ repo migration 아티팩트 → 영향 테이블/역할/동사/롤백/손실위�
 - `check-supabase-sql-safe` — 자동 적용 SQL의 `drop|delete from|truncate|update…set|alter…disable row level security|revoke` 차단.
 - `check-rls-present` — 사용자 소유 테이블에 RLS·소유자 정책 존재 확인.
 - `check-service-role-in-bundle` — 번들/프론트에 service_role/postgres URL 부재 확인.
+- `check-no-hard-delete` — 동기화 엔티티에 하드 삭제(`delete from`) 부재 확인, 삭제는 `deleted_at` tombstone 경로만(DEL-CONTRACT).
+- `check-exif-strip-on-share` — 공유·내보내기 산출물에서 EXIF GPS 제거/반올림 강제(내부 저장은 보존).
 - `commit-msg` — 커밋 메시지 규약 + `[skip ci]` 류 우회 차단(가장 이른 지점).
 
 ## XSS / 입력 방어

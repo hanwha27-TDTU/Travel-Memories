@@ -30,7 +30,7 @@
 
 ## 3. 아키텍처 계약 (ARCHITECTURE / DATA_MODEL의 근거)
 
-- **도메인 대칭성 — "모든 도메인은 형제."** 최빈 결함군은 "형제 도메인엔 있는데 한 도메인만 조용히 빠짐." 치료: 단일 `DOMAIN_REGISTRY` SSOT(각 도메인의 정체성 + 생명주기 심볼: normalize/dedupe/toRow/fromRow/merge/hash/trash). **대칭 법칙**: 모든 도메인 × 모든 생명주기 노드는 연결(✅)이거나 **파생된 사유가 있는 명시적 제외(⛔)**이거나 병합 차단 결함(❌). 침묵 공백 = 대칭 위반. `check-domain-wiring` 게이트가 강제. → JA 엔티티: trips, days, moments, places, media, expenses, companions, reflections, tags, markers.
+- **도메인 대칭성 — "모든 도메인은 형제."** 최빈 결함군은 "형제 도메인엔 있는데 한 도메인만 조용히 빠짐." 치료: 단일 `DOMAIN_REGISTRY` SSOT(각 도메인의 정체성 + 생명주기 심볼: normalize/dedupe/toRow/fromRow/merge/hash/trash). **대칭 법칙**: 모든 도메인 × 모든 생명주기 노드는 연결(✅)이거나 **파생된 사유가 있는 명시적 제외(⛔)**이거나 병합 차단 결함(❌). 침묵 공백 = 대칭 위반. `check-domain-wiring` 게이트가 강제(Phase 0 예정). → JA 엔티티: trips, trip_days, moments, places, media_assets, expenses, companions, trip_companions, reflections, tags, moment_tags, client_operations(+profiles).
 - **배선맵("전력망") — 단말에서 역방향으로 그린다.** 수평(형제 병렬) + 수직(전류 흐름) 두 축. "데이터 저장은 0점 — 전류가 모든 단말 부하(집계카드·백업/복원·휴지통·동기화·검색·대시보드·지도)까지 흘러야 한다." 모든 단말을 먼저 열거하고 각 단말을 소스로 역추적; 역추적 안 되는 단말 = 끊긴 배선. SSOT(`TERMINALS`)에서 생성하고 "커밋본 == 생성본" 게이트. **검증 가능한 엣지만 그린다.**
 - **저장 역할 5계층.** Supabase를 한 덩어리로 보지 않는다: Postgres(정본 기준선) / Storage 버킷(바이너리) / Dexie(빠른 표시 캐시) / 동기 제어 상태(기기 id·카노니컬 버전·tombstone). **이미지·영상 바이트를 DB 행에 넣지 않는다** — URL/id만.
 - **가산적 네임스페이싱 > 코드 이동.** 확장은 새 모듈에 추가하고 기존 함수를 **호출**한다. 기존 심볼을 옮기거나 이름 바꾸지 않는다(정확 심볼 게이트·배선 파손).

@@ -48,7 +48,10 @@
 | [`docs/AGENT_REGISTRY.md`](docs/AGENT_REGISTRY.md) | 서브에이전트 등록부 |
 | [`docs/LESSONS.md`](docs/LESSONS.md) | 선행 프로젝트에서 얻은 교훈 |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | 단계별 개발 계획 |
+| [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md) | 테스트 · 게이트 규율 |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) · [`docs/ASSUMPTIONS.md`](docs/ASSUMPTIONS.md) | 결정 · 가정 기록 |
+| [`docs/HANDOFF.md`](docs/HANDOFF.md) | 작업 인계 기록 |
+| [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | 변경 이력 |
 
 ## 개발 원칙
 

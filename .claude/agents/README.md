@@ -40,7 +40,7 @@
 
 ## 운영 원칙
 - 기본값은 단일 구현 에이전트가 맥락 유지(조사→구현→검증→문서→보고). 광범위 탐색·감사만 병렬화.
-- 감사·리뷰어는 **읽기전용** — 코드를 수정하지 않고 결함만 보고. 구현자 자기인증 금지.
+- 감사·리뷰어는 **읽기전용** — 코드를 수정하지 않고 결함만 보고. 구현자 자기인증 금지. 감사·리뷰어에는 Write/Edit를 부여하지 않아 코드 수정을 막고, Bash는 스크린샷·테스트 실행용이다(정책상 읽기전용; Phase 0에서 hook으로 쓰기 차단을 보강).
 - 모든 에이전트는 AGENTS.md §18.1 공통 출력계약 JSON으로 결과 반환.
 - 코어 디자인 7개 운영 순서: director → memory-centered-ux → mobile-capture-ux → photo-storytelling → (timeline+map) → design-system → adversarial-visual-reviewer.
 - 외부 도구 흐름(권장): Claude Code(요구·데이터 상태 정의) → Figma First Draft(와이어프레임) → Figma Make(시제품) → Travel Experience Director(목적 일치 검토) → Adversarial Visual Reviewer(복잡·촌스러움) → Claude Code(구현) → Codex(토큰·구현 일치 재검토).

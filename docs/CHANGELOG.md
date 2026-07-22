@@ -4,7 +4,7 @@
 
 ## [Unreleased] — Phase 0
 ### Added
-- 프로젝트 기준 문서 15종(`docs/`) + `CLAUDE.md` · `AGENTS.md`.
+- 프로젝트 기준 문서 세트(`docs/`, DEPLOYMENT 포함) + `CLAUDE.md` · `AGENTS.md`.
 - 개발 에이전트 팀: 통합 10개 + 디자인 16개(`.claude/agents/`), 139개 논리 역할 등록부(`docs/AGENT_REGISTRY.md`).
 - 선행 프로젝트 교훈 추출(`docs/LESSONS.md`).
 - hook 후보 문서화(`.claude/settings.json`, `docs/SECURITY.md`).

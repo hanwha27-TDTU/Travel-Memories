@@ -12,7 +12,7 @@
 
 ### 이번 작업(문서·에이전트 스캐폴딩)에서 완료한 것
 - [x] 저장소 조사 + 현재 코드 ↔ 설계지시서 충돌 식별(기존 MVP 스택 불일치 → 사용자 승인 하에 삭제 후 신규 구조).
-- [x] 핵심 문서 생성: PROJECT_SPEC · ARCHITECTURE · DATA_MODEL · SECURITY · PRIVACY · SYNC_PROTOCOL · MEDIA_PIPELINE · LESSONS · AGENT_REGISTRY · TEST_PLAN · ROADMAP · DECISIONS · ASSUMPTIONS · HANDOFF · CHANGELOG.
+- [x] 핵심 문서 생성: PROJECT_SPEC · ARCHITECTURE · DATA_MODEL · SECURITY · PRIVACY · SYNC_PROTOCOL · MEDIA_PIPELINE · DEPLOYMENT · LESSONS · AGENT_REGISTRY · TEST_PLAN · ROADMAP · DECISIONS · ASSUMPTIONS · HANDOFF · CHANGELOG.
 - [x] `CLAUDE.md` · `AGENTS.md` 생성.
 - [x] 전체 139개 역할을 `docs/AGENT_REGISTRY.md`에 등록.
 - [x] 통합 에이전트 10개 + 디자인 에이전트 16개를 `.claude/agents/`에 생성.
@@ -26,6 +26,10 @@
 - [ ] CI 기본검사(GitHub Actions) + 단일 `harness` 문 스텁 + **GitHub Pages 빌드→배포 워크플로**(`docs/DEPLOYMENT.md`).
 - [ ] `check-secret-leak` · `check-supabase-sql-safe` · `commit-msg` hook 실동작.
 - [ ] `DOMAIN_REGISTRY` + 대칭 게이트 스텁, `TERMINALS` + 배선맵 생성기 스텁.
+- [ ] `docs/records/coding-mistakes.md` 실수 원장 운영 시작.
+- [ ] SPA 라우팅 확정(history+404 복제) + OAuth PKCE + SW 캐시 버저닝.
+- [ ] camelCase↔snake_case 경계 게이트 + empty-seed 게이트.
+- [ ] `check-secret-leak`·`commit-msg` hook을 코드 골격보다 먼저.
 
 > Phase 0 코드 골격은 별도 작업으로 진행하며, 시작 전 변경 예정 파일 목록을 사용자에게 제시한다.
 
@@ -36,10 +40,10 @@
 순간 생성 · 날짜별 타임라인 · 감정·중요기억 · 오프라인 작성 · 재접속 동기화.
 
 ## Phase 3 — 사진
-다중 선택 · EXIF 추출 · 방향 보정 · WebP 압축 · 썸네일 · 대기열 업로드 · 실패 재시도 · 중복검사.
+다중 선택 · EXIF 추출 · 방향 보정 · WebP 압축 · 썸네일 · 대기열 업로드 · 실패 재시도 · 중복검사 · **EXIF GPS 개인정보 정책 확정(공유 시 GPS 제거 게이트 `check-exif-strip-on-share` 포함)**.
 
 ## Phase 4 — 지도와 장소
-지도 표시 · 장소 마커 · 자동 위치 후보 · 수동 수정 · GeoJSON 내보내기 · **EXIF GPS 개인정보 정책 확정**.
+지도 표시 · 장소 마커 · 자동 위치 후보 · 수동 수정 · GeoJSON 내보내기.
 
 ## Phase 5 — 비용과 회고
 비용 기록 · 통화별 합계 · 여행 회고 · 대표사진 · 여행 완료처리.

@@ -8,7 +8,9 @@
 
 ## 로컬 저장소 (Dexie)
 
-`local_trips, local_trip_days, local_moments, local_places, local_media, local_expenses, local_reflections, sync_queue, failed_operations, drafts, cached_thumbnails, app_state`.
+`local_trips, local_trip_days, local_moments, local_places, local_media, local_expenses, local_companions, local_reflections, local_tags, sync_queue, failed_operations, drafts, cached_thumbnails, app_state`.
+
+> 조인 테이블(`trip_companions`, `moment_tags`)은 부모 도메인과 함께 동기화되어 별도 store가 없다(⛔ 명시적 제외). `companions`·`tags` 자체는 `local_companions`·`local_tags`로 동기화한다.
 
 ## 동기화 상태 머신
 
@@ -45,6 +47,8 @@
 | 삭제 | tombstone이 일반 수정보다 우선하되 복원 가능 |
 | AI 결과 | 재생성 가능 — 사용자 원문보다 우선하지 않음 |
 
+> **삭제 계약(DEL-CONTRACT)**: 동기화 엔티티 행은 **tombstone 전용**(`deleted_at`, 하드 삭제 금지). Storage 바이트 삭제는 **사용자 확인 + tombstone 전파 후** 별도 단계이며, 고아 파일 스윕으로 정합한다. 상세 `docs/SECURITY.md` 삭제 처리.
+
 ## Egress 최적화 (fail-safe)
 
 "불확실하면 전체 pull." 무변경 스킵 프로브는 `max(updated_at)+count` 서명이 클라우드·로컬 정확히 일치할 때만 스킵. 스킵 로직을 위해 테이블을 중앙 열거하지 않는다(신규 도메인이 조용히 누락).
@@ -52,3 +56,5 @@
 ## 검증 (TEST_PLAN 연계)
 
 오프라인 생성·수정, 재연결 자동 동기화, 동일 작업 재전송(멱등), 두 기기 동일 메모 수정, 한 기기 삭제/다른 기기 수정, 일부만 업로드 성공, DB 성공 후 파일 실패, 파일 성공 후 DB 실패 — 모두 브라우저 왕복 테스트로 데이터/tombstone/read-back을 단언한다.
+
+명명된 동기화 게이트 후보(Phase 0에서 활성화 예정 — 현재는 계약 명세, 활성 주장 아님): `check-empty-cloud-guard`(빈-클라우드 가드), `check-no-delta-in-fullset-decision`(부분 슬라이스로 전체집합 판단 금지), `check-no-hard-delete`(tombstone 전용, 하드 삭제 금지), `check-readback-before-success`(정확한 read-back 후에만 완료 전진).

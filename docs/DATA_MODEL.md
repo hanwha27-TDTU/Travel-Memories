@@ -2,9 +2,11 @@
 
 설계지시서 §8 기준. 모든 사용자 소유 테이블은 원칙적으로 `user_id`, `created_at`, `updated_at`, `version`, `deleted_at`을 갖는다. `deleted_at`은 여러 기기 동기화 완료 전까지 삭제 사실을 전달하는 **tombstone**이다.
 
-> **DOMAIN_REGISTRY (대칭성 SSOT)** — 아래 엔티티는 모두 형제다. 각 도메인 × 생명주기 노드(normalize·dedupe·toRow·fromRow·merge·hash·trash·sync·export)는 연결(✅)이거나 파생된 사유의 명시적 제외(⛔)여야 하며, 침묵 공백은 대칭 위반(❌)이다. 신규 엔티티는 레지스트리에 등록하고 모든 노드를 배선하거나 게이트가 막는다. (LESSONS §3)
+> **DOMAIN_REGISTRY (대칭성 SSOT)** — 아래 엔티티는 모두 형제다. 각 도메인 × 생명주기 노드(normalize·dedupe·toRow·fromRow·merge·hash·trash·sync·export)는 연결(✅)이거나 파생된 사유의 명시적 제외(⛔)여야 하며, 침묵 공백은 대칭 위반(❌)이다. 신규 엔티티는 레지스트리에 등록하고 모든 노드를 배선하거나 게이트로 강제(Phase 0 예정)한다. (LESSONS §3)
 
-엔티티: `trips`, `trip_days`, `moments`, `places`, `media_assets`, `expenses`, `companions`, `trip_companions`, `reflections`, `tags`, `moment_tags`, `client_operations`.
+엔티티: `profiles`, `trips`, `trip_days`, `moments`, `places`, `media_assets`, `expenses`, `companions`, `trip_companions`, `reflections`, `tags`, `moment_tags`, `client_operations`.
+
+⛔ 제외: `profiles`(사용자 1:1 프로필, 도메인 아님), `client_operations`(멱등성 원장), `trip_companions`/`moment_tags`(조인 테이블 — 부모와 함께 동기화). 전체 대칭 매트릭스(엔티티×생명주기 노드)는 Phase 0에서 `DOMAIN_REGISTRY` SSOT로 생성한다.
 
 순간 중심 구조: `Trip → TripDay → Moment → (Media / Place / Expense / Companion / Reflection)`.
 
@@ -148,10 +150,27 @@
 | payload_hash | text | 작업 검증 |
 | processed_at | timestamptz | 서버 처리시각 |
 
+## ai_generations (계획 · Phase 7)
+AI 출처(provenance)를 사용자 기록과 **분리 저장**한다(MVP 이후, PROJECT_SPEC §7). AI 결과를 사용자 원문 필드에 넣지 않고 이 테이블에 원본 기록 ID와 함께 남긴다.
+| 필드 | 형식 | 설명 |
+|------|------|------|
+| id | uuid | |
+| user_id | uuid | 소유자 |
+| entity_type | text | 대상 종류(moment · trip_day · reflection 등) |
+| entity_id | uuid | 대상 레코드 |
+| user_text | text | AI 입력이 된 사용자 원문 스냅샷 |
+| ai_output | text | AI 생성 결과 |
+| ai_model | text | 사용 모델 |
+| prompt_version | text | 프롬프트 버전 |
+| generated_at | timestamptz | 생성 시각 |
+| source_record_ids | uuid[] | AI가 사용한 원본 기록 ID(출처) |
+| user_confirmed | boolean | 사용자 확인 여부 |
+| user_edited | boolean | 사용자 편집 여부 |
+
 ## 동기화 메타 (각 기록)
 `version`, `updated_at`, `updated_by_device`, `client_operation_id`, `base_version`. 단순 `updated_at`만으로 모든 충돌을 덮어쓰지 않는다. 상세 규칙 `docs/SYNC_PROTOCOL.md`.
 
 ## 경계 규칙
 - 메모리 표현은 camelCase, DB 행은 snake_case. 둘은 `toRow`/`fromRow` 경계 함수 안에서만 만난다(LESSONS §1). 경계 게이트 필요.
 - 사용자 기록 필드(`user_note`, `user_summary`)와 AI 필드(`ai_summary`, `ai_draft`)를 **같은 필드에 저장하지 않는다**.
-- 실제 기록은 DB/Storage에만 저장 — 앱 소스 상수/seed 배열/번들 JSON에 넣지 않는다(seed는 비어 있고 게이트로 강제).
+- 실제 기록은 DB/Storage에만 저장 — 앱 소스 상수/seed 배열/번들 JSON에 넣지 않는다(seed는 비어 있고 게이트로 강제(Phase 0 예정)).

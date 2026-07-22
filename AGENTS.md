@@ -17,12 +17,14 @@ Codex와 Claude Code가 **동일하게 판단**하기 위한 공용 운영 계�
 
 실행 코드/migration/테스트/검증 인프라(관찰된 현실) > Foundation(가치) > Contracts(데이터·보안·배선) > Procedures > Playbooks > Records(역사적) > 생성된 맵(그 생성기가 권위).
 현실이 계약과 충돌하면 조용히 고르지 말고 **불일치 기록 → 사용자 데이터 보호 → 코드 수정 또는 계약을 게이트와 함께 개정**.
+`docs/records/coding-mistakes.md`는 이 권위 순서의 **Records 계층 실수 원장**으로, 반복 실수를 기록하고 게이트로 기계화하는 근거다(현재 계약을 무효화하지는 않음).
 
 ## 보증 매트릭스 (역할 릴레이 아님)
 
 - 기본값은 **단일 구현 에이전트가 조사→구현→검증→문서→보고까지 맥락을 유지**한다(맥락 보존 실행 루프).
 - `docs/AGENT_REGISTRY.md`의 139개 역할은 변경유형별로 선택하는 **조건부 품질 게이트**다. 광범위 탐색·감사만 병렬화하고 최종 구현은 하나로 수렴한다.
 - 물리 에이전트는 통합 10개(`orchestrator, product-ux, frontend, travel-domain, media-pipeline, supabase, offline-sync, security-privacy, qa, reviewer-release`) + 디자인 16개(124–139).
+- **뜨거운 공유 파일 직렬화.** 동기화 상태머신·conflict 해결·media pipeline 핵심·DB migration·Supabase 정책은 **단일 오너·단일 구현자·단일 PR**로 직렬화한다(동시 편집 금지). Phase 0에서 변경유형→역할→게이트 라우팅 테이블과 `CODEOWNERS`(경로 오너십)를 SSOT로 생성한다.
 
 ## 에이전트 공통 출력계약 (§18.1)
 
