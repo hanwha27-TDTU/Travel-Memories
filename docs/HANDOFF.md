@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **Phase 1 thin slice(trips) 로컬층 완료.** Gate 0A → v0.2 병합 → Phase 0B 골격 → **여행 생성·목록이 실동작**(내구성 로컬 커밋 = Dexie entity+operation 원자 트랜잭션 + read-back, 브라우저 왕복 검증 통과). 서버층 **적용 완료**(ADR-0020): 공유 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 **journey 스키마**에 `journey.trips` migration 적용, RLS 공격검사 6종 **RLS_ATTACK_PASS**, advisor journey 지적 0건. 클라이언트 `db.schema=journey` 배선. 남은 것: 대시보드 Exposed schemas에 journey 추가(Q7)·GitHub Variables·Google OAuth(Q5) 후 push 경로 구현. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨.
+**현재 단계**: **Phase 1 — 동기화 push/pull 코드 구현 완료(실 연동 대기).** trips 로컬층 + journey 스키마(RLS 공격검사 통과) 위에, 인증(Google OAuth PKCE)·동기화(push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드 병합)를 구현. 순수 결정로직 15 유닛테스트로 잠금. **미검증(정직)**: 실 Google 로그인→journey.trips 실 push는 (a)대시보드 Exposed schemas에 journey 추가 (b)Google OAuth provider+redirect 허용목록 (c)GitHub Variables 설정 후, 두 브라우저/기기로 수동 검증 필요(이 샌드박스는 *.supabase.co 차단으로 불가). 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨.
 
 **읽기 순서**:
 1. `CLAUDE.md`(Claude) / `AGENTS.md`(Codex) — 어댑터·비타협 원칙·작업 루프

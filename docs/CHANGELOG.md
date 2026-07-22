@@ -4,6 +4,13 @@
 
 ## [Unreleased] — Phase 0~1
 
+### Phase 1 — 동기화 push/pull 구현 (2026-07-22)
+- 인증(`services/auth.ts`): Google OAuth(PKCE) 로그인·로그아웃·세션·상태구독.
+- 동기화(`services/sync.ts`): 대기열 push(멱등 upsert + **정확한 read-back** + LWW 서버시각 반영) + pull 병합(**빈-클라우드 가드**, 교체 아님). 네트워크는 `TripsRemote` 포트 뒤로 격리.
+- 순수 결정(`sync/merge.ts`): mergeDecision(LWW+tombstone 우선)·isEmptyCloudAnomaly·classifyError — 단위테스트 15케이스로 게이트 잠금.
+- UI: Google 로그인/로그아웃/수동 동기화 버튼, 동기화 상태 표시. 저장·로그인·온라인 복귀 시 자동 동기화.
+- 검증: 하네스 6게이트·26 유닛테스트·빌드 통과, 로컬 모드 렌더 회귀 에러 0. **실 Google 로그인→journey.trips push는 대시보드 설정(스키마 노출·OAuth)+실기기 로그인 필요 — 이 환경에서 미검증(정직한 완료).**
+
 ### Phase 1 thin slice — trips 로컬층 (2026-07-22)
 - 여행 생성·목록 실동작: 내구성 로컬 커밋(Dexie entity+operation 원자 트랜잭션) + 정확한 read-back.
 - 브라우저 왕복 검증: 생성→새로고침→IndexedDB 영속·대기열 정합·에러 0.

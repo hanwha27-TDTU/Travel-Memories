@@ -49,7 +49,7 @@ v0.2 S-10에 따라 첫 실행에서 문서와 scaffold가 혼재하지 않도�
 > Supabase 프로비저닝·migration·pgTAP·실제 사진/동기화/지도 로직은 Phase 1+. 이번 골격은 기능 없음.
 
 ## Phase 1 — 인증과 여행
-**소셜 로그인(Google OAuth)** · 세션 복구 · 여행 CRUD · **소유자 범위 RLS 공격검사 통과** · IndexedDB 로컬 저장. (Supabase Auth에 Google OAuth 클라이언트 연동, Pages 도메인 CORS 등록.)
+**소셜 로그인(Google OAuth)** ✅코드 · 세션 복구 · 여행 생성·목록 ✅ · **소유자 범위 RLS 공격검사 통과** ✅ · IndexedDB 로컬 저장 ✅ · 동기화 push/pull ✅코드(실연동 대기). 남은 것: 대시보드 스키마 노출·OAuth 설정 후 2기기 수동검증, 여행 수정·삭제(tombstone) push, 타임라인.
 
 ## Phase 2 — 순간과 타임라인
 순간 생성 · 날짜별 타임라인 · 감정·중요기억 · 오프라인 작성 · 재접속 동기화.
