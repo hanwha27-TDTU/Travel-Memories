@@ -2,7 +2,14 @@
 
 [Keep a Changelog] 형식. 최신이 위. 이 파일은 손편집이 아니라 릴리스 시 갱신하며, 열거 가능한 사실(카운트 등)은 파생·게이트로 잠근다(LESSONS §7).
 
-## [Unreleased] — Phase 0
+## [Unreleased] — Phase 0~1
+
+### Phase 1 thin slice — trips 로컬층 (2026-07-22)
+- 여행 생성·목록 실동작: 내구성 로컬 커밋(Dexie entity+operation 원자 트랜잭션) + 정확한 read-back.
+- 브라우저 왕복 검증: 생성→새로고침→IndexedDB 영속·대기열 정합·에러 0.
+- `supabase/migrations/0001_trips.sql`(소유자 RLS·UNIQUE(id,user_id)·DELETE 정책 없음=tombstone 전용) + `supabase/tests/rls_attack_trips.sql`(2사용자 공격검사) — 프로젝트 생성 대기(Q4: 무료 한도 초과).
+- trip rowmap(toRow/fromRow) 경계 + 왕복 단위테스트.
+
 
 ### 적대적 검토 중간 항목 일괄 (2026-07-22, TASK-0004)
 - **security**: 스캐너 범위를 git 추적 전체(+dist)로 확대, `sbp_`·Google API 키·PEM 개인키 패턴과 `.env` 추적 차단 추가. SECURITY.md 서술을 구현 실체와 일치시킴(엔트로피 탐지=후속).

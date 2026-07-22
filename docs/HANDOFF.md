@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **Phase 0B 코드 골격 완료.** Gate 0A(감사·문서·에이전트) → v0.2 정밀 병합 → Phase 0B(Vite+TS 골격, 빌드·타입체크·하네스·라이브 렌더 통과)까지 끝. 활성 task 없음(`docs/ACTIVE_TASKS.md`). 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨.
+**현재 단계**: **Phase 1 thin slice(trips) 로컬층 완료.** Gate 0A → v0.2 병합 → Phase 0B 골격 → **여행 생성·목록이 실동작**(내구성 로컬 커밋 = Dexie entity+operation 원자 트랜잭션 + read-back, 브라우저 왕복 검증 통과). 서버층은 준비됨-미적용: `supabase/migrations/0001_trips.sql`(소유자 RLS·복합FK 부모요건·DELETE 정책 없음) + `supabase/tests/rls_attack_trips.sql`(2사용자 공격검사) — **Supabase 프로젝트가 무료 한도(2개) 초과로 미생성**(Q4). 프로젝트 생기면 migration→공격검사→advisor→클라이언트 push 배선 순서로 진행. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨.
 
 **읽기 순서**:
 1. `CLAUDE.md`(Claude) / `AGENTS.md`(Codex) — 어댑터·비타협 원칙·작업 루프

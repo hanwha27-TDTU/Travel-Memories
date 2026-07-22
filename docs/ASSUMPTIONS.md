@@ -25,6 +25,6 @@
 - ~~Q1: 사진 저장 기본 모드~~ → 절약 모드 확정(A-007).
 - ~~Q2: 인증 방식~~ → 소셜 로그인(Google) 확정(A-008).
 - Q3: 지도 타일 제공자와 운영 예산 (A-006). GitHub Pages 정적 배포와 무료 티어 호환 제공자 선정 필요.
-- Q4: 데모/운영 Supabase 프로젝트 생성 시점 (이 세션의 Supabase 연동 도구로 가능).
+- Q4: Supabase 프로젝트 생성 — **무료 한도(2개: Medical, News&Accounting) 초과로 보류**. 해결 옵션: News&Accounting 일시중지 / 유료 업그레이드. 결정 전까지 migration·RLS 공격검사는 `supabase/` 아티팩트로 준비 완료(생성 즉시 적용 가능).
 - Q5: Google OAuth 클라이언트 설정 시점(Supabase Auth 연동, Phase 1).
 - Q6: 개발자 정보 표기값 확인 — 이름·소속을 잠정값("김부건 · Tashkent State Medical University") 그대로 쓸지 (A-015, 구현은 Phase 5~6).
