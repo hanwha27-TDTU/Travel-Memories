@@ -5,6 +5,10 @@
 
 ---
 
+## ADR-0018 · Phase 0B 스택 = npm · Vite · TS strict · history 라우팅
+- 유형: `[AI-autonomous]`(관례적 기본값, override 가능) · AI: Claude Code · 날짜: 2026-07-22
+- 패키지 매니저 **npm**(보편성), 빌드 **Vite**, **TypeScript strict**. 라우팅은 ADR-0012대로 **history + 404 복제**로 착수(해시 아님). Supabase 클라이언트는 **PKCE** 옵션으로 초기화(실 연동 Phase 1). 골격은 빌드·타입체크·하네스·라이브 렌더 통과.
+
 ## ADR-0017 · v0.2 sync 모델 = operation receipt + base_version + 단조 커서 + conflict table
 - 유형: `[AI-proposed→user-approved]`(사용자 "정밀 병합" 승인) · AI: Claude Code · 날짜: 2026-07-22
 - 동기화가 `updated_at`-LWW 중심에서 **operation receipt(멱등) + `base_version` 비교 + `sync_changes.sequence` 단조 pull 커서 + `sync_conflicts` 테이블**로 이동(C-07). LWW는 불변식 내 tiebreaker로만 잔존. 신규 운영 테이블 `user_devices`·`sync_changes`·`sync_conflicts`·`deletion_jobs` 추가. 상세 `docs/SYNC_PROTOCOL.md`·`docs/DATA_MODEL.md`.

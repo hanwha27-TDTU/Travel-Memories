@@ -13,10 +13,9 @@
 
 | task_id | 에이전트 | branch | worktree | 예상 경로 | 상태 |
 |---|---|---|---|---|---|
-| TASK-0000 | orchestrator | `claude/travel-log-app-r2xd5f` | `/home/user/Travel-Memories` | `docs/AGENT_REGISTRY.md`, `docs/PROJECT_SPEC.md`, `docs/ROADMAP.md`, `docs/CONFLICT_REPORT.md`, `docs/REPOSITORY_AUDIT.md`, `docs/ACTIVE_TASKS.md`, `AGENTS.md`, `.claude/agents/README.md`, `schemas/agent-report.schema.json` | 진행 중 |
-
-> TASK-0000 = Gate 0A: v0.2 설계 리비전을 거버넌스/레지스트리 문서에 병합(읽기중심·문서 전용). 코드/의존성/migration/배포 없음.
+_(현재 활성 task 없음 — Phase 1 착수 시 등록)_
 
 ## 완료 task (아카이브)
 
-_(없음)_
+- **TASK-0000** · Gate 0A — v0.2 설계 리비전을 거버넌스/레지스트리 문서에 병합(문서 전용). 완료.
+- **TASK-0002** · Phase 0B 코드 골격 — Vite+TS 골격·CI·배포·hook·레지스트리 게이트. 빌드·타입체크·하네스·라이브 렌더 통과. 완료.

@@ -1,0 +1,26 @@
+{
+  "name": "journey-archive",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "개인 여행기록 앱 (Journey Archive)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "harness": "node scripts/harness.mjs",
+    "check:secrets": "node scripts/check-secret-leak.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "dexie": "^4.0.8",
+    "maplibre-gl": "^4.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vite": "^5.4.0",
+    "vitest": "^2.0.5"
+  }
+}

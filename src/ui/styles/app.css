@@ -1,0 +1,37 @@
+/* app.css — Phase 0B 골격 화면 스타일 */
+.app-header {
+  padding: max(14px, env(safe-area-inset-top, 0)) 18px 14px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+.app-title { margin: 0; font-size: 1.25rem; font-weight: 700; }
+
+.screen-home { max-width: 720px; margin: 0 auto; }
+
+.empty-state {
+  text-align: center;
+  padding: 64px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+.empty-emoji { font-size: 3rem; margin: 0; }
+.empty-state h2 { margin: 0; font-size: 1.3rem; }
+.muted { color: var(--color-text-secondary); margin: 0; }
+
+.btn-primary {
+  min-height: var(--touch-target-min);
+  padding: 0 var(--space-5);
+  border: none;
+  border-radius: var(--radius-medium);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  margin-top: var(--space-2);
+}
+.btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.sync-note { font-size: 0.85rem; margin-top: var(--space-4); }

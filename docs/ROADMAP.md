@@ -34,19 +34,19 @@ v0.2 S-10에 따라 첫 실행에서 문서와 scaffold가 혼재하지 않도�
 - [x] hook 후보를 `.claude/settings.json`과 `docs/SECURITY.md`에 분류.
 - [x] 선행 프로젝트 교훈을 `docs/LESSONS.md`에 추출·적용.
 
-### Phase 0B — scaffold·CI·hook·Supabase local (다음 작업 — 코드 골격)
-- [ ] Vite + TypeScript 실행 (`package.json`, `vite.config.ts` **base=/Travel-Memories/**, `tsconfig.json`, `index.html`, `src/main.ts`).
-- [ ] 기본 화면 1개 표시 + 라우터 골격(하위경로 인식).
-- [ ] 환경변수 구조(`.env.example` — Supabase URL/anon key 자리, service_role 금지).
-- [ ] CI 기본검사(GitHub Actions) + 단일 `harness` 문 스텁 + **GitHub Pages 빌드→배포 워크플로**(`docs/DEPLOYMENT.md`).
-- [ ] `check-secret-leak` · `check-supabase-sql-safe` · `commit-msg` hook 실동작.
-- [ ] `DOMAIN_REGISTRY` + 대칭 게이트 스텁, `TERMINALS` + 배선맵 생성기 스텁.
-- [ ] `docs/records/coding-mistakes.md` 실수 원장 운영 시작.
-- [ ] SPA 라우팅 확정(history+404 복제) + OAuth PKCE + SW 캐시 버저닝.
-- [ ] camelCase↔snake_case 경계 게이트 + empty-seed 게이트.
-- [ ] `check-secret-leak`·`commit-msg` hook을 코드 골격보다 먼저.
+### Phase 0B — scaffold·CI·hook·Supabase local (코드 골격 — 착수)
+- [x] Vite + TypeScript 실행 (`package.json`, `vite.config.ts` **base=/Travel-Memories/**, `tsconfig.json`, `index.html`, `src/main.ts`). 빌드·타입체크 통과.
+- [x] 기본 화면 1개(홈 빈 상태) 표시 + 라우터 골격(하위경로 인식, 안전 폴백). 라이브 렌더 확인(에러 0).
+- [x] 환경변수 구조(`.env.example` — **publishable 키** 자리, service_role 금지).
+- [x] CI(GitHub Actions `ci.yml`) + 단일 `harness` 문 + **GitHub Pages 배포 워크플로**(`deploy-pages.yml`, 404 복제·시크릿 스캔).
+- [x] `check-secret-leak`·`commit-msg` hook 실동작(`.githooks`, `core.hooksPath` 활성). `check-domain-wiring` 게이트 동작.
+- [x] `DOMAIN_REGISTRY`(`src/domain/registry.ts`) + 대칭 게이트 스텁(18 도메인 정합).
+- [x] `docs/records/coding-mistakes.md` 실수 원장 운영 시작.
+- [ ] SW 캐시 버저닝(현재 미구현) · OAuth PKCE 클라이언트 옵션은 설정됨(실 연동 Phase 1).
+- [ ] `TERMINALS` + 배선맵 생성기, camelCase↔snake_case 경계 게이트, empty-seed 게이트 (Phase 0B 잔여).
+- [ ] `check-supabase-sql-safe` hook (Supabase SQL 작업 시작 시 · Phase 1).
 
-> Phase 0B 코드 골격은 별도 작업으로 진행하며, 시작 전 변경 예정 파일 목록을 `docs/ACTIVE_TASKS.md`에 등록하고 사용자에게 제시한다.
+> Supabase 프로비저닝·migration·pgTAP·실제 사진/동기화/지도 로직은 Phase 1+. 이번 골격은 기능 없음.
 
 ## Phase 1 — 인증과 여행
 **소셜 로그인(Google OAuth)** · 세션 복구 · 여행 CRUD · **소유자 범위 RLS 공격검사 통과** · IndexedDB 로컬 저장. (Supabase Auth에 Google OAuth 클라이언트 연동, Pages 도메인 CORS 등록.)

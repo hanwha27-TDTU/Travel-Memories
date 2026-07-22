@@ -4,6 +4,13 @@
 
 ## [Unreleased] — Phase 0
 
+### Phase 0B 코드 골격 (2026-07-22)
+- Vite + TypeScript(strict) 골격: 빌드·타입체크 통과, 홈(빈 상태) 1화면 렌더(에러 0).
+- `base=/Travel-Memories/`, history 라우터(안전 폴백), PWA manifest(하위경로 scope).
+- 단일 `harness`(typecheck·check-secret-leak·check-domain-wiring), `.githooks/commit-msg` 활성.
+- CI(`ci.yml`) + GitHub Pages 배포 워크플로(`deploy-pages.yml`, 404 복제·시크릿 스캔).
+- `DOMAIN_REGISTRY`(18 도메인), Dexie 스키마 스텁, Supabase publishable 클라이언트(PKCE) 스텁.
+
 ### v0.2 정밀 병합 (2026-07-22)
 - 외부 v0.2 비판적 검증 채택(ADR-0013~0017): sync 원장(operation receipt·base_version·단조 커서·conflict table), deletion_jobs 상태머신, 복합 소유자 FK, 부분 고유 인덱스, EXIF 시각(local+offset+tz)·whitelist, 불변 Storage·TUS, publishable/secret 키 체계, pgTAP 2사용자 RLS 테스트, DB백업 Storage 미포함 명시.
 - 유실범위 명확화("내구성 로컬 커밋 후 앱 원인 유실 0"), 디코딩 동시성 1, WebP magic-byte 검증.

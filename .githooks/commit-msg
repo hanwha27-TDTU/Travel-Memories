@@ -1,0 +1,21 @@
+#!/bin/sh
+# commit-msg — 커밋 규약 + CI 우회 차단 (가장 이른 지점, docs/SECURITY.md)
+# 활성화: git config core.hooksPath .githooks
+msg_file="$1"
+msg=$(cat "$msg_file")
+
+# [skip ci] / [ci skip] 류 우회 차단
+if printf '%s' "$msg" | grep -Eiq '\[(skip ci|ci skip|no ci)\]'; then
+  echo "commit-msg: CI 우회 표식([skip ci] 등)은 허용되지 않습니다." >&2
+  exit 1
+fi
+
+# conventional prefix 강제
+first=$(printf '%s' "$msg" | head -n1)
+if ! printf '%s' "$first" | grep -Eq '^(feat|fix|security|refactor|test|docs|build|chore)(\([a-z0-9._-]+\))?: .+'; then
+  echo "commit-msg: 제목은 'type(scope): 요약' 형식이어야 합니다." >&2
+  echo "  허용 type: feat|fix|security|refactor|test|docs|build|chore" >&2
+  echo "  받은 제목: $first" >&2
+  exit 1
+fi
+exit 0
