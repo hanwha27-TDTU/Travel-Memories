@@ -30,9 +30,19 @@ push → GitHub Actions:
 - `check-secret-leak`가 빌드 아티팩트를 스캔해 시크릿 유출 없음을 확인한 뒤 배포.
 - 환경변수(anon 키 등)는 GitHub Actions Secrets에서 주입(저장소에 커밋 금지). `.env.example`로 형태만 문서화.
 
+## 보안 헤더 · 롤백 (S-05 결정)
+
+v0.2 리뷰는 GitHub Pages가 커스텀 보안 헤더(CSP·HSTS 등 HTTP 응답 헤더)를 설정할 수 없음을 지적했다. 사용자 결정(ADR-0013): **GitHub Pages를 주 배포로 유지하고, 헤더 가능 호스트를 병행 미러로 둔다.**
+
+- **주 배포**: GitHub Pages (사용자 필수 요건). 헤더 한계는 다음으로 완화 —
+  - CSP는 `<meta http-equiv="Content-Security-Policy">`로 부분 적용(응답 헤더보다 약하나 XSS 완화에 유효), 자체 호스팅 인라인 자산·`connect-src`를 Supabase 도메인으로 제한.
+  - 롤백은 GitHub Actions에서 이전 성공 빌드로 재배포(git revert/재실행).
+- **병행 미러(옵션, 후속)**: Cloudflare Pages 또는 Netlify — 동일 정적 산출물을 배포하되 **보안 응답 헤더(CSP/HSTS/Referrer-Policy/Permissions-Policy)와 즉시 롤백**을 제공. 운영 강화가 필요할 때 활성화. Supabase CORS 허용 오리진에 미러 도메인도 등록.
+- 두 호스트 모두 정적·서버리스이므로 백엔드(Supabase 직접 호출)·비밀 규칙은 동일하게 적용된다.
+
 ## 보조 빌드
 
-`scripts/build-single-html.ts`로 휴대용 단일 HTML판 생성(오프라인 SW·백그라운드 동기화 등 일부 제한). 배포 우선순위: ① 운영 PWA(여러 파일) → ② GitHub Pages → ③ 단일 HTML 보조.
+`scripts/build-single-html.ts`로 휴대용 단일 HTML판 생성(로컬 아카이브 열람 중심의 제한된 보조판 — `file://`은 SW·설치형 PWA와 동등하지 않음). 배포 우선순위: ① 운영 PWA(여러 파일, GitHub Pages 주) → ② 헤더 호스트 미러(옵션) → ③ 단일 HTML 보조.
 
 ## 검증
 
