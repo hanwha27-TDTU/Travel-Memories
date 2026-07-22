@@ -4,17 +4,30 @@
 msg_file="$1"
 msg=$(cat "$msg_file")
 
-# [skip ci] / [ci skip] 류 우회 차단
-if printf '%s' "$msg" | grep -Eiq '\[(skip ci|ci skip|no ci)\]'; then
-  echo "commit-msg: CI 우회 표식([skip ci] 등)은 허용되지 않습니다." >&2
+# CI 우회 표식 차단 — GitHub가 인식하는 전체 집합:
+# [skip ci] [ci skip] [no ci] [skip actions] [actions skip] + "skip-checks: true" 트레일러
+if printf '%s' "$msg" | grep -Eiq '\[(skip ci|ci skip|no ci|skip actions|actions skip)\]'; then
+  echo "commit-msg: CI 우회 표식([skip ci]/[skip actions] 등)은 허용되지 않습니다." >&2
+  exit 1
+fi
+if printf '%s' "$msg" | grep -Eiq '^[[:space:]]*skip-checks[[:space:]]*:[[:space:]]*true'; then
+  echo "commit-msg: 'skip-checks: true' 트레일러는 허용되지 않습니다." >&2
   exit 1
 fi
 
-# conventional prefix 강제
 first=$(printf '%s' "$msg" | head -n1)
+
+# git 자체가 생성하는 제목은 통과 — 롤백 전략(git revert, DEPLOYMENT.md)이
+# 이 훅에 막히면 안 된다. Merge/fixup/squash도 도구 생성 형식이라 허용.
+if printf '%s' "$first" | grep -Eq '^(Revert |Reapply |Merge |fixup! |squash! )'; then
+  exit 0
+fi
+
+# conventional prefix 강제
 if ! printf '%s' "$first" | grep -Eq '^(feat|fix|security|refactor|test|docs|build|chore)(\([a-z0-9._-]+\))?: .+'; then
   echo "commit-msg: 제목은 'type(scope): 요약' 형식이어야 합니다." >&2
   echo "  허용 type: feat|fix|security|refactor|test|docs|build|chore" >&2
+  echo "  (Revert/Reapply/Merge 등 git 생성 제목은 자동 허용)" >&2
   echo "  받은 제목: $first" >&2
   exit 1
 fi
