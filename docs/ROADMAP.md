@@ -4,13 +4,28 @@
 
 ## 현재 상태
 
-**Phase 0 진행 중 — 설계·스캐폴딩.** 문서(`docs/`)와 에이전트 팀(`.claude/agents/`) 구성 완료 단계. 아직 제품 기능·앱 골격 코드는 없다.
+**Gate 0A(읽기중심 audit·docs·agents) 사실상 완료 → Phase 0B(scaffold) 대기 (S-10).** 문서(`docs/`)와 에이전트 팀(`.claude/agents/`) 구성 완료. 아직 제품 기능·앱 골격 코드는 없다.
 
 ---
 
-## Phase 0 — 저장소 기반 (진행 중)
+## Phase 0 — 저장소 기반 (S-10: Gate 0A / Phase 0B 분리)
 
-### 이번 작업(문서·에이전트 스캐폴딩)에서 완료한 것
+v0.2 S-10에 따라 첫 실행에서 문서와 scaffold가 혼재하지 않도록 두 게이트로 나눈다:
+- **Gate 0A — 읽기중심 audit·docs·agents.** 코드·의존성·migration·배포 **금지**. 저장소 조사와 문서·레지스트리·에이전트 정의만.
+- **Phase 0B — scaffold·CI·hook·Supabase local.** Gate 0A 감사 결과를 반영해 코드 골격을 시작.
+
+### Gate 0A — 완료조건 (이번 세션에서 사실상 완료)
+- [x] 저장소 조사 + 현재 코드 ↔ 설계지시서 충돌 식별(기존 MVP 스택 불일치 → 사용자 승인 하에 삭제 후 신규 구조).
+- [x] Gate 0A 산출물: `docs/REPOSITORY_AUDIT.md`, `docs/CONFLICT_REPORT.md`, `docs/ACTIVE_TASKS.md`, `schemas/agent-report.schema.json`.
+- [x] 핵심 문서 생성/정련: PROJECT_SPEC(S-01~S-04 범위 정련) · ARCHITECTURE · DATA_MODEL · SECURITY · PRIVACY · SYNC_PROTOCOL · MEDIA_PIPELINE · DEPLOYMENT · LESSONS · AGENT_REGISTRY(필수 독립검토 열·공통 실행규칙·호출 원칙) · TEST_PLAN · ROADMAP · DECISIONS · ASSUMPTIONS · HANDOFF · CHANGELOG.
+- [x] `CLAUDE.md` · `AGENTS.md`(S-07 report 스키마 검증 · S-08 소유권 · S-09/S-10) 생성·정련.
+- [x] 전체 139개 논리 역할 → 26 물리 에이전트(통합 10 + 디자인 16)를 `docs/AGENT_REGISTRY.md`·`.claude/agents/`에 등록.
+- [x] hook 후보를 `.claude/settings.json`과 `docs/SECURITY.md`에 분류(차단 모드 미활성).
+- [x] 선행 프로젝트 교훈을 `docs/LESSONS.md`에 추출·적용.
+
+> Gate 0A 금지선 준수: dependency 설치·migration 적용·Storage/배포·destructive Git 없음. commit/push/PR은 사용자 승인 후.
+
+### (참고) 원 Phase 0 스캐폴딩 항목 — 이번 작업에서 완료한 것
 - [x] 저장소 조사 + 현재 코드 ↔ 설계지시서 충돌 식별(기존 MVP 스택 불일치 → 사용자 승인 하에 삭제 후 신규 구조).
 - [x] 핵심 문서 생성: PROJECT_SPEC · ARCHITECTURE · DATA_MODEL · SECURITY · PRIVACY · SYNC_PROTOCOL · MEDIA_PIPELINE · DEPLOYMENT · LESSONS · AGENT_REGISTRY · TEST_PLAN · ROADMAP · DECISIONS · ASSUMPTIONS · HANDOFF · CHANGELOG.
 - [x] `CLAUDE.md` · `AGENTS.md` 생성.
@@ -19,7 +34,7 @@
 - [x] hook 후보를 `.claude/settings.json`과 `docs/SECURITY.md`에 분류.
 - [x] 선행 프로젝트 교훈을 `docs/LESSONS.md`에 추출·적용.
 
-### Phase 0 남은 완료조건 (다음 작업 — 코드 골격)
+### Phase 0B — scaffold·CI·hook·Supabase local (다음 작업 — 코드 골격)
 - [ ] Vite + TypeScript 실행 (`package.json`, `vite.config.ts` **base=/Travel-Memories/**, `tsconfig.json`, `index.html`, `src/main.ts`).
 - [ ] 기본 화면 1개 표시 + 라우터 골격(하위경로 인식).
 - [ ] 환경변수 구조(`.env.example` — Supabase URL/anon key 자리, service_role 금지).
@@ -31,7 +46,7 @@
 - [ ] camelCase↔snake_case 경계 게이트 + empty-seed 게이트.
 - [ ] `check-secret-leak`·`commit-msg` hook을 코드 골격보다 먼저.
 
-> Phase 0 코드 골격은 별도 작업으로 진행하며, 시작 전 변경 예정 파일 목록을 사용자에게 제시한다.
+> Phase 0B 코드 골격은 별도 작업으로 진행하며, 시작 전 변경 예정 파일 목록을 `docs/ACTIVE_TASKS.md`에 등록하고 사용자에게 제시한다.
 
 ## Phase 1 — 인증과 여행
 **소셜 로그인(Google OAuth)** · 세션 복구 · 여행 CRUD · **소유자 범위 RLS 공격검사 통과** · IndexedDB 로컬 저장. (Supabase Auth에 Google OAuth 클라이언트 연동, Pages 도메인 CORS 등록.)

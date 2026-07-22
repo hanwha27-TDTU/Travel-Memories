@@ -5,6 +5,26 @@
 
 ---
 
+## ADR-0017 · v0.2 sync 모델 = operation receipt + base_version + 단조 커서 + conflict table
+- 유형: `[AI-proposed→user-approved]`(사용자 "정밀 병합" 승인) · AI: Claude Code · 날짜: 2026-07-22
+- 동기화가 `updated_at`-LWW 중심에서 **operation receipt(멱등) + `base_version` 비교 + `sync_changes.sequence` 단조 pull 커서 + `sync_conflicts` 테이블**로 이동(C-07). LWW는 불변식 내 tiebreaker로만 잔존. 신규 운영 테이블 `user_devices`·`sync_changes`·`sync_conflicts`·`deletion_jobs` 추가. 상세 `docs/SYNC_PROTOCOL.md`·`docs/DATA_MODEL.md`.
+
+## ADR-0016 · v0.2 거버넌스·범위 정련 (S-01~S-10)
+- 유형: `[AI-proposed→user-approved]` / 일부 `[user-decided]` · AI: Claude Code · 날짜: 2026-07-22
+- S-01 음성=OS 받아쓰기(앱내 STT 후속) · S-02 MVP=키워드 검색, semantic=Phase 7 · S-03 원본보관 기본 비활성 · S-04 공개 회원가입 비활성/invite-only, 소셜은 소유자 한정 · S-07 agent report는 `schemas/agent-report.schema.json` 검증 + `artifacts/agent-reports/`에 저장 · S-08 `docs/ACTIVE_TASKS.md` 소유권 + hook/CI 강제 · S-09 CLAUDE/AGENTS=맥락, hook+CI=강제 · S-10 Gate 0A(감사·문서·에이전트) / Phase 0B(스캐폴드) 분리.
+
+## ADR-0015 · AI 출력은 `ai_artifacts`에만 (인라인 AI 컬럼 제거) — 리뷰어 확인 필요
+- 유형: `[AI-proposed→user-approved]`(표 구조 변경은 reviewer-release/사용자 확인 대기) · AI: Claude Code · 날짜: 2026-07-22
+- `ai_generations`→**`ai_artifacts`**(v0.2 명) 리네임. `trip_days.ai_summary/ai_confirmed`, `moments.ai_summary/ai_confirmed`, `reflections.ai_draft` 등 **인라인 AI 컬럼을 제거**하고 AI 출력은 `ai_artifacts`에만 저장(비타협 원칙 2 강화). MVP 표 형태를 바꾸므로 구현 전 reviewer-release 확인. `client_operations.operation_type` `upload`→`finalize_upload`, `version` bigint 표준화도 포함.
+
+## ADR-0014 · v0.2 기술 하드닝 채택
+- 유형: `[AI-proposed→user-approved]`(사용자 "정밀 병합" 승인) · AI: Claude Code · 날짜: 2026-07-22
+- 복합 소유자 FK `(parent_id,user_id)`(H-02) · soft-delete 부분 고유 인덱스(H-03) · 내구성 유실범위 한정(C-01) · onLine은 힌트, 실연결=Supabase probe(C-04) · deletion_jobs 상태머신·pending→verify 미디어 흐름(C-08/09) · EXIF 시각=local+offset+tz+source+confidence(C-10) · WebP magic-byte 검증·JPEG/PNG fallback(H-07) · 입력검증 magic bytes·pixel cap·SVG 거부(H-08) · 강한 콘텐츠 해시로 중복 확정(H-10) · 불변 Storage `upsert:false`(H-11) · >6MB TUS 재개 업로드 · EXIF whitelist(H-09) · publishable/secret 키 체계, 프론트=publishable만(H-13) · RLS 완료조건=local Supabase+pgTAP+익명/A/B 공격검사(H-12) · DB 백업은 Storage 바이트 미포함(H-15) · 지도 어댑터 분리(H-05) · 디코딩 동시성 1(H-06).
+
+## ADR-0013 · 배포 = GitHub Pages 주 + 헤더호스트 병행 미러 (S-05)
+- 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-07-22
+- 사용자 "GitHub 주 + 헤더호스트 병행". GitHub Pages를 주 배포로 유지(필수 요건)하되 커스텀 보안헤더 한계는 CSP meta + git revert 롤백으로 완화, 후속으로 Cloudflare Pages/Netlify 미러(보안 응답헤더·즉시 롤백) 옵션. 상세 `docs/DEPLOYMENT.md`.
+
 ## ADR-0012 · SPA 라우팅 + OAuth PKCE + Service Worker 캐시
 - 유형: `[AI-autonomous]` · AI: Claude Code · 날짜: 2026-07-22 · (revisable — override 가능)
 - history 라우팅 + `404.html`→`index.html` 복제(GitHub Pages 딥링크 대응) + Supabase PKCE OAuth(쿼리 콜백) + Service Worker 캐시 버저닝/`skipWaiting`. 정적 호스팅·하위경로(`base=/Travel-Memories/`) 제약의 귀결. 기본값이며 사용자 검토 시 조정 가능. 상세 `docs/DEPLOYMENT.md`·`docs/ROADMAP.md`.

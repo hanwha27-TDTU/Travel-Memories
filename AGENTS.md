@@ -28,7 +28,7 @@ Codex와 Claude Code가 **동일하게 판단**하기 위한 공용 운영 계�
 
 ## 에이전트 공통 출력계약 (§18.1)
 
-모든 에이전트는 결과를 다음 JSON으로 반환한다.
+**agent chat output만으로 인계하지 않는다 (S-07).** 모든 에이전트는 결과를 아래 JSON으로 반환하고, 이를 **`schemas/agent-report.schema.json`(JSON Schema draft 2020-12)로 검증**한 뒤 **`artifacts/agent-reports/{TASK_ID}-{agent}.json`** 파일로 남긴다. 검증 실패한 report는 인계로 인정하지 않는다. 필수 필드: `agent`, `task_id`, `objective`.
 
 ```json
 {
@@ -53,7 +53,15 @@ Codex와 Claude Code가 **동일하게 판단**하기 위한 공용 운영 계�
 }
 ```
 
-## 에이전트 작업 제한 (§18.2)
+> 필드 목록은 스키마와 1:1로 정렬한다. `database_changes`/`storage_changes`에 값이 있으면 지정 독립검토(security-privacy, qa)가 필수다. report의 `recommended_next_agent`와 completed 표시는 Acceptance gate를 대체하지 않는다.
+
+## 활성 task 소유권 (§18.2 · S-08)
+
+- **worktree만으로 동시수정을 막지 않는다.** 각 활성 task는 `docs/ACTIVE_TASKS.md`에 branch·worktree·예상 수정 경로를 등록한다.
+- 다른 활성 task가 소유한 파일은 수정하지 않는다. 경로가 겹치는 두 task를 동시에 활성화하지 않는다.
+- 소유권 강제는 지시문이 아니라 **hook과 CI 검사**로 한다(§강제 규칙은 hook으로). 등록 없는 편집·경로 충돌은 게이트에서 차단한다.
+
+## 에이전트 작업 제한
 
 - 한 에이전트는 하나의 `task_id`만 처리한다.
 - 다른 에이전트의 활성 branch를 직접 수정하지 않는다.
@@ -86,6 +94,12 @@ Codex와 Claude Code가 **동일하게 판단**하기 위한 공용 운영 계�
 
 전체 하네스(일부 아님) 통과 → 버전/CHANGELOG 갱신 → PR 그린 → 병합 → 배포 성공 확인 → 정직한 보고. 자동검사를 통과하지 않은 변경을 완료로 표시하지 않는다.
 
-## 강제 규칙은 hook으로
+## 강제 규칙은 hook으로 (S-09)
 
-반복적으로 강제해야 하는 규칙(비밀키 노출, RLS 미검증, 파괴적 SQL, 카운트 드리프트 등)은 지시문만으로 의존하지 않고 `.claude/settings.json`의 hook과 CI 게이트로 통제한다. 후보 목록은 `docs/SECURITY.md`와 `.claude/settings.json`.
+- **CLAUDE.md는 context, deterministic hook과 CI가 enforcement다 (S-09).** CLAUDE.md/AGENTS.md 지시문은 강제수단이 아니라 맥락이다. 실제 강제는 `.claude/settings.json`의 command hook과 CI 게이트가 한다. LLM 판단 hook만으로 보안을 보장하지 않는다.
+- 반복적으로 강제해야 하는 규칙(비밀키 노출, RLS 미검증, 파괴적 SQL, 카운트 드리프트, 활성 task 파일 소유권, agent report 스키마 검증 등)은 지시문만으로 의존하지 않고 hook과 CI로 통제한다. 후보 목록은 `docs/SECURITY.md`와 `.claude/settings.json`.
+
+## 실행 단계 분리 (S-10)
+
+- **Gate 0A** = 읽기중심 저장소 감사·문서·에이전트 정의만. 코드·의존성·migration·배포 금지. 산출물: `docs/REPOSITORY_AUDIT.md`, `docs/CONFLICT_REPORT.md`, `docs/ACTIVE_TASKS.md`, `schemas/agent-report.schema.json`, 문서·레지스트리 갱신.
+- **Phase 0B** = scaffold·CI·hook·Supabase local. Gate 0A 감사 결과를 반영해 시작한다. 상세 완료조건·순서는 `docs/ROADMAP.md`.

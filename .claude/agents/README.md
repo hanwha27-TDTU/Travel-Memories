@@ -39,6 +39,8 @@
 | `design-token-sync-agent` | Figma 토큰↔CSS 동기화 | opus | 브릿지 |
 
 ## 운영 원칙
+- **역할→필수 독립 검토자 매핑은 `docs/AGENT_REGISTRY.md`의 "필수 독립 검토" 열에 있다** (예: 대부분 → security-privacy+qa, supabase 접촉 → security-privacy+qa, 오프라인 → supabase+qa 등). 여기서 중복하지 않고 레지스트리를 SSOT로 참조한다.
+- **에이전트 보고서는 스키마 검증 artifact다** — `schemas/agent-report.schema.json`으로 검증해 `artifacts/agent-reports/{TASK_ID}-{agent}.json`에 남긴다(AGENTS.md §18.1, S-07). chat output만으로 인계하지 않는다.
 - 기본값은 단일 구현 에이전트가 맥락 유지(조사→구현→검증→문서→보고). 광범위 탐색·감사만 병렬화.
 - 감사·리뷰어는 **읽기전용** — 코드를 수정하지 않고 결함만 보고. 구현자 자기인증 금지. 감사·리뷰어에는 Write/Edit를 부여하지 않아 코드 수정을 막고, Bash는 스크린샷·테스트 실행용이다(정책상 읽기전용; Phase 0에서 hook으로 쓰기 차단을 보강).
 - 모든 에이전트는 AGENTS.md §18.1 공통 출력계약 JSON으로 결과 반환.

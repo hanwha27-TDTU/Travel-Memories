@@ -12,8 +12,8 @@
 
 ## 비타협 원칙 (목적의 일부이지, 목적과 맞바꿀 대상이 아니다)
 
-1. **사용자의 기억을 잃지 않는다.** 오프라인 기록은 서버 연결 실패로 유실되면 안 되고, 원본 사진은 사용자 기기에서 변경/삭제하지 않는다.
-2. **사용자 기록과 AI 생성물을 섞지 않는다.** 같은 필드에 저장하지 않고, AI 결과를 사용자 작성글처럼 표시하지 않는다.
+1. **사용자의 기억을 잃지 않는다.** **내구성 로컬 커밋(Dexie entity+operation atomic commit) 이후 앱 원인 유실은 0**이다(브라우저 축출·사용자의 사이트데이터 삭제는 앱 통제 밖 → 백업·persist()·경고로 완화, `docs/SYNC_PROTOCOL.md`). 원본 사진은 사용자 기기에서 변경/삭제하지 않는다.
+2. **사용자 기록과 AI 생성물을 섞지 않는다.** AI 출력은 사용자 필드가 아니라 **`ai_artifacts` 테이블(Phase 7)**에만 저장하고, AI 결과를 사용자 작성글처럼 표시하지 않는다.
 3. **개인자료는 기본 비공개.** 여행·사진·GPS·동행인·비용·회고 모두 비공개가 기본. 승인 없는 공유/소셜 기능 없음.
 4. **정직한 완료.** 자동 검증층이 통과한 것만 "통과"라 말한다. 시각·픽셀·실기기 상호작용은 "라이브 렌더 미실행 / 사용자 확인 권장"으로 분리 표기한다.
 5. **복구 가능성 우선.** 위험한 작업은 사전검증·작업기록·실패복구·재시도·되돌리기·결과확인을 갖춘다.
@@ -78,7 +78,7 @@ TypeScript(strict) · Vite · Vanilla TS 컴포넌트 · Supabase(Auth/Postgres/
 
 ## 문서 지도 (SSOT)
 
-`docs/PROJECT_SPEC.md`(요구사항·최상위) · `ARCHITECTURE.md` · `DATA_MODEL.md` · `SECURITY.md` · `PRIVACY.md` · `SYNC_PROTOCOL.md` · `MEDIA_PIPELINE.md` · `DEPLOYMENT.md`(배포 계약) · `AGENT_REGISTRY.md` · `LESSONS.md` · `ROADMAP.md` · `TEST_PLAN.md` · `DECISIONS.md` · `ASSUMPTIONS.md` · `HANDOFF.md` · `CHANGELOG.md`.
+`docs/PROJECT_SPEC.md`(요구사항·최상위) · `ARCHITECTURE.md` · `DATA_MODEL.md` · `SECURITY.md` · `PRIVACY.md` · `SYNC_PROTOCOL.md` · `MEDIA_PIPELINE.md` · `DEPLOYMENT.md`(배포 계약) · `AGENT_REGISTRY.md` · `LESSONS.md` · `ROADMAP.md` · `TEST_PLAN.md` · `DECISIONS.md` · `ASSUMPTIONS.md` · `HANDOFF.md` · `CHANGELOG.md` · `REPOSITORY_AUDIT.md` · `CONFLICT_REPORT.md` · `ACTIVE_TASKS.md`. v0.2 원본은 `docs/reference/v0.2/`.
 충돌하면 공유 문서(SPEC)가 이긴다. 특정 AI 도구 대화가 아니라 이 문서들이 기준이다.
 
 ## 에이전트 운영

@@ -16,6 +16,21 @@ TypeScript(strict) · Vite · Vanilla TS 컴포넌트 · Supabase(Auth/PostgreSQ
 
 > 프레임워크는 MVP에서 추가하지 않는다. Vanilla 구조 유지 불가가 **실제 측정**된 경우에만 기술변경 제안서.
 
+## 지도 어댑터 분리 (H-05 — MapLibre는 렌더러만)
+
+MapLibre GL JS는 **벡터 타일을 렌더링하는 라이브러리**일 뿐이다. 타일·style·지오코딩 서비스는 별개이므로 MapLibre가 타일·검색·역지오코딩까지 제공한다고 오해하지 않는다(R18). 지도 책임을 교체 가능한 별도 어댑터로 분리한다.
+
+| 어댑터 | 책임 |
+|--------|------|
+| `MapRenderer` | MapLibre GL JS — WebGL 렌더링만 |
+| `MapStyleProvider` | 지도 style 문서 제공 |
+| `TileProvider` | 벡터/래스터 타일 소스 |
+| `Geocoder` | 장소명 → 좌표 검색 |
+| `ReverseGeocoder` | 좌표 → 주소·장소 |
+| `TimezoneResolver` | 좌표 → IANA 시간대 후보(C-10 시간 신뢰도 입력) |
+
+geocoder·reverse geocoder·timezone·tile provider는 **미정**이므로 어댑터 인터페이스와 설정만 먼저 구현하고 실제 제공자는 이용약관·비용·개인정보 검토 후 선택한다(ASSUMPTIONS A-005). `services/maps`는 이 어댑터 경계를 노출하고 화면은 어댑터만 호출한다.
+
 ## 계층 경계 (§17)
 
 ```
