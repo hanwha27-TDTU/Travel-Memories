@@ -22,7 +22,7 @@
 ```
 npm ci
 git config core.hooksPath .githooks   # commit-msg hook 활성
-npm run harness                        # typecheck + check-secret-leak + check-domain-wiring
+npm run harness                        # typecheck + check-secret-leak + check-domain-wiring + check-csp
 npm run build                          # base=/Travel-Memories/ 정적 빌드
 npm run dev                            # 홈 화면 확인 (선택)
 ```
@@ -36,6 +36,15 @@ npm run dev                            # 홈 화면 확인 (선택)
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
 
 ---
+
+## HANDOFF-0003 · 적대적 검토 후속 수정 (TASK-0003)
+- 작업 ID: TASK-0003 · 담당: Claude Code · 날짜: 2026-07-22 · 브랜치: `claude/travel-log-app-r2xd5f`
+- 목표: 적대적 저장소 검토에서 확인된 결함 5건을 우선순위대로 수정.
+- 변경: ① `scripts/check-secret-leak.mjs` — matchAll 전수 판정 + 셀프테스트 내장(M-0004, 우회 재현→수정→재현 차단 확인) ② `src/offline/db.ts` — `deletedAt` 인덱스 제거(M-0005) ③ `.github/workflows/deploy-pages.yml` — `vars.*` env 주입 + `docs/DEPLOYMENT.md` 활성화 절차 ④ `index.html` CSP 확장(wss·worker-src blob:·Storage img-src) + `scripts/check-csp.mjs` 게이트 신설·하네스 편입 ⑤ `.githooks/commit-msg` — Revert/Merge 허용 + `[skip actions]`·`skip-checks:` 차단.
+- 실행 검사(실제 결과): 시크릿 스캐너 우회 픽스처 exit 1(RED) 확인 · 훅 픽스처 7케이스 전부 기대대로 · `npm run harness`(4게이트) PASS · `npm run build` 성공. (자동층만 통과 표기 — CSP의 실브라우저 동작·Pages 배포는 미검증: 지도/Realtime 미구현 + main 미병합.)
+- 남은 위험(미수정, 검토에서 지적됨): 스캐너 커버리지가 SECURITY.md 주장보다 좁음(docs/scripts/.github 미스캔·엔트로피 미구현) · `npm test` 테스트 0개로 RED · base 경로가 vite.config/manifest 2곳 손편집 중복 · `check-domain-wiring` EXPECTED 손편집 사본 · CI 중복 실행(`push: '**'`+PR) · PWA 아이콘 SVG 단독(iOS) · 프로덕션 소스맵 공개.
+- 운영 필요(사용자): Settings→Pages→Source="GitHub Actions" 설정 · Supabase 프로비저닝 후 Actions Variables 등록 · main 병합 후에만 배포 발동.
+- 되돌리기: 이 커밋들 revert (훅이 이제 Revert 제목을 허용함).
 
 ## HANDOFF-0002 · Phase 0B 코드 골격
 - 작업 ID: TASK-0002 · 담당: Claude Code · 날짜: 2026-07-22 · 브랜치: `claude/travel-log-app-r2xd5f`

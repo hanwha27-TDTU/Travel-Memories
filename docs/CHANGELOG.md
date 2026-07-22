@@ -4,6 +4,13 @@
 
 ## [Unreleased] — Phase 0
 
+### 적대적 검토 후속 수정 (2026-07-22)
+- **security**: `check-secret-leak` 첫-매치 우회(M-0004) 정정 — `matchAll` 전수 판정 + 알려진-실패 주입 셀프테스트 내장(매 실행 검증).
+- **fix**: Dexie `deletedAt` 인덱스 제거(M-0005) — IndexedDB는 null 인덱스 키 불가, tombstone 계약과 양립하도록 스키마 v1 정정.
+- **build**: `deploy-pages.yml`에 클라이언트 설정 주입(`vars.*`) 추가, Pages 활성화 절차·Variables 사용 근거를 `DEPLOYMENT.md`에 명문화.
+- **security**: CSP를 스택 계약으로 확장(wss Realtime·worker-src blob: MapLibre·Storage img-src·object-src 'none') + `check-csp` 게이트(셀프테스트 내장) 하네스 편입.
+- **chore**: `commit-msg` 훅 — `Revert`/`Reapply`/`Merge` 등 git 생성 제목 허용(롤백 전략과 충돌 해소), `[skip actions]`·`skip-checks:` 트레일러 차단 추가.
+
 ### Phase 0B 코드 골격 (2026-07-22)
 - Vite + TypeScript(strict) 골격: 빌드·타입체크 통과, 홈(빈 상태) 1화면 렌더(에러 0).
 - `base=/Travel-Memories/`, history 라우터(안전 폴백), PWA manifest(하위경로 scope).
