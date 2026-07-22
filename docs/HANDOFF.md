@@ -22,7 +22,7 @@
 ```
 npm ci
 git config core.hooksPath .githooks   # commit-msg hook 활성
-npm run harness                        # typecheck + check-secret-leak + check-domain-wiring + check-csp
+npm run harness                        # Required 게이트 전체 (목록은 scripts/harness.mjs — 손편집 나열 금지, M-0001)
 npm run build                          # base=/Travel-Memories/ 정적 빌드
 npm run dev                            # 홈 화면 확인 (선택)
 ```
@@ -36,6 +36,14 @@ npm run dev                            # 홈 화면 확인 (선택)
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
 
 ---
+
+## HANDOFF-0004 · 적대적 검토 중간 항목 일괄 (TASK-0004)
+- 작업 ID: TASK-0004 · 담당: Claude Code · 날짜: 2026-07-22 · 브랜치: `claude/travel-log-app-r2xd5f`
+- 목표: HANDOFF-0003 "남은 위험" 중간 항목 6건 해소.
+- 변경: ① 스캐너 범위=git 추적 전체(docs/ 제외·사유 명시)+dist, 패턴 추가(sbp_·Google API 키·PEM), `.env` 추적 차단, SECURITY.md 서술을 구현 실체로 정정(엔트로피=미구현·후속 명시) ② `tests/unit/`(router·registry 9케이스) 신설, `pathToRoute` base 주입 순수함수화, 하네스에 `unit-tests` 게이트 — `npm test` RED 해소 ③ `check-domain-wiring` 기대 집합을 손편집 상수에서 DATA_MODEL.md 헤딩 파생으로 교체(셀프테스트 4케이스) ④ base SSOT: index.html 링크 `%BASE_URL%` 파생 + manifest 중복은 `check-base-consistency` 게이트로 대조(셀프테스트 6케이스) ⑤ ci.yml pull_request 트리거 제거(중복 실행)+concurrency 취소 ⑥ PWA 아이콘 PNG 파생 생성(192/512/maskable/apple-touch, `scripts/generate-icons.mjs`, icon.svg=SSOT·산출물 커밋) + index.html manifest/apple-touch 링크(기존엔 manifest 링크 자체가 없어 PWA 설치 불가였음).
+- 실행 검사(실제 결과): `npm run harness` 6게이트 전부 PASS · `npm test` 9/9 PASS · `npm run build` 성공, dist/index.html에 base 치환 확인 · PNG 4종 생성·픽셀 확인(512px 시각 확인). (자동층만 통과 표기 — 실기기 PWA 설치·iOS 홈화면 아이콘은 사용자 확인 권장.)
+- 남은 위험(선택 항목): 고엔트로피 일반 토큰 탐지 미구현(문서에 후속 명시) · fork PR 받을 경우 ci.yml pull_request 재도입 필요(주석 명시) · maskable 아이콘 safe-zone은 자동 검증 없음(시각 확인만).
+- 되돌리기: 이 커밋들 revert.
 
 ## HANDOFF-0003 · 적대적 검토 후속 수정 (TASK-0003)
 - 작업 ID: TASK-0003 · 담당: Claude Code · 날짜: 2026-07-22 · 브랜치: `claude/travel-log-app-r2xd5f`

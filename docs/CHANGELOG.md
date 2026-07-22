@@ -4,6 +4,13 @@
 
 ## [Unreleased] — Phase 0
 
+### 적대적 검토 중간 항목 일괄 (2026-07-22, TASK-0004)
+- **security**: 스캐너 범위를 git 추적 전체(+dist)로 확대, `sbp_`·Google API 키·PEM 개인키 패턴과 `.env` 추적 차단 추가. SECURITY.md 서술을 구현 실체와 일치시킴(엔트로피 탐지=후속).
+- **test**: `tests/unit/`(router·registry) 신설 + 하네스 `unit-tests` 게이트 — 테스트 0개로 `npm test`가 RED이던 상태 해소.
+- **refactor(gates)**: `check-domain-wiring` 기대 집합을 손편집 상수 → DATA_MODEL.md 헤딩 파생으로(SSOT). `check-base-consistency` 신설 — BASE(vite.config SSOT)↔manifest↔index.html 정합. 모든 게이트에 셀프테스트 내장.
+- **build**: index.html base 링크를 `%BASE_URL%` 파생으로, ci.yml pull_request 중복 트리거 제거 + concurrency 취소.
+- **feat(pwa)**: manifest 링크·apple-touch-icon을 index.html에 추가(기존엔 manifest 미연결로 설치 불가), icon.svg에서 PNG 192/512/maskable/180 파생 생성(`scripts/generate-icons.mjs`).
+
 ### 적대적 검토 후속 수정 (2026-07-22)
 - **security**: `check-secret-leak` 첫-매치 우회(M-0004) 정정 — `matchAll` 전수 판정 + 알려진-실패 주입 셀프테스트 내장(매 실행 검증).
 - **fix**: Dexie `deletedAt` 인덱스 제거(M-0005) — IndexedDB는 null 인덱스 키 불가, tombstone 계약과 양립하도록 스키마 v1 정정.
