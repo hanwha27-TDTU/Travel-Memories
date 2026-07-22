@@ -1,6 +1,6 @@
 {
-  "name": "Journey Archive · 여행 추억",
-  "short_name": "Journey",
+  "name": "Bugeon Journey · 여행 추억",
+  "short_name": "Bugeon Journey",
   "description": "사진·장소·비용과 짧은 감정을 연결해 여행의 기억을 되찾는 개인 여행기록 앱",
   "start_url": "/Travel-Memories/",
   "scope": "/Travel-Memories/",

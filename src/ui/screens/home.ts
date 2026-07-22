@@ -51,7 +51,7 @@ export function renderHome(mount: HTMLElement): void {
 
   const wrap = el('main', 'screen screen-home');
   const header = el('header', 'app-header');
-  header.appendChild(el('h1', 'app-title', '🧳 Journey Archive'));
+  header.appendChild(el('h1', 'app-title', '🧳 Bugeon Journey'));
   const authArea = el('div', 'auth-area');
   header.appendChild(authArea);
   wrap.appendChild(header);
