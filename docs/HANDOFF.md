@@ -4,6 +4,39 @@
 
 ---
 
+## 🔰 인계 요약 (다음 세션/AI 시작점)
+
+> **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
+
+**현재 단계**: **Phase 0B 코드 골격 완료.** Gate 0A(감사·문서·에이전트) → v0.2 정밀 병합 → Phase 0B(Vite+TS 골격, 빌드·타입체크·하네스·라이브 렌더 통과)까지 끝. 활성 task 없음(`docs/ACTIVE_TASKS.md`). 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨.
+
+**읽기 순서**:
+1. `CLAUDE.md`(Claude) / `AGENTS.md`(Codex) — 어댑터·비타협 원칙·작업 루프
+2. `docs/PROJECT_SPEC.md`(최상위) → `docs/LESSONS.md`(교훈)
+3. 도메인 계약: `DATA_MODEL` · `SYNC_PROTOCOL` · `SECURITY` · `MEDIA_PIPELINE` · `PRIVACY` · `DEPLOYMENT` · `ARCHITECTURE`
+4. `docs/AGENT_REGISTRY.md`(139역할→26에이전트) → `docs/DECISIONS.md` + `docs/ASSUMPTIONS.md`
+5. `docs/ROADMAP.md`(Phase 계획) → `docs/ACTIVE_TASKS.md` → 이 HANDOFF
+6. v0.2 원본 참조: `docs/reference/v0.2/`
+
+**클론 후 검증**(그대로 실행):
+```
+npm ci
+git config core.hooksPath .githooks   # commit-msg hook 활성
+npm run harness                        # typecheck + check-secret-leak + check-domain-wiring
+npm run build                          # base=/Travel-Memories/ 정적 빌드
+npm run dev                            # 홈 화면 확인 (선택)
+```
+
+**다음 작업 후보**:
+- (a) **Phase 0B 잔여**: SW 캐시 버저닝 · 배선맵(TERMINALS) 생성기 · camelCase↔snake_case 경계 게이트 · empty-seed 게이트.
+- (b) **Phase 1**: 인증(Google, invite-only·소유자 한정) · 여행 CRUD · 소유자 범위 RLS · 오프라인 저장. **Supabase 프로젝트 생성 필요**.
+
+**사용자 대기 열린 결정**: 지도 타일 제공자·예산(A-006) · Supabase 프로젝트 생성 시점(Q4) · Google OAuth 설정(Q5) · ADR-0015 인라인 AI 컬럼 제거 검토.
+
+**협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
 ## HANDOFF-0002 · Phase 0B 코드 골격
 - 작업 ID: TASK-0002 · 담당: Claude Code · 날짜: 2026-07-22 · 브랜치: `claude/travel-log-app-r2xd5f`
 - 목표: Vite+TS 골격이 빌드·타입체크·렌더되고 CI·배포·hook·레지스트리 게이트가 동작(기능 없음).
