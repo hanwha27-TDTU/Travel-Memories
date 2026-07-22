@@ -6,6 +6,7 @@ const gates = [
   { name: 'typecheck', cmd: 'npm run -s typecheck' },
   { name: 'check-secret-leak', cmd: 'node scripts/check-secret-leak.mjs' },
   { name: 'check-domain-wiring', cmd: 'node scripts/check-domain-wiring.mjs' },
+  { name: 'check-csp', cmd: 'node scripts/check-csp.mjs' },
 ];
 
 let failed = 0;
