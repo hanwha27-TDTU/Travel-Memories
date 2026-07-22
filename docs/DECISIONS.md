@@ -5,6 +5,10 @@
 
 ---
 
+## ADR-0019 · 설정 화면에 개발자 정보 필수 포함
+- 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-07-22
+- 사용자 지시("앱 설계시 개발자 정보도 꼭 추가"). 선행 앱(dr-bugeon)의 개발자 정보 화면 준거: 개발자·버전·최초 개발일·코드 최종 수정·업데이트 이력(펼치기). **버전·이력은 package.json·CHANGELOG에서 파생 생성**(손편집 금지, M-0001 규율) — 하드코딩 시 게이트 차단. 표기값(이름·소속)은 A-015 잠정, 구현 전 확인(Q6). 구현 Phase 5~6(설정 화면). 명세 PROJECT_SPEC §4.
+
 ## ADR-0018 · Phase 0B 스택 = npm · Vite · TS strict · history 라우팅
 - 유형: `[AI-autonomous]`(관례적 기본값, override 가능) · AI: Claude Code · 날짜: 2026-07-22
 - 패키지 매니저 **npm**(보편성), 빌드 **Vite**, **TypeScript strict**. 라우팅은 ADR-0012대로 **history + 404 복제**로 착수(해시 아님). Supabase 클라이언트는 **PKCE** 옵션으로 초기화(실 연동 Phase 1). 골격은 빌드·타입체크·하네스·라이브 렌더 통과.

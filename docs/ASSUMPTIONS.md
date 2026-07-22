@@ -19,6 +19,7 @@
 | A-012 | **GitHub Pages 정적 배포가 필수 목표.** Vite `base=/Travel-Memories/`, SW scope·라우터 하위경로 대응, 백엔드는 클라이언트→Supabase 직접 호출(publishable 키만 번들). 헤더호스트 병행 미러(ADR-0013). | 사용자 지시 | **사용자 확정** |
 | A-013 | v0.2 정밀 병합 채택(ADR-0014~0017): 복합FK·부분인덱스·sync 원장 테이블·deletion_jobs·EXIF 시각/whitelist·publishable 키·pgTAP 2사용자 테스트·불변 Storage·TUS 등. **인라인 AI 컬럼 제거→`ai_artifacts`는 표 구조 변경이라 구현 전 reviewer-release 확인 필요.** | v0.2 리뷰 + 사용자 병합 승인 | 확정(구현 전 검토 1건) |
 | A-014 | **저장소 조사(Gate 0A) 전 확정 금지 항목**(v0.2 §6): package manager·Node 버전, 기존 framework/router 유무, Supabase project·migration 상태, PWA SW 생성방식, HEIC 변환 lib+license, runtime validation lib, full archive streaming 구현, 단일 사용자 운영기간. → REPOSITORY_AUDIT/Phase 0B에서 확정. | v0.2 §6 | 미확정 |
+| A-015 | 설정 화면에 **개발자 정보** 필수 포함(개발자·버전·최초 개발일 2026-07-22·코드 최종 수정·업데이트 이력). 개발자 표기는 선행 앱과 동일 계정 기준 "김부건 (Kim Bugeon) · Tashkent State Medical University"를 잠정값으로 두고 구현 전 사용자 확인. 버전·이력은 `package.json`·`CHANGELOG.md`에서 **파생**(손편집 금지, M-0001). 상세 PROJECT_SPEC §4. | 사용자 지시(2026-07-22) | 기능 확정 · 표기값 잠정 |
 
 ## 확인이 필요한 열린 질문 (사용자)
 - ~~Q1: 사진 저장 기본 모드~~ → 절약 모드 확정(A-007).
@@ -26,3 +27,4 @@
 - Q3: 지도 타일 제공자와 운영 예산 (A-006). GitHub Pages 정적 배포와 무료 티어 호환 제공자 선정 필요.
 - Q4: 데모/운영 Supabase 프로젝트 생성 시점 (이 세션의 Supabase 연동 도구로 가능).
 - Q5: Google OAuth 클라이언트 설정 시점(Supabase Auth 연동, Phase 1).
+- Q6: 개발자 정보 표기값 확인 — 이름·소속을 잠정값("김부건 · Tashkent State Medical University") 그대로 쓸지 (A-015, 구현은 Phase 5~6).
