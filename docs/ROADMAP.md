@@ -20,17 +20,17 @@
 - [x] 선행 프로젝트 교훈을 `docs/LESSONS.md`에 추출·적용.
 
 ### Phase 0 남은 완료조건 (다음 작업 — 코드 골격)
-- [ ] Vite + TypeScript 실행 (`package.json`, `vite.config.ts`, `tsconfig.json`, `index.html`, `src/main.ts`).
-- [ ] 기본 화면 1개 표시 + 라우터 골격.
+- [ ] Vite + TypeScript 실행 (`package.json`, `vite.config.ts` **base=/Travel-Memories/**, `tsconfig.json`, `index.html`, `src/main.ts`).
+- [ ] 기본 화면 1개 표시 + 라우터 골격(하위경로 인식).
 - [ ] 환경변수 구조(`.env.example` — Supabase URL/anon key 자리, service_role 금지).
-- [ ] CI 기본검사(GitHub Actions) + 단일 `harness` 문 스텁.
+- [ ] CI 기본검사(GitHub Actions) + 단일 `harness` 문 스텁 + **GitHub Pages 빌드→배포 워크플로**(`docs/DEPLOYMENT.md`).
 - [ ] `check-secret-leak` · `check-supabase-sql-safe` · `commit-msg` hook 실동작.
 - [ ] `DOMAIN_REGISTRY` + 대칭 게이트 스텁, `TERMINALS` + 배선맵 생성기 스텁.
 
 > Phase 0 코드 골격은 별도 작업으로 진행하며, 시작 전 변경 예정 파일 목록을 사용자에게 제시한다.
 
 ## Phase 1 — 인증과 여행
-로그인 · 세션 복구 · 여행 CRUD · **RLS 공격검사 통과** · IndexedDB 로컬 저장.
+**소셜 로그인(Google OAuth)** · 세션 복구 · 여행 CRUD · **소유자 범위 RLS 공격검사 통과** · IndexedDB 로컬 저장. (Supabase Auth에 Google OAuth 클라이언트 연동, Pages 도메인 CORS 등록.)
 
 ## Phase 2 — 순간과 타임라인
 순간 생성 · 날짜별 타임라인 · 감정·중요기억 · 오프라인 작성 · 재접속 동기화.

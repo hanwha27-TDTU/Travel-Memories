@@ -5,6 +5,18 @@
 
 ---
 
+## ADR-0010 · GitHub Pages 정적 배포를 필수 목표로 확정
+- 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-07-22
+- 사용자 "무조건 GitHub로 배포". 정적 호스팅 제약을 설계에 못박음: Vite `base=/Travel-Memories/`, Service Worker scope·라우터 하위경로 대응, 서버 없음 → 백엔드는 클라이언트가 Supabase 직접 호출(anon 키만 번들, service_role 금지), GitHub Actions 빌드→Pages 자동배포. 단일 HTML은 보조 빌드. 상세 `docs/DEPLOYMENT.md`.
+
+## ADR-0009 · 인증 = 소셜 로그인(Google), 매직링크는 무료 대안
+- 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-07-22
+- 사용자 "소셜로그인으로 진행". 비용 정정: 이메일 매직링크는 SMS와 달리 전송 비용 없음(무료 SMTP). 그럼에도 소셜(Google)이 무료·무마찰이라 채택. Apple 로그인은 연 $99 개발자 계정 필요 → 보류. ADR-0002(소유자 범위 RLS)와 정합.
+
+## ADR-0008 · 사진 기본 저장 = 절약 모드
+- 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-07-22
+- 사용자 "절약 모드". 앱용 압축본+썸네일만 서버 저장, 원본은 기기에만(설계지시서 §9.1 기본값과 일치). 균형/원본보관은 사용자 선택 옵션으로 유지.
+
 ## ADR-0007 · 디자인 계열 에이전트 모델 = fable, 그 외 = opus
 - 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-07-22
 - 사용자 지시 "설계를 fable5 버전으로 아주 멋지게". 디자인·UX·비주얼 생산 에이전트(125–133, product-ux, frontend)는 `fable`, 총괄·감사·엔지니어링·보안·QA는 `opus`.
@@ -35,7 +47,6 @@
 
 ---
 ## 확인 대기 (사용자 결정 필요)
-- 사진 저장 기본 모드(절약/균형/원본보관) — `docs/ASSUMPTIONS.md` A-007.
-- 인증 방식(매직링크/비밀번호/소셜) — A-008, ADR-0002 연동.
-- 지도 타일 제공자·예산 — A-006.
-- Supabase 프로젝트 생성 시점.
+- 지도 타일 제공자·예산 — A-006 (GitHub Pages 정적 배포 + 무료 티어 호환).
+- Supabase 프로젝트 생성 시점 — A-004/Q4.
+- Google OAuth 클라이언트 설정 시점 — Q5 (Phase 1).

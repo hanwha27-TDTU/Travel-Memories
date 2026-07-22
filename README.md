@@ -44,6 +44,7 @@
 | [`docs/PRIVACY.md`](docs/PRIVACY.md) | 개인정보 흐름과 보호 |
 | [`docs/SYNC_PROTOCOL.md`](docs/SYNC_PROTOCOL.md) | 오프라인 동기화 프로토콜 |
 | [`docs/MEDIA_PIPELINE.md`](docs/MEDIA_PIPELINE.md) | 사진 처리 파이프라인 |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | GitHub Pages 정적 배포 (필수) |
 | [`docs/AGENT_REGISTRY.md`](docs/AGENT_REGISTRY.md) | 서브에이전트 등록부 |
 | [`docs/LESSONS.md`](docs/LESSONS.md) | 선행 프로젝트에서 얻은 교훈 |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | 단계별 개발 계획 |

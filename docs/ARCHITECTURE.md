@@ -8,6 +8,8 @@
 
 배포 우선순위: ① 여러 파일 운영 PWA → ② GitHub Pages 정적 배포 → ③ 단일 HTML 보조 빌드.
 
+> **GitHub Pages 정적 배포가 필수 목표**(ADR-0010). Vite `base=/Travel-Memories/`, Service Worker scope·라우터 하위경로 대응, 서버측 로직은 Supabase Edge Function, 번들엔 anon 키만. 상세·제약·파이프라인은 `docs/DEPLOYMENT.md`.
+
 ## 기술 구성
 
 TypeScript(strict) · Vite · Vanilla TS 컴포넌트 · Supabase(Auth/PostgreSQL/Storage 비공개 버킷) · Dexie(IndexedDB) · MapLibre GL JS · GeoJSON · Web Worker+OffscreenCanvas(+Canvas 대체) · Service Worker+IndexedDB 대기열 · Vitest · Playwright · GitHub Pages · GitHub Actions · Git worktree+기능별 branch.
