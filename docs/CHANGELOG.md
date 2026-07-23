@@ -4,6 +4,12 @@
 
 ## [Unreleased] — Phase 0~1
 
+### Phase 1 — 디자인 시스템 적용 (계절·테마·반응형) (2026-07-23)
+- **디자인 토큰 SSOT**(`tokens.css`): 계절 강조색(봄·여름·가을·겨울) × 라이트/다크 뉴트럴 × 시맨틱 색 분리. `data-season`/`data-theme` 속성으로 스위칭, 강조 위 텍스트 흰색 고정.
+- **테마 상태 모듈**(`ui/theme.ts`): 계절/테마 선택을 localStorage 캐시(표시 선호만; 기억 데이터는 IndexedDB). 미선택 시 계절은 이번 달 기준 자동, 테마는 OS 선호.
+- **홈 화면 재디자인**(`home.ts`+`app.css`): 계절 세그먼트+다크 토글 컨트롤, 여행 커버 카드(계절 그라데이션·상태 배지), 몰입형 빈 상태, 반응형(모바일 풀블리드·데스크톱 그리드).
+- **라이브 렌더 검증**(Playwright/Chromium): 모바일·데스크톱, 계절 전환(→겨울)·다크 토글·여행 3건 생성까지 **콘솔 에러 0**, 커버 카드 정상 렌더(스크린샷 확인).
+
 ### Phase 1 — 초대제 접근 잠금 + 첫 실배포 (2026-07-23)
 - **첫 실배포**: PR #1 병합 → GitHub Pages 배포 성공. 대시보드 설정(journey 스키마 노출·Google OAuth 클라이언트·redirect URL) 완료 후 **2기기 Google 로그인·동기화 실동작 확인**(사용자 검증). RLS 격리 실증(다른 계정 로그인 시 타인 데이터 0건).
 - **초대제 잠금(ADR-0021)**: migration `0002_journey_invite_only.sql` — `journey.allowed_users` + `journey.is_allowed()`(SECURITY DEFINER) + trips 정책에 허용조건 결합. 앱 게이트(`isAllowedUser()`)로 비허용자 자동 로그아웃 안내. 공격검사 `rls_invite_only_trips.sql` **INVITE_ONLY_PASS**, `rls_attack_trips.sql` 갱신 후 **RLS_ATTACK_PASS** 유지.

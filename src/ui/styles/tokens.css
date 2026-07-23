@@ -1,53 +1,84 @@
-/* Bugeon Journey · 디자인 토큰 (travel-design-system)
-   실제 색상값은 시각방향 확정 후 고정한다. 라이트≠다크 반전 아님. */
+/* Bugeon Journey · 디자인 토큰 (travel-design-system) — 계절·테마 인식 SSOT.
+   원칙: 사진이 주인공, UI는 계절 옷을 입되 절제. 라이트≠다크 반전 아님.
+   접근성: 강조 위 텍스트는 흰색 고정, 강조 텍스트(--a1d)는 두 테마 모두에서 사용. */
 :root {
-  --color-bg-primary: #ffffff;
-  --color-bg-secondary: #f6f7f8;
-  --color-surface: #ffffff;
-  --color-text-primary: #1c1d1f;
-  --color-text-secondary: #65686d;
-  --color-border: #e6e8ea;
-  --color-accent: #3f6f78;
-  --color-on-accent: #ffffff;
-  --color-success: #477a55;
-  --color-warning: #956b27;
-  --color-danger: #a34747;
+  /* ===== 뉴트럴 (라이트 기본) ===== */
+  --bg: #fdf8f4;
+  --bg-2: #f6efe8;
+  --surface: #ffffff;
+  --ink: #232538;
+  --ink-soft: #5c6178;
+  --line: #efe7e0;
+  --shadow-card: 0 14px 30px -24px rgba(35, 37, 56, .45);
+  --shadow-float: 0 18px 44px -24px rgba(60, 50, 70, .40);
 
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
+  /* ===== 시맨틱 색 (강조색과 분리) ===== */
+  --sem-teal: #2fa79a;
+  --sem-sky:  #3e90dc;
+  --sem-pink: #e86f97;
+  --color-success: #3f9d6b;
+  --color-warning: #c98a3a;
+  --color-danger:  #d15b5b;
 
-  --radius-small: 8px;
-  --radius-medium: 14px;
-  --radius-large: 22px;
+  /* ===== 계절 강조색 (기본 = 여름) ===== */
+  --a1: #f0836c; --a1d: #d96650; --a2: #37b0a6; --a3: #f2c25c;
+
+  /* ===== 스케일 ===== */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px;
+  --radius-small: 12px; --radius-medium: 18px; --radius-large: 28px; --radius-pill: 999px;
   --touch-target-min: 44px;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", Roboto, sans-serif;
+  --font-disp: "Trebuchet MS", var(--font-sans);
 
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo",
-    "Noto Sans KR", Roboto, sans-serif;
+  /* ===== 레거시 별칭 (기존 컴포넌트 호환) ===== */
+  --color-bg-primary: var(--surface);
+  --color-bg-secondary: var(--bg);
+  --color-surface: var(--surface);
+  --color-text-primary: var(--ink);
+  --color-text-secondary: var(--ink-soft);
+  --color-border: var(--line);
+  --color-accent: var(--a1d);
+  --color-on-accent: #ffffff;
 }
 
+/* 계절 강조색: default(summer) 외 3계절. --a1d는 두 테마 모두에서 읽히는 중간톤으로 고른다. */
+:root[data-season="spring"] { --a1: #ea7196; --a1d: #ce557c; --a2: #79c39b; --a3: #f2c173; }
+:root[data-season="summer"] { --a1: #f0836c; --a1d: #d96650; --a2: #37b0a6; --a3: #f2c25c; }
+:root[data-season="autumn"] { --a1: #da8654; --a1d: #c06e3a; --a2: #a88a4e; --a3: #e0a468; }
+:root[data-season="winter"] { --a1: #6f8fd3; --a1d: #6480c4; --a2: #5caac4; --a3: #9fb2da; }
+
+/* 다크 뉴트럴 (media = OS 선호, data-theme = 사용자 토글이 양방향으로 우선) */
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-bg-primary: #14181b;
-    --color-bg-secondary: #1b2024;
-    --color-surface: #1b2024;
-    --color-text-primary: #e7ebee;
-    --color-text-secondary: #9aa4ac;
-    --color-border: #2a3137;
-    --color-accent: #5fa3ad; /* 강조는 테마별로 뒤집힌다 — 강조 위 텍스트는 테마인식 오버라이드 필요 */
-    --color-on-accent: #0d1417;
+    --bg: #111220; --bg-2: #181a2b; --surface: #1a1c2d; --ink: #eef0ff; --ink-soft: #a9adc6; --line: #2b2940;
+    --shadow-card: 0 14px 30px -24px rgba(0, 0, 0, .55);
+    --shadow-float: 0 18px 44px -24px rgba(0, 0, 0, .6);
+    --color-on-accent: #0d1120;
   }
+}
+:root[data-theme="light"] {
+  --bg: #fdf8f4; --bg-2: #f6efe8; --surface: #fff; --ink: #232538; --ink-soft: #5c6178; --line: #efe7e0;
+  --shadow-card: 0 14px 30px -24px rgba(35, 37, 56, .45);
+  --shadow-float: 0 18px 44px -24px rgba(60, 50, 70, .40);
+  --color-on-accent: #ffffff;
+}
+:root[data-theme="dark"] {
+  --bg: #111220; --bg-2: #181a2b; --surface: #1a1c2d; --ink: #eef0ff; --ink-soft: #a9adc6; --line: #2b2940;
+  --shadow-card: 0 14px 30px -24px rgba(0, 0, 0, .55);
+  --shadow-float: 0 18px 44px -24px rgba(0, 0, 0, .6);
+  --color-on-accent: #0d1120;
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
+html, body { margin: 0; min-height: 100%; }
 body {
   font-family: var(--font-sans);
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
+  color: var(--ink);
+  background:
+    radial-gradient(120% 78% at 8% -6%, color-mix(in srgb, var(--a1) 15%, transparent), transparent 55%),
+    radial-gradient(120% 88% at 100% 0%, color-mix(in srgb, var(--a2) 13%, transparent), transparent 52%),
+    var(--bg);
+  min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   line-height: 1.5;
 }
