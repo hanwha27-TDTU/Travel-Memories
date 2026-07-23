@@ -388,3 +388,41 @@
   display: grid; place-items: center; padding: 20px; cursor: zoom-out;
 }
 .photo-viewer img { max-width: 100%; max-height: 100%; border-radius: var(--radius-medium); box-shadow: 0 20px 60px -20px rgba(0,0,0,.8); }
+
+/* 사진 편집 모달 (photoEditor) */
+.pe-overlay {
+  position: fixed; inset: 0; z-index: 60; background: rgba(8, 8, 18, .8);
+  display: grid; place-items: center; padding: 12px;
+}
+.pe-sheet {
+  width: 100%; max-width: 520px; max-height: 96vh; overflow-y: auto;
+  background: var(--surface); color: var(--ink);
+  border-radius: var(--radius-large); border: 1px solid var(--line);
+  padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3);
+  box-shadow: var(--shadow-float);
+}
+.pe-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+.pe-head b { font-family: var(--font-disp); font-size: 1.05rem; }
+.pe-file { max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pe-stage { display: grid; place-items: center; background: #0c0d18; border-radius: var(--radius-medium); min-height: 220px; }
+.pe-canvas { max-width: 100%; max-height: 46vh; border-radius: var(--radius-small); touch-action: none; cursor: grab; }
+.pe-presets, .pe-geo { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.pe-chip {
+  min-height: 34px; padding: 0 12px; border-radius: var(--radius-pill);
+  border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+  font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer;
+}
+.pe-chip[aria-pressed="true"] {
+  color: #fff; border-color: transparent;
+  background: linear-gradient(120deg, var(--a1), var(--a3));
+}
+.pe-zoom-wrap { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 120px; }
+.pe-zoom { flex: 1; }
+.pe-sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; }
+.pe-slider { display: flex; align-items: center; gap: 8px; }
+.pe-slider-label { font-size: 0.72rem; font-weight: 800; color: var(--ink-soft); width: 44px; flex: 0 0 auto; }
+.pe-slider input[type="range"] { flex: 1; min-width: 0; accent-color: var(--a1d); }
+.pe-zoom { accent-color: var(--a1d); }
+.pe-actions { display: flex; gap: var(--space-2); }
+.pe-actions .btn-primary { flex: 1; }
+@media (max-width: 420px) { .pe-sliders { grid-template-columns: 1fr; } }

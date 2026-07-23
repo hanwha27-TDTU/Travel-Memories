@@ -19,8 +19,14 @@ export interface AddPhotoTarget {
 /**
  * 사진 1장을 순간에 추가. EXIF 우선 추출 → 압축본·썸네일 생성 → 로컬 내구성 커밋 + read-back.
  * 원본(file)은 그대로 originalBlob으로 보관한다.
+ * editedBlob이 있으면(비파괴 편집 결과) 압축본·썸네일은 그것에서 파생하되,
+ * EXIF(촬영시각·GPS)는 항상 "원본"에서 읽는다(§0 — 편집은 메타데이터를 잃지 않는다).
  */
-export async function addPhotoToMoment(file: File, target: AddPhotoTarget): Promise<LocalMedia> {
+export async function addPhotoToMoment(
+  file: File,
+  target: AddPhotoTarget,
+  editedBlob?: Blob,
+): Promise<LocalMedia> {
   if (!target.momentId || !target.tripId) throw new Error('순간 정보가 없습니다.');
 
   // 1) EXIF 먼저(압축 전). JPEG가 아니거나 없으면 파일 mtime 폴백.
@@ -40,8 +46,8 @@ export async function addPhotoToMoment(file: File, target: AddPhotoTarget): Prom
     }
   }
 
-  // 2) 압축(원본은 인자로만 읽고 수정하지 않음).
-  const { display, thumb } = await compressForStorage(file);
+  // 2) 압축(원본은 인자로만 읽고 수정하지 않음). 편집본이 있으면 그것을 파생 소스로.
+  const { display, thumb } = await compressForStorage(editedBlob ?? file);
 
   const now = new Date().toISOString();
   const media: LocalMedia = {

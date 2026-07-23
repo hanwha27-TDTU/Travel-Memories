@@ -5,6 +5,7 @@ import { el } from '../dom';
 import { getTrip, updateTripLocalFirst } from '../../services/trips';
 import { createMomentLocalFirst, listMoments } from '../../services/moments';
 import { addPhotoToMoment, listMediaByTrip } from '../../services/media';
+import { openPhotoEditor } from '../photoEditor';
 import { groupMomentsByDay, type DayGroup } from '../../domain/moment/timeline';
 import { supabase } from '../../services/supabase/client';
 import { currentUser } from '../../services/auth';
@@ -284,15 +285,16 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           });
           if (files.length) {
             let done = 0;
-            note.textContent = `사진 처리 중… (0/${files.length})`;
             for (const f of files) {
               try {
-                await addPhotoToMoment(f, { momentId: moment.id, tripId: trip!.id });
+                // 비파괴 편집: 편집 모달(적용=편집본, 원본 사용=null). 원본은 항상 보존.
+                const edited = await openPhotoEditor(f, `${done + 1}/${files.length} · ${f.name}`);
+                note.textContent = `사진 처리 중… (${done + 1}/${files.length})`;
+                await addPhotoToMoment(f, { momentId: moment.id, tripId: trip!.id }, edited ?? undefined);
               } catch {
                 /* 개별 사진 실패는 건너뜀(순간 자체는 저장됨) */
               }
               done += 1;
-              note.textContent = `사진 처리 중… (${done}/${files.length})`;
             }
           }
           input.value = '';
