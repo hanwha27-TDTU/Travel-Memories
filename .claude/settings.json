@@ -1,0 +1,12 @@
+{
+  "_note": "Bugeon Journey · Claude Code 프로젝트 설정. hook 후보는 docs/SECURITY.md의 'Hook / 게이트 후보' 참조. 실제 hook은 Phase 0에서 scripts/ 구현 후 활성화한다(현재는 존재하지 않는 스크립트를 가리키지 않도록 비워 둠).",
+  "hooks": {},
+  "permissions": {
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob"
+    ],
+    "deny": []
+  }
+}

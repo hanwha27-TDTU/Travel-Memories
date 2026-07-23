@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://journey-archive/schemas/agent-report.schema.json",
+  "title": "Bugeon Journey Agent Report",
+  "description": "AGENTS.md §18.1 공통 출력계약. 모든 에이전트는 결과를 이 스키마에 맞는 JSON으로 artifacts/agent-reports/{TASK_ID}-{agent}.json 에 남긴다. S-07(agent chat output만으로 인계 금지: JSON Schema로 검증되는 report artifact).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["agent", "task_id", "objective"],
+  "properties": {
+    "agent": {
+      "type": "string",
+      "minLength": 1,
+      "description": "에이전트 이름 (물리 에이전트: 통합 10 + 디자인 16 중 하나)."
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^TASK-[0-9]{4,}$",
+      "description": "docs/ACTIVE_TASKS.md 에 등록된 task_id. 한 에이전트는 하나의 task_id만 처리한다."
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 1,
+      "description": "작업 목적."
+    },
+    "assumptions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "files_read": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "files_changed": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "database_changes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "DB/RLS 변경. 값이 있으면 지정 독립검토(security-privacy, qa) 필수."
+    },
+    "storage_changes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Storage bucket/policy/path 변경. 값이 있으면 독립검토 필수."
+    },
+    "security_impact": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "privacy_impact": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "implementation_summary": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "tests_added": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "tests_run": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "test_results": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "실제 실행 결과. 미실행을 통과로 표시하지 않는다."
+    },
+    "known_risks": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "rollback_plan": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "unresolved_items": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "recommended_next_agent": {
+      "type": "string",
+      "default": "",
+      "description": "다음 권고 에이전트. 이 값과 completed 표시는 Acceptance gate를 대체하지 않는다."
+    }
+  }
+}

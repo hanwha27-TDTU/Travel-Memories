@@ -1,0 +1,53 @@
+/* Bugeon Journey · 디자인 토큰 (travel-design-system)
+   실제 색상값은 시각방향 확정 후 고정한다. 라이트≠다크 반전 아님. */
+:root {
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f6f7f8;
+  --color-surface: #ffffff;
+  --color-text-primary: #1c1d1f;
+  --color-text-secondary: #65686d;
+  --color-border: #e6e8ea;
+  --color-accent: #3f6f78;
+  --color-on-accent: #ffffff;
+  --color-success: #477a55;
+  --color-warning: #956b27;
+  --color-danger: #a34747;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --radius-small: 8px;
+  --radius-medium: 14px;
+  --radius-large: 22px;
+  --touch-target-min: 44px;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo",
+    "Noto Sans KR", Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg-primary: #14181b;
+    --color-bg-secondary: #1b2024;
+    --color-surface: #1b2024;
+    --color-text-primary: #e7ebee;
+    --color-text-secondary: #9aa4ac;
+    --color-border: #2a3137;
+    --color-accent: #5fa3ad; /* 강조는 테마별로 뒤집힌다 — 강조 위 텍스트는 테마인식 오버라이드 필요 */
+    --color-on-accent: #0d1417;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: var(--font-sans);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
+}

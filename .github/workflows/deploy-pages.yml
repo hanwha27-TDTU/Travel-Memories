@@ -1,0 +1,55 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: ['main']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: 'pages'
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Harness (Required gates)
+        run: npm run harness
+      # 클라이언트 설정 주입: publishable 키는 비밀이 아니므로 Repository Variables 사용
+      # (Settings → Secrets and variables → Actions → Variables). 미설정이면 빈 값으로
+      # 빌드되고 앱은 로컬 전용 모드로 동작한다(services/supabase/client.ts null 폴백).
+      # service_role/secret 키는 어떤 경로로도 여기 넣지 않는다(SECURITY.md).
+      - name: Build (base=/Travel-Memories/)
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_MAP_STYLE_URL: ${{ vars.VITE_MAP_STYLE_URL }}
+      # SPA 딥링크 폴백: 404.html = index.html (history 라우팅, DEPLOYMENT.md)
+      - run: cp dist/index.html dist/404.html
+      - name: Secret leak scan on build artifact
+        run: node scripts/check-secret-leak.mjs
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
