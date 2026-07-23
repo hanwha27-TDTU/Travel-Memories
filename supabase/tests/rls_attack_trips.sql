@@ -11,9 +11,13 @@ values
   ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'user-a@test.local', 'x', now(), now(), now()),
   ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'user-b@test.local', 'x', now(), now(), now());
 
+-- 초대제 잠금(ADR-0021): 이 소유권 격리 검사는 두 사용자가 "허용됨"인 전제에서만 유효.
+-- 두 이메일을 허용목록에 넣고, jwt 클레임에도 email을 실어 is_allowed()가 true가 되게 한다.
+insert into journey.allowed_users (email) values ('user-a@test.local'), ('user-b@test.local');
+
 -- ── 사용자 A ──
 set local role authenticated;
-select set_config('request.jwt.claims', '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}', true);
+select set_config('request.jwt.claims', '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","email":"user-a@test.local","role":"authenticated"}', true);
 
 insert into journey.trips (id, user_id, title)
 values ('11111111-1111-4111-8111-111111111111', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'A의 제주 여행');
@@ -35,7 +39,7 @@ do $$ begin
 end $$;
 
 -- ── 사용자 B ──
-select set_config('request.jwt.claims', '{"sub":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","role":"authenticated"}', true);
+select set_config('request.jwt.claims', '{"sub":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","email":"user-b@test.local","role":"authenticated"}', true);
 
 -- 공격 2: B가 A의 여행 조회 → 0행
 do $$ begin
@@ -57,7 +61,7 @@ do $$ begin
 end $$;
 
 -- ── 다시 사용자 A: 공격 3·4 결과 검증 ──
-select set_config('request.jwt.claims', '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","role":"authenticated"}', true);
+select set_config('request.jwt.claims', '{"sub":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","email":"user-a@test.local","role":"authenticated"}', true);
 
 do $$ begin
   if (select title from journey.trips where id = '11111111-1111-4111-8111-111111111111') <> 'A의 제주 여행' then

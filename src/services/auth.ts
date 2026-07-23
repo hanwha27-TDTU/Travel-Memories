@@ -30,6 +30,19 @@ export async function signInWithGoogle(): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+/**
+ * 초대 허용 사용자 여부(초대제 잠금 — ADR-0021).
+ * DB의 journey.is_allowed()가 진짜 방어이며, 이 호출은 UI 게이트(친절 안내)용이다.
+ * 오류/미설정 시 false(보수적).
+ */
+export async function isAllowedUser(): Promise<boolean> {
+  const c = supabase();
+  if (!c) return false;
+  const { data, error } = await c.rpc('is_allowed');
+  if (error) return false;
+  return data === true;
+}
+
 /** 로그아웃(세션 종료). H-14 로컬 데이터 keep/delete 선택은 후속 구현. */
 export async function signOut(): Promise<void> {
   const c = supabase();

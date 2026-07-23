@@ -18,6 +18,19 @@ DELETE  : auth.uid() = user_id
 ```
 정책은 operation별로 분리하고 `TO authenticated`를 명시한다. 관계형 테이블(`trip_days`, `moments`, `trip_companions` 등)은 연결된 여행의 소유자도 함께 검증한다. RLS 미검증 테이블은 배포하지 않는다. DELETE는 앱 직접 hard delete를 금지하고 필요한 테이블만 제한한다(tombstone 경로 우선).
 
+## 초대제 접근 잠금 (ADR-0021 — 공유 프로젝트 전역 로그인 보완)
+
+Google 로그인은 공유 프로젝트에서 회계 앱과 전역 공용이라 아무 계정이나 로그인 가능하다. RLS가 사용자 간 데이터를 격리하지만, 개인 기억 앱은 한 겹 더 잠근다: **허용목록에 없는 사용자는 로그인해도 여행 데이터를 읽기/쓰기 불가**.
+
+```
+소유자 정책 = (auth.uid() = user_id)  AND  journey.is_allowed()
+journey.is_allowed() : SECURITY DEFINER, search_path='', JWT email 소문자 = allowed_users.email 존재?
+journey.allowed_users : RLS on + 정책 없음 + grant 없음(클라이언트 직접 접근 불가, 함수로만 조회)
+```
+- 진짜 방어는 **DB(RLS)** 이고, 앱 게이트(`services/auth.ts` `isAllowedUser()` → `home.ts` 자동 로그아웃)는 UX용.
+- **초대 추가**: `insert into journey.allowed_users(email) values ('someone@gmail.com');` · **다시 공개**: 정책에서 `and journey.is_allowed()` 제거(후속 migration). 데이터 손실 없음, 회계(`public`) 무영향.
+- 검증(비공허): `supabase/tests/rls_invite_only_trips.sql` **INVITE_ONLY_PASS** — 비허용 조회 0·INSERT 차단·email 없는 세션 차단.
+
 ## 복합 소유자 FK = DB 계층 방어 (H-02)
 
 RLS만으로 자식 row의 소유권을 보장하지 않는다. 자식 테이블은 `(parent_id, user_id)`가 부모 `(id, user_id)`를 참조하는 **복합 외래키**를 두어 다른 사용자의 부모 ID를 연결할 수 없게 한다(부모에 `UNIQUE(id, user_id)` 필요). 적용 대상·상세는 `docs/DATA_MODEL.md`. 이는 RLS 예측자를 **보완하는 DB 계층 방어**이며 RLS를 대체하지 않는다.

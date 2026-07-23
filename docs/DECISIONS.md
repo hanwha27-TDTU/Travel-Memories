@@ -5,6 +5,13 @@
 
 ---
 
+## ADR-0021 · 초대제 접근 잠금(allowlist) — DB RLS + 앱 게이트 이중
+- 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-07-23
+- 공유 프로젝트의 Google 로그인은 회계 앱과 공용이라 전역으로 열려 있어, 아무 Google 계정이나 여행 앱에 로그인해 자기 기록을 만들 수 있었다. RLS로 사용자 간 데이터는 이미 격리되지만(타인 데이터 열람 불가), 개인 기억 앱 원칙(개인자료 기본 비공개) + 낯선 사용자 데이터를 프로젝트 소유자가 보관·열람하게 되는 부담 때문에 **초대제(invite-only)로 잠금** 결정.
+- 구현(migration `0002_journey_invite_only.sql`): `journey.allowed_users(email)` 목록 + `journey.is_allowed()`(SECURITY DEFINER, JWT email 소문자 비교). `trips_{select,insert,update}` 정책에 `and journey.is_allowed()` 결합 → **허용목록 밖 사용자는 로그인해도 자기 행조차 읽기/쓰기 불가**. 앱(`services/auth.ts` `isAllowedUser()` + `home.ts` 게이트)은 비허용자 자동 로그아웃 안내(UX; 진짜 방어는 DB).
+- 검증: `supabase/tests/rls_invite_only_trips.sql` **INVITE_ONLY_PASS**(비허용 조회 0·INSERT 차단·email 없는 세션 차단), 기존 `rls_attack_trips.sql` 갱신 후 **RLS_ATTACK_PASS** 유지.
+- **되돌리기 쉬움(양방향)**: 초대 추가 = `allowed_users`에 insert / 다시 공개 = 정책의 `and journey.is_allowed()` 조건 제거(후속 migration). 데이터 손실 없음. 회계(`public`) 스키마 무영향.
+
 ## ADR-0020 · Supabase 공유 프로젝트 + journey 스키마 분리
 - 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-07-22
 - 무료 한도(2개)로 신규 프로젝트 불가 → 사용자가 기존 News&Accounting을 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`, ap-south-1 뭄바이)으로 개명해 공유 결정. 분리: 회계 앱 = `public` 스키마(불가침) / 여행 앱 = **`journey` 스키마 전용**(클라이언트 `db.schema='journey'`).
