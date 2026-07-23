@@ -858,6 +858,10 @@
 .pe-file { max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pe-stage {
   display: grid; place-items: center; background: #0c0d18; border-radius: var(--radius-medium); min-height: 220px; overflow: hidden;
+  /* 수축 금지(M-flex-clip): overflow:hidden인 flex 자식은 최소크기가 0이 되어, 시트 내용이
+     96vh를 넘으면 스테이지가 min-height까지 짜부라져 세로 사진 위쪽만 보였다. 시트가
+     스크롤하도록 스테이지는 제 높이를 지킨다. */
+  flex: 0 0 auto;
   /* 슬라이더를 만지는 동안 사진이 스크롤로 사라지지 않게 상단 고정(보면서 조절).
      음수 top으로 시트 상단 패딩 띠까지 덮는다. 폭 채우기(is-fill)에선 해제. */
   position: sticky; top: calc(-1 * var(--space-4)); z-index: 5;

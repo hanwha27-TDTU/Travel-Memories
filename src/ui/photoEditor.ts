@@ -345,7 +345,11 @@ export async function openPhotoEditor(
         return;
       }
       activePts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      preview.setPointerCapture(e.pointerId);
+      try {
+        preview.setPointerCapture(e.pointerId);
+      } catch {
+        /* 이미 끝난 포인터(합성 이벤트 포함)는 캡처 불가 — 제스처 추적은 계속 */
+      }
       if (!pendingSnap) pendingSnap = cloneState(state); // 팬/핀치 제스처 시작점(undo 단위)
       if (activePts.size === 2) {
         // 두 손가락 → 핀치 줌 시작(팬 중단)
@@ -395,6 +399,34 @@ export async function openPhotoEditor(
     preview.addEventListener('pointerup', endPointer);
     preview.addEventListener('pointercancel', endPointer);
 
+    // ── Ctrl+휠 확대/축소(PC) — 트랙패드 핀치도 브라우저가 ctrlKey+wheel로 전달한다.
+    // 연속 제스처 규칙(§2-2): 틱마다 fast 재굽기, 350ms 잠잠하면 커밋+고해상. undo 한 단계.
+    let wheelTimer = 0;
+    stage.addEventListener(
+      'wheel',
+      (e) => {
+        if (!e.ctrlKey) return; // 일반 휠은 시트 스크롤로 통과
+        if (isCropMode()) return; // 자유 크롭 창은 zoom/pan을 쓰지 않아 보이지 않는 상태 변경 방지
+        e.preventDefault(); // 브라우저 페이지 확대 차단
+        if (!pendingSnap) pendingSnap = cloneState(state);
+        const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY; // line 모드 정규화
+        const z = Math.max(1, Math.min(3, state.zoom * Math.exp(-dy * 0.002)));
+        state.zoom = Math.round(z * 20) / 20; // 슬라이더 step(0.05)에 맞춤
+        zoom.value = String(state.zoom);
+        if (state.zoom === 1) {
+          state.panX = 0;
+          state.panY = 0;
+        }
+        repaint(true);
+        window.clearTimeout(wheelTimer);
+        wheelTimer = window.setTimeout(() => {
+          commitPending();
+          repaint();
+        }, 350);
+      },
+      { passive: false },
+    );
+
     // ── 크롭 오버레이 드래그(이동/모서리 리사이즈) ──
     let cropDrag: { mode: FreeCropDragMode; sx: number; sy: number; fc: { x: number; y: number; w: number; h: number } } | null = null;
     cropBox.addEventListener('pointerdown', (e) => {
@@ -402,7 +434,11 @@ export async function openPhotoEditor(
       ensureFreeCrop();
       const corner = (e.target as HTMLElement).dataset['corner'] as 'nw' | 'ne' | 'sw' | 'se' | undefined;
       cropDrag = { mode: corner ?? 'move', sx: e.clientX, sy: e.clientY, fc: { ...state.freeCrop! } };
-      cropBox.setPointerCapture(e.pointerId);
+      try {
+        cropBox.setPointerCapture(e.pointerId);
+      } catch {
+        /* 합성/종료 포인터 캡처 불가 시에도 드래그 추적은 계속 */
+      }
       e.preventDefault();
     });
     cropBox.addEventListener('pointermove', (e) => {

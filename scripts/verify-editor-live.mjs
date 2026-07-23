@@ -178,6 +178,59 @@ await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 check('뷰어: Esc로 닫힘', (await page.locator('.photo-viewer').count()) === 0);
 
+// ── v0.26: 세로 사진 잘림(M-flex-clip) + Ctrl+휠 줌 + 핀치 줌 ──
+// 세로(500x1200) 사진 1장을 새 순간으로 → 편집기에서 스테이지가 캔버스를 짜부라뜨리지 않는지.
+const tallBuf = Buffer.from(await page.evaluate(async () => {
+  const c = document.createElement('canvas'); c.width = 500; c.height = 1200;
+  const x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, 0, 1200);
+  g.addColorStop(0, '#39a0e0'); g.addColorStop(1, '#e0398f');
+  x.fillStyle = g; x.fillRect(0, 0, 500, 1200);
+  const b = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9));
+  return Array.from(new Uint8Array(await b.arrayBuffer()));
+}));
+await page.fill('input[placeholder^="이 순간을"]', '세로 사진 검증');
+await page.setInputFiles('.moment-photo-input', [{ name: 'tall.jpg', mimeType: 'image/jpeg', buffer: tallBuf }]);
+await page.getByRole('button', { name: '순간 저장' }).click();
+await page.waitForSelector('.pe-overlay', { timeout: 10000 });
+await page.waitForTimeout(500);
+const clip = await page.evaluate(() => {
+  const st = document.querySelector('.pe-stage');
+  const cv = document.querySelector('.pe-canvas');
+  return { st: st.clientHeight, cv: cv.clientHeight };
+});
+check('세로 사진: 스테이지 무압착(캔버스 온전 표시)', clip.st >= clip.cv - 1, JSON.stringify(clip));
+
+// Ctrl+휠 확대(실입력: Control 키 + 휠) → 줌 슬라이더 값 상승
+const zoomBefore = parseFloat(await page.$eval('.pe-zoom', (i) => i.value));
+const cbox = await page.locator('.pe-canvas').boundingBox();
+await page.mouse.move(cbox.x + cbox.width / 2, cbox.y + cbox.height / 2);
+await page.keyboard.down('Control');
+await page.mouse.wheel(0, -300);
+await page.keyboard.up('Control');
+await page.waitForTimeout(600);
+const zoomAfterWheel = parseFloat(await page.$eval('.pe-zoom', (i) => i.value));
+check('Ctrl+휠 → 미리보기 확대(줌 상승)', zoomAfterWheel > zoomBefore, `${zoomBefore} → ${zoomAfterWheel}`);
+
+// 핀치 줌(두 손가락, 합성 포인터) → 줌 추가 상승
+await page.evaluate(() => {
+  const cv = document.querySelector('.pe-canvas');
+  const r = cv.getBoundingClientRect();
+  const cx = r.left + r.width / 2; const cy = r.top + r.height / 2;
+  const ev = (type, id, x, y) =>
+    cv.dispatchEvent(new PointerEvent(type, { pointerId: id, clientX: x, clientY: y, bubbles: true, isPrimary: id === 21 }));
+  ev('pointerdown', 21, cx - 20, cy);
+  ev('pointerdown', 22, cx + 20, cy);
+  ev('pointermove', 22, cx + 80, cy); // 벌리기 → 확대
+  ev('pointerup', 21, cx - 20, cy);
+  ev('pointerup', 22, cx + 80, cy);
+});
+await page.waitForTimeout(500);
+const zoomAfterPinch = parseFloat(await page.$eval('.pe-zoom', (i) => i.value));
+check('핀치(두 손가락 벌리기) → 확대', zoomAfterPinch > zoomAfterWheel, `${zoomAfterWheel} → ${zoomAfterPinch}`);
+await page.getByRole('button', { name: '원본 사용', exact: true }).click();
+await page.waitForSelector('.pe-overlay', { state: 'detached' });
+
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 
 await browser.close();
