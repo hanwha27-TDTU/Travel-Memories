@@ -5,7 +5,7 @@ import { el } from '../dom';
 import { getTrip, updateTripLocalFirst } from '../../services/trips';
 import { createMomentLocalFirst, listMoments } from '../../services/moments';
 import { addPhotoToMoment, listMediaByTrip } from '../../services/media';
-import { openPhotoEditor } from '../photoEditor';
+import { openPhotoEditor, type EditorResult } from '../photoEditor';
 import { groupMomentsByDay, type DayGroup } from '../../domain/moment/timeline';
 import { supabase } from '../../services/supabase/client';
 import { currentUser } from '../../services/auth';
@@ -262,12 +262,25 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       const img = el('img') as HTMLImageElement;
       img.src = url;
       img.alt = '여행 사진';
-      overlay.appendChild(img);
       const close = () => {
         overlay.remove();
         URL.revokeObjectURL(url);
       };
-      overlay.addEventListener('click', close);
+      const closeBtn = el('button', 'photo-viewer-close', '✕') as HTMLButtonElement;
+      closeBtn.type = 'button';
+      closeBtn.setAttribute('aria-label', '닫기');
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        close();
+      });
+      overlay.append(img, closeBtn);
+      overlay.addEventListener('click', close); // 배경 탭으로도 닫기
+      document.addEventListener('keydown', function esc(e) {
+        if (e.key === 'Escape') {
+          close();
+          document.removeEventListener('keydown', esc);
+        }
+      });
       document.body.appendChild(overlay);
     }
 
@@ -284,17 +297,32 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
             placeName: place.value,
           });
           if (files.length) {
-            let done = 0;
-            for (const f of files) {
+            // 배치 편집: 사진 간 ← 이전/다음 이동 + 각 사진 편집상태 기억. 결정 후 일괄 저장.
+            const states: (EditorResult['state'] | undefined)[] = new Array(files.length);
+            const blobs: (Blob | null)[] = new Array(files.length).fill(null);
+            let i = 0;
+            while (i < files.length) {
+              note.textContent = `사진 편집… (${i + 1}/${files.length})`;
+              const prev = states[i];
+              const r = await openPhotoEditor(files[i]!, `${i + 1}/${files.length} · ${files[i]!.name}`, {
+                canGoBack: i > 0,
+                ...(prev ? { initialState: prev } : {}),
+              });
+              states[i] = r.state;
+              if (r.action === 'back') {
+                i -= 1;
+                continue;
+              }
+              blobs[i] = r.blob; // apply→편집본(무편집 null), skip→null(원본)
+              i += 1;
+            }
+            for (let k = 0; k < files.length; k += 1) {
+              note.textContent = `사진 저장… (${k + 1}/${files.length})`;
               try {
-                // 비파괴 편집: 편집 모달(적용=편집본, 원본 사용=null). 원본은 항상 보존.
-                const edited = await openPhotoEditor(f, `${done + 1}/${files.length} · ${f.name}`);
-                note.textContent = `사진 처리 중… (${done + 1}/${files.length})`;
-                await addPhotoToMoment(f, { momentId: moment.id, tripId: trip!.id }, edited ?? undefined);
+                await addPhotoToMoment(files[k]!, { momentId: moment.id, tripId: trip!.id }, blobs[k] ?? undefined);
               } catch {
                 /* 개별 사진 실패는 건너뜀(순간 자체는 저장됨) */
               }
-              done += 1;
             }
           }
           input.value = '';
