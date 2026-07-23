@@ -96,4 +96,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: 'ChainInput을 SHA-256으로 append-only 체인화(Web Crypto), 앵커 해시로 위·변조 감지를 제안.',
     decision: '연구노트 채택. 법적 보증이 아니라 특허 검토용 구조화 증거 로그로 명확히 표기(과장 금지).',
   },
+  {
+    seq: 12,
+    date: '2026-07-23',
+    topic: '편집 미리보기 잘림·확대 제스처',
+    human: '편집기에서 세로 사진이 잘려 회전을 확인할 수 없다. 핀치 확대와 PC Ctrl+휠 확대도 필요하다.',
+    ai: '잘림 원인을 overflow:hidden flex 자식의 최소크기 0 압착으로 진단(M-flex-clip). 수축 금지 + Ctrl+휠 줌(트랙패드 핀치 포함) 제안. 두 손가락 핀치는 v0.24에 이미 존재.',
+    decision: '스테이지 수축 금지로 잘림 해결, Ctrl+휠 줌 추가(연속 제스처 undo 규칙 준수). 결함은 헌장 결함 등록부에 기록.',
+  },
 ];
