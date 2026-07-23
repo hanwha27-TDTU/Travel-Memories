@@ -6,6 +6,7 @@ import { el } from '../dom';
 import { openGuide } from './guide';
 import { exportBackup, importBackup } from '../../services/backup';
 import { listDeletedTrips, restoreTripFromTrash, purgeTripPermanently } from '../../services/trips';
+import { computeStorageUsage, formatBytes } from '../../services/storage';
 
 interface DataManagerOpts {
   /** 데이터가 바뀌면 호출(홈 목록·통계 갱신). */
@@ -16,6 +17,63 @@ function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** 저장 용량 요약 카드 — 사진(blob) vs 텍스트(기록)로 나눠 보여준다. 비동기로 채운다. */
+function buildUsageCard(): HTMLElement {
+  const card = el('div', 'dm-usage');
+  card.append(el('div', 'dm-usage-title', '📦 저장 용량'));
+  const rows = el('div', 'dm-usage-rows');
+  const loading = el('div', 'dm-usage-loading muted small', '계산 중…');
+  rows.appendChild(loading);
+  card.appendChild(rows);
+
+  const line = (icon: string, label: string, value: string, sub?: string): HTMLElement => {
+    const r = el('div', 'dm-usage-line');
+    const left = el('div', 'dm-usage-label');
+    const name = el('span', 'dm-usage-name');
+    name.append(el('span', 'dm-usage-ic', icon), document.createTextNode(` ${label}`));
+    left.appendChild(name);
+    if (sub) left.appendChild(el('span', 'dm-usage-sub muted small', sub));
+    const right = el('span', 'dm-usage-val');
+    right.textContent = value;
+    r.append(left, right);
+    return r;
+  };
+
+  void computeStorageUsage()
+    .then((u) => {
+      rows.innerHTML = '';
+      const known = u.photoBytes + u.textBytes;
+      rows.append(
+        line('🖼', '사진', formatBytes(u.photoBytes), u.photoCount > 0 ? `${u.photoCount}장 · 원본+표시본+썸네일` : '아직 없음'),
+        line('📝', '텍스트(기록)', formatBytes(u.textBytes), '여행·순간·비용·메모'),
+      );
+      const total = el('div', 'dm-usage-line dm-usage-total');
+      total.append(el('span', 'dm-usage-label', '합계'), el('span', 'dm-usage-val', formatBytes(known)));
+      rows.appendChild(total);
+      if (u.estimate && u.estimate.quota > 0) {
+        // 정확한 앱 데이터(사진+텍스트)를 브라우저 저장 한도에 견준다(estimate.usage는 프라이버시
+        // 반올림으로 부정확할 수 있어 막대엔 쓰지 않는다). 한도는 실제 estimate.quota.
+        const ratio = (u.photoBytes + u.textBytes) / u.estimate.quota;
+        const pct = Math.min(100, Math.round(ratio * 100));
+        const bar = el('div', 'dm-usage-bar');
+        const fill = el('div', 'dm-usage-bar-fill');
+        fill.style.width = `${Math.max(ratio > 0 ? 1 : 0, pct)}%`; // 아주 작아도 얇게 보이게
+        bar.appendChild(fill);
+        rows.appendChild(bar);
+        const hint = ratio >= 0.9 ? ' · 곧 가득 참 — 백업 권장' : ratio >= 0.7 ? ' · 절반 이상 사용' : ' · 여유 충분';
+        rows.appendChild(
+          el('div', 'dm-usage-quota muted small', `이 브라우저 저장 한도 약 ${formatBytes(u.estimate.quota)} 중 ${pct}% 사용${hint}`),
+        );
+      }
+    })
+    .catch(() => {
+      rows.innerHTML = '';
+      rows.appendChild(el('div', 'dm-usage-loading muted small', '저장 용량을 계산할 수 없어요.'));
+    });
+
+  return card;
 }
 
 function fmtDate(iso: string): string {
@@ -234,6 +292,7 @@ export function openDataManager(opts: DataManagerOpts): void {
 
   const showHome = (): void => {
     bodyEl.innerHTML = '';
+    bodyEl.appendChild(buildUsageCard()); // 저장 용량 요약(사진/텍스트) — 최상단
     const group = el('section', 'guide-group');
     group.append(
       el('div', 'guide-group-title', '🗂 데이터 관리'),
