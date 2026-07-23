@@ -54,7 +54,13 @@ const ASPECTS: { key: CropAspect; label: string }[] = [
 
 async function decodeBitmap(file: Blob): Promise<{ bmp: ImageBitmap | HTMLImageElement; w: number; h: number }> {
   if (typeof createImageBitmap === 'function') {
-    const bmp = await createImageBitmap(file);
+    // EXIF 방향 반영(M-exif-orientation) — 편집기도 원본을 바로 세워 보여주고 굽는다.
+    let bmp: ImageBitmap;
+    try {
+      bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } catch {
+      bmp = await createImageBitmap(file);
+    }
     return { bmp, w: bmp.width, h: bmp.height };
   }
   const url = URL.createObjectURL(file);

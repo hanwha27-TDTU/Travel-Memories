@@ -148,6 +148,74 @@ export async function reeditMediaLocalFirst(
   return back;
 }
 
+/** 현재 표시본을 90°(시계방향) 회전한 새 Blob(PNG·무손실 중간본). 원본은 건드리지 않는다. */
+async function rotate90Blob(source: Blob): Promise<Blob> {
+  let bmp: ImageBitmap | HTMLImageElement;
+  let w: number;
+  let h: number;
+  if (typeof createImageBitmap === 'function') {
+    try {
+      bmp = await createImageBitmap(source, { imageOrientation: 'from-image' });
+    } catch {
+      bmp = await createImageBitmap(source);
+    }
+    w = (bmp as ImageBitmap).width;
+    h = (bmp as ImageBitmap).height;
+  } else {
+    const url = URL.createObjectURL(source);
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = url;
+    await img.decode();
+    URL.revokeObjectURL(url);
+    bmp = img;
+    w = img.naturalWidth;
+    h = img.naturalHeight;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = h; // 90° 회전 → 가로·세로 스왑
+  canvas.height = w;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('canvas 2d 컨텍스트를 만들 수 없습니다.');
+  ctx.translate(h / 2, w / 2);
+  ctx.rotate(Math.PI / 2); // 시계방향 90°
+  ctx.drawImage(bmp, -w / 2, -h / 2);
+  if ('close' in bmp && typeof (bmp as ImageBitmap).close === 'function') (bmp as ImageBitmap).close();
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/png'));
+  if (!blob) throw new Error('회전 인코딩 실패');
+  return blob;
+}
+
+/**
+ * 저장된 사진을 90°(시계방향) 회전 — 비파괴. 보이는 표시본을 그대로 돌려 눕힌 사진을 세운다.
+ * 원본 Blob·EXIF는 그대로(§0). 표시본·썸네일만 다시 만들고 version+1(LWW). 로컬 전용(sync 후속).
+ */
+export async function rotateMediaLocalFirst(id: string): Promise<LocalMedia> {
+  const d = db();
+  const cur = await d.localMedia.get(id);
+  if (!cur || cur.deletedAt !== null) throw new Error('사진을 찾을 수 없습니다.');
+
+  const rotated = await rotate90Blob(cur.displayBlob);
+  const { display, thumb } = await compressForStorage(rotated);
+  const now = new Date().toISOString();
+  const next: LocalMedia = {
+    ...cur,
+    displayBlob: display.blob,
+    thumbBlob: thumb.blob,
+    width: display.width,
+    height: display.height,
+    bytesDisplay: display.blob.size,
+    version: cur.version + 1,
+    updatedAt: now,
+  };
+  await d.localMedia.put(next);
+  const back = await d.localMedia.get(id);
+  if (!back || back.version !== next.version || back.thumbBlob.size === 0) {
+    throw new Error('내구성 커밋 확인 실패: 사진 회전 read-back 불일치');
+  }
+  return back;
+}
+
 /** 여행의 활성 사진(순간별 그룹용). tombstone 제외. */
 export async function listMediaByTrip(tripId: string): Promise<LocalMedia[]> {
   const rows = await db().localMedia.where('tripId').equals(tripId).toArray();

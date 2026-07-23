@@ -22,6 +22,7 @@ import {
   softDeleteMediaLocalFirst,
   restoreMediaLocalFirst,
   reeditMediaLocalFirst,
+  rotateMediaLocalFirst,
 } from '../../services/media';
 import {
   createExpenseLocalFirst,
@@ -620,17 +621,41 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     }
 
     function openViewer(md: LocalMedia): void {
-      const url = URL.createObjectURL(md.displayBlob);
+      let currentUrl = URL.createObjectURL(md.displayBlob);
       const overlay = el('div', 'photo-viewer');
       overlay.setAttribute('role', 'dialog');
       overlay.setAttribute('aria-label', '사진 보기');
       const img = el('img') as HTMLImageElement;
-      img.src = url;
+      img.src = currentUrl;
       img.alt = '여행 사진';
       const close = () => {
         overlay.remove();
-        URL.revokeObjectURL(url);
+        URL.revokeObjectURL(currentUrl);
       };
+
+      // 회전 — 눕혀 보이는 사진을 90°(시계방향) 돌려 세운다. 원본 불변(§0), 표시본만 갱신·영구 저장.
+      const rotateBtn = el('button', 'photo-viewer-rotate', '↻ 회전') as HTMLButtonElement;
+      rotateBtn.type = 'button';
+      rotateBtn.setAttribute('aria-label', '사진 90도 회전');
+      rotateBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (rotateBtn.disabled) return;
+        rotateBtn.disabled = true;
+        void (async () => {
+          try {
+            const updated = await rotateMediaLocalFirst(md.id);
+            const newUrl = URL.createObjectURL(updated.displayBlob);
+            img.src = newUrl;
+            URL.revokeObjectURL(currentUrl);
+            currentUrl = newUrl;
+            await refresh(); // 뒤 목록 썸네일도 세워진 방향으로 갱신
+          } catch {
+            /* 회전 실패는 뷰어 유지 */
+          } finally {
+            rotateBtn.disabled = false;
+          }
+        })();
+      });
       const closeBtn = el('button', 'photo-viewer-close', '✕') as HTMLButtonElement;
       closeBtn.type = 'button';
       closeBtn.setAttribute('aria-label', '닫기');
@@ -666,7 +691,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         })();
       });
 
-      overlay.append(img, editPhotoBtn, closeBtn);
+      overlay.append(img, editPhotoBtn, rotateBtn, closeBtn);
       overlay.addEventListener('click', close); // 배경 탭으로도 닫기
       document.addEventListener('keydown', function esc(e) {
         if (e.key === 'Escape') {
