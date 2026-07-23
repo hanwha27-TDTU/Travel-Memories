@@ -3,10 +3,12 @@
 // + 빈-클라우드 가드 + 병합(교체 아님). 네트워크는 TripsRemote 포트 뒤로 격리해
 // 순수 결정 로직(sync/merge.ts)을 직접 테스트할 수 있게 한다(LESSONS §6).
 
-import { db, type SyncQueueItem } from '../offline/db';
+import { db, type SyncQueueItem, type LocalMedia } from '../offline/db';
 import { toRow, fromRow, type TripRow } from '../domain/trip/rowmap';
 import { toMomentRow, fromMomentRow, type MomentRow } from '../domain/moment/rowmap';
 import { toExpenseRow, fromExpenseRow, type ExpenseRow } from '../domain/expense/rowmap';
+import { toMediaRow, fromMediaRow, mediaStoragePath, type MediaRow } from '../domain/media/rowmap';
+import { compressForStorage } from '../media/compress';
 import { mergeDecision, isEmptyCloudAnomaly, classifyError } from '../sync/merge';
 import type { JourneyClient } from './supabase/client';
 
@@ -121,6 +123,61 @@ export function expensesRemote(client: JourneyClient): ExpensesRemote {
         return { data: (r.data as ExpenseRow[] | null) ?? [], error: r.error?.message };
       } catch (e) {
         return { data: [], error: (e as Error).message };
+      }
+    },
+  };
+}
+
+/** 사진 원격 포트 — 메타(테이블) + 표시본(Storage). 원본은 서버에 올리지 않는다(절약 모드·§0). */
+export interface MediaRemote {
+  upsert(row: MediaRow): Promise<{ error?: string | undefined; status?: number | undefined }>;
+  getById(id: string): Promise<{ data: MediaRow | null; error?: string | undefined; status?: number | undefined }>;
+  listAll(): Promise<{ data: MediaRow[]; error?: string | undefined }>;
+  uploadDisplay(path: string, blob: Blob): Promise<{ error?: string | undefined; status?: number | undefined }>;
+  download(path: string): Promise<{ data: Blob | null; error?: string | undefined; status?: number | undefined }>;
+}
+
+export function mediaRemote(client: JourneyClient): MediaRemote {
+  const bucket = client.storage.from('journey-media');
+  return {
+    async upsert(row) {
+      try {
+        const r = await client.from('media').upsert(row, { onConflict: 'id' });
+        return { error: r.error?.message, status: r.status };
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+    },
+    async getById(id) {
+      try {
+        const r = await client.from('media').select('*').eq('id', id).maybeSingle();
+        return { data: (r.data as MediaRow | null) ?? null, error: r.error?.message, status: r.status };
+      } catch (e) {
+        return { data: null, error: (e as Error).message };
+      }
+    },
+    async listAll() {
+      try {
+        const r = await client.from('media').select('*');
+        return { data: (r.data as MediaRow[] | null) ?? [], error: r.error?.message };
+      } catch (e) {
+        return { data: [], error: (e as Error).message };
+      }
+    },
+    async uploadDisplay(path, blob) {
+      try {
+        const r = await bucket.upload(path, blob, { upsert: true, contentType: 'image/webp' });
+        return { error: r.error?.message };
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+    },
+    async download(path) {
+      try {
+        const r = await bucket.download(path);
+        return { data: r.data ?? null, error: r.error?.message };
+      } catch (e) {
+        return { data: null, error: (e as Error).message };
       }
     },
   };
@@ -349,23 +406,145 @@ export async function pullExpenses(remote: ExpensesRemote): Promise<{ pulled: nu
 }
 
 /**
+ * 사진 push(추가전용): 활성이면 표시본을 Storage에 올리고(원본은 안 올림), 메타 행을 upsert →
+ * read-back → 서버시각 반영 → 작업 제거. tombstone이면 업로드 없이 메타만(Storage는 고아 스윕으로 정리).
+ */
+export async function pushPendingMedia(remote: MediaRemote, userId: string): Promise<{ pushed: number; failed: number }> {
+  const d = db();
+  const items = (await d.syncQueue.orderBy('createdAt').toArray()).filter(
+    (q) => q.state === 'local_only' || q.state === 'retryable_failed',
+  );
+  let pushed = 0;
+  let failed = 0;
+
+  for (const op of items) {
+    if (op.entityType !== 'media') continue;
+    const media = await d.localMedia.get(op.entityId);
+    if (!media) {
+      await d.syncQueue.delete(op.operationId);
+      continue;
+    }
+    const path = mediaStoragePath(userId, media.id);
+    if (media.deletedAt === null) {
+      const up = await remote.uploadDisplay(path, media.displayBlob); // 표시본만(원본 미업로드)
+      if (up.error) {
+        await markFail(op, up.status);
+        failed++;
+        continue;
+      }
+    }
+    const res = await remote.upsert(toMediaRow(media, userId, path));
+    if (res.error) {
+      await markFail(op, res.status);
+      failed++;
+      continue;
+    }
+    const back = await remote.getById(media.id);
+    if (back.error || !back.data) {
+      await markFail(op, back.status);
+      failed++;
+      continue;
+    }
+    const server = fromMediaRow(back.data);
+    await d.transaction('rw', d.localMedia, d.syncQueue, async () => {
+      const cur = await d.localMedia.get(media.id);
+      if (cur) await d.localMedia.put({ ...cur, updatedAt: server.updatedAt, version: server.version });
+      await d.syncQueue.delete(op.operationId);
+    });
+    pushed++;
+  }
+  return { pushed, failed };
+}
+
+/**
+ * 사진 pull(비파괴): 서버가 더 최신일 때만 반영. tombstone은 로컬 blob을 지우지 않고 deletedAt만 세팅
+ * (로컬에 없으면 skip). 활성은 표시본을 다운로드해 재구성하되 다운로드 실패 시 로컬을 그대로 둔다.
+ * 원본은 소비 기기에 없으므로 표시본을 원본 폴백으로 둔다(절약 모드). GPS는 서버에 없어 로컬 값 유지.
+ */
+export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
+  const d = db();
+  const res = await remote.listAll();
+  if (res.error) throw new Error(res.error);
+  const rows = res.data;
+
+  const localActive = (await d.localMedia.toArray()).filter((m) => m.deletedAt === null).length;
+  if (isEmptyCloudAnomaly(rows.length, localActive)) {
+    return { pulled: 0, skippedEmptyCloud: true };
+  }
+
+  let pulled = 0;
+  for (const r of rows) {
+    const server = fromMediaRow(r);
+    const local = await d.localMedia.get(server.id);
+    if (mergeDecision(local, server) !== 'take-server') continue;
+
+    if (server.deletedAt !== null) {
+      // tombstone — blob 파괴 없이 삭제 표시만. 로컬에 없으면 만들 blob이 없고 필요도 없어 skip.
+      if (local) {
+        await d.localMedia.put({ ...local, deletedAt: server.deletedAt, version: server.version, updatedAt: server.updatedAt });
+        pulled++;
+      }
+      continue;
+    }
+
+    if (!server.storagePath) continue; // 아직 표시본 업로드 전 → skip(다음 sync)
+    const dl = await remote.download(server.storagePath);
+    if (dl.error || !dl.data) continue; // 다운로드 실패 → 로컬 보존(비파괴), 다음에 재시도
+    const display = dl.data;
+    let thumbBlob: Blob = display;
+    try {
+      thumbBlob = (await compressForStorage(display)).thumb.blob;
+    } catch {
+      /* 썸네일 재생성 실패 시 표시본으로 폴백 */
+    }
+    const next: LocalMedia = {
+      id: server.id,
+      momentId: server.momentId,
+      tripId: server.tripId,
+      mime: 'image/webp',
+      originalBlob: local?.originalBlob ?? display, // 소비 기기엔 원본 없음 → 표시본 폴백
+      displayBlob: display,
+      thumbBlob,
+      width: server.width,
+      height: server.height,
+      takenAt: server.takenAt,
+      gpsLat: local?.gpsLat ?? null,
+      gpsLng: local?.gpsLng ?? null,
+      bytesOriginal: local?.bytesOriginal ?? display.size,
+      bytesDisplay: display.size,
+      version: server.version,
+      createdAt: server.createdAt,
+      updatedAt: server.updatedAt,
+      deletedAt: null,
+      ...(local?.editState ? { editState: local.editState } : {}),
+    };
+    await d.localMedia.put(next);
+    pulled++;
+  }
+  return { pulled, skippedEmptyCloud: false };
+}
+
+/**
  * 로그인/온라인 시 전체 동기화. push 먼저(로컬 우선 전송) → pull 병합.
- * push 순서: 여행 → 순간 → 비용(자식의 복합 FK가 서버의 부모 존재를 요구).
+ * push 순서: 여행 → 순간 → 사진·비용(자식의 복합 FK가 서버의 부모 존재를 요구).
  */
 export async function runSync(client: JourneyClient, userId: string): Promise<SyncResult> {
   const remote = tripsRemote(client);
   const mRemote = momentsRemote(client);
   const eRemote = expensesRemote(client);
+  const dRemote = mediaRemote(client);
   const p = await pushPending(remote, userId);
   const pm = await pushPendingMoments(mRemote, userId);
+  const pd = await pushPendingMedia(dRemote, userId);
   const pe = await pushPendingExpenses(eRemote, userId);
   const q = await pullTrips(remote);
   const qm = await pullMoments(mRemote);
+  const qd = await pullMedia(dRemote);
   const qe = await pullExpenses(eRemote);
   return {
-    pushed: p.pushed + pm.pushed + pe.pushed,
-    failed: p.failed + pm.failed + pe.failed,
-    pulled: q.pulled + qm.pulled + qe.pulled,
-    skippedEmptyCloud: q.skippedEmptyCloud || qm.skippedEmptyCloud || qe.skippedEmptyCloud,
+    pushed: p.pushed + pm.pushed + pd.pushed + pe.pushed,
+    failed: p.failed + pm.failed + pd.failed + pe.failed,
+    pulled: q.pulled + qm.pulled + qd.pulled + qe.pulled,
+    skippedEmptyCloud: q.skippedEmptyCloud || qm.skippedEmptyCloud || qd.skippedEmptyCloud || qe.skippedEmptyCloud,
   };
 }

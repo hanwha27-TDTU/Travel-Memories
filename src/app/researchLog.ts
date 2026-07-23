@@ -160,4 +160,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: 'moments 대칭으로 expense rowmap·서비스 큐 op·sync push/pull 구현. 핵심 위험=순간 삭제/복원 cascade가 비용 tombstone/복원 시 큐 op를 전파해야 함. category/note는 서버 컬럼 추가(무손실).',
     decision: 'domain/expense/rowmap + expenses 서비스 enqueue(create/update/delete) + moments cascade 비용 op 전파 + sync.ts ExpensesRemote·pushPendingExpenses·pullExpenses·runSync 순서(여행→순간→비용). 마이그 0009(category/note). 검증: 스키마 게이트가 rowmap↔서버 정합 확인(0009 아티팩트 누락을 RED로 잡아 보강), rowmap 유닛 왕복, 서버 트랜잭션 round-trip(EXPENSE_SYNC_ROUNDTRIP_OK·좀비 차단, 프로덕션 무변경). 네트워크 실사용은 실기기(trips/moments와 동일 플러밍이라 라이브 확인됨).',
   },
+  {
+    seq: 20,
+    date: '2026-07-23',
+    topic: '사진 다기기 동기화 구현',
+    human: '사진 진행.',
+    ai: '표시본만 Storage 업로드(원본은 로컬 유지·절약 모드), GPS는 PII라 미동기화. 안전 불변식: pull은 로컬 blob 비파괴(다운로드 성공 시만 교체·tombstone은 표시만·다운로드 실패 시 로컬 유지), push는 추가전용.',
+    decision: 'domain/media/rowmap(메타만·MediaMeta) + mediaStoragePath + media 서비스 5개 mutation·moments cascade에 media op enqueue + sync.ts MediaRemote(메타+Storage)·pushPendingMedia·pullMedia·runSync(여행→순간→사진·비용). 검증: 스키마 게이트(MediaRow 15↔journey.media), 유닛 4(경로·GPS/blob 미포함·메타 왕복·tombstone), 서버 메타 round-trip(MEDIA_META_ROUNDTRIP_OK·좀비 차단·프로덕션 무변경). Storage blob 업/다운은 샌드박스 미검증 → 실기기 몫(안전 불변식으로 기억 유실은 구조적 불가).',
+  },
 ];

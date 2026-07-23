@@ -3,13 +3,23 @@
 //  2) 원본 Blob은 그대로 보관하고 절대 수정/삭제하지 않는다.
 // 클라우드 업로드(압축본·썸네일)는 후속(3b).
 
-import { db, type LocalMedia } from '../offline/db';
+import { db, type LocalMedia, type SyncQueueItem } from '../offline/db';
 import { readJpegExif } from '../media/exif';
 import { compressForStorage } from '../media/compress';
 import type { EditState } from '../media/editor-core';
 
 function uuid(): string {
   return crypto.randomUUID();
+}
+
+/** 'media' 동기화 op 하나(moments/expenses와 동일 형태). */
+function mediaOp(
+  operationId: string,
+  entityId: string,
+  operationType: SyncQueueItem['operationType'],
+  createdAt: string,
+): SyncQueueItem {
+  return { operationId, entityType: 'media', entityId, operationType, state: 'local_only', attempts: 0, createdAt };
 }
 
 export interface AddPhotoTarget {
@@ -52,6 +62,7 @@ export async function addPhotoToMoment(
   const { display, thumb } = await compressForStorage(editedBlob ?? file);
 
   const now = new Date().toISOString();
+  const opId = uuid();
   const media: LocalMedia = {
     id: uuid(),
     momentId: target.momentId,
@@ -71,11 +82,15 @@ export async function addPhotoToMoment(
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
+    clientOperationId: opId,
     ...(editState ? { editState } : {}),
   };
 
   const d = db();
-  await d.localMedia.add(media);
+  await d.transaction('rw', d.localMedia, d.syncQueue, async () => {
+    await d.localMedia.add(media);
+    await d.syncQueue.add(mediaOp(opId, media.id, 'insert', now));
+  });
 
   const back = await d.localMedia.get(media.id);
   if (!back || back.thumbBlob.size === 0) {
@@ -95,7 +110,11 @@ export async function softDeleteMediaLocalFirst(id: string): Promise<void> {
   const cur = await d.localMedia.get(id);
   if (!cur || cur.deletedAt !== null) throw new Error('사진을 찾을 수 없습니다.');
   const now = new Date().toISOString();
-  await d.localMedia.put({ ...cur, deletedAt: now, version: cur.version + 1, updatedAt: now });
+  const opId = uuid();
+  await d.transaction('rw', d.localMedia, d.syncQueue, async () => {
+    await d.localMedia.put({ ...cur, deletedAt: now, version: cur.version + 1, updatedAt: now, baseVersion: cur.version, clientOperationId: opId });
+    await d.syncQueue.add(mediaOp(opId, id, 'delete', now));
+  });
   const back = await d.localMedia.get(id);
   if (!back || back.deletedAt === null) throw new Error('내구성 커밋 확인 실패: 사진 삭제 read-back 불일치');
 }
@@ -106,7 +125,11 @@ export async function restoreMediaLocalFirst(id: string): Promise<void> {
   const cur = await d.localMedia.get(id);
   if (!cur) throw new Error('사진을 찾을 수 없습니다.');
   const now = new Date().toISOString();
-  await d.localMedia.put({ ...cur, deletedAt: null, version: cur.version + 1, updatedAt: now });
+  const opId = uuid();
+  await d.transaction('rw', d.localMedia, d.syncQueue, async () => {
+    await d.localMedia.put({ ...cur, deletedAt: null, version: cur.version + 1, updatedAt: now, baseVersion: cur.version, clientOperationId: opId });
+    await d.syncQueue.add(mediaOp(opId, id, 'update', now));
+  });
   const back = await d.localMedia.get(id);
   if (!back || back.deletedAt !== null) throw new Error('내구성 커밋 확인 실패: 사진 되살리기 read-back 불일치');
 }
@@ -127,6 +150,7 @@ export async function reeditMediaLocalFirst(
 
   const { display, thumb } = await compressForStorage(editedBlob);
   const now = new Date().toISOString();
+  const opId = uuid();
   // editState 키를 제거한 base에서 시작 → 새 편집상태가 있으면만 다시 넣는다(없으면 키 자체가 빠져 초기화).
   const { editState: _prev, ...base } = cur;
   const next: LocalMedia = {
@@ -138,9 +162,14 @@ export async function reeditMediaLocalFirst(
     bytesDisplay: display.blob.size,
     version: cur.version + 1,
     updatedAt: now,
+    baseVersion: cur.version,
+    clientOperationId: opId,
     ...(editState ? { editState } : {}),
   };
-  await d.localMedia.put(next);
+  await d.transaction('rw', d.localMedia, d.syncQueue, async () => {
+    await d.localMedia.put(next);
+    await d.syncQueue.add(mediaOp(opId, id, 'update', now));
+  });
   const back = await d.localMedia.get(id);
   if (!back || back.version !== next.version || back.thumbBlob.size === 0) {
     throw new Error('내구성 커밋 확인 실패: 사진 재편집 read-back 불일치');
@@ -198,6 +227,7 @@ export async function rotateMediaLocalFirst(id: string): Promise<LocalMedia> {
   const rotated = await rotate90Blob(cur.displayBlob);
   const { display, thumb } = await compressForStorage(rotated);
   const now = new Date().toISOString();
+  const opId = uuid();
   const next: LocalMedia = {
     ...cur,
     displayBlob: display.blob,
@@ -207,8 +237,13 @@ export async function rotateMediaLocalFirst(id: string): Promise<LocalMedia> {
     bytesDisplay: display.blob.size,
     version: cur.version + 1,
     updatedAt: now,
+    baseVersion: cur.version,
+    clientOperationId: opId,
   };
-  await d.localMedia.put(next);
+  await d.transaction('rw', d.localMedia, d.syncQueue, async () => {
+    await d.localMedia.put(next);
+    await d.syncQueue.add(mediaOp(opId, id, 'update', now));
+  });
   const back = await d.localMedia.get(id);
   if (!back || back.version !== next.version || back.thumbBlob.size === 0) {
     throw new Error('내구성 커밋 확인 실패: 사진 회전 read-back 불일치');
