@@ -4,20 +4,38 @@
 import type { SyncMeta } from '../offline/db';
 
 /**
- * 서버 행을 로컬에 반영할지 결정. LWW(최신 updatedAt 우선) + tombstone 우선.
- * tombstone(삭제)도 하나의 수정이므로 updatedAt이 최신이면 활성 행을 이긴다(불변식 2).
- * SyncMeta만 참조하므로 모든 동기화 엔티티(Trip·Moment…)에 공통 적용된다.
+ * 서버 행을 로컬에 반영할지 결정. **version 기반 tombstone 우위 + LWW**(SYNC_PROTOCOL 불변식 2).
+ *
+ * 좀비데이터 절대 방지의 핵심 규칙:
+ *  - 삭제(tombstone)는 "강한 의도"다. 활성 사본이 tombstone을 이기려면 **오직 진짜 복원**
+ *    (version이 tombstone보다 더 큼)이어야 한다. **벽시계(updatedAt)로는 절대 부활시키지 않는다** —
+ *    기기 간 시계 스큐로 오래된 활성 사본의 시각이 우연히 앞서면 삭제가 되살아나던(좀비) 근본 원인.
+ *  - 삭제상태가 다르면 version으로만 판정하고, version 동률이면 **삭제가 이긴다**(안전 편향).
+ *    → 오래된 백업 복원·지연 pull이 삭제한 데이터를 되살리지 못한다.
+ *  - 삭제상태가 같으면(둘 다 활성 또는 둘 다 tombstone) 평범한 LWW(updatedAt→version).
+ *
+ * SyncMeta만 참조하므로 모든 동기화 엔티티(Trip·Moment·Media·Expense…)에 공통 적용된다.
  */
 export function mergeDecision(
   local: SyncMeta | undefined,
   server: SyncMeta,
 ): 'take-server' | 'keep-local' {
   if (!local) return 'take-server';
+
+  const localDeleted = local.deletedAt != null;
+  const serverDeleted = server.deletedAt != null;
+
+  // ── 삭제상태가 다른 전이(활성 ↔ tombstone): version으로만 판정(시계 무시) ──
+  if (localDeleted !== serverDeleted) {
+    if (server.version > local.version) return 'take-server'; // 진짜 복원/진짜 삭제(더 높은 세대)만 수용
+    if (server.version < local.version) return 'keep-local';
+    return serverDeleted ? 'take-server' : 'keep-local'; // 동률 → 삭제가 이긴다(부활 금지)
+  }
+
+  // ── 삭제상태가 같으면 평범한 LWW(updatedAt 우선 → version → 안정) ──
   if (server.updatedAt > local.updatedAt) return 'take-server';
   if (server.updatedAt < local.updatedAt) return 'keep-local';
-  // 동일 시각 tiebreak: version 큰 쪽 → 그다음 tombstone이 활성보다 우선
   if (server.version !== local.version) return server.version > local.version ? 'take-server' : 'keep-local';
-  if (server.deletedAt && !local.deletedAt) return 'take-server';
   return 'keep-local';
 }
 

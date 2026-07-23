@@ -38,6 +38,41 @@ describe('mergeDecision (LWW + tombstone 우선)', () => {
   });
 });
 
+// 좀비데이터 절대 방지 — 삭제한 데이터가 되살아나는 모든 경로를 게이트로 잠근다(비공허: 옛 시각-우선 로직이면 RED).
+describe('mergeDecision — 좀비 방지(tombstone 우위)', () => {
+  it('로컬 tombstone을, 시각만 앞선 활성 서버가 못 이긴다(같은 version)', () => {
+    // 삭제(v2, 10:00) vs 스큐로 시각이 앞선 활성 사본(v2, 11:00) → 예전엔 부활(좀비)했다.
+    const local = trip({ version: 2, updatedAt: '2026-07-22T10:00:00.000Z', deletedAt: '2026-07-22T10:00:00.000Z' });
+    const server = trip({ version: 2, updatedAt: '2026-07-22T11:00:00.000Z', deletedAt: null });
+    expect(mergeDecision(local, server)).toBe('keep-local');
+  });
+  it('로컬 tombstone을, version이 더 낮은 활성 서버가 시각이 앞서도 못 이긴다', () => {
+    const local = trip({ version: 3, updatedAt: '2026-07-22T10:00:00.000Z', deletedAt: '2026-07-22T10:00:00.000Z' });
+    const server = trip({ version: 2, updatedAt: '2026-07-22T12:00:00.000Z', deletedAt: null });
+    expect(mergeDecision(local, server)).toBe('keep-local');
+  });
+  it('오래된 백업(활성·낮은 version)이 로컬 tombstone을 되살리지 못한다', () => {
+    const localTombstone = trip({ version: 5, updatedAt: '2026-07-22T15:00:00.000Z', deletedAt: '2026-07-22T15:00:00.000Z' });
+    const oldBackupActive = trip({ version: 3, updatedAt: '2026-07-22T10:00:00.000Z', deletedAt: null });
+    expect(mergeDecision(localTombstone, oldBackupActive)).toBe('keep-local');
+  });
+  it('진짜 복원(version이 tombstone보다 높은 활성)은 되살린다', () => {
+    const localTombstone = trip({ version: 2, updatedAt: '2026-07-22T10:00:00.000Z', deletedAt: '2026-07-22T10:00:00.000Z' });
+    const restore = trip({ version: 3, updatedAt: '2026-07-22T09:00:00.000Z', deletedAt: null }); // 시각이 이르러도 version이 높으면 복원
+    expect(mergeDecision(localTombstone, restore)).toBe('take-server');
+  });
+  it('로컬 활성 vs 서버 tombstone(같은 version) → 삭제 수용(부활 안 함)', () => {
+    const localActive = trip({ version: 2, updatedAt: '2026-07-22T12:00:00.000Z', deletedAt: null });
+    const serverTombstone = trip({ version: 2, updatedAt: '2026-07-22T10:00:00.000Z', deletedAt: '2026-07-22T10:00:00.000Z' });
+    expect(mergeDecision(localActive, serverTombstone)).toBe('take-server');
+  });
+  it('둘 다 tombstone이면 평범한 LWW(시각 최신)', () => {
+    const local = trip({ version: 2, updatedAt: '2026-07-22T10:00:00.000Z', deletedAt: '2026-07-22T10:00:00.000Z' });
+    const server = trip({ version: 2, updatedAt: '2026-07-22T11:00:00.000Z', deletedAt: '2026-07-22T11:00:00.000Z' });
+    expect(mergeDecision(local, server)).toBe('take-server');
+  });
+});
+
 describe('isEmptyCloudAnomaly (빈-클라우드 가드)', () => {
   it('서버 0행 + 로컬 활성 있음 = 이상(로컬 보존)', () => {
     expect(isEmptyCloudAnomaly(0, 3)).toBe(true);

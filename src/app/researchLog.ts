@@ -120,4 +120,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '12MP급 실측: 표시본 1600px q0.82(~0.47MB) vs q0.90(~0.66MB, +40%) vs 2048/q0.90(~2.2×). 크기 유지+품질만 상향과 사진/텍스트 용량 분리 표시를 제안.',
     decision: '표시본 품질 0.82→0.90(크기 1600 유지). 데이터 관리에 사진 blob 합 vs 기록 JSON 바이트 + 브라우저 estimate 표시. 원본 별도 보관이라 전체 증가는 10%대.',
   },
+  {
+    seq: 15,
+    date: '2026-07-23',
+    topic: '좀비데이터 방지 + 공유 프로젝트 스키마 격리',
+    human: '메디컬 앱에서 좀비데이터로 고생했다. 절대 안 생기게. 그리고 Supabase는 메디컬과 한 프로젝트를 쓰되 스키마를 엄격히 분리(한 집 두 방).',
+    ai: '좀비 근본원인=병합이 벽시계(updatedAt) 우선이라 시계 스큐로 오래된 활성 사본이 tombstone을 덮음. version 기반 tombstone 우위(진짜 복원만 부활, 동률은 삭제 승)로 전환 제안. 스키마 격리는 이미 ADR-0020(journey)로 존재 — 방=Postgres 스키마, 벽=클라이언트 스키마 고정+소유자 RLS+앱별 버킷.',
+    decision: 'mergeDecision을 version 우위로 강화(적대적 유닛). SYNC_PROTOCOL·client에 계약 명문화. 공유 프로젝트+스키마/버킷 격리 채택(메디컬=별도 스키마·버킷, 인증만 공유·RLS로 분리). 서버측 tombstone 강제는 Supabase 연결 시 후속.',
+  },
 ];

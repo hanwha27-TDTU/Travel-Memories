@@ -66,6 +66,7 @@
 
 1. **안정 id + created_at + updated_at.** 동일 id 충돌은 LWW(최신 `updated_at` 우선), 단 서버 시각 read-back으로 반영해 빠른 클라이언트 시계가 다른 기기의 최신 편집을 덮지 않게 한다.
 2. **하드 삭제 없음.** `deleted_at` tombstone. **fence는 활성 행에만** 적용, tombstone은 항상 병합까지 통과. `if (row.deletedAt) return false`를 타임스탬프 비교 **앞에** 둔다.
+   - **좀비 절대 방지(ZOMBIE-GUARD, v0.29 구현 `src/sync/merge.ts`)**: 병합은 **version 기반 tombstone 우위**로 한다. 삭제상태가 다른 전이(활성↔tombstone)는 **오직 version으로만** 판정하고 **벽시계(`updated_at`)로는 부활시키지 않는다**(시계 스큐가 좀비의 근본원인). 활성 사본이 tombstone을 이기려면 **진짜 복원**(version이 tombstone보다 큼)이어야 하고, version 동률이면 **삭제가 이긴다**. 이 규칙은 **지연 pull·오래된 백업 복원**이 삭제된 데이터를 되살리지 못하게 잠근다. 적대적 유닛(`tests/unit/merge.test.ts` — 옛 시각-우선 로직 주입 시 RED)으로 비공허 검증. 서버측도 동일하게 tombstone을 낮은/동일 version 활성 upsert로 덮지 못하게 트리거/조건부 upsert로 강제해야 한다(Supabase 연결 시 마이그레이션 — 후속).
 3. **두 동기화 모드를 절대 섞지 않는다.** ① 일반 병합 동기화(`canonical_version` 읽고 LWW 병합) ② 카노니컬 교체(이 기기를 새 기준선으로 선언). 혼합은 다른 기기를 오염시킨다.
 4. **빈-클라우드 가드.** 클라우드가 0행(로컬엔 데이터)이면 이상 상황 — `_cloudEmptyAnomaly` 뒤에서만 로컬 교체. 절대 자동 wipe 금지.
 5. **정확한 read-back으로 확인.** HTTP 200 / 성공 토스트 / upsert 표현 / 후속 집계 동기화는 확인이 아니다. 같은 레코드를 되읽어 count+payload 일치 확인 후에만 완료 전진. 모든 도메인의 쓰기+read-back 성공 후에만 성공 토스트.
