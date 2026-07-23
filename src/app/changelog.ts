@@ -23,12 +23,23 @@ export const DEVELOPER = {
   appName: 'Bugeon Journey',
   tagline: '사진·장소·비용·감정을 엮어 여행의 기억과 의미를 다시 찾아주는 개인 여행기록 앱',
   name: '김부건 (Kim Bugeon)',
+  affiliation: 'Tashkent State Medical University',
   role: '개인 프로젝트 · 기획·설계·개발',
   firstDevDate: '2026-07-22',
 } as const;
 
 /** 최신이 맨 앞. 각 항목 = 실제 병합된 릴리스. */
 export const CHANGELOG: ChangeEntry[] = [
+  {
+    version: '0.22',
+    date: '2026-07-23',
+    title: '연구노트(특허 증거용·SHA-256 해시체인) + 개발자 소속 표기',
+    notes: [
+      '개발 과정의 사람/AI/최종결정 흔적을 SHA-256 해시체인(append-only)으로 기록.',
+      '각 항목이 이전 항목 해시에 묶여, 마지막 앵커 해시로 위·변조를 감지(특허 검토용 구조화 증거).',
+      '개발자 정보에 소속(Tashkent State Medical University) 표기 추가.',
+    ],
+  },
   {
     version: '0.21',
     date: '2026-07-23',
