@@ -513,6 +513,36 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       head.appendChild(headRight);
       card.appendChild(head);
 
+      // 편집 모드에서 기존 순간에 사진 추가(생성 흐름과 같은 배치 편집 경로 재사용).
+      const addPhotoWrap = el('div', 'moment-addphoto');
+      addPhotoWrap.hidden = true;
+      const addPhotoInput = el('input', 'moment-photo-input') as HTMLInputElement;
+      addPhotoInput.type = 'file';
+      addPhotoInput.accept = 'image/*';
+      addPhotoInput.multiple = true;
+      addPhotoInput.setAttribute('aria-label', '사진 추가');
+      const addPhotoLabel = el('label', 'moment-photo-label moment-addphoto-btn');
+      addPhotoLabel.append(document.createTextNode('📷 사진 추가 '), addPhotoInput);
+      const addProgress = el('span', 'moment-addphoto-note muted small');
+      addProgress.setAttribute('role', 'status');
+      addPhotoWrap.append(addPhotoLabel, addProgress);
+      addPhotoInput.addEventListener('change', () => {
+        const files = addPhotoInput.files ? Array.from(addPhotoInput.files) : [];
+        if (!files.length) return;
+        void (async () => {
+          try {
+            await processPhotosIntoMoment(files, m.id, trip!.id, (msg) => {
+              addProgress.textContent = msg;
+            });
+            addPhotoInput.value = '';
+            addProgress.textContent = '✅ 추가됨';
+            await refresh();
+          } catch (err) {
+            addProgress.textContent = `추가 실패: ${err instanceof Error ? err.message : String(err)}`;
+          }
+        })();
+      });
+
       // 인라인 편집 폼(토글). 저장 시 순간 수정 + 비용 조정(생성/수정/삭제) → 재렌더.
       const existingExpense = expenseList[0];
       const editForm = buildMomentEditForm(
@@ -542,11 +572,14 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         },
         () => {
           editForm.hidden = true;
+          addPhotoWrap.hidden = true;
         },
       );
       editForm.hidden = true;
       editBtn.addEventListener('click', () => {
-        editForm.hidden = !editForm.hidden;
+        const show = editForm.hidden; // 열기로 전환
+        editForm.hidden = !show;
+        addPhotoWrap.hidden = !show;
       });
 
       // 삭제 → tombstone + 실행취소 토스트(5초). 사진도 함께 tombstone되고 undo가 함께 복원.
@@ -615,7 +648,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         }
         card.appendChild(grid);
       }
-      card.appendChild(editForm);
+      card.append(addPhotoWrap, editForm);
       item.appendChild(card);
       return item;
     }
@@ -785,42 +818,9 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
               /* 비용 저장 실패는 순간 저장을 무르지 않는다 */
             }
           }
-          if (files.length) {
-            // 배치 편집: 사진 간 ← 이전/다음 이동 + 각 사진 편집상태 기억. 결정 후 일괄 저장.
-            const states: (EditorResult['state'] | undefined)[] = new Array(files.length);
-            const blobs: (Blob | null)[] = new Array(files.length).fill(null);
-            let i = 0;
-            while (i < files.length) {
-              note.textContent = `사진 편집… (${i + 1}/${files.length})`;
-              const prev = states[i];
-              const r = await openPhotoEditor(files[i]!, `${i + 1}/${files.length} · ${files[i]!.name}`, {
-                canGoBack: i > 0,
-                batchRemaining: files.length - i,
-                ...(prev ? { initialState: prev } : {}),
-              });
-              states[i] = r.state;
-              if (r.action === 'back') {
-                i -= 1;
-                continue;
-              }
-              if (r.action === 'skipAll') break; // 이 사진 포함 나머지 전부 원본으로(blobs는 null 초기값)
-              blobs[i] = r.blob; // apply→편집본(무편집 null), skip→null(원본)
-              i += 1;
-            }
-            for (let k = 0; k < files.length; k += 1) {
-              note.textContent = `사진 저장… (${k + 1}/${files.length})`;
-              try {
-                await addPhotoToMoment(
-                  files[k]!,
-                  { momentId: moment.id, tripId: trip!.id },
-                  blobs[k] ?? undefined,
-                  blobs[k] ? states[k] : undefined, // 편집한 경우만 편집상태 저장(재편집 이어서용)
-                );
-              } catch {
-                /* 개별 사진 실패는 건너뜀(순간 자체는 저장됨) */
-              }
-            }
-          }
+          await processPhotosIntoMoment(files, moment.id, trip!.id, (msg) => {
+            note.textContent = msg;
+          });
           input.value = '';
           placeField.reset();
           picked = '';
@@ -948,6 +948,53 @@ function buildEditPanel(
 }
 
 /** 순간 인라인 편집 폼(한 줄·감정·장소·메모·비용·발생시각). onSave(patch, 비용의도) 호출. */
+/**
+ * 파일들을 배치 편집(← 이전/다음·나머지 모두 원본) 후 한 순간에 일괄 저장한다.
+ * 생성 흐름과 "기존 순간에 사진 추가" 흐름이 공유한다(단일 경로 — SSOT).
+ * 사진은 한 장씩 열고 굽고 저장하므로 배치가 커도 메모리는 장당 한 장만 쓴다(명시적 장수 제한 없음).
+ */
+async function processPhotosIntoMoment(
+  files: File[],
+  momentId: string,
+  tripId: string,
+  onProgress: (msg: string) => void,
+): Promise<void> {
+  if (!files.length) return;
+  const states: (EditorResult['state'] | undefined)[] = new Array(files.length);
+  const blobs: (Blob | null)[] = new Array(files.length).fill(null);
+  let i = 0;
+  while (i < files.length) {
+    onProgress(`사진 편집… (${i + 1}/${files.length})`);
+    const prev = states[i];
+    const r = await openPhotoEditor(files[i]!, `${i + 1}/${files.length} · ${files[i]!.name}`, {
+      canGoBack: i > 0,
+      batchRemaining: files.length - i,
+      ...(prev ? { initialState: prev } : {}),
+    });
+    states[i] = r.state;
+    if (r.action === 'back') {
+      i -= 1;
+      continue;
+    }
+    if (r.action === 'skipAll') break; // 이 사진 포함 나머지 전부 원본
+    blobs[i] = r.blob; // apply→편집본(무편집 null), skip→null(원본)
+    i += 1;
+  }
+  for (let k = 0; k < files.length; k += 1) {
+    onProgress(`사진 저장… (${k + 1}/${files.length})`);
+    try {
+      await addPhotoToMoment(
+        files[k]!,
+        { momentId, tripId },
+        blobs[k] ?? undefined,
+        blobs[k] ? states[k] : undefined, // 편집한 경우만 편집상태 저장(재편집 이어서용)
+      );
+    } catch {
+      /* 개별 사진 실패는 건너뜀(순간 자체는 유지) */
+    }
+  }
+}
+
 function buildMomentEditForm(
   m: LocalMoment,
   existingExpense: LocalExpense | undefined,
