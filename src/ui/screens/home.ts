@@ -3,7 +3,13 @@
 // 자유 텍스트(이메일 등)는 textContent만 사용(innerHTML 금지).
 
 import { isConfigured, supabase } from '../../services/supabase/client';
-import { createTripLocalFirst, listTrips, pendingSyncCount } from '../../services/trips';
+import {
+  createTripLocalFirst,
+  listTrips,
+  listArchivedTrips,
+  updateTripLocalFirst,
+  pendingSyncCount,
+} from '../../services/trips';
 import {
   currentUser,
   signInWithGoogle,
@@ -43,6 +49,43 @@ function tripCard(t: LocalTrip, index: number, navigate: Navigate): HTMLElement 
   card.setAttribute('aria-label', `${t.title} 여행 열기`);
   card.addEventListener('click', () => navigate('trip-detail', t.id));
   card.append(el('div', 'cover-veil'), el('div', 'cover-grain'));
+  const info = el('div', 'cover-info');
+  info.appendChild(el('span', 'trip-badge', STATUS_LABEL[t.status]));
+  info.appendChild(el('h3', 'trip-title', t.title));
+  const period = t.startDate ? `${t.startDate}${t.endDate ? ` ~ ${t.endDate}` : ''}` : '기간 미정';
+  info.appendChild(el('p', 'trip-meta', period));
+  card.appendChild(info);
+  return card;
+}
+
+/** 보관함 카드 — 카드는 div(role=button)로 만들어 내부에 '복원' 버튼을 중첩 허용. */
+function archivedCard(
+  t: LocalTrip,
+  index: number,
+  navigate: Navigate,
+  onRestore: (id: string) => void,
+): HTMLElement {
+  const card = el('div', `trip-card cover--${index % 3}`);
+  card.setAttribute('role', 'button');
+  card.tabIndex = 0;
+  card.setAttribute('aria-label', `${t.title} 여행 열기`);
+  const go = (): void => navigate('trip-detail', t.id);
+  card.addEventListener('click', go);
+  card.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      go();
+    }
+  });
+  card.append(el('div', 'cover-veil'), el('div', 'cover-grain'));
+  const restore = el('button', 'trip-restore', '↩ 복원') as HTMLButtonElement;
+  restore.type = 'button';
+  restore.setAttribute('aria-label', `${t.title} 여행 복원`);
+  restore.addEventListener('click', (e) => {
+    e.stopPropagation();
+    onRestore(t.id);
+  });
+  card.appendChild(restore);
   const info = el('div', 'cover-info');
   info.appendChild(el('span', 'trip-badge', STATUS_LABEL[t.status]));
   info.appendChild(el('h3', 'trip-title', t.title));
@@ -119,6 +162,31 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   const list = el('div', 'trip-list');
   const status = el('p', 'sync-note muted');
   status.setAttribute('role', 'status');
+
+  // 목록 뷰: 활성(홈) ↔ 보관함. 보관 상태 여행은 홈에서 숨고 보관함에서 본다.
+  let view: 'active' | 'archived' = 'active';
+  const viewBar = el('div', 'view-bar');
+  const archiveToggle = el('button', 'btn-ghost archive-toggle') as HTMLButtonElement;
+  archiveToggle.type = 'button';
+  archiveToggle.addEventListener('click', () => {
+    view = view === 'active' ? 'archived' : 'active';
+    void refresh();
+  });
+  viewBar.appendChild(archiveToggle);
+
+  /** 보관 여행을 완료 상태로 복원(홈으로 되돌림). */
+  function restoreTrip(id: string): void {
+    void (async () => {
+      try {
+        await updateTripLocalFirst(id, { status: 'completed' });
+        await refresh();
+        await trySync(user);
+        await refresh();
+      } catch (err) {
+        status.textContent = `복원 실패: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    })();
+  }
 
   const form = el('form', 'trip-form');
   const input = el('input') as HTMLInputElement;
@@ -203,16 +271,40 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   }
 
   async function refresh(): Promise<void> {
-    const [trips, pending] = await Promise.all([listTrips(), pendingSyncCount()]);
-    list.innerHTML = '';
-    if (trips.length === 0) {
-      const empty = el('div', 'empty-state');
-      empty.appendChild(el('p', 'empty-emoji', '✈️'));
-      empty.appendChild(el('h2', undefined, '첫 여행을 기록해보세요'));
-      empty.appendChild(el('p', 'muted', '제목 하나면 충분해요. 이 기기에 안전하게 저장됩니다.'));
-      list.appendChild(empty);
+    const [trips, archived, pending] = await Promise.all([
+      listTrips(),
+      listArchivedTrips(),
+      pendingSyncCount(),
+    ]);
+
+    // 보관함 토글: 활성 뷰에선 보관이 있을 때만 노출, 보관 뷰에선 되돌아가기.
+    if (view === 'archived') {
+      archiveToggle.textContent = '← 여행 목록으로';
+      archiveToggle.hidden = false;
     } else {
-      trips.forEach((t, i) => list.appendChild(tripCard(t, i, navigate)));
+      archiveToggle.textContent = `📦 보관함 ${archived.length}`;
+      archiveToggle.hidden = archived.length === 0;
+    }
+    form.hidden = view === 'archived'; // 보관함에선 새 여행 폼 숨김
+
+    const items = view === 'archived' ? archived : trips;
+    list.innerHTML = '';
+    if (items.length === 0) {
+      const empty = el('div', 'empty-state');
+      if (view === 'archived') {
+        empty.appendChild(el('p', 'empty-emoji', '📦'));
+        empty.appendChild(el('h2', undefined, '보관함이 비어 있어요'));
+        empty.appendChild(el('p', 'muted', '여행 편집에서 상태를 “보관”으로 바꾸면 여기로 들어와요.'));
+      } else {
+        empty.appendChild(el('p', 'empty-emoji', '✈️'));
+        empty.appendChild(el('h2', undefined, '첫 여행을 기록해보세요'));
+        empty.appendChild(el('p', 'muted', '제목 하나면 충분해요. 이 기기에 안전하게 저장됩니다.'));
+      }
+      list.appendChild(empty);
+    } else if (view === 'archived') {
+      items.forEach((t, i) => list.appendChild(archivedCard(t, i, navigate, restoreTrip)));
+    } else {
+      items.forEach((t, i) => list.appendChild(tripCard(t, i, navigate)));
     }
     if (!isConfigured()) {
       status.textContent = `📴 로컬 저장 모드 · 대기 ${pending}건`;
@@ -223,7 +315,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
     }
   }
 
-  section.append(form, list, status);
+  section.append(form, viewBar, list, status);
   wrap.appendChild(section);
   mount.appendChild(wrap);
 
