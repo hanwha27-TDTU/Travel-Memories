@@ -5,10 +5,26 @@ import { el } from '../dom';
 import { getTrip } from '../../services/trips';
 import { createMomentLocalFirst, listMoments } from '../../services/moments';
 import { groupMomentsByDay, type DayGroup } from '../../domain/moment/timeline';
+import { supabase } from '../../services/supabase/client';
+import { currentUser } from '../../services/auth';
+import { runSync } from '../../services/sync';
 import type { Route } from '../../app/router';
 import type { LocalMoment } from '../../offline/db';
 
 type Navigate = (route: Route, param?: string) => void;
+
+/** 로그인·설정된 경우 백그라운드 동기화(순간 push/pull 포함). 실패는 다음 트리거에서 재시도. */
+async function trySync(): Promise<void> {
+  const c = supabase();
+  if (!c) return;
+  const u = await currentUser();
+  if (!u) return;
+  try {
+    await runSync(c, u.id);
+  } catch {
+    /* 다음 트리거에서 재시도 */
+  }
+}
 
 const EMOTIONS = ['😍', '😌', '🥹', '😆', '🤔'] as const;
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
@@ -165,7 +181,9 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           place.value = '';
           picked = '';
           for (const btn of emoButtons.values()) btn.setAttribute('aria-pressed', 'false');
-          note.textContent = '✅ 이 기기에 저장됨';
+          note.textContent = '✅ 저장됨';
+          await refresh();
+          await trySync(); // 로그인 시 서버로 전송
           await refresh();
         } catch (err) {
           note.textContent = `저장 실패: ${err instanceof Error ? err.message : String(err)}`;
@@ -175,6 +193,8 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       })();
     });
 
+    await refresh();
+    await trySync(); // 다른 기기의 순간을 받아옴(pull)
     await refresh();
   })();
 }

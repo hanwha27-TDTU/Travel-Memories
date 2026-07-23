@@ -4,6 +4,11 @@
 
 ## [Unreleased] — Phase 0~1
 
+### Phase 2 — 순간(Moment) 서버 동기화 (2026-07-23)
+- **`journey.moments` 서버 테이블**(migration 0003): 복합 FK `(trip_id,user_id)→trips`(H-02 소유권 방어), 소유자 RLS + 초대제(`is_allowed()`), tombstone 전용, `updated_at` 트리거. 적용 완료.
+- **동기화 코드 대칭 확장**(`sync.ts`): `MomentsRemote`·`pushPendingMoments`·`pullMoments`(멱등 upsert+read-back+LWW+빈클라우드 가드). `runSync`가 trips→moments 순으로 push. `mergeDecision` `SyncMeta`로 일반화. 상세 화면 진입/저장 시 동기화 트리거.
+- 검증: `rls_attack_moments.sql` **MOMENTS_RLS_PASS**(격리·초대제·복합 FK 위조 차단) via MCP · rowmap 왕복 유닛 · 하네스·build 통과. 실 2기기 동기화는 실기기 검증 대기(정직한 완료).
+
 ### Phase 2 착수 — 여행 상세 + 타임라인 + 순간 기록 (로컬우선) (2026-07-23)
 - **순간(Moment) 도메인** 추가: `LocalMoment`(Dexie v2 `localMoments`), `services/moments.ts`(내구성 로컬 커밋+read-back, 여행과 동일 규율), 순수 타임라인 로직 `domain/moment/timeline.ts`(날짜 그룹핑·Day 번호·tombstone 제외).
 - **여행 상세 화면**(`ui/screens/tripDetail.ts`): 커버 히어로(순간·일 통계), **순간 기록 폼**(한 줄+감정 이모지+장소, 10초 캡처 지향), **날짜별 타임라인**(시각 노드·감정·장소 칩).
