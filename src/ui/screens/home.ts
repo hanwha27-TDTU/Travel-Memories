@@ -20,6 +20,7 @@ import {
 } from '../../services/auth';
 import { runSync } from '../../services/sync';
 import { el } from '../dom';
+import { openDataManager } from './dataManager';
 import {
   SEASONS,
   SEASON_LABEL,
@@ -153,6 +154,12 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   const header = el('header', 'app-header');
   header.appendChild(el('h1', 'app-title', '🧳 Bugeon Journey'));
   const controls = buildControls();
+  const dataBtn = el('button', 'btn-ghost data-open', '📦 데이터 관리') as HTMLButtonElement;
+  dataBtn.type = 'button';
+  dataBtn.setAttribute('aria-label', '데이터 관리 열기 — 백업·복원·휴지통·가이드');
+  // onChanged: 복원·휴지통 조작 후 홈 목록·통계를 즉시 갱신(refresh는 아래에서 선언·호이스팅).
+  dataBtn.addEventListener('click', () => openDataManager({ onChanged: () => void refresh() }));
+  controls.appendChild(dataBtn);
   const authArea = el('div', 'auth-area');
   controls.appendChild(authArea); // 계절·테마 컨트롤과 같은 액션 행에 배치
   header.appendChild(controls);

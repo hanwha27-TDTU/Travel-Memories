@@ -64,6 +64,156 @@ export async function createMomentLocalFirst(input: CreateMomentInput): Promise<
   return readMoment;
 }
 
+export interface UpdateMomentPatch {
+  title?: string;
+  emotion?: string;
+  placeName?: string;
+  note?: string;
+  occurredAt?: string;
+}
+
+/**
+ * 순간 수정 — 생성과 동일 규율: version+1, updatedAt 갱신(LWW 기준), 대기열(update),
+ * 정확한 read-back. 서버 push는 기존 순간 파이프라인이 처리(op 타입 무관 멱등 upsert).
+ */
+export async function updateMomentLocalFirst(id: string, patch: UpdateMomentPatch): Promise<LocalMoment> {
+  const d = db();
+  const cur = await d.localMoments.get(id);
+  if (!cur || cur.deletedAt !== null) throw new Error('순간을 찾을 수 없습니다.');
+
+  const now = new Date().toISOString();
+  const opId = uuid();
+  const next: LocalMoment = {
+    ...cur,
+    ...(patch.title !== undefined ? { title: patch.title.trim() } : {}),
+    ...(patch.emotion !== undefined ? { emotion: patch.emotion } : {}),
+    ...(patch.placeName !== undefined ? { placeName: patch.placeName.trim() } : {}),
+    ...(patch.note !== undefined ? { note: patch.note.trim() } : {}),
+    ...(patch.occurredAt !== undefined ? { occurredAt: patch.occurredAt } : {}),
+    version: cur.version + 1,
+    updatedAt: now,
+    baseVersion: cur.version,
+    clientOperationId: opId,
+  };
+  if (!next.title) throw new Error('기록 내용이 비어 있습니다.');
+
+  const op: SyncQueueItem = {
+    operationId: opId,
+    entityType: 'moment',
+    entityId: id,
+    operationType: 'update',
+    state: 'local_only',
+    attempts: 0,
+    createdAt: now,
+  };
+
+  await d.transaction('rw', d.localMoments, d.syncQueue, async () => {
+    await d.localMoments.put(next);
+    await d.syncQueue.add(op);
+  });
+
+  const readMoment = await d.localMoments.get(id);
+  if (!readMoment || readMoment.version !== next.version) {
+    throw new Error('내구성 커밋 확인 실패: read-back 불일치');
+  }
+  return readMoment;
+}
+
+/**
+ * 순간 삭제 — 하드 삭제 금지(§0): deletedAt tombstone. version+1로 LWW에서 이기게 하고,
+ * 이 순간에 달린 활성 사진도 같은 트랜잭션에서 함께 tombstone한다(고아 사진이 통계를
+ * 속이지 않도록). 되살리기(undo)가 정확히 이 사진들만 복원하도록 그 id 목록을 반환한다.
+ * 미디어는 로컬 전용이라 sync 큐 op를 만들지 않는다(처리 주체가 없어 대기열에 영구 잔류함).
+ */
+export async function softDeleteMomentLocalFirst(id: string): Promise<{ deletedMediaIds: string[] }> {
+  const d = db();
+  const cur = await d.localMoments.get(id);
+  if (!cur || cur.deletedAt !== null) throw new Error('순간을 찾을 수 없습니다.');
+
+  const now = new Date().toISOString();
+  const opId = uuid();
+  const tombstoned: LocalMoment = {
+    ...cur,
+    deletedAt: now,
+    version: cur.version + 1,
+    updatedAt: now,
+    baseVersion: cur.version,
+    clientOperationId: opId,
+  };
+  const op: SyncQueueItem = {
+    operationId: opId,
+    entityType: 'moment',
+    entityId: id,
+    operationType: 'delete',
+    state: 'local_only',
+    attempts: 0,
+    createdAt: now,
+  };
+
+  const media = (await d.localMedia.where('momentId').equals(id).toArray()).filter((m) => m.deletedAt === null);
+  const deletedMediaIds = media.map((m) => m.id);
+
+  await d.transaction('rw', d.localMoments, d.localMedia, d.syncQueue, async () => {
+    await d.localMoments.put(tombstoned);
+    for (const m of media) {
+      await d.localMedia.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now });
+    }
+    await d.syncQueue.add(op);
+  });
+
+  const back = await d.localMoments.get(id);
+  if (!back || back.deletedAt === null) {
+    throw new Error('내구성 커밋 확인 실패: 삭제 read-back 불일치');
+  }
+  return { deletedMediaIds };
+}
+
+/**
+ * 순간 되살리기(실행취소) — deletedAt=null 복원. 되살리기 자체가 새 변경이므로 version+1·
+ * updatedAt=now로 삭제를 이긴다(다른 기기가 이미 삭제를 본 경우에도 LWW로 복원이 승리).
+ * 삭제 시 함께 tombstone된 사진(mediaIds)도 같은 트랜잭션에서 복원한다.
+ */
+export async function restoreMomentLocalFirst(id: string, mediaIds: string[]): Promise<LocalMoment> {
+  const d = db();
+  const cur = await d.localMoments.get(id);
+  if (!cur) throw new Error('순간을 찾을 수 없습니다.');
+
+  const now = new Date().toISOString();
+  const opId = uuid();
+  const restored: LocalMoment = {
+    ...cur,
+    deletedAt: null,
+    version: cur.version + 1,
+    updatedAt: now,
+    baseVersion: cur.version,
+    clientOperationId: opId,
+  };
+  const op: SyncQueueItem = {
+    operationId: opId,
+    entityType: 'moment',
+    entityId: id,
+    operationType: 'update',
+    state: 'local_only',
+    attempts: 0,
+    createdAt: now,
+  };
+
+  await d.transaction('rw', d.localMoments, d.localMedia, d.syncQueue, async () => {
+    await d.localMoments.put(restored);
+    for (const mid of mediaIds) {
+      const m = await d.localMedia.get(mid);
+      if (m) await d.localMedia.put({ ...m, deletedAt: null, version: m.version + 1, updatedAt: now });
+    }
+    await d.syncQueue.add(op);
+  });
+
+  const back = await d.localMoments.get(id);
+  if (!back || back.deletedAt !== null) {
+    throw new Error('내구성 커밋 확인 실패: 되살리기 read-back 불일치');
+  }
+  return back;
+}
+
 /** 여행의 활성 순간 목록(tombstone 제외 — deletedAt은 filter, M-0005). */
 export async function listMoments(tripId: string): Promise<LocalMoment[]> {
   const d = db();

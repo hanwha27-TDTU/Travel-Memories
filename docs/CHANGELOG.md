@@ -4,6 +4,28 @@
 
 ## [Unreleased] — Phase 0~1
 
+### Phase 3d — 데이터 관리 허브(백업·복원·휴지통) (2026-07-23)
+- **데이터 관리 허브**: 홈 헤더 `📦 데이터 관리` → 모달(백업·복원·휴지통·**가이드**). 기존 `📖 가이드` 버튼은 이 허브 안으로 이동. 가이드 모달 시각 시스템(.guide-*) 재사용.
+- **백업(내보내기)** `services/backup.ts`: 여행·순간·사진(원본·표시본·썸네일 base64)을 tombstone 포함 단일 JSON으로 다운로드. 사진이 곧 기억(북극성)이라 사진 포함이 기본, 크기 경고 표기.
+- **복원(가져오기)**: JSON을 **병합**(교체 아님) — `mergeDecision`(LWW+tombstone)·빈-데이터 가드 재사용으로 로컬을 절대 덮어쓰지 않음. 손 병합 로직 없음(SSOT 순수함수 재사용).
+- **휴지통** `trips.ts`: `listDeletedTrips`·`restoreTripFromTrash`(여행+tombstone 자식 복원)·`purgeTripPermanently`(로컬 하드 삭제, 2단계 확인, 동기화 시 재출현 가능 정직 표기).
+- **라이브 검증(Playwright/Chromium)**: (a) 생성→백업 내보내기(다운로드 캡처)→삭제→휴지통 복원(순간 유지)→DB 완전 초기화→파일 가져오기→**여행·순간 부활**. (b) **사진 포함 왕복**: 사진 첨부→백업(media 1·thumbB64 data:)→초기화→가져오기→**썸네일 naturalWidth 120 렌더**. 두 흐름 모두 콘솔 에러 0.
+- 게이트: typecheck·harness(6)·unit 60·build 그린. **정직**: 영구삭제의 서버 전파는 동기화 실연동 후속.
+
+### Phase 3c — 여행 삭제(대칭성) + 가이드 화면 (2026-07-23)
+- **여행 삭제(하드 삭제 아님)**: 편집 패널에 위험 구역(🗑 여행 삭제 → 2단계 확인) 추가. `softDeleteTripLocalFirst`가 여행 + 소속 순간·사진을 같은 트랜잭션에서 cascade tombstone(고아 방지), 순간은 sync 큐 delete op, 미디어는 로컬 tombstone. `restoreTripLocalFirst`가 정확히 그 자식들만 복원(version+1 LWW 승리). 이로써 Trip 생명주기 대칭성 회복(생성·수정·보관·삭제).
+- **공용 실행취소 토스트**: `src/ui/toast.ts`로 분리(document.body 부착 → 화면 전환에도 유지). 순간·사진·여행 삭제가 모두 재사용. tripDetail의 화면-로컬 토스트 제거(DRY).
+- **가이드 화면**: 홈 헤더 `📖 가이드` → 2열 모달([연결·설정] / [개발·설계]). 카드 → 상세(‹ 뒤로). 콘텐츠는 **이 저장소의 실제 사실**로 구성(정직 §4): 설계개요도(Trip→Moment 흐름), 기계화검증 흐름도(실제 harness 6게이트), 개발 규율, 개발 에이전트(통합10+디자인16), 자기점검(정직 상태표), AI 개발 거버넌스(비타협 원칙·§0). 모든 자유 텍스트 textContent(innerHTML 금지·CSP 준수). 포커스 이동·Esc·배경탭 닫기.
+- **라이브 검증(Playwright/Chromium)**: 900×1200에서 여행 생성→순간 저장→순간 편집("수정된 순간")→여행 삭제(홈·카드0·토스트)→실행취소(카드 복원)→**cascade 확인: 복원된 여행의 순간 1개·편집 텍스트 유지**, 가이드 2열/상세 렌더, 콘솔 에러 0. 지난 Phase 3b(순간·사진 편집·삭제)도 이 흐름에서 함께 라이브 확인됨.
+- 게이트: typecheck·harness(6)·unit 60·build 그린. **미검증(정직)**: 실기기 픽셀·제스처; 가이드의 게이트·에이전트 목록은 손 스냅샷(레지스트리 파생 게이트는 후속).
+
+### Phase 3b — 순간 편집·삭제 + 사진 개별 삭제 (실행취소) (2026-07-23)
+- **순간 편집**: 카드에 ✎ → 한 줄·감정·장소·**메모**·**발생시각(datetime-local)** 수정. `updateMomentLocalFirst`(version+1·updatedAt·baseVersion·op update·read-back — 생성과 동일 규율). 그동안 데이터엔 있으나 편집 경로가 없던 `note`·`occurredAt`를 사용 가능하게 함.
+- **순간 삭제(하드 삭제 아님)**: 🗑 → `deletedAt` tombstone(§0). 순간에 달린 활성 **사진도 같은 트랜잭션에서 함께 tombstone**(고아 사진이 통계를 속이지 않도록), undo가 정확히 그 사진들만 복원(`softDeleteMomentLocalFirst`→`deletedMediaIds`, `restoreMomentLocalFirst`).
+- **사진 개별 삭제**: 썸네일 ✕ → `softDeleteMediaLocalFirst`(tombstone·원본 Blob 보존). 미디어는 로컬 전용(3a)이라 sync 큐 op를 만들지 않음(처리 주체 부재 → 대기열 영구 잔류/pendingSyncCount 오염 방지).
+- **실행취소(§5 복구가능성)**: 삭제 후 5초 토스트로 되살림. 되살리기는 version+1·updatedAt=now라 다른 기기가 이미 삭제를 본 경우에도 **LWW로 복원이 승리**. 이중 탭 재진입 가드.
+- 게이트: typecheck·harness(6 Required)·unit 60·build·secret 전부 그린. **미검증(정직)**: 실기기 탭→tombstone→undo 라이브 상호작용은 이 세션에서 미실행 — 사용자 기기 확인 권장.
+
 ### Phase 3a+++ — 사진 편집 배치 UX (이전/닫기·잘림 해소) (2026-07-23)
 - **← 이전 / 배치 이동**: 여러 장 편집 시 사진 간 앞뒤 이동 + **각 사진 편집상태 기억**(재방문 시 슬라이더·크롭 복원). 마지막에 일괄 저장. `openPhotoEditor`가 `EditorResult{action,state,blob}` 반환·`EditorOpts{canGoBack,initialState}` 수용.
 - **닫기(✕) 버튼**: 편집기 헤더 ✕(=원본 사용) + 전체보기 뷰어 ✕(+ ESC·배경탭). "닫기 버튼 없음" 해소.

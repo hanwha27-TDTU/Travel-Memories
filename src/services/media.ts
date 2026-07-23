@@ -81,6 +81,33 @@ export async function addPhotoToMoment(
   return back;
 }
 
+/**
+ * 사진 1장 삭제 — 하드 삭제 금지(§0): deletedAt tombstone만 세팅한다. 원본 Blob은
+ * 그대로 보존되므로(삭제해도 파괴 아님) 되살리기가 완전 복원한다. version+1로 LWW 기준.
+ * 미디어는 로컬 전용(3a)이라 sync 큐 op를 만들지 않는다 — 처리 주체가 없어 대기열에
+ * 영구 잔류하고 pendingSyncCount만 부풀린다. 클라우드 동기화는 후속(3b)에서 추가.
+ */
+export async function softDeleteMediaLocalFirst(id: string): Promise<void> {
+  const d = db();
+  const cur = await d.localMedia.get(id);
+  if (!cur || cur.deletedAt !== null) throw new Error('사진을 찾을 수 없습니다.');
+  const now = new Date().toISOString();
+  await d.localMedia.put({ ...cur, deletedAt: now, version: cur.version + 1, updatedAt: now });
+  const back = await d.localMedia.get(id);
+  if (!back || back.deletedAt === null) throw new Error('내구성 커밋 확인 실패: 사진 삭제 read-back 불일치');
+}
+
+/** 사진 되살리기(실행취소) — deletedAt=null 복원. version+1로 삭제를 이긴다(LWW). */
+export async function restoreMediaLocalFirst(id: string): Promise<void> {
+  const d = db();
+  const cur = await d.localMedia.get(id);
+  if (!cur) throw new Error('사진을 찾을 수 없습니다.');
+  const now = new Date().toISOString();
+  await d.localMedia.put({ ...cur, deletedAt: null, version: cur.version + 1, updatedAt: now });
+  const back = await d.localMedia.get(id);
+  if (!back || back.deletedAt !== null) throw new Error('내구성 커밋 확인 실패: 사진 되살리기 read-back 불일치');
+}
+
 /** 여행의 활성 사진(순간별 그룹용). tombstone 제외. */
 export async function listMediaByTrip(tripId: string): Promise<LocalMedia[]> {
   const rows = await db().localMedia.where('tripId').equals(tripId).toArray();
