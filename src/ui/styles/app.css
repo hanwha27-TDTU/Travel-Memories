@@ -1,5 +1,10 @@
 /* app.css — Bugeon Journey 홈 화면 (디자인 시안 적용: 몰입형·계절·반응형) */
 
+/* [hidden] 결함군 박멸(M-hidden-display): display를 가진 클래스가 hidden 속성의 UA
+   display:none을 이기는 문제(.trip-form·.edit-panel·.place-results·.edit-confirm …)를
+   전역으로 차단한다. hidden 요소는 항상 감춰진다 — 클래스별 [hidden] override가 불필요해진다. */
+[hidden] { display: none !important; }
+
 .screen-home { max-width: 780px; margin: 0 auto; padding-bottom: 40px; }
 
 /* ===== 헤더 ===== */
