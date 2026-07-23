@@ -5,6 +5,7 @@
 
 import { el } from '../dom';
 import { CHANGELOG, DEVELOPER, APP_VERSION, LAST_MODIFIED, FIRST_DEV_DATE } from '../../app/changelog';
+import { openResearchNote } from './researchNote';
 
 /** 문서 규범 체계(법령 체계) — 기존 문서 지도를 규범 위계로 재구성. 새 사실을 만들지 않는다. */
 interface NormTier {
@@ -54,7 +55,8 @@ export function openAboutApp(): void {
   const pinfo = el('div', 'about-profile-info');
   pinfo.append(
     el('b', 'about-app-name', DEVELOPER.appName),
-    el('span', 'about-dev', `${DEVELOPER.name} · ${DEVELOPER.role}`),
+    el('span', 'about-dev', `${DEVELOPER.name} · ${DEVELOPER.affiliation}`),
+    el('span', 'about-role muted small', DEVELOPER.role),
     el('span', 'about-tagline muted small', DEVELOPER.tagline),
   );
   profile.append(avatar, pinfo);
@@ -73,6 +75,22 @@ export function openAboutApp(): void {
     statCard('현재 버전', `v${APP_VERSION}`),
   );
   bodyEl.appendChild(stats);
+
+  // ── 연구노트(특허 증거용) ──
+  const rn = el('div', 'about-rn');
+  rn.append(
+    el('b', 'about-rn-title', '📓 연구노트 (특허 증거용)'),
+    el(
+      'p',
+      'about-rn-desc',
+      'AI가 도왔지만 방향·판단·최종결정은 사람이 했습니다. 그 흔적을 사람/AI/최종결정으로 나눠 SHA-256 해시체인으로 남깁니다(원본 불변·append-only). 법적 보증이 아니라 향후 특허 검토용 구조화 증거 로그입니다.',
+    ),
+  );
+  const rnBtn = el('button', 'btn-ghost about-rn-open', '📓 연구노트 열기') as HTMLButtonElement;
+  rnBtn.type = 'button';
+  rnBtn.addEventListener('click', () => openResearchNote());
+  rn.appendChild(rnBtn);
+  bodyEl.appendChild(rn);
 
   // ── 문서 규범 체계(법령 체계) ──
   bodyEl.appendChild(el('h3', 'about-section-h', '📐 문서 규범 체계 (거버넌스)'));

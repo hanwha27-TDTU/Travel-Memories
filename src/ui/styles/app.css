@@ -670,6 +670,52 @@
 .about-entry-notes li { font-size: 0.8rem; color: var(--ink-soft); line-height: 1.5; }
 .about-hist-toggle { width: 100%; margin-top: var(--space-2); min-height: 42px; }
 @media (max-width: 560px) { .about-stats { grid-template-columns: 1fr; } }
+.about-role { display: block; }
+
+/* 연구노트 안내 박스(about) — 메디컬 앱 스타일 */
+.about-rn {
+  margin-top: var(--space-3); padding: var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--a3) 45%, var(--line));
+  border-radius: var(--radius-medium); background: color-mix(in srgb, var(--a3) 9%, var(--surface));
+  display: flex; flex-direction: column; gap: 6px;
+}
+.about-rn-title { font-size: 0.92rem; color: var(--ink); }
+.about-rn-desc { margin: 0; font-size: 0.8rem; color: var(--ink-soft); line-height: 1.55; }
+.about-rn-open { align-self: flex-start; margin-top: 4px; min-height: 40px; }
+
+/* 연구노트 모달(researchNote) — 가이드 셸 재사용 + 전용 클래스 */
+.rn-integrity {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  flex-wrap: wrap; margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3); border: 1px solid var(--line);
+  border-radius: var(--radius-medium); background: var(--surface);
+}
+.rn-badge { font-size: 0.8rem; font-weight: 800; padding: 3px 10px; border-radius: var(--radius-pill); }
+.rn-badge-ok { color: #fff; background: var(--color-success); }
+.rn-badge-warn { color: #fff; background: var(--color-warning); }
+.rn-badge-pending { color: var(--ink-soft); background: var(--bg-2); }
+.rn-anchor { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rn-anchor-v { font-size: 0.74rem; color: var(--ink); word-break: break-all; }
+.rn-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); }
+.rn-entry {
+  padding: var(--space-2) var(--space-3); border: 1px solid var(--line);
+  border-radius: var(--radius-medium); background: var(--surface);
+}
+.rn-entry-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.rn-entry-topic { font-size: 0.85rem; color: var(--ink); }
+.rn-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.rn-row { display: flex; gap: 8px; align-items: flex-start; }
+.rn-tag {
+  flex: 0 0 auto; width: 60px; font-size: 0.68rem; font-weight: 800; text-align: center;
+  padding: 2px 0; border-radius: var(--radius-pill); color: #fff;
+}
+.rn-human .rn-tag { background: var(--sem-sky); }
+.rn-ai .rn-tag { background: var(--ink-soft); }
+.rn-decision .rn-tag { background: var(--a1d); }
+.rn-row-text { font-size: 0.8rem; color: var(--ink); line-height: 1.5; min-width: 0; }
+.rn-decision .rn-row-text { font-weight: 700; }
+.rn-hash { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.rn-hash-v { font-size: 0.72rem; color: var(--ink); font-variant-numeric: tabular-nums; }
 
 /* 데이터 관리(백업·복원·휴지통) — 가이드 시각 시스템 재사용 + 소수 전용 클래스 */
 .dm-wide {
