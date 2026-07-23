@@ -4,6 +4,11 @@
 
 ## [Unreleased] — Phase 0~1
 
+### Phase 2 — 여행 날짜·상태·제목 편집 (2026-07-23)
+- 상세 화면 **편집 패널**(제목·시작/종료일·상태): `updateTripLocalFirst`(내구성 커밋+version 증가+read-back+update 대기열), 저장 시 재렌더+동기화 트리거.
+- 시작일 설정 시 타임라인 **Day 번호 자동 계산**, 상태 배지 반영.
+- 라이브 렌더(Playwright): 편집→저장→히어로 갱신(완료·기간)·Day 번호 확인, 콘솔 에러 0.
+
 ### Phase 2 — 순간(Moment) 서버 동기화 (2026-07-23)
 - **`journey.moments` 서버 테이블**(migration 0003): 복합 FK `(trip_id,user_id)→trips`(H-02 소유권 방어), 소유자 RLS + 초대제(`is_allowed()`), tombstone 전용, `updated_at` 트리거. 적용 완료.
 - **동기화 코드 대칭 확장**(`sync.ts`): `MomentsRemote`·`pushPendingMoments`·`pullMoments`(멱등 upsert+read-back+LWW+빈클라우드 가드). `runSync`가 trips→moments 순으로 push. `mergeDecision` `SyncMeta`로 일반화. 상세 화면 진입/저장 시 동기화 트리거.
