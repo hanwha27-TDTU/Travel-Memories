@@ -20,7 +20,7 @@ import {
   type EditState,
 } from '../media/editor-core';
 
-const PREVIEW_MAX = 560;
+const PREVIEW_MAX = 900; // 미리보기 해상도(표시 폭에 맞춰 선명하게 — 확대 시 흐려짐 방지)
 const OUTPUT_MAX = 2400; // 편집 결과 상한(이후 compress가 1600 표시본 생성)
 const MIN_CROP = 0.08;
 
@@ -106,6 +106,7 @@ export async function openPhotoEditor(
   const state: EditState = opts.initialState ? cloneState(opts.initialState) : freshEdit();
   let healMode = false;
   let brushPct = 3; // 이미지 너비의 %
+  let cropApplied = false; // 자유 크롭: 영역을 확정해 잘린 결과를 미리보기로 볼지 여부
 
   return new Promise<EditorResult>((resolve) => {
     const overlay = el('div', 'pe-overlay');
@@ -143,14 +144,41 @@ export async function openPhotoEditor(
     stage.appendChild(canvasWrap);
     sheet.appendChild(stage);
 
+    // ── 자르기 확정 바(자유 크롭 시에만 노출) ──
+    // 모서리를 끌어 영역을 정한 뒤 "이 영역으로 자르기"를 눌러 잘린 결과를 바로 확인한다.
+    const cropBar = el('div', 'pe-cropbar');
+    cropBar.hidden = true;
+    const cropApplyBtn = el('button', 'pe-chip pe-crop-apply', '✂️ 이 영역으로 자르기') as HTMLButtonElement;
+    cropApplyBtn.type = 'button';
+    const cropHint = el('span', 'pe-hint muted small', '모서리를 끌어 영역을 정한 뒤 눌러 적용하세요');
+    cropBar.append(cropApplyBtn, cropHint);
+    sheet.appendChild(cropBar);
+
     const isCropMode = (): boolean => state.aspect === 'free';
 
     function ensureFreeCrop(): void {
       if (!state.freeCrop) state.freeCrop = { x: 0.1, y: 0.1, w: 0.8, h: 0.8 };
     }
 
-    function syncCropBox(): void {
-      if (!isCropMode() || !state.freeCrop) {
+    // 자유 크롭 UI 상태 갱신(바 노출·버튼 라벨·힌트).
+    function updateCropBar(): void {
+      const on = isCropMode();
+      cropBar.hidden = !on;
+      if (!on) cropApplied = false;
+      cropApplyBtn.textContent = cropApplied ? '✏️ 자르기 영역 다시 지정' : '✂️ 이 영역으로 자르기';
+      cropHint.textContent = cropApplied
+        ? '잘린 결과 미리보기 중 · 저장하려면 아래 “적용”'
+        : '모서리를 끌어 영역을 정한 뒤 눌러 적용하세요';
+    }
+    cropApplyBtn.addEventListener('click', () => {
+      ensureFreeCrop();
+      cropApplied = !cropApplied; // 확정 ↔ 재지정 토글
+      updateCropBar();
+      repaint();
+    });
+
+    function syncCropBox(show: boolean): void {
+      if (!show || !state.freeCrop) {
         cropBox.hidden = true;
         return;
       }
@@ -166,15 +194,22 @@ export async function openPhotoEditor(
       if (raf) return;
       raf = requestAnimationFrame(() => {
         raf = 0;
-        // 크롭 모드에서는 크롭을 뺀 전체 기하를 보여준다(오버레이로 영역 지정).
-        const s = isCropMode()
+        // 영역 지정 중에는 크롭을 뺀 전체를 보여주고 오버레이로 선택한다.
+        // 확정(cropApplied) 후엔 state 그대로 구워 잘린 결과를 미리 보여준다.
+        const showOverlay = isCropMode() && !cropApplied;
+        const s = showOverlay
           ? { ...state, aspect: 'orig' as CropAspect, zoom: 1, panX: 0, panY: 0, freeCrop: null }
           : state;
         const baked = bakeToCanvas(bmp, w, h, s, PREVIEW_MAX);
         preview.width = baked.width;
         preview.height = baked.height;
         preview.getContext('2d')?.drawImage(baked, 0, 0);
-        syncCropBox();
+        // 폭 맞추기: 표시 폭을 최대로 채우되 높이는 화면의 62%(최대 640px)로 제한.
+        // 래퍼를 캔버스 비율에 맞춰 폭으로 잡으면 레터박스(어두운 여백)·오버레이 정렬 어긋남이 없다.
+        const ar = baked.width / baked.height;
+        const capH = Math.min(Math.round(window.innerHeight * 0.62), 640);
+        canvasWrap.style.maxWidth = `${Math.round(capH * ar)}px`;
+        syncCropBox(showOverlay);
       });
     }
 
@@ -249,7 +284,7 @@ export async function openPhotoEditor(
         cw = Math.min(cw, 1 - x); ch = Math.min(ch, 1 - y);
       }
       state.freeCrop = { x, y, w: cw, h: ch };
-      syncCropBox();
+      syncCropBox(true);
     });
     cropBox.addEventListener('pointerup', () => {
       cropDrag = null;
@@ -297,6 +332,7 @@ export async function openPhotoEditor(
       b.setAttribute('aria-pressed', String(a.key === state.aspect));
       b.addEventListener('click', () => {
         state.aspect = a.key;
+        cropApplied = false; // 비율을 바꾸면 크롭 확정 해제(다시 지정 흐름)
         if (a.key === 'free') {
           ensureFreeCrop();
           setHealMode(false); // 크롭 중엔 잡티 오프
@@ -304,6 +340,7 @@ export async function openPhotoEditor(
         geoRow.querySelectorAll('.pe-aspect').forEach((x) =>
           x.setAttribute('aria-pressed', String((x as HTMLButtonElement).textContent === a.label)),
         );
+        updateCropBar();
         repaint();
       });
       geoRow.appendChild(b);
@@ -369,9 +406,11 @@ export async function openPhotoEditor(
       if (isCropMode()) {
         // 크롭 모드 종료 후 잡티 모드로
         state.aspect = 'orig';
+        cropApplied = false;
         geoRow.querySelectorAll('.pe-aspect').forEach((x) =>
           x.setAttribute('aria-pressed', String((x as HTMLButtonElement).textContent === '원본')),
         );
+        updateCropBar();
         repaint();
       }
       setHealMode(!healMode);
@@ -412,12 +451,14 @@ export async function openPhotoEditor(
     resetBtn.addEventListener('click', () => {
       Object.assign(state, DEFAULT_EDIT, { heals: [], freeCrop: null });
       zoom.value = '1';
+      cropApplied = false;
       setHealMode(false);
       undoBtn.disabled = true;
       syncSliders();
       geoRow.querySelectorAll('.pe-aspect').forEach((x) =>
         x.setAttribute('aria-pressed', String((x as HTMLButtonElement).textContent === '원본')),
       );
+      updateCropBar();
       repaint();
     });
     const skipBtn = el('button', 'btn-ghost', '원본 사용') as HTMLButtonElement;
@@ -457,6 +498,7 @@ export async function openPhotoEditor(
     // 재방문 복원: 상태에서 UI 반영(슬라이더·비율은 빌드 시 state를 읽어 이미 반영됨).
     zoom.value = String(state.zoom);
     undoBtn.disabled = state.heals.length === 0;
+    updateCropBar();
 
     document.body.appendChild(overlay);
     repaint();

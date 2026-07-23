@@ -718,8 +718,10 @@
   font-size: 1rem; font-weight: 700; cursor: pointer; line-height: 1;
 }
 .pe-file { max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pe-stage { display: grid; place-items: center; background: #0c0d18; border-radius: var(--radius-medium); min-height: 220px; }
-.pe-canvas { max-width: 100%; max-height: 46vh; border-radius: var(--radius-small); touch-action: none; cursor: grab; }
+.pe-stage { display: grid; place-items: center; background: #0c0d18; border-radius: var(--radius-medium); min-height: 220px; overflow: hidden; }
+/* 폭 맞추기: 캔버스는 래퍼 폭을 꽉 채우고, 래퍼 폭은 JS가 비율·높이상한(62vh)에 맞춰 설정.
+   → 세로 사진도 여백 없이 크게 보이고, 크롭 오버레이(%)가 이미지와 정확히 정렬된다. */
+.pe-canvas { display: block; width: 100%; height: auto; border-radius: var(--radius-small); touch-action: none; cursor: grab; }
 .pe-presets, .pe-geo { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .pe-chip {
   min-height: 34px; padding: 0 12px; border-radius: var(--radius-pill);
@@ -742,7 +744,11 @@
 @media (max-width: 420px) { .pe-sliders { grid-template-columns: 1fr; } }
 
 /* 자유 크롭 오버레이 + 잡티 도구 */
-.pe-canvas-wrap { position: relative; display: inline-block; max-width: 100%; }
+.pe-canvas-wrap { position: relative; display: block; width: 100%; margin: 0 auto; }
+/* 자르기 확정 바 — 이미지 바로 아래, 확정 버튼은 강조색으로. */
+.pe-cropbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pe-crop-apply { background: linear-gradient(120deg, var(--a1), var(--a3)); color: #fff; border-color: transparent; }
+.pe-cropbar .pe-hint { flex: 1 1 100%; margin: 0; }
 .pe-crop-rect {
   position: absolute; border: 2px dashed rgba(255, 255, 255, .95);
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, .55);
