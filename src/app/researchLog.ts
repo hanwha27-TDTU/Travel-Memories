@@ -144,4 +144,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: 'journey에 media(+journey-media Storage 버킷)·expenses 테이블과 moments place_lat/lng 추가 제안. 모두 소유자 RLS·초대제·복합 FK(H-02)·tombstone·좀비 트리거로 보호.',
     decision: '마이그레이션 0005~0008 적용(프로젝트 Travel&Accounting). RLS 격리·H-02·좀비 방지 공격검사 트랜잭션 테스트 통과(MEDIA_EXPENSE_RLS_ZOMBIE_PASS), 어드바이저 신규 이슈 0, 프로덕션 무변경. 앱측 동기화 코드+OAuth 실연동은 실기기 검증 필요라 다음 단계.',
   },
+  {
+    seq: 18,
+    date: '2026-07-23',
+    topic: '혼선의 기계적 방지 + 실연동 정정',
+    human: '진행하자(사진·비용 동기화). 그리고 이런 혼란·혼선을 기계적으로 막는 법은? (그리고 구글 로그인은 이미 끝나지 않았나?)',
+    ai: '실측 정정: Google OAuth·여행/순간 동기화는 이미 라이브(HANDOFF "실연동 대기"는 stale). 혼선 2종=①클라↔서버 스키마 드리프트 ②문서↔현실 드리프트. ①은 CI 게이트로 잠글 수 있다고 제안.',
+    decision: 'check-schema-parity 게이트 신설(rowmap 필드 ⊆ 서버 마이그레이션 컬럼, 비공허, harness 등록). HANDOFF 실연동 정정. 교훈을 LESSONS §6에 기록(라이브 사실은 파생/실측). sync 코드는 최고위험 표면이라 몰아 짜지 않고 다음 턴에 집중(비용 cascade·큐 전파·Storage 정합).',
+  },
 ];
