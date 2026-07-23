@@ -3,7 +3,11 @@ import './ui/styles/tokens.css';
 import './ui/styles/app.css';
 import { createRouter, type Route } from './app/router';
 import { renderHome } from './ui/screens/home';
+import { initTheme } from './ui/theme';
 import { db } from './offline/db';
+
+// 저장된 테마·계절 선호를 문서에 반영(첫 페인트 전).
+initTheme();
 
 const appEl = document.getElementById('app');
 if (!appEl) throw new Error('#app 마운트 지점을 찾을 수 없습니다.');

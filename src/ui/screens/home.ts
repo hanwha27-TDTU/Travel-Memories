@@ -13,9 +13,25 @@ import {
   type SessionUser,
 } from '../../services/auth';
 import { runSync } from '../../services/sync';
+import {
+  SEASONS,
+  SEASON_LABEL,
+  currentSeason,
+  effectiveTheme,
+  setSeason,
+  toggleTheme,
+  type Season,
+} from '../theme';
 import type { LocalTrip } from '../../offline/db';
 
 let unsubscribeAuth: (() => void) | null = null;
+
+const STATUS_LABEL: Record<LocalTrip['status'], string> = {
+  planned: '계획 중',
+  active: '진행 중',
+  completed: '완료',
+  archived: '보관',
+};
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -28,12 +44,50 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-function tripCard(t: LocalTrip): HTMLElement {
-  const card = el('article', 'trip-card');
-  card.appendChild(el('h3', 'trip-title', t.title));
+function tripCard(t: LocalTrip, index: number): HTMLElement {
+  const card = el('article', `trip-card cover--${index % 3}`);
+  card.append(el('div', 'cover-veil'), el('div', 'cover-grain'));
+  const info = el('div', 'cover-info');
+  info.appendChild(el('span', 'trip-badge', STATUS_LABEL[t.status]));
+  info.appendChild(el('h3', 'trip-title', t.title));
   const period = t.startDate ? `${t.startDate}${t.endDate ? ` ~ ${t.endDate}` : ''}` : '기간 미정';
-  card.appendChild(el('p', 'trip-meta', `${period} · ${t.status === 'planned' ? '계획 중' : t.status}`));
+  info.appendChild(el('p', 'trip-meta', period));
+  card.appendChild(info);
   return card;
+}
+
+/** 계절 세그먼트 + 라이트/다크 토글 컨트롤. */
+function buildControls(): HTMLElement {
+  const controls = el('div', 'header-actions');
+
+  const seg = el('div', 'seg');
+  seg.setAttribute('role', 'group');
+  seg.setAttribute('aria-label', '계절 테마');
+  const active = currentSeason();
+  const buttons = new Map<Season, HTMLButtonElement>();
+  for (const s of SEASONS) {
+    const b = el('button', undefined, SEASON_LABEL[s]) as HTMLButtonElement;
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(s === active));
+    b.addEventListener('click', () => {
+      setSeason(s);
+      for (const [key, btn] of buttons) btn.setAttribute('aria-pressed', String(key === s));
+    });
+    buttons.set(s, b);
+    seg.appendChild(b);
+  }
+
+  const themeBtn = el('button', 'theme-btn') as HTMLButtonElement;
+  themeBtn.type = 'button';
+  const paintTheme = (mode: 'light' | 'dark') => {
+    themeBtn.textContent = mode === 'dark' ? '☀️ 라이트' : '🌙 다크';
+    themeBtn.setAttribute('aria-label', mode === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환');
+  };
+  paintTheme(effectiveTheme());
+  themeBtn.addEventListener('click', () => paintTheme(toggleTheme()));
+
+  controls.append(seg, themeBtn);
+  return controls;
 }
 
 /** 로그인 상태면 서버 동기화 시도(실패는 다음 트리거에서 재시도). */
@@ -59,8 +113,10 @@ export function renderHome(mount: HTMLElement): void {
   const wrap = el('main', 'screen screen-home');
   const header = el('header', 'app-header');
   header.appendChild(el('h1', 'app-title', '🧳 Bugeon Journey'));
+  const controls = buildControls();
   const authArea = el('div', 'auth-area');
-  header.appendChild(authArea);
+  controls.appendChild(authArea); // 계절·테마 컨트롤과 같은 액션 행에 배치
+  header.appendChild(controls);
   wrap.appendChild(header);
 
   const section = el('section', 'trip-section');
@@ -160,7 +216,7 @@ export function renderHome(mount: HTMLElement): void {
       empty.appendChild(el('p', 'muted', '제목 하나면 충분해요. 이 기기에 안전하게 저장됩니다.'));
       list.appendChild(empty);
     } else {
-      for (const t of trips) list.appendChild(tripCard(t));
+      trips.forEach((t, i) => list.appendChild(tripCard(t, i)));
     }
     if (!isConfigured()) {
       status.textContent = `📴 로컬 저장 모드 · 대기 ${pending}건`;

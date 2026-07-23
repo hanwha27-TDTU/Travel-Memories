@@ -1,68 +1,208 @@
-/* app.css — Phase 0B 골격 화면 스타일 */
+/* app.css — Bugeon Journey 홈 화면 (디자인 시안 적용: 몰입형·계절·반응형) */
+
+.screen-home { max-width: 780px; margin: 0 auto; padding-bottom: 40px; }
+
+/* ===== 헤더 ===== */
 .app-header {
-  padding: max(14px, env(safe-area-inset-top, 0)) 18px 14px;
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
-}
-.app-title { margin: 0; font-size: 1.25rem; font-weight: 700; }
-
-.screen-home { max-width: 720px; margin: 0 auto; }
-
-.empty-state {
-  text-align: center;
-  padding: 64px 24px;
+  padding: max(16px, env(safe-area-inset-top, 0)) 18px 14px;
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-3);
 }
-.empty-emoji { font-size: 3rem; margin: 0; }
-.empty-state h2 { margin: 0; font-size: 1.3rem; }
-.muted { color: var(--color-text-secondary); margin: 0; }
+.app-title {
+  margin: 0;
+  font-family: var(--font-disp);
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); justify-content: flex-end; }
 
+/* 계절 세그먼트 + 테마 토글 */
+.seg {
+  display: inline-flex;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  padding: 3px;
+  gap: 2px;
+  box-shadow: 0 4px 14px -10px rgba(35, 37, 56, .3);
+}
+.seg button {
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 8px 11px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+.seg button[aria-pressed="true"] {
+  color: #fff;
+  background: linear-gradient(120deg, var(--a1), var(--a3));
+  box-shadow: 0 6px 14px -8px var(--a1);
+}
+.theme-btn {
+  min-height: 38px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ===== 섹션 ===== */
+.trip-section { padding: var(--space-4) 18px; display: flex; flex-direction: column; gap: var(--space-4); }
+
+/* 여행 생성 폼 */
+.trip-form { display: flex; gap: var(--space-2); }
+.trip-form input {
+  flex: 1;
+  min-height: var(--touch-target-min);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-medium);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+.trip-form input::placeholder { color: var(--ink-soft); }
+
+/* 버튼 */
 .btn-primary {
   min-height: var(--touch-target-min);
   padding: 0 var(--space-5);
   border: none;
   border-radius: var(--radius-medium);
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-  font-weight: 600;
+  background: linear-gradient(120deg, var(--a1), var(--a3));
+  color: #fff;
+  font-weight: 800;
   font-size: 0.95rem;
   cursor: pointer;
-  margin-top: var(--space-2);
+  box-shadow: 0 10px 22px -12px var(--a1);
+  white-space: nowrap;
 }
-.btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
-
-.sync-note { font-size: 0.85rem; margin-top: var(--space-4); }
-
-/* thin slice: 여행 폼·카드 */
-.trip-section { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); }
-.trip-form { display: flex; gap: var(--space-2); }
-.trip-form input {
-  flex: 1; min-height: var(--touch-target-min);
-  padding: 0 var(--space-3);
-  border: 1px solid var(--color-border); border-radius: var(--radius-medium);
-  background: var(--color-surface); color: var(--color-text-primary);
-  font-size: 0.95rem; font-family: inherit;
-}
-.trip-list { display: flex; flex-direction: column; gap: var(--space-3); }
-.trip-card {
-  background: var(--color-surface); border: 1px solid var(--color-border);
-  border-radius: var(--radius-medium); padding: var(--space-4);
-}
-.trip-title { margin: 0 0 var(--space-1); font-size: 1.05rem; }
-.trip-meta { margin: 0; color: var(--color-text-secondary); font-size: 0.85rem; }
-
-/* 인증 영역 */
-.app-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
-.auth-area { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; }
-.small { font-size: 0.8rem; }
+.btn-primary:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
 .btn-ghost {
-  min-height: 36px; padding: 0 var(--space-3);
-  border: 1px solid var(--color-border); border-radius: var(--radius-medium);
-  background: var(--color-surface); color: var(--color-text-primary);
-  font-size: 0.82rem; cursor: pointer;
+  min-height: 38px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
 }
 .btn-ghost:disabled { opacity: 0.55; cursor: not-allowed; }
-.auth-area .btn-primary { min-height: 36px; margin-top: 0; padding: 0 var(--space-3); font-size: 0.82rem; }
+
+/* 인증 영역 */
+.auth-area { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; }
+.auth-area .btn-primary { min-height: 38px; padding: 0 var(--space-3); font-size: 0.82rem; box-shadow: none; }
+.small { font-size: 0.8rem; }
+.muted { color: var(--ink-soft); margin: 0; }
+
+/* ===== 여행 카드 (커버) ===== */
+.trip-list { display: flex; flex-direction: column; gap: var(--space-3); }
+.trip-card {
+  position: relative;
+  height: 156px;
+  border-radius: var(--radius-large);
+  overflow: hidden;
+  color: #fff;
+  box-shadow: var(--shadow-card);
+  isolation: isolate;
+}
+.cover--0 { background: linear-gradient(135deg, var(--a1), var(--a3)); }
+.cover--1 { background: linear-gradient(135deg, var(--a2), var(--a1)); }
+.cover--2 { background: linear-gradient(135deg, var(--a3), var(--a2)); }
+.cover-veil {
+  position: absolute; inset: 0; z-index: 1;
+  background: linear-gradient(180deg, rgba(0, 0, 0, .06) 0%, rgba(0, 0, 0, 0) 42%, rgba(10, 8, 20, .62) 100%);
+}
+.cover-grain {
+  position: absolute; inset: 0; z-index: 1; opacity: .09; mix-blend-mode: overlay; pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+.cover-info { position: absolute; z-index: 2; left: 16px; right: 16px; bottom: 14px; }
+.trip-badge {
+  display: inline-block;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, .22);
+  backdrop-filter: blur(5px);
+}
+.trip-title {
+  margin: 9px 0 3px;
+  font-family: var(--font-disp);
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, .35);
+  text-wrap: balance;
+}
+.trip-meta { margin: 0; font-size: 0.82rem; font-weight: 600; opacity: 0.95; }
+
+/* ===== 빈 상태 ===== */
+.empty-state {
+  text-align: center;
+  padding: 56px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-large);
+  box-shadow: var(--shadow-card);
+}
+.empty-emoji { font-size: 3rem; margin: 0; }
+.empty-state h2 { margin: 0; font-size: 1.3rem; font-family: var(--font-disp); }
+
+/* ===== 동기화 상태 ===== */
+.sync-note {
+  font-size: 0.85rem;
+  margin: var(--space-2) 0 0;
+  color: var(--ink-soft);
+  padding: 10px 14px;
+  background: var(--bg-2);
+  border-radius: var(--radius-medium);
+  text-align: center;
+}
+
+/* ===== 접근성/모션 ===== */
+:where(button, input, a):focus-visible {
+  outline: 3px solid var(--sem-sky);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .trip-card { transition: transform .25s ease, box-shadow .25s ease; }
+  .trip-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-float); }
+}
+
+/* ===== 반응형 ===== */
+@media (min-width: 620px) {
+  .trip-list { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+  .empty-state { grid-column: 1 / -1; }
+}
+@media (max-width: 400px) {
+  .app-title { font-size: 1.25rem; }
+  .header-actions { width: 100%; justify-content: flex-start; }
+}
