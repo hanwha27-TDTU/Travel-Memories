@@ -421,6 +421,9 @@
   font-size: 0.85rem; font-weight: 700; cursor: pointer;
 }
 .moment-photo-count { color: var(--a1d); }
+/* 편집 모드: 저장된 순간에 사진 추가 */
+.moment-addphoto { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+.moment-addphoto-note { line-height: 1.5; }
 
 /* 장소 검색(지오코딩) */
 .place-field { display: flex; flex-direction: column; gap: 6px; }
