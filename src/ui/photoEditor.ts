@@ -147,6 +147,13 @@ export async function openPhotoEditor(
     const head = el('div', 'pe-head');
     head.appendChild(el('b', undefined, '✨ 사진 편집'));
     head.appendChild(el('span', 'pe-file muted small', fileLabel));
+    const undoAllBtn = el('button', 'pe-close pe-undo', '↺') as HTMLButtonElement;
+    undoAllBtn.type = 'button';
+    undoAllBtn.disabled = true;
+    undoAllBtn.setAttribute('aria-label', '실행취소 — 마지막 편집 한 단계 되돌리기');
+    undoAllBtn.title = '실행취소';
+    undoAllBtn.addEventListener('click', () => undoLast());
+    head.appendChild(undoAllBtn);
     const closeBtn = el('button', 'pe-close', '✕') as HTMLButtonElement;
     closeBtn.type = 'button';
     closeBtn.setAttribute('aria-label', '닫기(원본 사용)');
@@ -168,6 +175,22 @@ export async function openPhotoEditor(
       cropBox.appendChild(hnd);
     }
     canvasWrap.appendChild(cropBox);
+    // 브러시 크기 표시(잡티 제거): 크기 조절·탭 순간에 실제 반경을 원으로 잠깐 보여준다.
+    const brushDot = el('div', 'pe-brush-dot');
+    brushDot.hidden = true;
+    canvasWrap.appendChild(brushDot);
+    let brushDotTimer = 0;
+    function showBrushDot(cx: number, cy: number, diamPx: number, ms: number): void {
+      brushDot.style.left = `${cx}px`;
+      brushDot.style.top = `${cy}px`;
+      brushDot.style.width = `${diamPx}px`;
+      brushDot.style.height = `${diamPx}px`;
+      brushDot.hidden = false;
+      window.clearTimeout(brushDotTimer);
+      brushDotTimer = window.setTimeout(() => {
+        brushDot.hidden = true;
+      }, ms);
+    }
     stage.appendChild(canvasWrap);
     sheet.appendChild(stage);
 
@@ -185,6 +208,40 @@ export async function openPhotoEditor(
 
     function ensureFreeCrop(): void {
       if (!state.freeCrop) state.freeCrop = { x: 0.1, y: 0.1, w: 0.8, h: 0.8 };
+    }
+
+    // ── 전역 실행취소(모든 편집 이력) ──
+    // 각 조작 "직전" 상태를 스냅샷으로 쌓는다. 슬라이더·팬·핀치 같은 연속 제스처는
+    // 시작 시점을 pendingSnap으로 잡아 손을 뗄 때 한 번만 커밋한다(틱마다 쌓이지 않게).
+    const history: EditState[] = [];
+    let pendingSnap: EditState | null = null;
+    function pushHistory(snap?: EditState): void {
+      history.push(snap ?? cloneState(state));
+      if (history.length > 50) history.shift();
+      undoAllBtn.disabled = false;
+    }
+    function commitPending(): void {
+      // 실제로 값이 바뀐 제스처만 이력에 남긴다(무변화 탭이 빈 undo 단계가 되지 않게).
+      if (pendingSnap && JSON.stringify(pendingSnap) !== JSON.stringify(state)) pushHistory(pendingSnap);
+      pendingSnap = null;
+    }
+    function undoLast(): void {
+      commitPending();
+      const prev = history.pop();
+      if (!prev) return;
+      Object.assign(state, cloneState(prev));
+      undoAllBtn.disabled = history.length === 0;
+      cropApplied = false;
+      zoom.value = String(state.zoom);
+      syncSliders();
+      syncAspectChips();
+      setPresetActive(
+        isNoAdjust(state) && state.vignette === 0 && state.sharpenAmt === 0 && state.grainAmt === 0
+          ? '원본'
+          : null,
+      );
+      updateCropBar();
+      repaint();
     }
 
     // 자유 크롭 UI 상태 갱신(바 노출·버튼 라벨·힌트).
@@ -276,17 +333,20 @@ export async function openPhotoEditor(
         const v = (e.clientY - rect.top) / rect.height;
         const rd = rotatedDims(w, h, state.rotate90);
         const win = resolveWindow(rd.w, rd.h, state);
+        pushHistory();
         state.heals.push({
           x: (win.x + u * win.w) / rd.w,
           y: (win.y + v * win.h) / rd.h,
           r: ((brushPct / 100) * win.w) / rd.w, // 화면 체감 크기 유지
         });
-        undoBtn.disabled = false;
+        // 탭 지점에 적용 반경을 잠깐 보여준다(지름 = 반경(brushPct% of 폭) × 2).
+        showBrushDot(e.clientX - rect.left, e.clientY - rect.top, (brushPct / 50) * rect.width, 400);
         repaint();
         return;
       }
       activePts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       preview.setPointerCapture(e.pointerId);
+      if (!pendingSnap) pendingSnap = cloneState(state); // 팬/핀치 제스처 시작점(undo 단위)
       if (activePts.size === 2) {
         // 두 손가락 → 핀치 줌 시작(팬 중단)
         dragging = false;
@@ -324,9 +384,12 @@ export async function openPhotoEditor(
         pinch = null;
         repaint(); // 핀치 종료 → 고해상 재굽기
       }
-      if (dragging && activePts.size === 0) {
-        dragging = false;
-        repaint();
+      if (activePts.size === 0) {
+        commitPending(); // 제스처 종료 → 값이 바뀌었으면 undo 이력에 한 단계로
+        if (dragging) {
+          dragging = false;
+          repaint();
+        }
       }
     }
     preview.addEventListener('pointerup', endPointer);
@@ -335,6 +398,7 @@ export async function openPhotoEditor(
     // ── 크롭 오버레이 드래그(이동/모서리 리사이즈) ──
     let cropDrag: { mode: FreeCropDragMode; sx: number; sy: number; fc: { x: number; y: number; w: number; h: number } } | null = null;
     cropBox.addEventListener('pointerdown', (e) => {
+      if (!pendingSnap) pendingSnap = cloneState(state); // 크롭 드래그도 undo 한 단계
       ensureFreeCrop();
       const corner = (e.target as HTMLElement).dataset['corner'] as 'nw' | 'ne' | 'sw' | 'se' | undefined;
       cropDrag = { mode: corner ?? 'move', sx: e.clientX, sy: e.clientY, fc: { ...state.freeCrop! } };
@@ -351,6 +415,7 @@ export async function openPhotoEditor(
     });
     cropBox.addEventListener('pointerup', () => {
       cropDrag = null;
+      commitPending();
     });
 
     // ── 프리셋 + 원본 비교 ──
@@ -364,6 +429,7 @@ export async function openPhotoEditor(
       b.type = 'button';
       b.setAttribute('aria-pressed', 'false');
       b.addEventListener('click', () => {
+        pushHistory();
         Object.assign(state, COLOR_ZERO, patch);
         setPresetActive(name);
         syncSliders();
@@ -392,6 +458,7 @@ export async function openPhotoEditor(
     const rotBtn = el('button', 'pe-chip', '↻ 회전') as HTMLButtonElement;
     rotBtn.type = 'button';
     rotBtn.addEventListener('click', () => {
+      pushHistory();
       state.rotate90 = ((state.rotate90 + 1) % 4) as EditState['rotate90'];
       state.heals = rotateHeals90(state.heals); // 기존 잡티 좌표 보존
       if (state.freeCrop) state.freeCrop = rotateFreeCrop90(state.freeCrop);
@@ -400,6 +467,7 @@ export async function openPhotoEditor(
     const flipBtn = el('button', 'pe-chip', '⇋ 반전') as HTMLButtonElement;
     flipBtn.type = 'button';
     flipBtn.addEventListener('click', () => {
+      pushHistory();
       state.flipH = !state.flipH;
       state.heals = flipHealsH(state.heals);
       if (state.freeCrop) state.freeCrop = flipFreeCropH(state.freeCrop);
@@ -420,20 +488,26 @@ export async function openPhotoEditor(
       repaint();
     });
     geoRow.append(rotBtn, flipBtn, fitBtn);
+    // 비율 칩 활성 표시를 state.aspect 기준으로 일괄 동기화(개별 손편집 대신 단일 경로).
+    function syncAspectChips(): void {
+      const label = ASPECTS.find((a) => a.key === state.aspect)?.label ?? '원본';
+      geoRow.querySelectorAll('.pe-aspect').forEach((x) =>
+        x.setAttribute('aria-pressed', String((x as HTMLButtonElement).textContent === label)),
+      );
+    }
     for (const a of ASPECTS) {
       const b = el('button', 'pe-chip pe-aspect', a.label) as HTMLButtonElement;
       b.type = 'button';
       b.setAttribute('aria-pressed', String(a.key === state.aspect));
       b.addEventListener('click', () => {
+        if (state.aspect !== a.key) pushHistory();
         state.aspect = a.key;
         cropApplied = false; // 비율을 바꾸면 크롭 확정 해제(다시 지정 흐름)
         if (a.key === 'free') {
           ensureFreeCrop();
           setHealMode(false); // 크롭 중엔 잡티 오프
         }
-        geoRow.querySelectorAll('.pe-aspect').forEach((x) =>
-          x.setAttribute('aria-pressed', String((x as HTMLButtonElement).textContent === a.label)),
-        );
+        syncAspectChips();
         updateCropBar();
         repaint();
       });
@@ -447,6 +521,7 @@ export async function openPhotoEditor(
     zoom.value = '1';
     zoom.setAttribute('aria-label', '확대');
     zoom.addEventListener('input', () => {
+      if (!pendingSnap) pendingSnap = cloneState(state);
       state.zoom = Number(zoom.value);
       if (state.zoom === 1) {
         state.panX = 0;
@@ -454,7 +529,10 @@ export async function openPhotoEditor(
       }
       repaint(true);
     });
-    zoom.addEventListener('change', () => repaint());
+    zoom.addEventListener('change', () => {
+      commitPending();
+      repaint();
+    });
     const zoomWrap = el('label', 'pe-zoom-wrap');
     zoomWrap.append(el('span', 'pe-slider-label', '🔍'), zoom);
     geoRow.appendChild(zoomWrap);
@@ -474,43 +552,35 @@ export async function openPhotoEditor(
     brush.setAttribute('aria-label', '브러시 크기');
     brush.addEventListener('input', () => {
       brushPct = Number(brush.value);
+      // 화면 중앙에 실제 적용 반경을 잠깐 보여준다(크기 감 잡기).
+      const rect = canvasWrap.getBoundingClientRect();
+      showBrushDot(rect.width / 2, rect.height / 2, (brushPct / 50) * rect.width, 600);
     });
     const brushWrap = el('label', 'pe-zoom-wrap');
     brushWrap.append(el('span', 'pe-slider-label', '크기'), brush);
     brushWrap.hidden = true;
-    const undoBtn = el('button', 'pe-chip', '↺ 되돌리기') as HTMLButtonElement;
-    undoBtn.type = 'button';
-    undoBtn.disabled = true;
-    undoBtn.hidden = true;
-    undoBtn.addEventListener('click', () => {
-      state.heals.pop();
-      undoBtn.disabled = state.heals.length === 0;
-      repaint();
-    });
-    const healHint = el('span', 'pe-hint muted small', '지우고 싶은 점을 사진에서 톡 누르세요');
+    const healHint = el('span', 'pe-hint muted small', '지우고 싶은 점을 사진에서 톡 누르세요 · 되돌리기는 상단 ↺');
     healHint.hidden = true;
     function setHealMode(on: boolean): void {
       healMode = on;
       healBtn.setAttribute('aria-pressed', String(on));
       brushWrap.hidden = !on;
-      undoBtn.hidden = !on;
       healHint.hidden = !on;
       preview.classList.toggle('pe-heal-cursor', on);
     }
     healBtn.addEventListener('click', () => {
       if (isCropMode()) {
         // 크롭 모드 종료 후 잡티 모드로
+        pushHistory();
         state.aspect = 'orig';
         cropApplied = false;
-        geoRow.querySelectorAll('.pe-aspect').forEach((x) =>
-          x.setAttribute('aria-pressed', String((x as HTMLButtonElement).textContent === '원본')),
-        );
+        syncAspectChips();
         updateCropBar();
         repaint();
       }
       setHealMode(!healMode);
     });
-    healRow.append(healBtn, brushWrap, undoBtn, healHint);
+    healRow.append(healBtn, brushWrap, healHint);
     sheet.appendChild(healRow);
 
     // ── 슬라이더들(값 표시 + 라벨 두 번 탭 = 그 항목만 초기화) ──
@@ -529,6 +599,8 @@ export async function openPhotoEditor(
       const lab = el('span', 'pe-slider-label', spec.label);
       lab.title = '두 번 탭하면 이 항목만 초기화';
       lab.addEventListener('dblclick', () => {
+        if (state[spec.key] === DEFAULT_EDIT[spec.key]) return; // 이미 초기값 → 빈 undo 방지
+        pushHistory();
         (state[spec.key] as number) = DEFAULT_EDIT[spec.key] as number;
         input.value = String(state[spec.key]);
         val.textContent = fmtSliderVal(spec, state[spec.key] as number);
@@ -536,12 +608,16 @@ export async function openPhotoEditor(
         repaint();
       });
       input.addEventListener('input', () => {
+        if (!pendingSnap) pendingSnap = cloneState(state); // 드래그 시작점 = undo 한 단계
         (state[spec.key] as number) = Number(input.value);
         val.textContent = fmtSliderVal(spec, Number(input.value));
         if (spec.key !== 'angle') setPresetActive(null); // 수동 조정 → 프리셋 해제 표시
         repaint(true);
       });
-      input.addEventListener('change', () => repaint()); // 손 떼면 고해상 재굽기
+      input.addEventListener('change', () => {
+        commitPending();
+        repaint(); // 손 떼면 고해상 재굽기
+      });
       sliderCtl.set(spec.key, { input, val, spec });
       row.append(lab, input, val);
       sliders.appendChild(row);
@@ -560,16 +636,14 @@ export async function openPhotoEditor(
     const resetBtn = el('button', 'btn-ghost', '초기화') as HTMLButtonElement;
     resetBtn.type = 'button';
     resetBtn.addEventListener('click', () => {
+      if (!isIdentity(state)) pushHistory(); // 초기화 전 상태를 이력에 — ↺로 복구 가능
       Object.assign(state, DEFAULT_EDIT, { heals: [], freeCrop: null });
       zoom.value = '1';
       cropApplied = false;
       setHealMode(false);
-      undoBtn.disabled = true;
       setPresetActive('원본');
       syncSliders();
-      geoRow.querySelectorAll('.pe-aspect').forEach((x) =>
-        x.setAttribute('aria-pressed', String((x as HTMLButtonElement).textContent === '원본')),
-      );
+      syncAspectChips();
       updateCropBar();
       repaint();
     });
@@ -634,7 +708,6 @@ export async function openPhotoEditor(
 
     // 재방문 복원: 상태에서 UI 반영(슬라이더·비율은 빌드 시 state를 읽어 이미 반영됨).
     zoom.value = String(state.zoom);
-    undoBtn.disabled = state.heals.length === 0;
     setPresetActive(
       isNoAdjust(state) && state.vignette === 0 && state.sharpenAmt === 0 && state.grainAmt === 0
         ? '원본'

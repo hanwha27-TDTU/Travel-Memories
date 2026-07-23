@@ -580,7 +580,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       }
       if (mediaList.length) {
         const grid = el('div', 'photo-thumbs');
-        for (const md of mediaList) {
+        for (const [mdIdx, md] of mediaList.entries()) {
           const url = URL.createObjectURL(md.thumbBlob);
           objectUrls.push(url);
           const cell = el('div', 'photo-thumb-wrap');
@@ -588,7 +588,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           img.src = url;
           img.alt = '여행 사진';
           img.loading = 'lazy';
-          img.addEventListener('click', () => openViewer(md));
+          img.addEventListener('click', () => openViewer(mediaList, mdIdx));
           const pdel = el('button', 'photo-del', '✕') as HTMLButtonElement;
           pdel.type = 'button';
           pdel.setAttribute('aria-label', '이 사진 삭제');
@@ -620,24 +620,58 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       return item;
     }
 
-    function openViewer(md: LocalMedia): void {
-      let currentUrl = URL.createObjectURL(md.displayBlob);
+    // 뷰어: 순간의 사진 묶음을 넘겨보며(◀▶·방향키·스와이프) 회전·재편집한다.
+    function openViewer(list: LocalMedia[], startIndex: number): void {
+      let idx = Math.max(0, Math.min(startIndex, list.length - 1));
+      let current = list[idx]!;
+      let currentUrl = URL.createObjectURL(current.displayBlob);
       const overlay = el('div', 'photo-viewer');
       overlay.setAttribute('role', 'dialog');
       overlay.setAttribute('aria-label', '사진 보기');
       const img = el('img') as HTMLImageElement;
       img.src = currentUrl;
       img.alt = '여행 사진';
+      img.draggable = false; // 스와이프가 브라우저 이미지 드래그로 새지 않게
       // 사진 자체를 탭했을 땐 닫지 않는다(확대해 보려다 실수로 닫히는 것 방지 — 배경 탭·✕·Esc로만 닫기).
       img.addEventListener('click', (e) => e.stopPropagation());
+      const counter = el('span', 'photo-viewer-count', `${idx + 1} / ${list.length}`);
+      counter.hidden = list.length <= 1;
+
       const close = () => {
         overlay.remove();
         URL.revokeObjectURL(currentUrl);
-        document.removeEventListener('keydown', esc); // 어떤 경로로 닫혀도 리스너 잔류 없음
+        document.removeEventListener('keydown', keys); // 어떤 경로로 닫혀도 리스너 잔류 없음
       };
-      function esc(e: KeyboardEvent): void {
-        if (e.key === 'Escape') close();
+      function show(next: number): void {
+        idx = (next + list.length) % list.length; // 끝에서 처음으로 순환
+        current = list[idx]!;
+        const newUrl = URL.createObjectURL(current.displayBlob);
+        img.src = newUrl;
+        URL.revokeObjectURL(currentUrl);
+        currentUrl = newUrl;
+        counter.textContent = `${idx + 1} / ${list.length}`;
       }
+      function keys(e: KeyboardEvent): void {
+        if (e.key === 'Escape') close();
+        else if (e.key === 'ArrowLeft' && list.length > 1) show(idx - 1);
+        else if (e.key === 'ArrowRight' && list.length > 1) show(idx + 1);
+      }
+
+      // 좌우 스와이프로 넘기기. 세로 이동이 더 크면(스크롤 의도) 무시.
+      let swipeStart: { x: number; y: number } | null = null;
+      img.addEventListener('pointerdown', (e) => {
+        swipeStart = { x: e.clientX, y: e.clientY };
+      });
+      img.addEventListener('pointerup', (e) => {
+        if (!swipeStart || list.length <= 1) {
+          swipeStart = null;
+          return;
+        }
+        const dx = e.clientX - swipeStart.x;
+        const dy = e.clientY - swipeStart.y;
+        swipeStart = null;
+        if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) show(dx < 0 ? idx + 1 : idx - 1);
+      });
 
       // 회전 — 눕혀 보이는 사진을 90°(시계방향) 돌려 세운다. 원본 불변(§0), 표시본만 갱신·영구 저장.
       const rotateBtn = el('button', 'photo-viewer-rotate', '↻ 회전') as HTMLButtonElement;
@@ -649,7 +683,9 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         rotateBtn.disabled = true;
         void (async () => {
           try {
-            const updated = await rotateMediaLocalFirst(md.id);
+            const updated = await rotateMediaLocalFirst(current.id);
+            list[idx] = updated; // 넘겨보기 목록에도 회전 반영
+            current = updated;
             const newUrl = URL.createObjectURL(updated.displayBlob);
             img.src = newUrl;
             URL.revokeObjectURL(currentUrl);
@@ -680,12 +716,12 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         void (async () => {
           try {
             const r = await openPhotoEditor(
-              md.originalBlob,
-              timeLabel(md.takenAt) || '사진 편집',
-              md.editState ? { initialState: md.editState } : {},
+              current.originalBlob,
+              timeLabel(current.takenAt) || '사진 편집',
+              current.editState ? { initialState: current.editState } : {},
             );
             if (r.action === 'apply') {
-              await reeditMediaLocalFirst(md.id, r.blob ?? md.originalBlob, r.state);
+              await reeditMediaLocalFirst(current.id, r.blob ?? current.originalBlob, r.state);
               await refresh();
               close();
               return;
@@ -697,9 +733,26 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         })();
       });
 
-      overlay.append(img, editPhotoBtn, rotateBtn, closeBtn);
+      overlay.append(img, counter, editPhotoBtn, rotateBtn, closeBtn);
+      if (list.length > 1) {
+        const prevBtn = el('button', 'photo-viewer-nav photo-viewer-prev', '‹') as HTMLButtonElement;
+        prevBtn.type = 'button';
+        prevBtn.setAttribute('aria-label', '이전 사진');
+        prevBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          show(idx - 1);
+        });
+        const nextBtn = el('button', 'photo-viewer-nav photo-viewer-next', '›') as HTMLButtonElement;
+        nextBtn.type = 'button';
+        nextBtn.setAttribute('aria-label', '다음 사진');
+        nextBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          show(idx + 1);
+        });
+        overlay.append(prevBtn, nextBtn);
+      }
       overlay.addEventListener('click', close); // 배경 탭으로도 닫기
-      document.addEventListener('keydown', esc);
+      document.addEventListener('keydown', keys);
       document.body.appendChild(overlay);
     }
 

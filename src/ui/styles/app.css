@@ -818,6 +818,21 @@
   backdrop-filter: blur(6px); color: #fff; font-size: 0.9rem; font-weight: 700;
 }
 .photo-viewer-rotate:disabled { opacity: 0.6; cursor: default; }
+.photo-viewer img { touch-action: none; user-select: none; -webkit-user-select: none; } /* 좌우 스와이프 넘기기 */
+.photo-viewer-nav {
+  position: fixed; top: 50%; transform: translateY(-50%); z-index: 51;
+  width: 44px; height: 64px; border-radius: var(--radius-medium); cursor: pointer;
+  border: 1px solid rgba(255,255,255,.35); background: rgba(255,255,255,.15);
+  backdrop-filter: blur(6px); color: #fff; font-size: 1.6rem; font-weight: 700; line-height: 1;
+}
+.photo-viewer-prev { left: max(8px, env(safe-area-inset-left, 0)); }
+.photo-viewer-next { right: max(8px, env(safe-area-inset-right, 0)); }
+.photo-viewer-count {
+  position: fixed; top: max(24px, env(safe-area-inset-top, 0)); left: 50%; transform: translateX(-50%);
+  z-index: 51; padding: 4px 12px; border-radius: var(--radius-pill);
+  background: rgba(8,8,18,.55); color: #fff; font-size: 0.8rem; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
 
 /* 사진 편집 모달 (photoEditor) */
 .pe-overlay {
@@ -911,5 +926,13 @@
 .pe-heal-row { border-top: 1px dashed var(--line); padding-top: var(--space-2); }
 /* 원본 비교: 길게 누르는 동안 텍스트 선택·스크롤이 끼어들지 않게. */
 .pe-compare { user-select: none; -webkit-user-select: none; touch-action: none; }
+/* 전역 실행취소(헤더 ↺) — 닫기와 같은 원형, 비활성 시 흐리게. */
+.pe-undo:disabled { opacity: 0.35; cursor: default; }
+/* 브러시 크기 표시: 잡티 반경을 원으로 잠깐 보여준다(터치 방해 금지 → pointer-events 없음). */
+.pe-brush-dot {
+  position: absolute; transform: translate(-50%, -50%); pointer-events: none;
+  border: 2px solid rgba(255,255,255,.95); border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.45), inset 0 0 0 1px rgba(0,0,0,.45);
+}
 .pe-heal-cursor { cursor: crosshair; }
 .pe-hint { flex-basis: 100%; }
