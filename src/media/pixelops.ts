@@ -86,6 +86,53 @@ export function sharpen(
   return out;
 }
 
+/**
+ * 스팟 힐링(잡티 제거): (cx,cy) 반경 r 안을 주변 링 샘플로 자연스럽게 메꾼다.
+ * 링(r×1.25)에서 16방향 샘플을 뽑아 역거리제곱 가중 보간 + 가장자리 감쇠 블렌딩.
+ * 제자리 수정(순수 픽셀 연산 — DOM 없음).
+ */
+export function healSpot(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  cx: number,
+  cy: number,
+  r: number,
+): void {
+  if (r < 1) return;
+  const N = 16;
+  const ringR = r * 1.25;
+  const ring: Array<[number, number, number, number, number]> = []; // rx, ry, R, G, B
+  for (let k = 0; k < N; k += 1) {
+    const a = (2 * Math.PI * k) / N;
+    const rx = Math.min(width - 1, Math.max(0, Math.round(cx + Math.cos(a) * ringR)));
+    const ry = Math.min(height - 1, Math.max(0, Math.round(cy + Math.sin(a) * ringR)));
+    const i = (ry * width + rx) * 4;
+    ring.push([rx, ry, data[i]!, data[i + 1]!, data[i + 2]!]);
+  }
+  const y0 = Math.max(0, Math.floor(cy - r));
+  const y1 = Math.min(height - 1, Math.ceil(cy + r));
+  const x0 = Math.max(0, Math.floor(cx - r));
+  const x1 = Math.min(width - 1, Math.ceil(cx + r));
+  for (let y = y0; y <= y1; y += 1) {
+    for (let x = x0; x <= x1; x += 1) {
+      const d = Math.hypot(x - cx, y - cy);
+      if (d >= r) continue;
+      let sr = 0, sg = 0, sb = 0, sw = 0;
+      for (const [rx, ry, R, G, B] of ring) {
+        const wgt = 1 / ((x - rx) * (x - rx) + (y - ry) * (y - ry) + 1);
+        sr += R * wgt; sg += G * wgt; sb += B * wgt; sw += wgt;
+      }
+      const t = d / r;
+      const a = 1 - t * t; // 중심 강하게, 가장자리 자연 감쇠
+      const i = (y * width + x) * 4;
+      data[i] = data[i]! * (1 - a) + (sr / sw) * a;
+      data[i + 1] = data[i + 1]! * (1 - a) + (sg / sw) * a;
+      data[i + 2] = data[i + 2]! * (1 - a) + (sb / sw) * a;
+    }
+  }
+}
+
 /** 필름 그레인(모노 노이즈 가산). amount 0..1. rand 주입 가능(테스트 결정성). */
 export function grain(
   data: Uint8ClampedArray,

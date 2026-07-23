@@ -1,18 +1,28 @@
 // ui/photoEditor.ts — 사진 편집 모달(비파괴). 원본은 읽기만, 결과는 새 Blob.
 // 미리보기 = bakeToCanvas(소형) — 저장과 같은 코드 경로(WYSIWYG).
+// 자유 크롭: aspect='free' 동안 미리보기는 크롭 없이 전체를 보여주고 오버레이로 영역 지정.
+// 잡티 제거: 힐 모드에서 탭 → 기하 정규화 좌표로 저장(bake 시 해상도 무관 재적용).
 
 import { el } from './dom';
 import {
-  DEFAULT_EDIT,
   PRESETS,
   bakeToCanvas,
+  freshEdit,
   isIdentity,
+  resolveWindow,
+  rotatedDims,
+  rotateHeals90,
+  flipHealsH,
+  rotateFreeCrop90,
+  flipFreeCropH,
+  DEFAULT_EDIT,
   type CropAspect,
   type EditState,
 } from '../media/editor-core';
 
 const PREVIEW_MAX = 560;
 const OUTPUT_MAX = 2400; // 편집 결과 상한(이후 compress가 1600 표시본 생성)
+const MIN_CROP = 0.08;
 
 interface SliderSpec {
   key: keyof EditState;
@@ -39,6 +49,7 @@ const ASPECTS: { key: CropAspect; label: string }[] = [
   { key: '1:1', label: '1:1' },
   { key: '4:5', label: '4:5' },
   { key: '16:9', label: '16:9' },
+  { key: 'free', label: '✂️ 자유' },
 ];
 
 async function decodeBitmap(file: Blob): Promise<{ bmp: ImageBitmap | HTMLImageElement; w: number; h: number }> {
@@ -64,7 +75,9 @@ async function decodeBitmap(file: Blob): Promise<{ bmp: ImageBitmap | HTMLImageE
  */
 export async function openPhotoEditor(file: Blob, fileLabel: string): Promise<Blob | null> {
   const { bmp, w, h } = await decodeBitmap(file);
-  const state: EditState = { ...DEFAULT_EDIT };
+  const state: EditState = freshEdit();
+  let healMode = false;
+  let brushPct = 3; // 이미지 너비의 %
 
   return new Promise<Blob | null>((resolve) => {
     const overlay = el('div', 'pe-overlay');
@@ -76,33 +89,84 @@ export async function openPhotoEditor(file: Blob, fileLabel: string): Promise<Bl
 
     // ── 헤더 ──
     const head = el('div', 'pe-head');
-    head.appendChild(el('b', undefined, `✨ 사진 편집`));
+    head.appendChild(el('b', undefined, '✨ 사진 편집'));
     head.appendChild(el('span', 'pe-file muted small', fileLabel));
     sheet.appendChild(head);
 
-    // ── 미리보기 캔버스 ──
+    // ── 미리보기(캔버스 + 크롭 오버레이) ──
     const stage = el('div', 'pe-stage');
+    const canvasWrap = el('div', 'pe-canvas-wrap');
     const preview = el('canvas', 'pe-canvas') as HTMLCanvasElement;
-    stage.appendChild(preview);
+    canvasWrap.appendChild(preview);
+    // 자유 크롭 오버레이
+    const cropBox = el('div', 'pe-crop-rect');
+    cropBox.hidden = true;
+    for (const corner of ['nw', 'ne', 'sw', 'se']) {
+      const hnd = el('div', `pe-handle pe-h-${corner}`);
+      hnd.dataset['corner'] = corner;
+      cropBox.appendChild(hnd);
+    }
+    canvasWrap.appendChild(cropBox);
+    stage.appendChild(canvasWrap);
     sheet.appendChild(stage);
+
+    const isCropMode = (): boolean => state.aspect === 'free';
+
+    function ensureFreeCrop(): void {
+      if (!state.freeCrop) state.freeCrop = { x: 0.1, y: 0.1, w: 0.8, h: 0.8 };
+    }
+
+    function syncCropBox(): void {
+      if (!isCropMode() || !state.freeCrop) {
+        cropBox.hidden = true;
+        return;
+      }
+      cropBox.hidden = false;
+      cropBox.style.left = `${state.freeCrop.x * 100}%`;
+      cropBox.style.top = `${state.freeCrop.y * 100}%`;
+      cropBox.style.width = `${state.freeCrop.w * 100}%`;
+      cropBox.style.height = `${state.freeCrop.h * 100}%`;
+    }
 
     let raf = 0;
     function repaint(): void {
       if (raf) return;
       raf = requestAnimationFrame(() => {
         raf = 0;
-        const baked = bakeToCanvas(bmp, w, h, state, PREVIEW_MAX);
+        // 크롭 모드에서는 크롭을 뺀 전체 기하를 보여준다(오버레이로 영역 지정).
+        const s = isCropMode()
+          ? { ...state, aspect: 'orig' as CropAspect, zoom: 1, panX: 0, panY: 0, freeCrop: null }
+          : state;
+        const baked = bakeToCanvas(bmp, w, h, s, PREVIEW_MAX);
         preview.width = baked.width;
         preview.height = baked.height;
         preview.getContext('2d')?.drawImage(baked, 0, 0);
+        syncCropBox();
       });
     }
 
-    // 팬(드래그)·줌 제스처
+    // ── 포인터: 팬 / 잡티 탭 ──
     let dragging = false;
     let lastX = 0;
     let lastY = 0;
     preview.addEventListener('pointerdown', (e) => {
+      if (isCropMode()) return; // 크롭 모드는 오버레이가 처리
+      if (healMode) {
+        // 탭 위치 → 기하 정규화 좌표(현재 크롭 창 기준 역투영)
+        const rect = preview.getBoundingClientRect();
+        const u = (e.clientX - rect.left) / rect.width;
+        const v = (e.clientY - rect.top) / rect.height;
+        const rd = rotatedDims(w, h, state.rotate90);
+        const win = resolveWindow(rd.w, rd.h, state);
+        state.heals.push({
+          x: (win.x + u * win.w) / rd.w,
+          y: (win.y + v * win.h) / rd.h,
+          r: ((brushPct / 100) * win.w) / rd.w, // 화면 체감 크기 유지
+        });
+        undoBtn.disabled = false;
+        repaint();
+        return;
+      }
       dragging = true;
       lastX = e.clientX;
       lastY = e.clientY;
@@ -121,13 +185,49 @@ export async function openPhotoEditor(file: Blob, fileLabel: string): Promise<Bl
       dragging = false;
     });
 
+    // ── 크롭 오버레이 드래그(이동/모서리 리사이즈) ──
+    let cropDrag: { mode: 'move' | 'nw' | 'ne' | 'sw' | 'se'; sx: number; sy: number; fc: { x: number; y: number; w: number; h: number } } | null = null;
+    cropBox.addEventListener('pointerdown', (e) => {
+      ensureFreeCrop();
+      const corner = (e.target as HTMLElement).dataset['corner'] as 'nw' | 'ne' | 'sw' | 'se' | undefined;
+      cropDrag = { mode: corner ?? 'move', sx: e.clientX, sy: e.clientY, fc: { ...state.freeCrop! } };
+      cropBox.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    cropBox.addEventListener('pointermove', (e) => {
+      if (!cropDrag || !state.freeCrop) return;
+      const rect = canvasWrap.getBoundingClientRect();
+      const dx = (e.clientX - cropDrag.sx) / rect.width;
+      const dy = (e.clientY - cropDrag.sy) / rect.height;
+      const f = cropDrag.fc;
+      let { x, y, w: cw, h: ch } = f;
+      if (cropDrag.mode === 'move') {
+        x = Math.max(0, Math.min(1 - cw, f.x + dx));
+        y = Math.max(0, Math.min(1 - ch, f.y + dy));
+      } else {
+        if (cropDrag.mode.includes('w')) { x = f.x + dx; cw = f.w - dx; }
+        if (cropDrag.mode.includes('e')) { cw = f.w + dx; }
+        if (cropDrag.mode.includes('n')) { y = f.y + dy; ch = f.h - dy; }
+        if (cropDrag.mode.includes('s')) { ch = f.h + dy; }
+        // 클램프
+        if (cw < MIN_CROP) { if (cropDrag.mode.includes('w')) x = f.x + f.w - MIN_CROP; cw = MIN_CROP; }
+        if (ch < MIN_CROP) { if (cropDrag.mode.includes('n')) y = f.y + f.h - MIN_CROP; ch = MIN_CROP; }
+        x = Math.max(0, x); y = Math.max(0, y);
+        cw = Math.min(cw, 1 - x); ch = Math.min(ch, 1 - y);
+      }
+      state.freeCrop = { x, y, w: cw, h: ch };
+      syncCropBox();
+    });
+    cropBox.addEventListener('pointerup', () => {
+      cropDrag = null;
+    });
+
     // ── 프리셋 ──
     const presetRow = el('div', 'pe-presets');
     for (const [name, patch] of Object.entries(PRESETS)) {
       const b = el('button', 'pe-chip', name) as HTMLButtonElement;
       b.type = 'button';
       b.addEventListener('click', () => {
-        // 프리셋 = 색감 리셋 후 적용(기하 편집은 유지)
         Object.assign(state, {
           brightness: 0, contrast: 0, saturation: 0, warmth: 0, exposure: 0,
           vignette: 0, sharpenAmt: 0, grainAmt: 0,
@@ -139,18 +239,22 @@ export async function openPhotoEditor(file: Blob, fileLabel: string): Promise<Bl
     }
     sheet.appendChild(presetRow);
 
-    // ── 기하 컨트롤(회전·반전·비율·줌) ──
+    // ── 기하·도구 컨트롤 ──
     const geoRow = el('div', 'pe-geo');
     const rotBtn = el('button', 'pe-chip', '↻ 회전') as HTMLButtonElement;
     rotBtn.type = 'button';
     rotBtn.addEventListener('click', () => {
       state.rotate90 = ((state.rotate90 + 1) % 4) as EditState['rotate90'];
+      state.heals = rotateHeals90(state.heals); // 기존 잡티 좌표 보존
+      if (state.freeCrop) state.freeCrop = rotateFreeCrop90(state.freeCrop);
       repaint();
     });
     const flipBtn = el('button', 'pe-chip', '⇋ 반전') as HTMLButtonElement;
     flipBtn.type = 'button';
     flipBtn.addEventListener('click', () => {
       state.flipH = !state.flipH;
+      state.heals = flipHealsH(state.heals);
+      if (state.freeCrop) state.freeCrop = flipFreeCropH(state.freeCrop);
       repaint();
     });
     geoRow.append(rotBtn, flipBtn);
@@ -160,6 +264,10 @@ export async function openPhotoEditor(file: Blob, fileLabel: string): Promise<Bl
       b.setAttribute('aria-pressed', String(a.key === state.aspect));
       b.addEventListener('click', () => {
         state.aspect = a.key;
+        if (a.key === 'free') {
+          ensureFreeCrop();
+          setHealMode(false); // 크롭 중엔 잡티 오프
+        }
         geoRow.querySelectorAll('.pe-aspect').forEach((x) =>
           x.setAttribute('aria-pressed', String((x as HTMLButtonElement).textContent === a.label)),
         );
@@ -186,6 +294,57 @@ export async function openPhotoEditor(file: Blob, fileLabel: string): Promise<Bl
     zoomWrap.append(el('span', 'pe-slider-label', '🔍'), zoom);
     geoRow.appendChild(zoomWrap);
     sheet.appendChild(geoRow);
+
+    // ── 잡티 제거 도구줄 ──
+    const healRow = el('div', 'pe-geo pe-heal-row');
+    const healBtn = el('button', 'pe-chip', '🩹 잡티 제거') as HTMLButtonElement;
+    healBtn.type = 'button';
+    healBtn.setAttribute('aria-pressed', 'false');
+    const brush = el('input') as HTMLInputElement;
+    brush.type = 'range';
+    brush.min = '1';
+    brush.max = '8';
+    brush.step = '0.5';
+    brush.value = String(brushPct);
+    brush.setAttribute('aria-label', '브러시 크기');
+    brush.addEventListener('input', () => {
+      brushPct = Number(brush.value);
+    });
+    const brushWrap = el('label', 'pe-zoom-wrap');
+    brushWrap.append(el('span', 'pe-slider-label', '크기'), brush);
+    brushWrap.hidden = true;
+    const undoBtn = el('button', 'pe-chip', '↺ 되돌리기') as HTMLButtonElement;
+    undoBtn.type = 'button';
+    undoBtn.disabled = true;
+    undoBtn.hidden = true;
+    undoBtn.addEventListener('click', () => {
+      state.heals.pop();
+      undoBtn.disabled = state.heals.length === 0;
+      repaint();
+    });
+    const healHint = el('span', 'pe-hint muted small', '지우고 싶은 점을 사진에서 톡 누르세요');
+    healHint.hidden = true;
+    function setHealMode(on: boolean): void {
+      healMode = on;
+      healBtn.setAttribute('aria-pressed', String(on));
+      brushWrap.hidden = !on;
+      undoBtn.hidden = !on;
+      healHint.hidden = !on;
+      preview.classList.toggle('pe-heal-cursor', on);
+    }
+    healBtn.addEventListener('click', () => {
+      if (isCropMode()) {
+        // 크롭 모드 종료 후 잡티 모드로
+        state.aspect = 'orig';
+        geoRow.querySelectorAll('.pe-aspect').forEach((x) =>
+          x.setAttribute('aria-pressed', String((x as HTMLButtonElement).textContent === '원본')),
+        );
+        repaint();
+      }
+      setHealMode(!healMode);
+    });
+    healRow.append(healBtn, brushWrap, undoBtn, healHint);
+    sheet.appendChild(healRow);
 
     // ── 슬라이더들 ──
     const sliderInputs = new Map<keyof EditState, HTMLInputElement>();
@@ -218,8 +377,10 @@ export async function openPhotoEditor(file: Blob, fileLabel: string): Promise<Bl
     const resetBtn = el('button', 'btn-ghost', '초기화') as HTMLButtonElement;
     resetBtn.type = 'button';
     resetBtn.addEventListener('click', () => {
-      Object.assign(state, DEFAULT_EDIT);
+      Object.assign(state, DEFAULT_EDIT, { heals: [], freeCrop: null });
       zoom.value = '1';
+      setHealMode(false);
+      undoBtn.disabled = true;
       syncSliders();
       geoRow.querySelectorAll('.pe-aspect').forEach((x) =>
         x.setAttribute('aria-pressed', String((x as HTMLButtonElement).textContent === '원본')),
@@ -242,9 +403,8 @@ export async function openPhotoEditor(file: Blob, fileLabel: string): Promise<Bl
     skipBtn.addEventListener('click', () => close(null));
     applyBtn.addEventListener('click', () => {
       applyBtn.disabled = true;
-      // 편집이 전혀 없으면 원본 사용과 동일(재인코딩 손실 방지)
       if (isIdentity(state)) {
-        close(null);
+        close(null); // 무편집 → 재인코딩 손실 방지
         return;
       }
       const full = bakeToCanvas(bmp, w, h, state, OUTPUT_MAX);

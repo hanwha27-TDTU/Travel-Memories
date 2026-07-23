@@ -1,7 +1,17 @@
 // tests/unit/pixelops.test.ts — 사진 편집 픽셀 연산·크롭 기하 비공허 검증.
 import { describe, it, expect } from 'vitest';
-import { applyColorAdjust, sharpen, grain, NO_ADJUST } from '../../src/media/pixelops';
-import { cropWindow, rotatedDims, angleCoverScale } from '../../src/media/editor-core';
+import { applyColorAdjust, sharpen, grain, healSpot, NO_ADJUST } from '../../src/media/pixelops';
+import {
+  cropWindow,
+  rotatedDims,
+  angleCoverScale,
+  resolveWindow,
+  rotateHeals90,
+  flipHealsH,
+  rotateFreeCrop90,
+  isIdentity,
+  freshEdit,
+} from '../../src/media/editor-core';
 
 function px(r: number, g: number, b: number): Uint8ClampedArray {
   return new Uint8ClampedArray([r, g, b, 255]);
@@ -90,5 +100,67 @@ describe('crop 기하', () => {
   it('angleCoverScale은 0도=1, 각도 커지면 >1', () => {
     expect(angleCoverScale(400, 300, 0)).toBe(1);
     expect(angleCoverScale(400, 300, 5)).toBeGreaterThan(1);
+  });
+});
+
+describe('healSpot (잡티 제거)', () => {
+  it('밝은 점을 주변 색으로 메꾼다', () => {
+    // 21×21 균일(100) + 중앙 3×3 밝은 점(250)
+    const w = 21, h = 21;
+    const d = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < d.length; i += 4) { d[i] = 100; d[i+1] = 100; d[i+2] = 100; d[i+3] = 255; }
+    for (let y = 9; y <= 11; y += 1) for (let x = 9; x <= 11; x += 1) {
+      const i = (y * w + x) * 4; d[i] = 250; d[i+1] = 250; d[i+2] = 250;
+    }
+    healSpot(d, w, h, 10, 10, 6);
+    const c = (10 * w + 10) * 4;
+    expect(d[c]!).toBeLessThan(140); // 점이 주변(100)에 가깝게 메꿔짐
+  });
+
+  it('반경 밖 픽셀은 불변', () => {
+    const w = 21, h = 21;
+    const d = new Uint8ClampedArray(w * h * 4).fill(80);
+    healSpot(d, w, h, 10, 10, 4);
+    const corner = 0;
+    expect(d[corner]).toBe(80);
+  });
+});
+
+describe('자유 크롭·좌표 변환', () => {
+  it('resolveWindow는 freeCrop을 px로 변환한다', () => {
+    const win = resolveWindow(400, 300, {
+      aspect: 'free', zoom: 1, panX: 0, panY: 0,
+      freeCrop: { x: 0.25, y: 0.1, w: 0.5, h: 0.6 },
+    });
+    expect(win).toEqual({ x: 100, y: 30, w: 200, h: 180 });
+  });
+
+  it('freeCrop 없으면 기존 창 로직으로 폴백', () => {
+    const a = resolveWindow(400, 300, { aspect: 'orig', zoom: 1, panX: 0, panY: 0, freeCrop: null });
+    const b = cropWindow(400, 300, 'orig', 1, 0, 0);
+    expect(a).toEqual(b);
+  });
+
+  it('rotateHeals90: (x,y) → (1-y, x)', () => {
+    expect(rotateHeals90([{ x: 0.2, y: 0.4, r: 0.03 }])[0]).toEqual({ x: 0.6, y: 0.2, r: 0.03 });
+  });
+
+  it('flipHealsH: x → 1-x', () => {
+    expect(flipHealsH([{ x: 0.2, y: 0.4, r: 0.03 }])[0]).toEqual({ x: 0.8, y: 0.4, r: 0.03 });
+  });
+
+  it('rotateFreeCrop90은 사각형을 보존 회전한다', () => {
+    const fc = rotateFreeCrop90({ x: 0.1, y: 0.2, w: 0.3, h: 0.4 });
+    expect(fc.x).toBeCloseTo(1 - (0.2 + 0.4));
+    expect(fc.y).toBeCloseTo(0.1);
+    expect(fc.w).toBeCloseTo(0.4);
+    expect(fc.h).toBeCloseTo(0.3);
+  });
+
+  it('isIdentity: 잡티가 있으면 편집으로 간주', () => {
+    const s = freshEdit();
+    expect(isIdentity(s)).toBe(true);
+    s.heals.push({ x: 0.5, y: 0.5, r: 0.03 });
+    expect(isIdentity(s)).toBe(false);
   });
 });
