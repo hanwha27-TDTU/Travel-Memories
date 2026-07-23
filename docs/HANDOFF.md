@@ -10,6 +10,10 @@
 
 **현재 단계**: **Phase 1 — 동기화 push/pull 코드 구현 완료(실 연동 대기).** trips 로컬층 + journey 스키마(RLS 공격검사 통과) 위에, 인증(Google OAuth PKCE)·동기화(push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드 병합)를 구현. 순수 결정로직 15 유닛테스트로 잠금. **미검증(정직)**: 실 Google 로그인→journey.trips 실 push는 (a)대시보드 Exposed schemas에 journey 추가 (b)Google OAuth provider+redirect 허용목록 (c)GitHub Variables 설정 후, 두 브라우저/기기로 수동 검증 필요(이 샌드박스는 *.supabase.co 차단으로 불가). 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨.
 
+**Phase 4b(2026-07-23)**: 장소 검색(지오코딩). Nominatim(무료·키 불필요, 구글맵은 키·결제라 제외). `services/geocode.ts`(순수 URL·파서, 유닛 6). `LocalMoment.placeLat/placeLng`+rowmap. 생성·편집 폼 공통 `buildPlaceField`(🔍검색→결과 선택→좌표 저장, 결과는 textContent 안전). 지도 좌표 우선순위: 장소 좌표→사진 GPS. CSP에 nominatim.openstreetmap.org. **후속**: moment 서버 sync 시 place_lat/place_lng 컬럼 마이그레이션 필요. 라이브 검증: Playwright 자체 서빙+Nominatim 목킹으로 검색→선택→저장→지도표시(세션 후반 로컬서버 불안정 우회).
+
+**Phase 3e(2026-07-23)**: 저장된 사진 재편집(비파괴). 뷰어 `✎ 편집` → `openPhotoEditor(원본Blob, {initialState})` → `reeditMediaLocalFirst`(원본·EXIF 불변, 표시본·썸네일 재생성, version+1). `LocalMedia.editState`(순수값)로 이어서 편집·백업 포함. 라이브 검증: 회전 재편집 시 치수 스왑·원본 크기 불변·editState 저장, 콘솔 에러 0. (참고: 이 세션 후반 vite preview 기동 불안정 → dist 정적 서버로 검증.)
+
 **Phase 4(2026-07-23)**: 지도와 장소. ADR-0023(A-006 OSM 래스터 기본·교체가능, CSP에 tile.openstreetmap.org). `domain/place/geojson.ts`(순수, 유닛 4)·`ui/screens/mapView.ts`(여행 🗺 지도 → MapLibre 동적import·마커·DOM 팝업·장소목록 대체·GeoJSON 내보내기). tripDetail 히어로에 지도 버튼·refresh에서 locatedPoints 계산(사진 EXIF GPS). 라이브 검증: 빈상태·장소목록·강등폴백·GeoJSON, 앱 콘솔 에러 0. 실 타일 지도는 사용자 실기기 몫. 남은 Phase 5: 회고(Reflection)·대표사진.
 
 **Phase 5a(2026-07-23)**: 비용(Expense) 기록. `LocalExpense`(Dexie v4)·`domain/expense/format.ts`(순수, 유닛 9)·`services/expenses.ts`(로컬 전용, 동기화 후속). tripDetail에 금액+통화 입력·money chip·통화별 합계·인라인 편집. 순간/여행 삭제·복원·영구삭제·백업에 비용 cascade 통합. 라이브 검증: 생성·다통화·편집·백업 왕복, 콘솔 에러 0. 남은 Phase 5: 회고(Reflection)·대표사진. Phase 4(지도)는 미착수. **PR #12 병합됨 → 이 브랜치는 main에서 새로 뜬 상태.**

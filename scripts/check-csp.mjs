@@ -7,7 +7,14 @@ import { readFileSync } from 'node:fs';
 
 // 지시어별 필수 소스. 스택 근거는 index.html의 CSP 주석 참조.
 const REQUIRED = {
-  'connect-src': ["'self'", 'https://*.supabase.co', 'wss://*.supabase.co', 'https://tile.openstreetmap.org'],
+  // nominatim.openstreetmap.org: 장소 검색(지오코딩, 키 불필요). tile.openstreetmap.org: 지도 타일.
+  'connect-src': [
+    "'self'",
+    'https://*.supabase.co',
+    'wss://*.supabase.co',
+    'https://tile.openstreetmap.org',
+    'https://nominatim.openstreetmap.org',
+  ],
   'worker-src': ['blob:'],           // MapLibre GL blob: 워커
   'img-src': ['data:', 'blob:', 'https://*.supabase.co', 'https://tile.openstreetmap.org'],
   'object-src': ["'none'"],
@@ -47,7 +54,7 @@ function checkHtml(html) {
 }
 
 // ── 셀프테스트: 알려진 실패 주입이 RED로 잡히는지 확인(게이트 비공허, CLAUDE.md §4) ──
-const GOOD = `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: https://*.supabase.co https://tile.openstreetmap.org; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://tile.openstreetmap.org; worker-src 'self' blob:; script-src 'self'; object-src 'none'; base-uri 'self'" />`;
+const GOOD = `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: https://*.supabase.co https://tile.openstreetmap.org; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://tile.openstreetmap.org https://nominatim.openstreetmap.org; worker-src 'self' blob:; script-src 'self'; object-src 'none'; base-uri 'self'" />`;
 const selfCases = [
   { name: '정상 CSP 통과', html: GOOD, expectClean: true },
   { name: 'wss 누락 검출', html: GOOD.replace(' wss://*.supabase.co', ''), expectClean: false },

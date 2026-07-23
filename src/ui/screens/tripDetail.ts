@@ -21,6 +21,7 @@ import {
   listMediaByTrip,
   softDeleteMediaLocalFirst,
   restoreMediaLocalFirst,
+  reeditMediaLocalFirst,
 } from '../../services/media';
 import {
   createExpenseLocalFirst,
@@ -31,6 +32,95 @@ import {
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, sumByCurrency, formatTotals } from '../../domain/expense/format';
 import { momentCoord } from '../../domain/place/geojson';
 import { openMapView, type MapPoint } from './mapView';
+import { searchPlaces } from '../../services/geocode';
+
+/** 장소 입력 + 🔍 검색(Nominatim) + 결과 선택. 결과 텍스트는 textContent로만(외부 데이터·XSS 방지). */
+interface PlaceField {
+  el: HTMLElement;
+  getName: () => string;
+  getCoords: () => { lat: number; lng: number } | null;
+  reset: () => void;
+}
+function buildPlaceField(initial: { name: string; lat: number | null; lng: number | null }): PlaceField {
+  const wrap = el('div', 'place-field');
+  const row = el('div', 'place-row');
+  const input = el('input', 'edit-input place-input') as HTMLInputElement;
+  input.type = 'text';
+  input.value = initial.name;
+  input.maxLength = 80;
+  input.placeholder = '📍 장소 (선택)';
+  input.setAttribute('aria-label', '장소(선택)');
+  const searchBtn = el('button', 'btn-ghost place-search', '🔍 검색') as HTMLButtonElement;
+  searchBtn.type = 'button';
+  searchBtn.setAttribute('aria-label', '장소 검색(지도)');
+  row.append(input, searchBtn);
+  const results = el('div', 'place-results');
+  results.hidden = true;
+  wrap.append(row, results);
+
+  let lat: number | null = initial.lat;
+  let lng: number | null = initial.lng;
+  // 손으로 텍스트를 바꾸면 이전 좌표는 다른 장소일 수 있으니 무효화.
+  input.addEventListener('input', () => {
+    lat = null;
+    lng = null;
+    results.hidden = true;
+  });
+
+  const doSearch = (): void => {
+    const q = input.value.trim();
+    if (!q) return;
+    searchBtn.disabled = true;
+    results.hidden = false;
+    results.textContent = '검색 중…';
+    void (async () => {
+      try {
+        const places = await searchPlaces(q);
+        results.innerHTML = '';
+        if (places.length === 0) {
+          results.appendChild(el('div', 'place-none', '결과가 없어요. 다른 검색어로 시도해 보세요.'));
+        } else {
+          for (const p of places) {
+            const b = el('button', 'place-result') as HTMLButtonElement;
+            b.type = 'button';
+            b.append(el('b', 'place-result-name', p.name), el('span', 'place-result-full', p.displayName));
+            b.addEventListener('click', () => {
+              input.value = p.name;
+              lat = p.lat;
+              lng = p.lng;
+              results.hidden = true;
+            });
+            results.appendChild(b);
+          }
+        }
+      } catch (err) {
+        results.textContent = `검색 실패: ${err instanceof Error ? err.message : String(err)}`;
+      } finally {
+        searchBtn.disabled = false;
+      }
+    })();
+  };
+  searchBtn.addEventListener('click', doSearch);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault(); // 폼 제출 대신 검색
+      doSearch();
+    }
+  });
+
+  return {
+    el: wrap,
+    getName: () => input.value,
+    getCoords: () => (lat !== null && lng !== null ? { lat, lng } : null),
+    reset: () => {
+      input.value = '';
+      lat = null;
+      lng = null;
+      results.hidden = true;
+      results.innerHTML = '';
+    },
+  };
+}
 import { openPhotoEditor, type EditorResult } from '../photoEditor';
 import { groupMomentsByDay, type DayGroup } from '../../domain/moment/timeline';
 import { supabase } from '../../services/supabase/client';
@@ -227,11 +317,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       emoRow.appendChild(b);
     }
 
-    const place = el('input', 'moment-place') as HTMLInputElement;
-    place.type = 'text';
-    place.placeholder = '📍 장소 (선택)';
-    place.maxLength = 80;
-    place.setAttribute('aria-label', '장소(선택)');
+    const placeField = buildPlaceField({ name: '', lat: null, lng: null });
 
     // 사진 선택(원본은 기기에 보관·압축본은 파생, §0). label 안에 input을 넣어 접근성 확보.
     const photoInput = el('input', 'moment-photo-input') as HTMLInputElement;
@@ -261,7 +347,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const save = el('button', 'btn-primary', '순간 저장') as HTMLButtonElement;
     save.type = 'submit';
 
-    form.append(input, emoRow, place, moneyRow, photoLabel, save);
+    form.append(input, emoRow, placeField.el, moneyRow, photoLabel, save);
     body.appendChild(form);
 
     const note = el('p', 'sync-note', '');
@@ -301,7 +387,9 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       locatedPoints = [];
       for (const m of moments) {
         const mediaList = byMoment.get(m.id) ?? [];
-        const coord = momentCoord(mediaList);
+        // 사용자가 고른 장소 좌표 우선, 없으면 사진 EXIF GPS.
+        const coord =
+          m.placeLat != null && m.placeLng != null ? { lat: m.placeLat, lng: m.placeLng } : momentCoord(mediaList);
         if (coord) {
           const point: MapPoint = {
             momentId: m.id,
@@ -498,7 +586,35 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         e.stopPropagation();
         close();
       });
-      overlay.append(img, closeBtn);
+
+      // 재편집 — 저장된 사진을 편집기로 다시 연다. 원본에서 파생(비파괴), 이전 편집을 이어서 조정.
+      const editPhotoBtn = el('button', 'photo-viewer-edit', '✎ 편집') as HTMLButtonElement;
+      editPhotoBtn.type = 'button';
+      editPhotoBtn.setAttribute('aria-label', '이 사진 편집');
+      editPhotoBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        editPhotoBtn.disabled = true;
+        void (async () => {
+          try {
+            const r = await openPhotoEditor(
+              md.originalBlob,
+              timeLabel(md.takenAt) || '사진 편집',
+              md.editState ? { initialState: md.editState } : {},
+            );
+            if (r.action === 'apply') {
+              await reeditMediaLocalFirst(md.id, r.blob ?? md.originalBlob, r.state);
+              await refresh();
+              close();
+              return;
+            }
+          } catch {
+            /* 편집 취소·실패는 뷰어 유지 */
+          }
+          editPhotoBtn.disabled = false;
+        })();
+      });
+
+      overlay.append(img, editPhotoBtn, closeBtn);
       overlay.addEventListener('click', close); // 배경 탭으로도 닫기
       document.addEventListener('keydown', function esc(e) {
         if (e.key === 'Escape') {
@@ -515,11 +631,14 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       const files = photoInput.files ? Array.from(photoInput.files) : [];
       void (async () => {
         try {
+          const placeCoords = placeField.getCoords();
           const moment = await createMomentLocalFirst({
             tripId: trip!.id,
             title: input.value,
             emotion: picked,
-            placeName: place.value,
+            placeName: placeField.getName(),
+            placeLat: placeCoords?.lat ?? null,
+            placeLng: placeCoords?.lng ?? null,
           });
           // 비용(선택): 금액이 유효하면 순간에 딸린 비용으로 저장.
           const amountVal = parseAmount(amountIn.value);
@@ -558,14 +677,19 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
             for (let k = 0; k < files.length; k += 1) {
               note.textContent = `사진 저장… (${k + 1}/${files.length})`;
               try {
-                await addPhotoToMoment(files[k]!, { momentId: moment.id, tripId: trip!.id }, blobs[k] ?? undefined);
+                await addPhotoToMoment(
+                  files[k]!,
+                  { momentId: moment.id, tripId: trip!.id },
+                  blobs[k] ?? undefined,
+                  blobs[k] ? states[k] : undefined, // 편집한 경우만 편집상태 저장(재편집 이어서용)
+                );
               } catch {
                 /* 개별 사진 실패는 건너뜀(순간 자체는 저장됨) */
               }
             }
           }
           input.value = '';
-          place.value = '';
+          placeField.reset();
           picked = '';
           amountIn.value = '';
           currencyIn.value = DEFAULT_CURRENCY;
@@ -699,6 +823,8 @@ function buildMomentEditForm(
       title: string;
       emotion: string;
       placeName: string;
+      placeLat: number | null;
+      placeLng: number | null;
       note: string;
       occurredAt?: string;
     },
@@ -732,12 +858,7 @@ function buildMomentEditForm(
     emoRow.appendChild(b);
   }
 
-  const placeIn = el('input', 'edit-input') as HTMLInputElement;
-  placeIn.type = 'text';
-  placeIn.value = m.placeName;
-  placeIn.maxLength = 80;
-  placeIn.placeholder = '📍 장소 (선택)';
-  placeIn.setAttribute('aria-label', '장소(선택)');
+  const placeField = buildPlaceField({ name: m.placeName, lat: m.placeLat ?? null, lng: m.placeLng ?? null });
 
   const noteIn = el('textarea', 'edit-input edit-note') as HTMLTextAreaElement;
   noteIn.value = m.note;
@@ -776,7 +897,7 @@ function buildMomentEditForm(
     titleIn,
     emoRow,
     el('label', 'edit-label', '장소'),
-    placeIn,
+    placeField.el,
     el('label', 'edit-label', '메모'),
     noteIn,
     el('label', 'edit-label', '비용'),
@@ -789,10 +910,21 @@ function buildMomentEditForm(
   panel.addEventListener('submit', (e) => {
     e.preventDefault();
     save.disabled = true;
-    const patch: { title: string; emotion: string; placeName: string; note: string; occurredAt?: string } = {
+    const placeCoords = placeField.getCoords();
+    const patch: {
+      title: string;
+      emotion: string;
+      placeName: string;
+      placeLat: number | null;
+      placeLng: number | null;
+      note: string;
+      occurredAt?: string;
+    } = {
       title: titleIn.value,
       emotion: picked,
-      placeName: placeIn.value,
+      placeName: placeField.getName(),
+      placeLat: placeCoords?.lat ?? null,
+      placeLng: placeCoords?.lng ?? null,
       note: noteIn.value,
     };
     const occ = fromLocalInputValue(timeIn.value);

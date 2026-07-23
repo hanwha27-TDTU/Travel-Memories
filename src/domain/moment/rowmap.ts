@@ -13,6 +13,8 @@ export interface MomentRow {
   note: string;
   emotion: string;
   place_name: string;
+  place_lat: number | null;
+  place_lng: number | null;
   version: number;
   created_at: string;
   updated_at: string;
@@ -30,6 +32,8 @@ export function toMomentRow(m: LocalMoment, userId: string): MomentRow {
     note: m.note,
     emotion: m.emotion,
     place_name: m.placeName,
+    place_lat: m.placeLat ?? null,
+    place_lng: m.placeLng ?? null,
     version: m.version,
     created_at: m.createdAt,
     updated_at: m.updatedAt,
@@ -47,6 +51,8 @@ export function fromMomentRow(r: MomentRow): LocalMoment {
     note: r.note,
     emotion: r.emotion,
     placeName: r.place_name,
+    placeLat: r.place_lat,
+    placeLng: r.place_lng,
     version: r.version,
     createdAt: r.created_at,
     updatedAt: r.updated_at,

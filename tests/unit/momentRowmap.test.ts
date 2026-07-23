@@ -11,6 +11,8 @@ const base: LocalMoment = {
   note: '',
   emotion: '🥹',
   placeName: '협재 해변',
+  placeLat: 33.3937,
+  placeLng: 126.2396,
   version: 3,
   createdAt: '2026-07-10T09:20:00.000Z',
   updatedAt: '2026-07-10T09:25:00.000Z',
@@ -24,6 +26,8 @@ describe('moment rowmap 경계', () => {
     expect(row.user_id).toBe('user-9');
     expect(row.trip_id).toBe('t1');
     expect(row.place_name).toBe('협재 해변');
+    expect(row.place_lat).toBe(33.3937);
+    expect(row.place_lng).toBe(126.2396);
     expect(row.occurred_at).toBe('2026-07-10T09:20:00.000Z');
   });
 

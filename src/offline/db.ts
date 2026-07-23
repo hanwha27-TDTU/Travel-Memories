@@ -3,6 +3,7 @@
 // Phase 0B는 스키마 선언까지만. 실제 CRUD/동기화 로직은 이후 Phase.
 
 import Dexie, { type Table } from 'dexie';
+import type { EditState } from '../media/editor-core';
 
 // 공통 동기화 메타 (docs/DATA_MODEL.md). 실제 도메인 필드는 Phase 1에서 확장.
 export interface SyncMeta {
@@ -31,6 +32,8 @@ export interface LocalMoment extends SyncMeta {
   note: string; // 추가 메모(선택)
   emotion: string; // 감정 이모지(선택)
   placeName: string; // 장소명(선택)
+  placeLat?: number | null; // 장소 좌표(지오코딩 선택) — 있으면 지도에 표시
+  placeLng?: number | null;
 }
 
 // 사진(Media) — 로컬 전용(3a). 원본 Blob은 절대 수정하지 않는다(§0).
@@ -49,6 +52,9 @@ export interface LocalMedia extends SyncMeta {
   gpsLng: number | null;
   bytesOriginal: number;
   bytesDisplay: number;
+  // 비파괴 편집 상태(선택) — 재편집 시 이전 편집을 이어서 조정. 원본에서 파생하므로
+  // 직렬화 가능한 순수 값만 담는다(회전·자르기·색보정·잡티). 원본 Blob은 절대 안 바뀐다(§0).
+  editState?: EditState;
 }
 
 // 비용(Expense) — 순간에 딸린 지출. 원금액은 양수·불변(H-04), 통화는 ISO 4217.
