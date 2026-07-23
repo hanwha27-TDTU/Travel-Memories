@@ -28,11 +28,11 @@
   --radius-small: 12px; --radius-medium: 18px; --radius-large: 28px; --radius-pill: 999px;
   --touch-target-min: 44px;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", Roboto, sans-serif;
-  /* 디스플레이(제목)는 본문과 동일 스택을 쓴다. 별도 Latin/CJK 디스플레이 폰트를 앞에 두면
-     기기별로 숫자만 다른 폰트(넓은 폭)로 폴백되어 "2 0 2 6"처럼 자간이 갈라진다(M-title-kerning).
-     본문 스택은 기기 시스템 폰트가 숫자·한글을 일관되게 렌더하므로 제목도 그대로 따른다.
-     디스플레이 느낌은 폰트 패밀리가 아니라 font-weight(800~900)로 준다. */
-  --font-disp: var(--font-sans);
+  /* 디스플레이(제목): 번들 웹폰트 Pretendard를 최우선으로. 기기 시스템 폰트에 의존하면
+     기기마다 숫자·한글이 다른 폰트로 갈라져("2 0 2 6") 일관성이 깨진다(M-title-kerning).
+     Pretendard(fonts.css @font-face)는 앱에 포함되어 모든 기기에서 동일하게 렌더된다.
+     폰트 로드 전(swap)엔 본문 스택으로 폴백. */
+  --font-disp: "Pretendard", var(--font-sans);
 
   /* ===== 레거시 별칭 (기존 컴포넌트 호환) ===== */
   --color-bg-primary: var(--surface);

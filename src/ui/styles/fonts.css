@@ -1,0 +1,11 @@
+/* 제목(디스플레이) 웹폰트 — Pretendard(OFL). 기기별 시스템 폰트 차이로 제목의 숫자·한글
+   자간이 갈라지던 문제(M-title-kerning)를 없애기 위해 앱에 번들한다. 제목(--font-disp)에만
+   쓰이므로 본문(--font-sans)은 기기 폰트 그대로. font-display: swap으로 폰트 로드 전엔 폴백
+   표시(투명글자 없음). 상세 라이선스: fonts/Pretendard-OFL.txt */
+@font-face {
+  font-family: 'Pretendard';
+  src: url('./fonts/Pretendard-ExtraBold.woff2') format('woff2');
+  font-weight: 400 900; /* 제목은 모두 굵은 문맥 — 이 한 굵기로 커버(폴백 방지) */
+  font-style: normal;
+  font-display: swap;
+}
