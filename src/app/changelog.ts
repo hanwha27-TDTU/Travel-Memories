@@ -31,6 +31,17 @@ export const DEVELOPER = {
 /** 최신이 맨 앞. 각 항목 = 실제 병합된 릴리스. */
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: '0.31',
+    date: '2026-07-23',
+    title: '다기기 동기화 서버 스키마 — 사진·비용·좌표',
+    notes: [
+      '사진(media)·비용(expenses) 서버 테이블 + 사진 표시본용 Storage 버킷(journey-media)을 추가 — 다기기 동기화의 서버 기반 완성.',
+      '순간에 위치 좌표(place_lat/place_lng) 동기화 컬럼 추가.',
+      '모두 소유자 RLS·초대제·복합 FK(H-02)·tombstone·좀비 방지 트리거로 보호. 공격검사 통과(프로덕션 무변경).',
+      '남은 것: 앱이 실제로 올리고 내려받는 동기화 코드 + Google 로그인 실연동(실기기 확인).',
+    ],
+  },
+  {
     version: '0.30',
     date: '2026-07-23',
     title: '좀비 방지 서버측 완성 + 프로젝트 격리 확정',
