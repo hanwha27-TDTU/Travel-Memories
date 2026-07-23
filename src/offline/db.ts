@@ -32,6 +32,8 @@ export interface LocalMoment extends SyncMeta {
   note: string; // 추가 메모(선택)
   emotion: string; // 감정 이모지(선택)
   placeName: string; // 장소명(선택)
+  placeLat?: number | null; // 장소 좌표(지오코딩 선택) — 있으면 지도에 표시
+  placeLng?: number | null;
 }
 
 // 사진(Media) — 로컬 전용(3a). 원본 Blob은 절대 수정하지 않는다(§0).

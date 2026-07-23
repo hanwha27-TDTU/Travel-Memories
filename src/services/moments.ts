@@ -13,6 +13,8 @@ export interface CreateMomentInput {
   title: string;
   emotion?: string;
   placeName?: string;
+  placeLat?: number | null;
+  placeLng?: number | null;
   note?: string;
   occurredAt?: string;
 }
@@ -32,6 +34,8 @@ export async function createMomentLocalFirst(input: CreateMomentInput): Promise<
     note: input.note?.trim() ?? '',
     emotion: input.emotion ?? '',
     placeName: input.placeName?.trim() ?? '',
+    placeLat: input.placeLat ?? null,
+    placeLng: input.placeLng ?? null,
     version: 1,
     createdAt: now,
     updatedAt: now,
@@ -68,6 +72,8 @@ export interface UpdateMomentPatch {
   title?: string;
   emotion?: string;
   placeName?: string;
+  placeLat?: number | null;
+  placeLng?: number | null;
   note?: string;
   occurredAt?: string;
 }
@@ -88,6 +94,8 @@ export async function updateMomentLocalFirst(id: string, patch: UpdateMomentPatc
     ...(patch.title !== undefined ? { title: patch.title.trim() } : {}),
     ...(patch.emotion !== undefined ? { emotion: patch.emotion } : {}),
     ...(patch.placeName !== undefined ? { placeName: patch.placeName.trim() } : {}),
+    ...(patch.placeLat !== undefined ? { placeLat: patch.placeLat } : {}),
+    ...(patch.placeLng !== undefined ? { placeLng: patch.placeLng } : {}),
     ...(patch.note !== undefined ? { note: patch.note.trim() } : {}),
     ...(patch.occurredAt !== undefined ? { occurredAt: patch.occurredAt } : {}),
     version: cur.version + 1,

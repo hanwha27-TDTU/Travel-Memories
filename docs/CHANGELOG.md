@@ -4,6 +4,13 @@
 
 ## [Unreleased] — Phase 0~1
 
+### Phase 4b — 장소 검색(지오코딩, 무료·키 불필요) (2026-07-23)
+- **장소 검색**: 장소 필드에 `🔍 검색` → **Nominatim(OpenStreetMap 지오코딩)**으로 장소명→좌표. 구글맵은 API 키·결제 필요라 제외, OSM과 일관된 무료·키 불필요 선택(정책: 검색은 버튼/제출 시에만, 귀속·저트래픽).
+- **좌표 저장**: `LocalMoment.placeLat/placeLng`(+ moment rowmap place_lat/place_lng). 결과 선택 시 순간에 좌표 저장 → **사진 GPS가 없어도 지도에 표시**(지도 좌표 우선순위: 장소 좌표 → 사진 EXIF GPS).
+- **순수 로직** `services/geocode.ts`: `buildNominatimUrl`·`parseNominatimResults`(문자열 lat/lon→숫자, 무효 필터). 유닛 6케이스. fetch는 네트워크(미검증).
+- **안전**: 검색 결과(외부 데이터)는 DOM 노드(textContent)로만 렌더(XSS 방지). CSP `connect-src`에 `nominatim.openstreetmap.org` 추가(index.html + check-csp REQUIRED·GOOD 동시 갱신). 생성·편집 폼 공통 `buildPlaceField`(입력 손수정 시 좌표 무효화).
+- **라이브 검증(Playwright 자체 서빙·Nominatim 목킹, 기능 assertion 전부 통과)**: 검색(2건)→선택("김포국제공항")→저장(placeLat 37.5583/placeLng 126.7906)→지도 장소목록 표시. harness(6)·unit 79·build 그린. **정직**: 실제 Nominatim 호출은 샌드박스 프록시 차단으로 미검증(목킹). 세션 후반 로컬 서버 불안정 → Playwright route로 dist 자체 서빙해 검증. moment 서버 sync 시 place_lat/place_lng 컬럼 마이그레이션 필요(후속).
+
 ### Phase 3e — 저장된 사진 재편집(비파괴) (2026-07-23)
 - **재편집**: 전체보기 뷰어에 `✎ 편집` → 저장된 사진을 편집기(`openPhotoEditor`)로 다시 연다. 그동안 사진은 저장 후 삭제만 가능하고 재편집이 불가했음.
 - **비파괴(§0)**: 편집은 **원본 Blob에서 파생**하고 원본·EXIF(촬영시각·GPS)는 절대 바꾸지 않는다. `reeditMediaLocalFirst`가 표시본·썸네일만 재생성(version+1·read-back). 미디어 로컬 전용(sync 후속).
