@@ -22,13 +22,41 @@ import {
   softDeleteMediaLocalFirst,
   restoreMediaLocalFirst,
 } from '../../services/media';
+import {
+  createExpenseLocalFirst,
+  updateExpenseLocalFirst,
+  softDeleteExpenseLocalFirst,
+  listExpensesByTrip,
+} from '../../services/expenses';
+import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, sumByCurrency, formatTotals } from '../../domain/expense/format';
 import { openPhotoEditor, type EditorResult } from '../photoEditor';
 import { groupMomentsByDay, type DayGroup } from '../../domain/moment/timeline';
 import { supabase } from '../../services/supabase/client';
 import { currentUser } from '../../services/auth';
 import { runSync } from '../../services/sync';
 import type { Route } from '../../app/router';
-import type { LocalMoment, LocalTrip, LocalMedia } from '../../offline/db';
+import type { LocalMoment, LocalTrip, LocalMedia, LocalExpense } from '../../offline/db';
+
+/** 금액 입력(콤마·공백 허용) → 양수 숫자 또는 null. */
+function parseAmount(raw: string): number | null {
+  const cleaned = raw.replace(/[,\s]/g, '');
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** 통화 선택 select 요소 생성(현재값 반영). */
+function currencySelect(current: string): HTMLSelectElement {
+  const sel = el('select', 'edit-input moment-currency') as HTMLSelectElement;
+  sel.setAttribute('aria-label', '통화');
+  for (const c of CURRENCIES) {
+    const opt = el('option', undefined, `${c.symbol} ${c.code}`) as HTMLOptionElement;
+    opt.value = c.code;
+    if (c.code === current) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  return sel;
+}
 
 type Navigate = (route: Route, param?: string) => void;
 
@@ -210,10 +238,21 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       photoCount.textContent = n > 0 ? `· ${n}장 선택됨` : '';
     });
 
+    // 비용(선택) — 금액 + 통화. "10초 기록"을 방해하지 않도록 한 줄, 비우면 저장 안 함.
+    const moneyRow = el('div', 'moment-money');
+    const amountIn = el('input', 'moment-amount') as HTMLInputElement;
+    amountIn.type = 'text';
+    amountIn.inputMode = 'decimal';
+    amountIn.placeholder = '💰 비용 (선택)';
+    amountIn.maxLength = 15;
+    amountIn.setAttribute('aria-label', '비용 금액(선택)');
+    const currencyIn = currencySelect(DEFAULT_CURRENCY);
+    moneyRow.append(amountIn, currencyIn);
+
     const save = el('button', 'btn-primary', '순간 저장') as HTMLButtonElement;
     save.type = 'submit';
 
-    form.append(input, emoRow, place, photoLabel, save);
+    form.append(input, emoRow, place, moneyRow, photoLabel, save);
     body.appendChild(form);
 
     const note = el('p', 'sync-note', '');
@@ -232,14 +271,24 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
 
 
     async function refresh(): Promise<void> {
-      const [moments, media] = await Promise.all([listMoments(trip!.id), listMediaByTrip(trip!.id)]);
+      const [moments, media, expenses] = await Promise.all([
+        listMoments(trip!.id),
+        listMediaByTrip(trip!.id),
+        listExpensesByTrip(trip!.id),
+      ]);
       const byMoment = new Map<string, LocalMedia[]>();
       for (const md of media) {
         const arr = byMoment.get(md.momentId);
         if (arr) arr.push(md);
         else byMoment.set(md.momentId, [md]);
       }
-      renderTimeline(moments, byMoment);
+      const expByMoment = new Map<string, LocalExpense[]>();
+      for (const ex of expenses) {
+        const arr = expByMoment.get(ex.momentId);
+        if (arr) arr.push(ex);
+        else expByMoment.set(ex.momentId, [ex]);
+      }
+      renderTimeline(moments, byMoment, expByMoment);
       const groups = groupMomentsByDay(moments, trip!.startDate || undefined);
       statRow.innerHTML = '';
       statRow.append(
@@ -247,9 +296,15 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         stat(String(groups.length), '일'),
         stat(String(media.length), '사진'),
       );
+      const totals = formatTotals(sumByCurrency(expenses));
+      if (totals.length) statRow.append(stat(totals.join(' · '), '비용'));
     }
 
-    function renderTimeline(moments: LocalMoment[], byMoment: Map<string, LocalMedia[]>): void {
+    function renderTimeline(
+      moments: LocalMoment[],
+      byMoment: Map<string, LocalMedia[]>,
+      expByMoment: Map<string, LocalExpense[]>,
+    ): void {
       resetUrls();
       timeline.innerHTML = '';
       if (moments.length === 0) {
@@ -263,12 +318,14 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       for (const g of groupMomentsByDay(moments, trip!.startDate || undefined)) {
         timeline.appendChild(el('h3', 'day-head', dayHeaderLabel(g)));
         const items = el('div', 'timeline');
-        for (const m of g.items) items.appendChild(buildMomentCard(m, byMoment.get(m.id) ?? []));
+        for (const m of g.items) {
+          items.appendChild(buildMomentCard(m, byMoment.get(m.id) ?? [], expByMoment.get(m.id) ?? []));
+        }
         timeline.appendChild(items);
       }
     }
 
-    function buildMomentCard(m: LocalMoment, mediaList: LocalMedia[]): HTMLElement {
+    function buildMomentCard(m: LocalMoment, mediaList: LocalMedia[], expenseList: LocalExpense[]): HTMLElement {
       const item = el('div', 'tl-item');
       item.appendChild(el('span', 'tl-node'));
       const t = timeLabel(m.occurredAt);
@@ -288,11 +345,30 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       head.appendChild(headRight);
       card.appendChild(head);
 
-      // 인라인 편집 폼(토글). 저장 시 순간 수정 → 재렌더.
+      // 인라인 편집 폼(토글). 저장 시 순간 수정 + 비용 조정(생성/수정/삭제) → 재렌더.
+      const existingExpense = expenseList[0];
       const editForm = buildMomentEditForm(
         m,
-        async (patch) => {
+        existingExpense,
+        async (patch, expenseIntent) => {
           await updateMomentLocalFirst(m.id, patch);
+          if (expenseIntent.amount !== null) {
+            if (existingExpense) {
+              await updateExpenseLocalFirst(existingExpense.id, {
+                originalAmount: expenseIntent.amount,
+                originalCurrency: expenseIntent.currency,
+              });
+            } else {
+              await createExpenseLocalFirst({
+                momentId: m.id,
+                tripId: trip!.id,
+                originalAmount: expenseIntent.amount,
+                originalCurrency: expenseIntent.currency,
+              });
+            }
+          } else if (existingExpense) {
+            await softDeleteExpenseLocalFirst(existingExpense.id);
+          }
           await refresh();
           void trySync();
         },
@@ -326,9 +402,12 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       });
 
       if (m.note) card.appendChild(el('p', 'moment-note', m.note));
-      if (m.placeName) {
+      if (m.placeName || expenseList.length) {
         const chips = el('div', 'chips');
-        chips.appendChild(el('span', 'chip gps', `📍 ${m.placeName}`));
+        if (m.placeName) chips.appendChild(el('span', 'chip gps', `📍 ${m.placeName}`));
+        for (const ex of expenseList) {
+          chips.appendChild(el('span', 'chip money', `💰 ${formatMoney(ex.originalAmount, ex.originalCurrency)}`));
+        }
         card.appendChild(chips);
       }
       if (mediaList.length) {
@@ -415,6 +494,20 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
             emotion: picked,
             placeName: place.value,
           });
+          // 비용(선택): 금액이 유효하면 순간에 딸린 비용으로 저장.
+          const amountVal = parseAmount(amountIn.value);
+          if (amountVal !== null) {
+            try {
+              await createExpenseLocalFirst({
+                momentId: moment.id,
+                tripId: trip!.id,
+                originalAmount: amountVal,
+                originalCurrency: currencyIn.value,
+              });
+            } catch {
+              /* 비용 저장 실패는 순간 저장을 무르지 않는다 */
+            }
+          }
           if (files.length) {
             // 배치 편집: 사진 간 ← 이전/다음 이동 + 각 사진 편집상태 기억. 결정 후 일괄 저장.
             const states: (EditorResult['state'] | undefined)[] = new Array(files.length);
@@ -447,6 +540,8 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           input.value = '';
           place.value = '';
           picked = '';
+          amountIn.value = '';
+          currencyIn.value = DEFAULT_CURRENCY;
           photoInput.value = '';
           photoCount.textContent = '';
           for (const btn of emoButtons.values()) btn.setAttribute('aria-pressed', 'false');
@@ -568,16 +663,20 @@ function buildEditPanel(
   return panel;
 }
 
-/** 순간 인라인 편집 폼(한 줄·감정·장소·메모·발생시각). onSave(patch) 호출 후 상위에서 재렌더. */
+/** 순간 인라인 편집 폼(한 줄·감정·장소·메모·비용·발생시각). onSave(patch, 비용의도) 호출. */
 function buildMomentEditForm(
   m: LocalMoment,
-  onSave: (patch: {
-    title: string;
-    emotion: string;
-    placeName: string;
-    note: string;
-    occurredAt?: string;
-  }) => Promise<void>,
+  existingExpense: LocalExpense | undefined,
+  onSave: (
+    patch: {
+      title: string;
+      emotion: string;
+      placeName: string;
+      note: string;
+      occurredAt?: string;
+    },
+    expenseIntent: { amount: number | null; currency: string },
+  ) => Promise<void>,
   onCancel: () => void,
 ): HTMLElement {
   const panel = el('form', 'edit-panel moment-edit');
@@ -620,6 +719,18 @@ function buildMomentEditForm(
   noteIn.placeholder = '메모 (선택)';
   noteIn.setAttribute('aria-label', '메모(선택)');
 
+  // 비용(선택): 금액 비우면 기존 비용 삭제, 채우면 생성/수정.
+  const moneyRow = el('div', 'moment-money');
+  const amountIn = el('input', 'moment-amount') as HTMLInputElement;
+  amountIn.type = 'text';
+  amountIn.inputMode = 'decimal';
+  amountIn.placeholder = '💰 비용 (선택)';
+  amountIn.maxLength = 15;
+  amountIn.value = existingExpense ? String(existingExpense.originalAmount) : '';
+  amountIn.setAttribute('aria-label', '비용 금액(선택)');
+  const currencyIn = currencySelect(existingExpense ? existingExpense.originalCurrency : DEFAULT_CURRENCY);
+  moneyRow.append(amountIn, currencyIn);
+
   const timeIn = el('input', 'edit-input') as HTMLInputElement;
   timeIn.type = 'datetime-local';
   timeIn.value = toLocalInputValue(m.occurredAt);
@@ -641,6 +752,8 @@ function buildMomentEditForm(
     placeIn,
     el('label', 'edit-label', '메모'),
     noteIn,
+    el('label', 'edit-label', '비용'),
+    moneyRow,
     el('label', 'edit-label', '발생 시각'),
     timeIn,
     row,
@@ -657,7 +770,8 @@ function buildMomentEditForm(
     };
     const occ = fromLocalInputValue(timeIn.value);
     if (occ !== undefined) patch.occurredAt = occ;
-    void onSave(patch).catch(() => {
+    const expenseIntent = { amount: parseAmount(amountIn.value), currency: currencyIn.value };
+    void onSave(patch, expenseIntent).catch(() => {
       save.disabled = false;
     });
   });

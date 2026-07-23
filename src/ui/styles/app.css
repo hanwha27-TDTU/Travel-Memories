@@ -400,6 +400,18 @@
   font-size: 0.85rem; font-weight: 700; cursor: pointer;
 }
 .moment-photo-count { color: var(--a1d); }
+
+/* 비용 입력(금액 + 통화) */
+.moment-money { display: flex; gap: var(--space-2); align-items: stretch; }
+.moment-amount {
+  flex: 1 1 auto; min-width: 0; min-height: var(--touch-target-min);
+  padding: 0 var(--space-3); border: 1px solid var(--line);
+  border-radius: var(--radius-medium); background: var(--bg); color: var(--ink);
+  font: inherit; font-size: 0.95rem;
+}
+.moment-amount::placeholder { color: var(--ink-soft); }
+.moment-currency { flex: 0 0 auto; width: auto; min-width: 96px; }
+.moment-edit .moment-money { margin: 0; }
 .photo-thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: var(--space-2); }
 /* 잘림 없이 사진 전체가 보이도록: 높이 고정 + 너비 자동(자연 비율) */
 .photo-thumb-wrap { position: relative; display: inline-flex; }

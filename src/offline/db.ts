@@ -51,6 +51,17 @@ export interface LocalMedia extends SyncMeta {
   bytesDisplay: number;
 }
 
+// 비용(Expense) — 순간에 딸린 지출. 원금액은 양수·불변(H-04), 통화는 ISO 4217.
+// 환율/기준통화 환산 열은 후속(nullable) — 로컬 MVP는 원금액만 저장한다.
+export interface LocalExpense extends SyncMeta {
+  momentId: string;
+  tripId: string;
+  originalAmount: number; // > 0
+  originalCurrency: string; // ISO 4217 (KRW·USD…)
+  category: string; // 분류(선택)
+  note: string; // 메모(선택)
+}
+
 export interface SyncQueueItem {
   operationId: string;
   entityType: string;
@@ -65,6 +76,7 @@ export class JourneyDB extends Dexie {
   localTrips!: Table<LocalTrip, string>;
   localMoments!: Table<LocalMoment, string>;
   localMedia!: Table<LocalMedia, string>;
+  localExpenses!: Table<LocalExpense, string>;
   syncQueue!: Table<SyncQueueItem, string>;
 
   constructor() {
@@ -85,6 +97,10 @@ export class JourneyDB extends Dexie {
     // v3: 사진(Media) 로컬 store. Blob 저장(원본+파생). 대용량이므로 인덱스는 관계키만.
     this.version(3).stores({
       localMedia: 'id, momentId, tripId, updatedAt',
+    });
+    // v4: 비용(Expense) 로컬 store. 순간·여행 관계키로 조회.
+    this.version(4).stores({
+      localExpenses: 'id, momentId, tripId, updatedAt',
     });
   }
 }

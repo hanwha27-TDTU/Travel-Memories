@@ -125,7 +125,9 @@ export async function updateMomentLocalFirst(id: string, patch: UpdateMomentPatc
  * 속이지 않도록). 되살리기(undo)가 정확히 이 사진들만 복원하도록 그 id 목록을 반환한다.
  * 미디어는 로컬 전용이라 sync 큐 op를 만들지 않는다(처리 주체가 없어 대기열에 영구 잔류함).
  */
-export async function softDeleteMomentLocalFirst(id: string): Promise<{ deletedMediaIds: string[] }> {
+export async function softDeleteMomentLocalFirst(
+  id: string,
+): Promise<{ deletedMediaIds: string[]; deletedExpenseIds: string[] }> {
   const d = db();
   const cur = await d.localMoments.get(id);
   if (!cur || cur.deletedAt !== null) throw new Error('순간을 찾을 수 없습니다.');
@@ -151,12 +153,17 @@ export async function softDeleteMomentLocalFirst(id: string): Promise<{ deletedM
   };
 
   const media = (await d.localMedia.where('momentId').equals(id).toArray()).filter((m) => m.deletedAt === null);
+  const expenses = (await d.localExpenses.where('momentId').equals(id).toArray()).filter((e) => e.deletedAt === null);
   const deletedMediaIds = media.map((m) => m.id);
+  const deletedExpenseIds = expenses.map((e) => e.id);
 
-  await d.transaction('rw', d.localMoments, d.localMedia, d.syncQueue, async () => {
+  await d.transaction('rw', d.localMoments, d.localMedia, d.localExpenses, d.syncQueue, async () => {
     await d.localMoments.put(tombstoned);
     for (const m of media) {
       await d.localMedia.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now });
+    }
+    for (const e of expenses) {
+      await d.localExpenses.put({ ...e, deletedAt: now, version: e.version + 1, updatedAt: now });
     }
     await d.syncQueue.add(op);
   });
@@ -165,7 +172,7 @@ export async function softDeleteMomentLocalFirst(id: string): Promise<{ deletedM
   if (!back || back.deletedAt === null) {
     throw new Error('내구성 커밋 확인 실패: 삭제 read-back 불일치');
   }
-  return { deletedMediaIds };
+  return { deletedMediaIds, deletedExpenseIds };
 }
 
 /**
@@ -173,7 +180,11 @@ export async function softDeleteMomentLocalFirst(id: string): Promise<{ deletedM
  * updatedAt=now로 삭제를 이긴다(다른 기기가 이미 삭제를 본 경우에도 LWW로 복원이 승리).
  * 삭제 시 함께 tombstone된 사진(mediaIds)도 같은 트랜잭션에서 복원한다.
  */
-export async function restoreMomentLocalFirst(id: string, mediaIds: string[]): Promise<LocalMoment> {
+export async function restoreMomentLocalFirst(
+  id: string,
+  mediaIds: string[],
+  expenseIds: string[] = [],
+): Promise<LocalMoment> {
   const d = db();
   const cur = await d.localMoments.get(id);
   if (!cur) throw new Error('순간을 찾을 수 없습니다.');
@@ -198,11 +209,15 @@ export async function restoreMomentLocalFirst(id: string, mediaIds: string[]): P
     createdAt: now,
   };
 
-  await d.transaction('rw', d.localMoments, d.localMedia, d.syncQueue, async () => {
+  await d.transaction('rw', d.localMoments, d.localMedia, d.localExpenses, d.syncQueue, async () => {
     await d.localMoments.put(restored);
     for (const mid of mediaIds) {
       const m = await d.localMedia.get(mid);
       if (m) await d.localMedia.put({ ...m, deletedAt: null, version: m.version + 1, updatedAt: now });
+    }
+    for (const eid of expenseIds) {
+      const e = await d.localExpenses.get(eid);
+      if (e) await d.localExpenses.put({ ...e, deletedAt: null, version: e.version + 1, updatedAt: now });
     }
     await d.syncQueue.add(op);
   });

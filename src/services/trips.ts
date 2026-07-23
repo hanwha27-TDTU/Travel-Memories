@@ -133,7 +133,7 @@ export async function updateTripLocalFirst(id: string, patch: UpdateTripPatch): 
  */
 export async function softDeleteTripLocalFirst(
   id: string,
-): Promise<{ momentIds: string[]; mediaIds: string[] }> {
+): Promise<{ momentIds: string[]; mediaIds: string[]; expenseIds: string[] }> {
   const d = db();
   const cur = await d.localTrips.get(id);
   if (!cur || cur.deletedAt !== null) throw new Error('여행을 찾을 수 없습니다.');
@@ -155,8 +155,12 @@ export async function softDeleteTripLocalFirst(
   const media = (await d.localMedia.where('tripId').equals(id).toArray()).filter(
     (m) => m.deletedAt === null,
   );
+  const expenses = (await d.localExpenses.where('tripId').equals(id).toArray()).filter(
+    (e) => e.deletedAt === null,
+  );
   const momentIds = moments.map((m) => m.id);
   const mediaIds = media.map((m) => m.id);
+  const expenseIds = expenses.map((e) => e.id);
 
   const ops: SyncQueueItem[] = [
     { operationId: tripOpId, entityType: 'trip', entityId: id, operationType: 'delete', state: 'local_only', attempts: 0, createdAt: now },
@@ -171,20 +175,26 @@ export async function softDeleteTripLocalFirst(
     })),
   ];
 
-  await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, d.syncQueue, async () => {
+  await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.syncQueue, async () => {
     await d.localTrips.put(tombstonedTrip);
     for (const m of moments) await d.localMoments.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now });
     for (const m of media) await d.localMedia.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now });
+    for (const e of expenses) await d.localExpenses.put({ ...e, deletedAt: now, version: e.version + 1, updatedAt: now });
     for (const op of ops) await d.syncQueue.add(op);
   });
 
   const back = await d.localTrips.get(id);
   if (!back || back.deletedAt === null) throw new Error('내구성 커밋 확인 실패: 여행 삭제 read-back 불일치');
-  return { momentIds, mediaIds };
+  return { momentIds, mediaIds, expenseIds };
 }
 
-/** 여행 되살리기(실행취소) — 여행 + 삭제 시 함께 tombstone된 순간·사진을 복원. version+1로 LWW 승리. */
-export async function restoreTripLocalFirst(id: string, momentIds: string[], mediaIds: string[]): Promise<LocalTrip> {
+/** 여행 되살리기(실행취소) — 여행 + 삭제 시 함께 tombstone된 순간·사진·비용을 복원. version+1로 LWW 승리. */
+export async function restoreTripLocalFirst(
+  id: string,
+  momentIds: string[],
+  mediaIds: string[],
+  expenseIds: string[] = [],
+): Promise<LocalTrip> {
   const d = db();
   const cur = await d.localTrips.get(id);
   if (!cur) throw new Error('여행을 찾을 수 없습니다.');
@@ -212,7 +222,7 @@ export async function restoreTripLocalFirst(id: string, momentIds: string[], med
     })),
   ];
 
-  await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, d.syncQueue, async () => {
+  await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.syncQueue, async () => {
     await d.localTrips.put(restored);
     for (const mid of momentIds) {
       const m = await d.localMoments.get(mid);
@@ -221,6 +231,10 @@ export async function restoreTripLocalFirst(id: string, momentIds: string[], med
     for (const mid of mediaIds) {
       const m = await d.localMedia.get(mid);
       if (m) await d.localMedia.put({ ...m, deletedAt: null, version: m.version + 1, updatedAt: now });
+    }
+    for (const eid of expenseIds) {
+      const e = await d.localExpenses.get(eid);
+      if (e) await d.localExpenses.put({ ...e, deletedAt: null, version: e.version + 1, updatedAt: now });
     }
     for (const op of ops) await d.syncQueue.add(op);
   });
@@ -246,7 +260,8 @@ export async function restoreTripFromTrash(id: string): Promise<LocalTrip> {
   const d = db();
   const moments = (await d.localMoments.where('tripId').equals(id).toArray()).filter((m) => m.deletedAt !== null);
   const media = (await d.localMedia.where('tripId').equals(id).toArray()).filter((m) => m.deletedAt !== null);
-  return restoreTripLocalFirst(id, moments.map((m) => m.id), media.map((m) => m.id));
+  const expenses = (await d.localExpenses.where('tripId').equals(id).toArray()).filter((e) => e.deletedAt !== null);
+  return restoreTripLocalFirst(id, moments.map((m) => m.id), media.map((m) => m.id), expenses.map((e) => e.id));
 }
 
 /**
@@ -263,8 +278,10 @@ export async function purgeTripPermanently(id: string): Promise<void> {
 
   const moments = await d.localMoments.where('tripId').equals(id).toArray();
   const media = await d.localMedia.where('tripId').equals(id).toArray();
-  await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, async () => {
+  const expenses = await d.localExpenses.where('tripId').equals(id).toArray();
+  await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, d.localExpenses, async () => {
     if (media.length) await d.localMedia.bulkDelete(media.map((m) => m.id));
+    if (expenses.length) await d.localExpenses.bulkDelete(expenses.map((e) => e.id));
     if (moments.length) await d.localMoments.bulkDelete(moments.map((m) => m.id));
     await d.localTrips.delete(id);
   });
