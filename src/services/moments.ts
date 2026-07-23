@@ -168,7 +168,10 @@ export async function softDeleteMomentLocalFirst(
   await d.transaction('rw', d.localMoments, d.localMedia, d.localExpenses, d.syncQueue, async () => {
     await d.localMoments.put(tombstoned);
     for (const m of media) {
-      await d.localMedia.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now });
+      // 사진도 동기화 대상 — cascade tombstone을 큐 op로 전파.
+      const mOpId = uuid();
+      await d.localMedia.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now, baseVersion: m.version, clientOperationId: mOpId });
+      await d.syncQueue.add({ operationId: mOpId, entityType: 'media', entityId: m.id, operationType: 'delete', state: 'local_only', attempts: 0, createdAt: now });
     }
     for (const e of expenses) {
       // 비용은 동기화 대상 — cascade tombstone도 큐 op로 전파(안 하면 서버에 삭제가 안 감).
@@ -176,7 +179,6 @@ export async function softDeleteMomentLocalFirst(
       await d.localExpenses.put({ ...e, deletedAt: now, version: e.version + 1, updatedAt: now, baseVersion: e.version, clientOperationId: eOpId });
       await d.syncQueue.add({ operationId: eOpId, entityType: 'expense', entityId: e.id, operationType: 'delete', state: 'local_only', attempts: 0, createdAt: now });
     }
-    // 사진(media)은 아직 로컬 전용 — 큐 op를 만들지 않는다(처리 주체 없음, 사진 동기화는 후속).
     await d.syncQueue.add(op);
   });
 
@@ -225,7 +227,11 @@ export async function restoreMomentLocalFirst(
     await d.localMoments.put(restored);
     for (const mid of mediaIds) {
       const m = await d.localMedia.get(mid);
-      if (m) await d.localMedia.put({ ...m, deletedAt: null, version: m.version + 1, updatedAt: now });
+      if (m) {
+        const mOpId = uuid();
+        await d.localMedia.put({ ...m, deletedAt: null, version: m.version + 1, updatedAt: now, baseVersion: m.version, clientOperationId: mOpId });
+        await d.syncQueue.add({ operationId: mOpId, entityType: 'media', entityId: m.id, operationType: 'update', state: 'local_only', attempts: 0, createdAt: now });
+      }
     }
     for (const eid of expenseIds) {
       const e = await d.localExpenses.get(eid);
