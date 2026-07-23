@@ -230,6 +230,49 @@ export async function restoreTripLocalFirst(id: string, momentIds: string[], med
   return back;
 }
 
+/** 휴지통 — 삭제(tombstone)된 여행 목록. 최근 삭제 먼저. */
+export async function listDeletedTrips(): Promise<LocalTrip[]> {
+  const d = db();
+  const all = await d.localTrips.orderBy('updatedAt').reverse().toArray();
+  return all.filter((t) => t.deletedAt !== null);
+}
+
+/**
+ * 휴지통에서 여행 복원 — 여행 + 그 여행의 현재 tombstone된 순간·사진을 함께 되살린다.
+ * (삭제 시 어떤 자식이 함께 지워졌는지는 영속하지 않으므로, 복구 우선 원칙(§5)에 따라
+ * 그 여행에 딸린 삭제된 자식을 모두 되살린다.) version+1로 LWW 승리.
+ */
+export async function restoreTripFromTrash(id: string): Promise<LocalTrip> {
+  const d = db();
+  const moments = (await d.localMoments.where('tripId').equals(id).toArray()).filter((m) => m.deletedAt !== null);
+  const media = (await d.localMedia.where('tripId').equals(id).toArray()).filter((m) => m.deletedAt !== null);
+  return restoreTripLocalFirst(id, moments.map((m) => m.id), media.map((m) => m.id));
+}
+
+/**
+ * 영구 삭제 — 휴지통에서 이 기기의 저장공간을 실제로 비운다(여행 + 순간 + 사진 로컬 하드 삭제).
+ * 되돌릴 수 없다. 삭제된(tombstone) 행에만 적용한다(활성 여행은 먼저 tombstone돼야 함).
+ * 주의(정직): 다른 기기와 동기화를 쓰면, 서버에 아직 남은 행이 다음 pull에서 되살아날 수 있다.
+ * 진짜 영구 삭제(서버 포함)는 동기화 실연동 후속에서 tombstone 전파로 다룬다.
+ */
+export async function purgeTripPermanently(id: string): Promise<void> {
+  const d = db();
+  const cur = await d.localTrips.get(id);
+  if (!cur) return;
+  if (cur.deletedAt === null) throw new Error('삭제되지 않은 여행은 영구 삭제할 수 없습니다.');
+
+  const moments = await d.localMoments.where('tripId').equals(id).toArray();
+  const media = await d.localMedia.where('tripId').equals(id).toArray();
+  await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, async () => {
+    if (media.length) await d.localMedia.bulkDelete(media.map((m) => m.id));
+    if (moments.length) await d.localMoments.bulkDelete(moments.map((m) => m.id));
+    await d.localTrips.delete(id);
+  });
+
+  const back = await d.localTrips.get(id);
+  if (back) throw new Error('영구 삭제 확인 실패: 행이 남아 있음');
+}
+
 /** 홈 목록 (tombstone·보관 제외 — deletedAt/status는 filter, M-0005). */
 export async function listTrips(): Promise<LocalTrip[]> {
   const d = db();

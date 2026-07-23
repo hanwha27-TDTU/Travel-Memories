@@ -4,6 +4,14 @@
 
 ## [Unreleased] — Phase 0~1
 
+### Phase 3d — 데이터 관리 허브(백업·복원·휴지통) (2026-07-23)
+- **데이터 관리 허브**: 홈 헤더 `📦 데이터 관리` → 모달(백업·복원·휴지통·**가이드**). 기존 `📖 가이드` 버튼은 이 허브 안으로 이동. 가이드 모달 시각 시스템(.guide-*) 재사용.
+- **백업(내보내기)** `services/backup.ts`: 여행·순간·사진(원본·표시본·썸네일 base64)을 tombstone 포함 단일 JSON으로 다운로드. 사진이 곧 기억(북극성)이라 사진 포함이 기본, 크기 경고 표기.
+- **복원(가져오기)**: JSON을 **병합**(교체 아님) — `mergeDecision`(LWW+tombstone)·빈-데이터 가드 재사용으로 로컬을 절대 덮어쓰지 않음. 손 병합 로직 없음(SSOT 순수함수 재사용).
+- **휴지통** `trips.ts`: `listDeletedTrips`·`restoreTripFromTrash`(여행+tombstone 자식 복원)·`purgeTripPermanently`(로컬 하드 삭제, 2단계 확인, 동기화 시 재출현 가능 정직 표기).
+- **라이브 검증(Playwright/Chromium)**: (a) 생성→백업 내보내기(다운로드 캡처)→삭제→휴지통 복원(순간 유지)→DB 완전 초기화→파일 가져오기→**여행·순간 부활**. (b) **사진 포함 왕복**: 사진 첨부→백업(media 1·thumbB64 data:)→초기화→가져오기→**썸네일 naturalWidth 120 렌더**. 두 흐름 모두 콘솔 에러 0.
+- 게이트: typecheck·harness(6)·unit 60·build 그린. **정직**: 영구삭제의 서버 전파는 동기화 실연동 후속.
+
 ### Phase 3c — 여행 삭제(대칭성) + 가이드 화면 (2026-07-23)
 - **여행 삭제(하드 삭제 아님)**: 편집 패널에 위험 구역(🗑 여행 삭제 → 2단계 확인) 추가. `softDeleteTripLocalFirst`가 여행 + 소속 순간·사진을 같은 트랜잭션에서 cascade tombstone(고아 방지), 순간은 sync 큐 delete op, 미디어는 로컬 tombstone. `restoreTripLocalFirst`가 정확히 그 자식들만 복원(version+1 LWW 승리). 이로써 Trip 생명주기 대칭성 회복(생성·수정·보관·삭제).
 - **공용 실행취소 토스트**: `src/ui/toast.ts`로 분리(document.body 부착 → 화면 전환에도 유지). 순간·사진·여행 삭제가 모두 재사용. tripDetail의 화면-로컬 토스트 제거(DRY).
