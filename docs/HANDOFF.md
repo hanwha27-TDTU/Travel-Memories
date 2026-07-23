@@ -10,6 +10,8 @@
 
 **현재 단계**: **Phase 1 — 동기화 push/pull 코드 구현 완료(실 연동 대기).** trips 로컬층 + journey 스키마(RLS 공격검사 통과) 위에, 인증(Google OAuth PKCE)·동기화(push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드 병합)를 구현. 순수 결정로직 15 유닛테스트로 잠금. **미검증(정직)**: 실 Google 로그인→journey.trips 실 push는 (a)대시보드 Exposed schemas에 journey 추가 (b)Google OAuth provider+redirect 허용목록 (c)GitHub Variables 설정 후, 두 브라우저/기기로 수동 검증 필요(이 샌드박스는 *.supabase.co 차단으로 불가). 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨.
 
+**Phase 3b(2026-07-23)**: 순간 편집·삭제 + 사진 개별 삭제 구현. 하드 삭제 없음(§0) — `deletedAt` tombstone + 5초 실행취소(§5). 순간 삭제 시 사진 cascade tombstone(undo가 함께 복원), 미디어는 로컬 전용이라 sync 큐 op 없음. 편집으로 그간 미사용이던 `note`·`occurredAt` 사용 가능. 서비스: `updateMomentLocalFirst`/`softDeleteMomentLocalFirst`/`restoreMomentLocalFirst`(moments.ts), `softDeleteMediaLocalFirst`/`restoreMediaLocalFirst`(media.ts). **연역적 발견(미구현·후속)**: Trip은 여전히 삭제(tombstone) 없이 보관만 존재 — 엔티티 생명주기 대칭성 결손. **미검증(정직)**: 실기기 라이브 상호작용 미실행.
+
 **읽기 순서**:
 1. `CLAUDE.md`(Claude) / `AGENTS.md`(Codex) — 어댑터·비타협 원칙·작업 루프
 2. `docs/PROJECT_SPEC.md`(최상위) → `docs/LESSONS.md`(교훈)

@@ -4,6 +4,13 @@
 
 ## [Unreleased] — Phase 0~1
 
+### Phase 3b — 순간 편집·삭제 + 사진 개별 삭제 (실행취소) (2026-07-23)
+- **순간 편집**: 카드에 ✎ → 한 줄·감정·장소·**메모**·**발생시각(datetime-local)** 수정. `updateMomentLocalFirst`(version+1·updatedAt·baseVersion·op update·read-back — 생성과 동일 규율). 그동안 데이터엔 있으나 편집 경로가 없던 `note`·`occurredAt`를 사용 가능하게 함.
+- **순간 삭제(하드 삭제 아님)**: 🗑 → `deletedAt` tombstone(§0). 순간에 달린 활성 **사진도 같은 트랜잭션에서 함께 tombstone**(고아 사진이 통계를 속이지 않도록), undo가 정확히 그 사진들만 복원(`softDeleteMomentLocalFirst`→`deletedMediaIds`, `restoreMomentLocalFirst`).
+- **사진 개별 삭제**: 썸네일 ✕ → `softDeleteMediaLocalFirst`(tombstone·원본 Blob 보존). 미디어는 로컬 전용(3a)이라 sync 큐 op를 만들지 않음(처리 주체 부재 → 대기열 영구 잔류/pendingSyncCount 오염 방지).
+- **실행취소(§5 복구가능성)**: 삭제 후 5초 토스트로 되살림. 되살리기는 version+1·updatedAt=now라 다른 기기가 이미 삭제를 본 경우에도 **LWW로 복원이 승리**. 이중 탭 재진입 가드.
+- 게이트: typecheck·harness(6 Required)·unit 60·build·secret 전부 그린. **미검증(정직)**: 실기기 탭→tombstone→undo 라이브 상호작용은 이 세션에서 미실행 — 사용자 기기 확인 권장.
+
 ### Phase 3a+++ — 사진 편집 배치 UX (이전/닫기·잘림 해소) (2026-07-23)
 - **← 이전 / 배치 이동**: 여러 장 편집 시 사진 간 앞뒤 이동 + **각 사진 편집상태 기억**(재방문 시 슬라이더·크롭 복원). 마지막에 일괄 저장. `openPhotoEditor`가 `EditorResult{action,state,blob}` 반환·`EditorOpts{canGoBack,initialState}` 수용.
 - **닫기(✕) 버튼**: 편집기 헤더 ✕(=원본 사용) + 전체보기 뷰어 ✕(+ ESC·배경탭). "닫기 버튼 없음" 해소.

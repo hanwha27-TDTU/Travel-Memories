@@ -3,8 +3,19 @@
 
 import { el } from '../dom';
 import { getTrip, updateTripLocalFirst } from '../../services/trips';
-import { createMomentLocalFirst, listMoments } from '../../services/moments';
-import { addPhotoToMoment, listMediaByTrip } from '../../services/media';
+import {
+  createMomentLocalFirst,
+  listMoments,
+  updateMomentLocalFirst,
+  softDeleteMomentLocalFirst,
+  restoreMomentLocalFirst,
+} from '../../services/moments';
+import {
+  addPhotoToMoment,
+  listMediaByTrip,
+  softDeleteMediaLocalFirst,
+  restoreMediaLocalFirst,
+} from '../../services/media';
 import { openPhotoEditor, type EditorResult } from '../photoEditor';
 import { groupMomentsByDay, type DayGroup } from '../../domain/moment/timeline';
 import { supabase } from '../../services/supabase/client';
@@ -50,6 +61,21 @@ function timeLabel(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** ISO(UTC) → datetime-local 입력값('YYYY-MM-DDTHH:mm', 로컬시각). */
+function toLocalInputValue(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n: number): string => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** datetime-local 입력값(로컬시각) → ISO(UTC). 빈/무효는 undefined(변경 안 함). */
+function fromLocalInputValue(v: string): string | undefined {
+  if (!v) return undefined;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
 }
 
 function dayHeaderLabel(g: DayGroup): string {
@@ -184,6 +210,35 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       objectUrls = [];
     }
 
+    // 실행취소 토스트 — 삭제는 tombstone이라 되살릴 수 있다(§5 복구가능성). 5초 후 자동 사라짐.
+    let undoTimer: ReturnType<typeof setTimeout> | null = null;
+    function showUndo(message: string, onUndo: () => Promise<void>): void {
+      wrap.querySelector('.undo-toast')?.remove();
+      if (undoTimer) clearTimeout(undoTimer);
+      const toast = el('div', 'undo-toast');
+      toast.setAttribute('role', 'status');
+      toast.appendChild(el('span', 'undo-msg', message));
+      const btn = el('button', 'undo-btn', '실행취소') as HTMLButtonElement;
+      btn.type = 'button';
+      let used = false;
+      const close = (): void => {
+        if (undoTimer) {
+          clearTimeout(undoTimer);
+          undoTimer = null;
+        }
+        toast.remove();
+      };
+      btn.addEventListener('click', () => {
+        if (used) return;
+        used = true;
+        close();
+        void onUndo();
+      });
+      toast.appendChild(btn);
+      wrap.appendChild(toast);
+      undoTimer = setTimeout(close, 5000);
+    }
+
     async function refresh(): Promise<void> {
       const [moments, media] = await Promise.all([listMoments(trip!.id), listMediaByTrip(trip!.id)]);
       const byMoment = new Map<string, LocalMedia[]>();
@@ -229,8 +284,56 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       const card = el('article', 'moment-card');
       const head = el('div', 'moment-head');
       head.appendChild(el('p', 'moment-say', m.title));
-      if (m.emotion) head.appendChild(el('span', 'moment-emo', m.emotion));
+      const headRight = el('div', 'moment-head-right');
+      if (m.emotion) headRight.appendChild(el('span', 'moment-emo', m.emotion));
+      const editBtn = el('button', 'icon-btn', '✎') as HTMLButtonElement;
+      editBtn.type = 'button';
+      editBtn.setAttribute('aria-label', '이 순간 편집');
+      const delBtn = el('button', 'icon-btn', '🗑') as HTMLButtonElement;
+      delBtn.type = 'button';
+      delBtn.setAttribute('aria-label', '이 순간 삭제');
+      headRight.append(editBtn, delBtn);
+      head.appendChild(headRight);
       card.appendChild(head);
+
+      // 인라인 편집 폼(토글). 저장 시 순간 수정 → 재렌더.
+      const editForm = buildMomentEditForm(
+        m,
+        async (patch) => {
+          await updateMomentLocalFirst(m.id, patch);
+          await refresh();
+          void trySync();
+        },
+        () => {
+          editForm.hidden = true;
+        },
+      );
+      editForm.hidden = true;
+      editBtn.addEventListener('click', () => {
+        editForm.hidden = !editForm.hidden;
+      });
+
+      // 삭제 → tombstone + 실행취소 토스트(5초). 사진도 함께 tombstone되고 undo가 함께 복원.
+      delBtn.addEventListener('click', () => {
+        if (delBtn.disabled) return; // 빠른 이중 탭 재진입 방지
+        delBtn.disabled = true;
+        void (async () => {
+          try {
+            const { deletedMediaIds } = await softDeleteMomentLocalFirst(m.id);
+            await refresh();
+            void trySync();
+            showUndo('순간을 삭제했어요', async () => {
+              await restoreMomentLocalFirst(m.id, deletedMediaIds);
+              await refresh();
+              void trySync();
+            });
+          } catch {
+            delBtn.disabled = false; // 실패 시 재시도 허용
+          }
+        })();
+      });
+
+      if (m.note) card.appendChild(el('p', 'moment-note', m.note));
       if (m.placeName) {
         const chips = el('div', 'chips');
         chips.appendChild(el('span', 'chip gps', `📍 ${m.placeName}`));
@@ -241,15 +344,39 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         for (const md of mediaList) {
           const url = URL.createObjectURL(md.thumbBlob);
           objectUrls.push(url);
+          const cell = el('div', 'photo-thumb-wrap');
           const img = el('img', 'photo-thumb') as HTMLImageElement;
           img.src = url;
           img.alt = '여행 사진';
           img.loading = 'lazy';
           img.addEventListener('click', () => openViewer(md));
-          grid.appendChild(img);
+          const pdel = el('button', 'photo-del', '✕') as HTMLButtonElement;
+          pdel.type = 'button';
+          pdel.setAttribute('aria-label', '이 사진 삭제');
+          // 사진 삭제 → tombstone(원본 보존) + 실행취소. 미디어는 로컬 전용이라 sync 불필요.
+          pdel.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (pdel.disabled) return;
+            pdel.disabled = true;
+            void (async () => {
+              try {
+                await softDeleteMediaLocalFirst(md.id);
+                await refresh();
+                showUndo('사진을 삭제했어요', async () => {
+                  await restoreMediaLocalFirst(md.id);
+                  await refresh();
+                });
+              } catch {
+                pdel.disabled = false;
+              }
+            })();
+          });
+          cell.append(img, pdel);
+          grid.appendChild(cell);
         }
         card.appendChild(grid);
       }
+      card.appendChild(editForm);
       item.appendChild(card);
       return item;
     }
@@ -412,6 +539,103 @@ function buildEditPanel(
       endDate: endIn.value,
       status: status.value as LocalTrip['status'],
     }).catch(() => {
+      save.disabled = false;
+    });
+  });
+
+  return panel;
+}
+
+/** 순간 인라인 편집 폼(한 줄·감정·장소·메모·발생시각). onSave(patch) 호출 후 상위에서 재렌더. */
+function buildMomentEditForm(
+  m: LocalMoment,
+  onSave: (patch: {
+    title: string;
+    emotion: string;
+    placeName: string;
+    note: string;
+    occurredAt?: string;
+  }) => Promise<void>,
+  onCancel: () => void,
+): HTMLElement {
+  const panel = el('form', 'edit-panel moment-edit');
+
+  const titleIn = el('input', 'edit-input') as HTMLInputElement;
+  titleIn.type = 'text';
+  titleIn.value = m.title;
+  titleIn.maxLength = 140;
+  titleIn.required = true;
+  titleIn.setAttribute('aria-label', '순간 한 줄 기록');
+
+  let picked = m.emotion;
+  const emoRow = el('div', 'emo-row');
+  emoRow.setAttribute('role', 'group');
+  emoRow.setAttribute('aria-label', '감정 선택(선택)');
+  const emoButtons = new Map<string, HTMLButtonElement>();
+  for (const e of EMOTIONS) {
+    const b = el('button', 'emo', e) as HTMLButtonElement;
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(e === picked));
+    b.addEventListener('click', () => {
+      picked = picked === e ? '' : e;
+      for (const [key, btn] of emoButtons) btn.setAttribute('aria-pressed', String(key === picked));
+    });
+    emoButtons.set(e, b);
+    emoRow.appendChild(b);
+  }
+
+  const placeIn = el('input', 'edit-input') as HTMLInputElement;
+  placeIn.type = 'text';
+  placeIn.value = m.placeName;
+  placeIn.maxLength = 80;
+  placeIn.placeholder = '📍 장소 (선택)';
+  placeIn.setAttribute('aria-label', '장소(선택)');
+
+  const noteIn = el('textarea', 'edit-input edit-note') as HTMLTextAreaElement;
+  noteIn.value = m.note;
+  noteIn.maxLength = 500;
+  noteIn.rows = 2;
+  noteIn.placeholder = '메모 (선택)';
+  noteIn.setAttribute('aria-label', '메모(선택)');
+
+  const timeIn = el('input', 'edit-input') as HTMLInputElement;
+  timeIn.type = 'datetime-local';
+  timeIn.value = toLocalInputValue(m.occurredAt);
+  timeIn.setAttribute('aria-label', '발생 시각');
+
+  const row = el('div', 'edit-actions');
+  const save = el('button', 'btn-primary', '저장') as HTMLButtonElement;
+  save.type = 'submit';
+  const cancel = el('button', 'btn-ghost', '취소') as HTMLButtonElement;
+  cancel.type = 'button';
+  cancel.addEventListener('click', onCancel);
+  row.append(save, cancel);
+
+  panel.append(
+    el('label', 'edit-label', '한 줄 기록'),
+    titleIn,
+    emoRow,
+    el('label', 'edit-label', '장소'),
+    placeIn,
+    el('label', 'edit-label', '메모'),
+    noteIn,
+    el('label', 'edit-label', '발생 시각'),
+    timeIn,
+    row,
+  );
+
+  panel.addEventListener('submit', (e) => {
+    e.preventDefault();
+    save.disabled = true;
+    const patch: { title: string; emotion: string; placeName: string; note: string; occurredAt?: string } = {
+      title: titleIn.value,
+      emotion: picked,
+      placeName: placeIn.value,
+      note: noteIn.value,
+    };
+    const occ = fromLocalInputValue(timeIn.value);
+    if (occ !== undefined) patch.occurredAt = occ;
+    void onSave(patch).catch(() => {
       save.disabled = false;
     });
   });

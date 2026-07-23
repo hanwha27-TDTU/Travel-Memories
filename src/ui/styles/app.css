@@ -402,10 +402,55 @@
 .moment-photo-count { color: var(--a1d); }
 .photo-thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: var(--space-2); }
 /* 잘림 없이 사진 전체가 보이도록: 높이 고정 + 너비 자동(자연 비율) */
+.photo-thumb-wrap { position: relative; display: inline-flex; }
 .photo-thumb {
   height: 108px; width: auto; max-width: 100%;
   object-fit: contain; background: var(--bg-2);
   border-radius: var(--radius-small); cursor: pointer; border: 1px solid var(--line);
+}
+/* 사진별 삭제(✕) — 썸네일 위 우상단. 사진을 가리지 않게 작게. */
+.photo-del {
+  position: absolute; top: 4px; right: 4px; width: 26px; height: 26px;
+  display: grid; place-items: center; padding: 0;
+  border: none; border-radius: 50%; cursor: pointer;
+  background: rgba(6, 6, 14, .62); color: #fff; font-size: 0.8rem; line-height: 1;
+  backdrop-filter: blur(2px);
+}
+.photo-del:hover { background: rgba(6, 6, 14, .8); }
+
+/* 순간 카드 액션(편집·삭제) */
+.moment-head-right { display: flex; align-items: center; gap: var(--space-1); flex: 0 0 auto; }
+.icon-btn {
+  min-width: 34px; min-height: 34px; padding: 0 6px;
+  display: grid; place-items: center;
+  border: 1px solid var(--line); border-radius: var(--radius-pill);
+  background: var(--surface); color: var(--ink-soft);
+  font-size: 0.9rem; line-height: 1; cursor: pointer;
+}
+.icon-btn:hover { color: var(--ink); border-color: var(--ink-soft); }
+.moment-note {
+  margin: var(--space-2) 0 0; font-size: 0.9rem; line-height: 1.5;
+  color: var(--ink-soft); white-space: pre-wrap;
+}
+.moment-edit { margin-top: var(--space-3); }
+.edit-note { min-height: 44px; padding: var(--space-2) var(--space-3); resize: vertical; line-height: 1.5; }
+
+/* 실행취소 토스트 — 화면 하단 고정, 삭제를 되살릴 수 있음(§5). */
+.undo-toast {
+  position: fixed; left: 50%; bottom: max(18px, env(safe-area-inset-bottom, 0));
+  transform: translateX(-50%); z-index: 60;
+  display: flex; align-items: center; gap: var(--space-3);
+  max-width: calc(100vw - 32px);
+  padding: 10px 12px 10px 16px; border-radius: var(--radius-pill);
+  background: var(--ink); color: var(--bg);
+  box-shadow: 0 12px 30px -10px rgba(6, 6, 14, .6);
+  font-size: 0.85rem; font-weight: 600;
+}
+.undo-msg { white-space: nowrap; }
+.undo-btn {
+  flex: 0 0 auto; min-height: 32px; padding: 0 12px;
+  border: none; border-radius: var(--radius-pill); cursor: pointer;
+  background: var(--a1); color: #fff; font-weight: 800; font-size: 0.82rem;
 }
 .photo-viewer {
   position: fixed; inset: 0; z-index: 50; background: rgba(6, 6, 14, .92);
