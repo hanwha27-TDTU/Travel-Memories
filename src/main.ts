@@ -1,4 +1,5 @@
 // main.ts — 앱 부트스트랩 (Phase 0B 골격)
+import './ui/styles/fonts.css';
 import './ui/styles/tokens.css';
 import './ui/styles/app.css';
 import { createRouter, type Route } from './app/router';

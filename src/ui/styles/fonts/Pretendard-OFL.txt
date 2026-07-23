@@ -1,0 +1,11 @@
+Pretendard
+Copyright (c) 2021 Kil Hyung-jin (https://github.com/orioncactus/pretendard),
+with Reserved Font Name "Pretendard".
+
+이 폰트는 SIL Open Font License, Version 1.1 로 배포됩니다.
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+전체 라이선스: https://openfontlicense.org / https://github.com/orioncactus/pretendard/blob/main/LICENSE
+
+번들 파일: Pretendard-ExtraBold.woff2 (제목 디스플레이 폰트, --font-disp).
+사용 목적: 기기별 폰트 차이로 제목의 숫자·한글 자간이 갈라지는 문제를 없애기 위해
+앱에 웹폰트로 포함(모든 기기에서 일관 렌더).
