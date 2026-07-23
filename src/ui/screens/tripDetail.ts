@@ -2,16 +2,24 @@
 // 자유 텍스트는 textContent만 사용. 서버 동기화(순간)는 후속 — 지금은 이 기기에 내구성 저장.
 
 import { el } from '../dom';
-import { getTrip } from '../../services/trips';
+import { getTrip, updateTripLocalFirst } from '../../services/trips';
 import { createMomentLocalFirst, listMoments } from '../../services/moments';
 import { groupMomentsByDay, type DayGroup } from '../../domain/moment/timeline';
 import { supabase } from '../../services/supabase/client';
 import { currentUser } from '../../services/auth';
 import { runSync } from '../../services/sync';
 import type { Route } from '../../app/router';
-import type { LocalMoment } from '../../offline/db';
+import type { LocalMoment, LocalTrip } from '../../offline/db';
 
 type Navigate = (route: Route, param?: string) => void;
+
+const STATUS_LABELS: Record<LocalTrip['status'], string> = {
+  planned: '계획 중',
+  active: '진행 중',
+  completed: '완료',
+  archived: '보관',
+};
+const STATUS_ORDER: LocalTrip['status'][] = ['planned', 'active', 'completed', 'archived'];
 
 /** 로그인·설정된 경우 백그라운드 동기화(순간 push/pull 포함). 실패는 다음 트리거에서 재시도. */
 async function trySync(): Promise<void> {
@@ -76,19 +84,37 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     back.type = 'button';
     back.setAttribute('aria-label', '홈으로');
     back.addEventListener('click', () => navigate('home'));
+    const editBtn = el('button', 'hero-edit', '✎ 편집') as HTMLButtonElement;
+    editBtn.type = 'button';
+    editBtn.setAttribute('aria-label', '여행 정보 편집');
+
     const heroInfo = el('div', 'detail-hero-info');
     const period = trip.startDate
       ? `${trip.startDate}${trip.endDate ? ` ~ ${trip.endDate}` : ''}`
       : '기간 미정';
+    const badge = el('span', 'detail-badge', STATUS_LABELS[trip.status]);
+    heroInfo.appendChild(badge);
     heroInfo.appendChild(el('h1', 'detail-title', trip.title));
     heroInfo.appendChild(el('p', 'detail-period', period));
     const statRow = el('div', 'detail-stats');
-    hero.append(back, heroInfo, statRow);
+    hero.append(back, editBtn, heroInfo, statRow);
     wrap.appendChild(hero);
 
     // ===== 본문 =====
     const body = el('section', 'detail-body');
     wrap.appendChild(body);
+
+    // 편집 패널(날짜·상태) — 토글.
+    const editPanel = buildEditPanel(trip, async (patch) => {
+      await updateTripLocalFirst(trip.id, patch);
+      void trySync();
+      renderTripDetail(mount, tripId, navigate); // 최신 데이터로 재렌더
+    });
+    editPanel.hidden = true;
+    editBtn.addEventListener('click', () => {
+      editPanel.hidden = !editPanel.hidden;
+    });
+    body.appendChild(editPanel);
 
     // 순간 기록 폼
     const form = el('form', 'moment-form');
@@ -197,6 +223,76 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     await trySync(); // 다른 기기의 순간을 받아옴(pull)
     await refresh();
   })();
+}
+
+/** 여행 날짜·상태·제목 편집 패널. onSave(patch) 호출 후 상위에서 재렌더. */
+function buildEditPanel(
+  trip: LocalTrip,
+  onSave: (patch: { title: string; startDate: string; endDate: string; status: LocalTrip['status'] }) => Promise<void>,
+): HTMLElement {
+  const panel = el('form', 'edit-panel');
+
+  const titleIn = el('input', 'edit-input') as HTMLInputElement;
+  titleIn.type = 'text';
+  titleIn.value = trip.title;
+  titleIn.maxLength = 100;
+  titleIn.required = true;
+  titleIn.setAttribute('aria-label', '여행 제목');
+
+  const dates = el('div', 'edit-dates');
+  const startIn = el('input', 'edit-input') as HTMLInputElement;
+  startIn.type = 'date';
+  startIn.value = trip.startDate;
+  startIn.setAttribute('aria-label', '시작일');
+  const endIn = el('input', 'edit-input') as HTMLInputElement;
+  endIn.type = 'date';
+  endIn.value = trip.endDate;
+  endIn.setAttribute('aria-label', '종료일');
+  dates.append(startIn, el('span', 'edit-sep', '~'), endIn);
+
+  const status = el('select', 'edit-input') as HTMLSelectElement;
+  status.setAttribute('aria-label', '여행 상태');
+  for (const s of STATUS_ORDER) {
+    const opt = el('option', undefined, STATUS_LABELS[s]) as HTMLOptionElement;
+    opt.value = s;
+    if (s === trip.status) opt.selected = true;
+    status.appendChild(opt);
+  }
+
+  const row = el('div', 'edit-actions');
+  const save = el('button', 'btn-primary', '저장') as HTMLButtonElement;
+  save.type = 'submit';
+  const cancel = el('button', 'btn-ghost', '취소') as HTMLButtonElement;
+  cancel.type = 'button';
+  cancel.addEventListener('click', () => {
+    panel.hidden = true;
+  });
+  row.append(save, cancel);
+
+  panel.append(
+    el('label', 'edit-label', '제목'),
+    titleIn,
+    el('label', 'edit-label', '기간'),
+    dates,
+    el('label', 'edit-label', '상태'),
+    status,
+    row,
+  );
+
+  panel.addEventListener('submit', (e) => {
+    e.preventDefault();
+    save.disabled = true;
+    void onSave({
+      title: titleIn.value,
+      startDate: startIn.value,
+      endDate: endIn.value,
+      status: status.value as LocalTrip['status'],
+    }).catch(() => {
+      save.disabled = false;
+    });
+  });
+
+  return panel;
 }
 
 function stat(value: string, label: string): HTMLElement {

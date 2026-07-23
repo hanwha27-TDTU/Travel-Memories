@@ -338,3 +338,32 @@
 @media (min-width: 620px) {
   .detail-hero { border-radius: var(--radius-large); margin: 16px 18px 0; }
 }
+
+/* 여행 편집 (상세 히어로) */
+.hero-edit {
+  position: absolute; z-index: 3; top: max(16px, env(safe-area-inset-top, 0)); right: 16px;
+  min-height: 34px; padding: 0 12px; border-radius: var(--radius-pill);
+  border: 1px solid rgba(255, 255, 255, .35); background: rgba(255, 255, 255, .2);
+  backdrop-filter: blur(6px); color: #fff; font-size: 0.8rem; font-weight: 700; cursor: pointer;
+}
+.detail-badge {
+  display: inline-block; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.06em;
+  text-transform: uppercase; padding: 4px 9px; border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, .22); backdrop-filter: blur(5px); margin-bottom: 8px;
+}
+.edit-panel {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius-large); padding: var(--space-4); box-shadow: var(--shadow-card);
+}
+.edit-label { font-size: 0.72rem; font-weight: 800; color: var(--ink-soft); letter-spacing: 0.04em; margin-top: var(--space-1); }
+.edit-input {
+  min-height: var(--touch-target-min); padding: 0 var(--space-3);
+  border: 1px solid var(--line); border-radius: var(--radius-medium);
+  background: var(--bg); color: var(--ink); font: inherit; font-size: 0.95rem;
+}
+.edit-dates { display: flex; align-items: center; gap: var(--space-2); }
+.edit-dates .edit-input { flex: 1; min-width: 0; }
+.edit-sep { color: var(--ink-soft); font-weight: 700; }
+.edit-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+.edit-actions .btn-primary { flex: 1; }

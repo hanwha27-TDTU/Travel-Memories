@@ -71,6 +71,59 @@ export async function getTrip(id: string): Promise<LocalTrip | null> {
   return t && t.deletedAt === null ? t : null;
 }
 
+export interface UpdateTripPatch {
+  title?: string;
+  startDate?: string;
+  endDate?: string;
+  status?: LocalTrip['status'];
+}
+
+/**
+ * 여행 수정 — 내구성 로컬 커밋 + 정확한 read-back + 동기화 대기열(update).
+ * version을 올리고 updatedAt을 갱신한다(LWW 기준). 서버 push는 기존 파이프라인이 처리.
+ */
+export async function updateTripLocalFirst(id: string, patch: UpdateTripPatch): Promise<LocalTrip> {
+  const d = db();
+  const cur = await d.localTrips.get(id);
+  if (!cur || cur.deletedAt !== null) throw new Error('여행을 찾을 수 없습니다.');
+
+  const now = new Date().toISOString();
+  const opId = uuid();
+  const next: LocalTrip = {
+    ...cur,
+    ...(patch.title !== undefined ? { title: patch.title.trim() } : {}),
+    ...(patch.startDate !== undefined ? { startDate: patch.startDate } : {}),
+    ...(patch.endDate !== undefined ? { endDate: patch.endDate } : {}),
+    ...(patch.status !== undefined ? { status: patch.status } : {}),
+    version: cur.version + 1,
+    updatedAt: now,
+    baseVersion: cur.version,
+    clientOperationId: opId,
+  };
+  if (!next.title) throw new Error('제목이 비어 있습니다.');
+
+  const op: SyncQueueItem = {
+    operationId: opId,
+    entityType: 'trip',
+    entityId: id,
+    operationType: 'update',
+    state: 'local_only',
+    attempts: 0,
+    createdAt: now,
+  };
+
+  await d.transaction('rw', d.localTrips, d.syncQueue, async () => {
+    await d.localTrips.put(next);
+    await d.syncQueue.add(op);
+  });
+
+  const readTrip = await d.localTrips.get(id);
+  if (!readTrip || readTrip.version !== next.version) {
+    throw new Error('내구성 커밋 확인 실패: read-back 불일치');
+  }
+  return readTrip;
+}
+
 /** 활성 여행 목록 (tombstone 제외 — deletedAt은 인덱스가 아니라 filter, M-0005). */
 export async function listTrips(): Promise<LocalTrip[]> {
   const d = db();
