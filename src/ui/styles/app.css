@@ -830,6 +830,7 @@
   border-radius: var(--radius-large); border: 1px solid var(--line);
   padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3);
   box-shadow: var(--shadow-float);
+  overscroll-behavior: contain; /* 시트 끝에서 뒤 화면으로 스크롤 전파 방지 */
 }
 .pe-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .pe-head b { font-family: var(--font-disp); font-size: 1.05rem; }
@@ -840,7 +841,13 @@
   font-size: 1rem; font-weight: 700; cursor: pointer; line-height: 1;
 }
 .pe-file { max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pe-stage { display: grid; place-items: center; background: #0c0d18; border-radius: var(--radius-medium); min-height: 220px; overflow: hidden; }
+.pe-stage {
+  display: grid; place-items: center; background: #0c0d18; border-radius: var(--radius-medium); min-height: 220px; overflow: hidden;
+  /* 슬라이더를 만지는 동안 사진이 스크롤로 사라지지 않게 상단 고정(보면서 조절).
+     음수 top으로 시트 상단 패딩 띠까지 덮는다. 폭 채우기(is-fill)에선 해제. */
+  position: sticky; top: calc(-1 * var(--space-4)); z-index: 5;
+  box-shadow: 0 8px 16px rgba(8, 8, 18, .35);
+}
 /* 폭 맞추기: 캔버스는 래퍼 폭을 꽉 채우고, 래퍼 폭은 JS가 비율·높이상한(62vh)에 맞춰 설정.
    → 세로 사진도 여백 없이 크게 보이고, 크롭 오버레이(%)가 이미지와 정확히 정렬된다. */
 .pe-canvas { display: block; width: 100%; height: auto; border-radius: var(--radius-small); touch-action: none; cursor: grab; }
@@ -859,16 +866,29 @@
 .pe-sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; }
 .pe-slider { display: flex; align-items: center; gap: 8px; }
 .pe-slider-label { font-size: 0.72rem; font-weight: 800; color: var(--ink-soft); width: 44px; flex: 0 0 auto; }
-.pe-slider input[type="range"] { flex: 1; min-width: 0; accent-color: var(--a1d); }
+.pe-slider input[type="range"] { flex: 1; min-width: 0; accent-color: var(--a1d); height: 28px; }
+.pe-slider-val {
+  font-size: 0.72rem; font-weight: 700; color: var(--ink-soft);
+  width: 38px; text-align: right; flex: 0 0 auto; font-variant-numeric: tabular-nums;
+}
 .pe-zoom { accent-color: var(--a1d); }
-.pe-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.pe-actions {
+  display: flex; gap: var(--space-2); flex-wrap: wrap;
+  /* 적용/원본 사용은 스크롤 위치와 무관하게 항상 손 닿는 곳에(하단 고정). */
+  position: sticky; bottom: calc(-1 * var(--space-4)); z-index: 5;
+  margin: 0 calc(-1 * var(--space-4)) calc(-1 * var(--space-4));
+  padding: var(--space-2) var(--space-4) max(var(--space-3), env(safe-area-inset-bottom, 0));
+  background: var(--surface); border-top: 1px solid var(--line);
+  border-radius: 0 0 var(--radius-large) var(--radius-large);
+}
 .pe-actions .btn-primary { flex: 1; min-width: 120px; }
 @media (max-width: 420px) { .pe-sliders { grid-template-columns: 1fr; } }
 
 /* 자유 크롭 오버레이 + 잡티 도구 */
 .pe-canvas-wrap { position: relative; display: block; width: 100%; margin: 0 auto; }
-/* 폭 채우기 방식: 스테이지가 세로로 자라고 시트가 스크롤(세로 사진을 여백 없이 크게). */
-.pe-stage.is-fill { overflow: visible; }
+/* 폭 채우기 방식: 스테이지가 세로로 자라고 시트가 스크롤(세로 사진을 여백 없이 크게).
+   이때 고정(sticky)하면 화면 전체를 덮으므로 해제한다. */
+.pe-stage.is-fill { overflow: visible; position: static; box-shadow: none; }
 .pe-canvas-wrap.is-fill { max-width: 100%; }
 /* 자르기 확정 바 — 이미지 바로 아래, 확정 버튼은 강조색으로. */
 .pe-cropbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -889,5 +909,7 @@
 .pe-h-sw { left: -11px; bottom: -11px; cursor: nesw-resize; }
 .pe-h-se { right: -11px; bottom: -11px; cursor: nwse-resize; }
 .pe-heal-row { border-top: 1px dashed var(--line); padding-top: var(--space-2); }
+/* 원본 비교: 길게 누르는 동안 텍스트 선택·스크롤이 끼어들지 않게. */
+.pe-compare { user-select: none; -webkit-user-select: none; touch-action: none; }
 .pe-heal-cursor { cursor: crosshair; }
 .pe-hint { flex-basis: 100%; }

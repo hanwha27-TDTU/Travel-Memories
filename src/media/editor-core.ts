@@ -113,6 +113,40 @@ export function flipFreeCropH(fc: FreeCrop): FreeCrop {
   return { x: 1 - (fc.x + fc.w), y: fc.y, w: fc.w, h: fc.h };
 }
 
+export type FreeCropDragMode = 'move' | 'nw' | 'ne' | 'sw' | 'se';
+
+/**
+ * 자유 크롭 드래그(순수): 시작 사각형 f를 mode 방향으로 (dx,dy)만큼 끌었을 때의 새 사각형.
+ * 모서리 리사이즈에서 반대쪽 변은 절대 움직이지 않는다 — 경계 클램프를 x/w가 아니라
+ * 좌·우(상·하) "변" 좌표에 각각 적용해, 서쪽 핸들을 경계 밖으로 끌면 동쪽 변이
+ * 따라 늘어나던 결함을 원천 차단한다.
+ */
+export function resizeFreeCrop(
+  f: FreeCrop,
+  mode: FreeCropDragMode,
+  dx: number,
+  dy: number,
+  minSize: number,
+): FreeCrop {
+  if (mode === 'move') {
+    return {
+      x: Math.max(0, Math.min(1 - f.w, f.x + dx)),
+      y: Math.max(0, Math.min(1 - f.h, f.y + dy)),
+      w: f.w,
+      h: f.h,
+    };
+  }
+  let left = f.x;
+  let top = f.y;
+  let right = f.x + f.w;
+  let bottom = f.y + f.h;
+  if (mode.includes('w')) left = Math.max(0, Math.min(right - minSize, f.x + dx));
+  if (mode.includes('e')) right = Math.min(1, Math.max(left + minSize, f.x + f.w + dx));
+  if (mode.includes('n')) top = Math.max(0, Math.min(bottom - minSize, f.y + dy));
+  if (mode.includes('s')) bottom = Math.min(1, Math.max(top + minSize, f.y + f.h + dy));
+  return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
 /** 현재 상태의 크롭 창(회전 후 기하 공간 px). 자유 크롭이 있으면 그것을 우선. */
 export function resolveWindow(
   W: number,
@@ -169,6 +203,17 @@ export function cropWindow(
   return { x: cx - w / 2, y: cy - h / 2, w, h };
 }
 
+/** 결정적 PRNG(mulberry32). 그레인이 미리보기 갱신마다 어른거리지 않게 고정 시드로 쓴다. */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 /**
  * 편집 상태를 적용해 새 canvas를 만든다(원본 불변).
  * maxEdge: 출력 긴 변 제한(미리보기 소형 / 저장 대형).
@@ -180,22 +225,26 @@ export function bakeToCanvas(
   s: EditState,
   maxEdge: number,
 ): HTMLCanvasElement {
-  // 1) 기하: rotate90 + flip + angle(커버 확대)
+  // 0) 출력 배율을 먼저 정한다. 기하 중간 캔버스를 원본 전체 해상도로 만들면
+  //    12MP급 사진에서 미리보기 프레임마다 수십 MB를 할당해 모바일이 버벅인다 —
+  //    필요한 배율(scale)로 축소해 그린다(결과 픽셀은 동일 경로·동일 창).
   const rd = rotatedDims(srcW, srcH, s.rotate90);
-  const g = document.createElement('canvas');
-  g.width = rd.w;
-  g.height = rd.h;
-  const gx = g.getContext('2d');
-  if (!gx) throw new Error('canvas 2d 컨텍스트 없음');
-  gx.translate(rd.w / 2, rd.h / 2);
-  gx.rotate((s.rotate90 * Math.PI) / 2 + (s.angle * Math.PI) / 180);
-  const cover = angleCoverScale(rd.w, rd.h, s.angle);
-  gx.scale(s.flipH ? -cover : cover, cover);
-  gx.drawImage(src, -srcW / 2, -srcH / 2);
-
-  // 2) 크롭(비율/자유)/줌/팬 → 출력 크기 결정
   const win = resolveWindow(rd.w, rd.h, s);
   const scale = Math.min(1, maxEdge / Math.max(win.w, win.h));
+
+  // 1) 기하: rotate90 + flip + angle(커버 확대) — scale 반영 크기로 굽는다.
+  const g = document.createElement('canvas');
+  g.width = Math.max(1, Math.round(rd.w * scale));
+  g.height = Math.max(1, Math.round(rd.h * scale));
+  const gx = g.getContext('2d');
+  if (!gx) throw new Error('canvas 2d 컨텍스트 없음');
+  gx.translate(g.width / 2, g.height / 2);
+  gx.rotate((s.rotate90 * Math.PI) / 2 + (s.angle * Math.PI) / 180);
+  const cover = angleCoverScale(rd.w, rd.h, s.angle);
+  gx.scale((s.flipH ? -cover : cover) * scale, cover * scale);
+  gx.drawImage(src, -srcW / 2, -srcH / 2);
+
+  // 2) 크롭(비율/자유)/줌/팬 → 출력 크기 결정(창 좌표도 scale 공간으로)
   const outW = Math.max(1, Math.round(win.w * scale));
   const outH = Math.max(1, Math.round(win.h * scale));
   const out = document.createElement('canvas');
@@ -203,7 +252,7 @@ export function bakeToCanvas(
   out.height = outH;
   const ox = out.getContext('2d');
   if (!ox) throw new Error('canvas 2d 컨텍스트 없음');
-  ox.drawImage(g, win.x, win.y, win.w, win.h, 0, 0, outW, outH);
+  ox.drawImage(g, win.x * scale, win.y * scale, win.w * scale, win.h * scale, 0, 0, outW, outH);
 
   // 3) 픽셀 조정(잡티 → 색 → 선명도 → 그레인). 잡티는 원색 기준으로 먼저 메꾼다.
   const needsPixels = !isNoAdjust(s) || s.sharpenAmt > 0 || s.grainAmt > 0 || s.heals.length > 0;
@@ -222,7 +271,8 @@ export function bakeToCanvas(
       // sharpen은 새 버퍼를 반환 → 원 ImageData 버퍼로 복사(타입·버퍼 안정)
       img.data.set(sharpen(img.data, outW, outH, s.sharpenAmt));
     }
-    if (s.grainAmt > 0) grain(img.data, s.grainAmt);
+    // 고정 시드: 미리보기 갱신마다 노이즈가 재추첨되어 어른거리는 문제 방지 + 저장 결과 재현성.
+    if (s.grainAmt > 0) grain(img.data, s.grainAmt, mulberry32(0x51ab_cafe));
     ox.putImageData(img, 0, 0);
   }
 

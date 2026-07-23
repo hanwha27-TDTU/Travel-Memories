@@ -628,10 +628,16 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       const img = el('img') as HTMLImageElement;
       img.src = currentUrl;
       img.alt = '여행 사진';
+      // 사진 자체를 탭했을 땐 닫지 않는다(확대해 보려다 실수로 닫히는 것 방지 — 배경 탭·✕·Esc로만 닫기).
+      img.addEventListener('click', (e) => e.stopPropagation());
       const close = () => {
         overlay.remove();
         URL.revokeObjectURL(currentUrl);
+        document.removeEventListener('keydown', esc); // 어떤 경로로 닫혀도 리스너 잔류 없음
       };
+      function esc(e: KeyboardEvent): void {
+        if (e.key === 'Escape') close();
+      }
 
       // 회전 — 눕혀 보이는 사진을 90°(시계방향) 돌려 세운다. 원본 불변(§0), 표시본만 갱신·영구 저장.
       const rotateBtn = el('button', 'photo-viewer-rotate', '↻ 회전') as HTMLButtonElement;
@@ -693,12 +699,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
 
       overlay.append(img, editPhotoBtn, rotateBtn, closeBtn);
       overlay.addEventListener('click', close); // 배경 탭으로도 닫기
-      document.addEventListener('keydown', function esc(e) {
-        if (e.key === 'Escape') {
-          close();
-          document.removeEventListener('keydown', esc);
-        }
-      });
+      document.addEventListener('keydown', esc);
       document.body.appendChild(overlay);
     }
 
@@ -741,6 +742,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
               const prev = states[i];
               const r = await openPhotoEditor(files[i]!, `${i + 1}/${files.length} · ${files[i]!.name}`, {
                 canGoBack: i > 0,
+                batchRemaining: files.length - i,
                 ...(prev ? { initialState: prev } : {}),
               });
               states[i] = r.state;
@@ -748,6 +750,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
                 i -= 1;
                 continue;
               }
+              if (r.action === 'skipAll') break; // 이 사진 포함 나머지 전부 원본으로(blobs는 null 초기값)
               blobs[i] = r.blob; // apply→편집본(무편집 null), skip→null(원본)
               i += 1;
             }
