@@ -1,0 +1,83 @@
+---
+name: photo-editor-dev
+description: 사진 편집기 개발 프롬프트 — photoEditor.ts·editor-core.ts·pixelops.ts·media.ts(사진 편집/뷰어/굽기 파이프라인)를 만들거나 수정하기 전에 반드시 로드한다. 좌표계 계약·성능 규칙·과거 결함 사례·검증 체크리스트를 담은 작업 헌장. 편집기 UI, 크롭, 잡티 제거, 필터/프리셋, 미리보기 성능, 전체보기 뷰어 작업 시 사용.
+---
+
+# 사진 편집기 개발 프롬프트 (Photo Editor Dev Charter)
+
+이 문서는 사진 편집기 개발 과정에서 실제로 밟은 실수와 그로부터 굳힌 규칙의 집대성이다.
+여기 규칙과 코드가 어긋나면 **코드가 진실**이고, 이 문서를 갱신한다(SSOT 규율).
+상위 원칙은 `CLAUDE.md`(비파괴·정직한 완료)와 `docs/MEDIA_PIPELINE.md`를 따른다.
+
+## 0. 파일 지도
+
+| 파일 | 역할 | 성격 |
+|---|---|---|
+| `src/media/pixelops.ts` | 픽셀 연산(색보정·샤픈·힐·그레인) | 순수 함수, DOM 없음 → **유닛테스트 대상** |
+| `src/media/editor-core.ts` | EditState·크롭 기하·bake 파이프라인 | 기하 함수는 순수(테스트 대상), bakeToCanvas만 DOM |
+| `src/ui/photoEditor.ts` | 편집 모달 UI(제스처·이력·미리보기) | DOM. 순수 로직을 새로 만들면 editor-core로 내려보낼 것 |
+| `src/services/media.ts` | 저장(압축·EXIF·재편집·회전) | Dexie 커밋 + read-back |
+| `src/ui/screens/tripDetail.ts` | 편집기 호출(배치 추가)·전체보기 뷰어 | DOM |
+
+## 1. 불변 계약 (어기면 데이터/신뢰 손상)
+
+1. **비파괴**: 원본 Blob은 읽기만 한다. 편집 결과는 항상 새 Blob. EXIF(촬영시각·GPS)는 **원본에서** 읽는다.
+2. **WYSIWYG 단일 경로**: 미리보기와 최종 저장은 같은 `bakeToCanvas`를 쓴다. 미리보기 전용 지름길(CSS filter 등) 금지 — 저장 결과와 달라진다.
+3. **EditState는 순수 JSON 값**: Dexie 저장·백업 왕복·재편집 복원에 그대로 쓰인다. 함수·DOM 참조·비직렬화 값 금지.
+4. **좌표계 계약**: `heals`·`freeCrop`은 **rotate90 적용 후 기하 공간의 0..1 정규화 좌표**다.
+   - 회전/반전 시 반드시 `rotateHeals90`/`flipHealsH`/`rotateFreeCrop90`/`flipFreeCropH`로 함께 변환한다(안 하면 기존 잡티·크롭이 엉뚱한 곳으로 간다).
+   - `angle`(수평 보정)은 창 계산에 포함되지 않는 "커버 확대"다. 탭 좌표 역투영과 bake 재투영이 같은 `resolveWindow`를 쓰므로 일관된다 — 이 대칭을 깨지 말 것.
+   - heal 반경 `r`은 "창 폭 대비 비율"로 저장 → 화면 체감 크기가 해상도와 무관하게 유지된다.
+5. **무편집이면 재인코딩 금지**: `isIdentity(state)` → 원본 그대로(JPEG 세대손실 방지).
+
+## 2. 성능 규칙 (실측으로 굳힌 것)
+
+1. **전해상도 중간 캔버스 금지.** bake는 출력 배율(scale)을 먼저 정하고 기하 캔버스를 그 크기로 만든다.
+   (v0.24 이전: 12MP 사진에서 슬라이더 틱마다 수십 MB 할당 → 모바일 버벅임의 근본 원인이었다.)
+2. **2단계 미리보기**: 제스처 중 `repaint(true)`(FAST_MAX 420) → 손 떼면 `repaint()`(PREVIEW_MAX 900). 새 연속 제스처를 추가하면 반드시 이 패턴을 따른다(input→fast, change/pointerup→full).
+3. **노이즈는 결정적으로**: 그레인 등 난수 효과는 고정 시드 PRNG(mulberry32)를 쓴다. `Math.random`이면 미리보기가 갱신마다 어른거리고 저장 재현성이 깨진다.
+4. 픽셀 루프(`getImageData`)는 **출력 크기에서만** 돈다. 크롭 전 전체 이미지에 픽셀 연산을 걸지 말 것.
+
+## 3. UI/UX 규칙
+
+- **보면서 조절**: 미리보기 stage는 상단 sticky, 액션바는 하단 sticky. `is-fill`(폭 채우기) 모드에선 sticky 해제(화면을 덮는다).
+- 슬라이더는 값 표시(`pe-slider-val`) + 라벨 더블탭 개별 초기화. 0이 "변화 없음"인 델타로 통일.
+- 프리셋은 `aria-pressed`로 활성 표시, 수동 조정 시 해제. 활성 판정은 textContent 비교가 아니라 상태 기준 헬퍼(`syncAspectChips` 방식)로.
+- **실행취소 모델**: 전역 이력 스택 하나(헤더 ↺). 이산 조작(회전·반전·비율·프리셋·잡티 탭·초기화)은 조작 **직전** `pushHistory()`. 연속 제스처(슬라이더·팬·핀치·크롭 드래그)는 시작 시 `pendingSnap` 캡처 → 종료 시 `commitPending()`(값이 실제로 바뀐 경우만 커밋 — 빈 undo 단계 금지).
+- **닫기 보호**: 편집 존재(`!isIdentity`) 시 ✕/Esc는 confirm. 모달 열릴 때 단 keydown 리스너는 `finish()`에서 반드시 제거.
+- 길게 누르는 버튼(원본 비교)은 `contextmenu` preventDefault + `touch-action:none`(모바일 길게 누르기 메뉴 차단).
+- 배치 추가는 사용자를 장당 편집기에 가두지 않는다(`skipAll` 경로 유지).
+- 뷰어: 사진 탭은 닫기가 아니다(배경·✕·Esc만). 스와이프는 `|dx|>48 && |dx|>1.5|dy|`.
+
+## 4. 과거 결함 등록부 (재발 방지 — 같은 형이 보이면 즉시 의심)
+
+| 버전 | 결함 | 근본형 | 재발 방지 |
+|---|---|---|---|
+| ~0.19 | 미리보기 흐림 | 미리보기 해상도 < 표시 폭 | PREVIEW_MAX ≥ 표시 폭 |
+| 0.23 | 세로 사진 눕혀 표시 | EXIF Orientation 미반영 | `createImageBitmap(..., {imageOrientation:'from-image'})` + 폴백 |
+| 0.24 | 슬라이더 버벅임 | bake 중간 캔버스가 원본 전해상도 | §2-1 프리스케일 |
+| 0.24 | 자유 크롭 서/북 핸들이 반대 변을 늘림 | 클램프를 x/w에 걸어 변 결합 | `resizeFreeCrop` 순수함수(변 좌표 기준 클램프) + 유닛 5건 |
+| 0.24 | 그레인 어른거림 | 프레임마다 `Math.random` | 고정 시드 PRNG |
+| 0.24 | 뷰어 Esc 리스너 누수·사진 탭 시 닫힘 | 닫기 경로별 정리 누락·이벤트 버블 | close()에서 일괄 제거·img stopPropagation |
+| 0.25 | (개선) 잡티 되돌리기만 있고 전역 undo 없음 | 부분 이력 | 전역 이력 스택으로 통합 |
+
+**결함 → 결함군 승격 규율**: 위 근본형이 다른 파일에서 보이면(예: 다른 오버레이의 리스너 누수) 단건 수정하지 말고 형제 위치를 쓸어라.
+
+## 5. 검증 체크리스트 (정직한 완료)
+
+자동층(전부 통과해야 "통과"라 말한다):
+1. `npm run typecheck` · `npm test`(pixelops/editor-core 순수 함수) · `npm run harness` · `npm run build`
+2. 새 기하/픽셀 로직은 **순수 함수로 추출 후 유닛테스트**(비공허: 알려진 실패를 주입해 RED 확인).
+
+라이브 렌더(dist 서빙 + Playwright/Chromium — **`node scripts/verify-editor-live.mjs`** 를 실행·확장한다):
+- 편집기 열기 → 슬라이더 조작 시 **캔버스 픽셀 read-back으로 실제 변화** 확인(스크린샷 육안 아님).
+- 비교 홀드 왕복(픽셀 원복), Esc confirm(`page.on('dialog')`), 배치 2장 진행, 적용 후 저장·썸네일, 뷰어 탐색, **콘솔 에러 0**.
+- 함정(실제로 겪음): ① `적용` 클릭 직후 `.pe-overlay` 존재 확인은 **이전 모달**과 매칭된다 — `.pe-file` 라벨 텍스트(`2/2`)로 대기할 것. ② `원본 사용` 셀렉터는 ✕(aria-label "닫기(원본 사용)")와 겹친다 — `exact: true`. ③ 파일 input은 hidden — `state: 'attached'`로 대기.
+
+수동(사용자 확인 권장으로 분리 표기):
+- 실기기 핀치 줌·라벨 더블탭·긴 누름 비교, 대용량(12MP+) 사진 체감 속도, iOS Safari 캔버스 메모리.
+
+## 6. 변경 후 의무
+
+- `src/app/changelog.ts`에 버전 +0.01 항목(사용자 언어로).
+- `docs/HANDOFF.md` 인계 기록. 새 교훈이 생기면 **이 문서 §4에 행 추가**.

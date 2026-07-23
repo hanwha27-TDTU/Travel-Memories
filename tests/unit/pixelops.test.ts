@@ -9,6 +9,7 @@ import {
   rotateHeals90,
   flipHealsH,
   rotateFreeCrop90,
+  resizeFreeCrop,
   isIdentity,
   freshEdit,
 } from '../../src/media/editor-core';
@@ -162,5 +163,41 @@ describe('자유 크롭·좌표 변환', () => {
     expect(isIdentity(s)).toBe(true);
     s.heals.push({ x: 0.5, y: 0.5, r: 0.03 });
     expect(isIdentity(s)).toBe(false);
+  });
+});
+
+describe('resizeFreeCrop (자유 크롭 드래그)', () => {
+  const base = { x: 0.2, y: 0.2, w: 0.5, h: 0.5 };
+  const MIN = 0.08;
+
+  it('move는 크기를 보존하며 경계 안으로 클램프한다', () => {
+    const fc = resizeFreeCrop(base, 'move', 10, 10, MIN);
+    expect(fc).toEqual({ x: 0.5, y: 0.5, w: 0.5, h: 0.5 });
+  });
+
+  it('서쪽 핸들을 경계 밖으로 끌어도 동쪽 변은 움직이지 않는다(회귀)', () => {
+    const fc = resizeFreeCrop(base, 'nw', -0.9, 0, MIN);
+    expect(fc.x).toBe(0); // 왼쪽 변만 경계에 붙고
+    expect(fc.x + fc.w).toBeCloseTo(0.7); // 오른쪽 변(0.2+0.5)은 그대로
+  });
+
+  it('북쪽 핸들도 남쪽 변을 보존한다', () => {
+    const fc = resizeFreeCrop(base, 'ne', 0, -0.9, MIN);
+    expect(fc.y).toBe(0);
+    expect(fc.y + fc.h).toBeCloseTo(0.7);
+  });
+
+  it('최소 크기 미만으로 줄이면 반대 변 기준으로 min을 지킨다', () => {
+    const fc = resizeFreeCrop(base, 'se', -0.9, -0.9, MIN);
+    expect(fc.w).toBeCloseTo(MIN);
+    expect(fc.h).toBeCloseTo(MIN);
+    expect(fc.x).toBeCloseTo(0.2); // nw 고정
+    expect(fc.y).toBeCloseTo(0.2);
+  });
+
+  it('동·남쪽 확장은 1을 넘지 않는다', () => {
+    const fc = resizeFreeCrop(base, 'se', 5, 5, MIN);
+    expect(fc.x + fc.w).toBeLessThanOrEqual(1);
+    expect(fc.y + fc.h).toBeLessThanOrEqual(1);
   });
 });
