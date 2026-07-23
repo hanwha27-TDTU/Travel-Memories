@@ -4,6 +4,12 @@
 
 ## [Unreleased] — Phase 0~1
 
+### Phase 3e — 저장된 사진 재편집(비파괴) (2026-07-23)
+- **재편집**: 전체보기 뷰어에 `✎ 편집` → 저장된 사진을 편집기(`openPhotoEditor`)로 다시 연다. 그동안 사진은 저장 후 삭제만 가능하고 재편집이 불가했음.
+- **비파괴(§0)**: 편집은 **원본 Blob에서 파생**하고 원본·EXIF(촬영시각·GPS)는 절대 바꾸지 않는다. `reeditMediaLocalFirst`가 표시본·썸네일만 재생성(version+1·read-back). 미디어 로컬 전용(sync 후속).
+- **이어서 편집(resume)**: `LocalMedia.editState`(직렬화 가능 순수값)에 회전·자르기·색보정·잡티 상태를 저장 → 다음 재편집 때 이전 편집을 그대로 이어서 조정. 최초 업로드도 편집 시 editState 저장. 백업에 자동 포함(비-Blob 필드).
+- **라이브 검증(정적 dist 서버·Playwright, 콘솔 에러 0)**: 사진 저장→뷰어 `✎`→`↻ 회전`→`적용` → version 1→2, 치수 120×90→**90×120 스왑(회전 반영)**, **원본 크기 13262B 불변**, editState rotate90:1 저장. harness(6)·unit 73·build 그린.
+
 ### Phase 4 — 지도와 장소 (MapLibre·장소목록·GeoJSON) (2026-07-23)
 - **지도 제공자 확정** ADR-0023(A-006): 기본 OSM 래스터(키 불필요·귀속표시), `VITE_MAP_STYLE_URL`로 교체 가능. CSP `img-src`·`connect-src`에 `tile.openstreetmap.org` 추가(index.html + `check-csp.mjs` REQUIRED·GOOD 셀프테스트 동시 갱신).
 - **순수 로직** `domain/place/geojson.ts`: `momentCoord`(사진 EXIF GPS 첫 좌표, 없으면 null — 대략위치 안 지어냄)·`toFeatureCollection`([lng,lat] RFC 7946). 유닛 4케이스.

@@ -6,6 +6,7 @@
 import { db, type LocalMedia } from '../offline/db';
 import { readJpegExif } from '../media/exif';
 import { compressForStorage } from '../media/compress';
+import type { EditState } from '../media/editor-core';
 
 function uuid(): string {
   return crypto.randomUUID();
@@ -26,6 +27,7 @@ export async function addPhotoToMoment(
   file: File,
   target: AddPhotoTarget,
   editedBlob?: Blob,
+  editState?: EditState,
 ): Promise<LocalMedia> {
   if (!target.momentId || !target.tripId) throw new Error('순간 정보가 없습니다.');
 
@@ -69,6 +71,7 @@ export async function addPhotoToMoment(
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
+    ...(editState ? { editState } : {}),
   };
 
   const d = db();
@@ -106,6 +109,43 @@ export async function restoreMediaLocalFirst(id: string): Promise<void> {
   await d.localMedia.put({ ...cur, deletedAt: null, version: cur.version + 1, updatedAt: now });
   const back = await d.localMedia.get(id);
   if (!back || back.deletedAt !== null) throw new Error('내구성 커밋 확인 실패: 사진 되살리기 read-back 불일치');
+}
+
+/**
+ * 저장된 사진 재편집 — 비파괴. 원본 Blob·EXIF(촬영시각·GPS)는 그대로 두고, 편집 결과에서
+ * 표시본·썸네일만 다시 만든다(§0 — 원본 불변). editState를 저장해 다음 재편집 때 이어서 조정.
+ * 미디어는 로컬 전용이라 sync 큐 op 없음(동기화 후속). version+1(LWW).
+ */
+export async function reeditMediaLocalFirst(
+  id: string,
+  editedBlob: Blob,
+  editState?: EditState,
+): Promise<LocalMedia> {
+  const d = db();
+  const cur = await d.localMedia.get(id);
+  if (!cur || cur.deletedAt !== null) throw new Error('사진을 찾을 수 없습니다.');
+
+  const { display, thumb } = await compressForStorage(editedBlob);
+  const now = new Date().toISOString();
+  // editState 키를 제거한 base에서 시작 → 새 편집상태가 있으면만 다시 넣는다(없으면 키 자체가 빠져 초기화).
+  const { editState: _prev, ...base } = cur;
+  const next: LocalMedia = {
+    ...base,
+    displayBlob: display.blob,
+    thumbBlob: thumb.blob,
+    width: display.width,
+    height: display.height,
+    bytesDisplay: display.blob.size,
+    version: cur.version + 1,
+    updatedAt: now,
+    ...(editState ? { editState } : {}),
+  };
+  await d.localMedia.put(next);
+  const back = await d.localMedia.get(id);
+  if (!back || back.version !== next.version || back.thumbBlob.size === 0) {
+    throw new Error('내구성 커밋 확인 실패: 사진 재편집 read-back 불일치');
+  }
+  return back;
 }
 
 /** 여행의 활성 사진(순간별 그룹용). tombstone 제외. */

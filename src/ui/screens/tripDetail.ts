@@ -21,6 +21,7 @@ import {
   listMediaByTrip,
   softDeleteMediaLocalFirst,
   restoreMediaLocalFirst,
+  reeditMediaLocalFirst,
 } from '../../services/media';
 import {
   createExpenseLocalFirst,
@@ -498,7 +499,35 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         e.stopPropagation();
         close();
       });
-      overlay.append(img, closeBtn);
+
+      // 재편집 — 저장된 사진을 편집기로 다시 연다. 원본에서 파생(비파괴), 이전 편집을 이어서 조정.
+      const editPhotoBtn = el('button', 'photo-viewer-edit', '✎ 편집') as HTMLButtonElement;
+      editPhotoBtn.type = 'button';
+      editPhotoBtn.setAttribute('aria-label', '이 사진 편집');
+      editPhotoBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        editPhotoBtn.disabled = true;
+        void (async () => {
+          try {
+            const r = await openPhotoEditor(
+              md.originalBlob,
+              timeLabel(md.takenAt) || '사진 편집',
+              md.editState ? { initialState: md.editState } : {},
+            );
+            if (r.action === 'apply') {
+              await reeditMediaLocalFirst(md.id, r.blob ?? md.originalBlob, r.state);
+              await refresh();
+              close();
+              return;
+            }
+          } catch {
+            /* 편집 취소·실패는 뷰어 유지 */
+          }
+          editPhotoBtn.disabled = false;
+        })();
+      });
+
+      overlay.append(img, editPhotoBtn, closeBtn);
       overlay.addEventListener('click', close); // 배경 탭으로도 닫기
       document.addEventListener('keydown', function esc(e) {
         if (e.key === 'Escape') {
@@ -558,7 +587,12 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
             for (let k = 0; k < files.length; k += 1) {
               note.textContent = `사진 저장… (${k + 1}/${files.length})`;
               try {
-                await addPhotoToMoment(files[k]!, { momentId: moment.id, tripId: trip!.id }, blobs[k] ?? undefined);
+                await addPhotoToMoment(
+                  files[k]!,
+                  { momentId: moment.id, tripId: trip!.id },
+                  blobs[k] ?? undefined,
+                  blobs[k] ? states[k] : undefined, // 편집한 경우만 편집상태 저장(재편집 이어서용)
+                );
               } catch {
                 /* 개별 사진 실패는 건너뜀(순간 자체는 저장됨) */
               }

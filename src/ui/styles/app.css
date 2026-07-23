@@ -653,6 +653,13 @@
   border: 1px solid rgba(255,255,255,.4); background: rgba(255,255,255,.18);
   backdrop-filter: blur(6px); color: #fff; font-size: 1.2rem; font-weight: 700; cursor: pointer;
 }
+.photo-viewer-edit {
+  position: fixed; top: max(16px, env(safe-area-inset-top, 0)); left: 16px; z-index: 51;
+  min-height: 44px; padding: 0 16px; border-radius: var(--radius-pill); cursor: pointer;
+  border: 1px solid rgba(255,255,255,.4); background: rgba(255,255,255,.18);
+  backdrop-filter: blur(6px); color: #fff; font-size: 0.9rem; font-weight: 700;
+}
+.photo-viewer-edit:disabled { opacity: 0.6; cursor: default; }
 
 /* 사진 편집 모달 (photoEditor) */
 .pe-overlay {
