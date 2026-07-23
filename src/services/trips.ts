@@ -124,11 +124,18 @@ export async function updateTripLocalFirst(id: string, patch: UpdateTripPatch): 
   return readTrip;
 }
 
-/** 활성 여행 목록 (tombstone 제외 — deletedAt은 인덱스가 아니라 filter, M-0005). */
+/** 홈 목록 (tombstone·보관 제외 — deletedAt/status는 filter, M-0005). */
 export async function listTrips(): Promise<LocalTrip[]> {
   const d = db();
   const all = await d.localTrips.orderBy('updatedAt').reverse().toArray();
-  return all.filter((t) => t.deletedAt === null);
+  return all.filter((t) => t.deletedAt === null && t.status !== 'archived');
+}
+
+/** 보관함 목록 (보관 상태만, tombstone 제외). */
+export async function listArchivedTrips(): Promise<LocalTrip[]> {
+  const d = db();
+  const all = await d.localTrips.orderBy('updatedAt').reverse().toArray();
+  return all.filter((t) => t.deletedAt === null && t.status === 'archived');
 }
 
 /** 동기화 대기 중인 작업 수 (UI 상태 표시용 — false/null 과적재 금지, 숫자로 반환). */

@@ -69,17 +69,45 @@ async function decodeBitmap(file: Blob): Promise<{ bmp: ImageBitmap | HTMLImageE
   }
 }
 
+export interface EditorResult {
+  /** apply=편집 적용, skip=원본 사용/닫기, back=이전 사진으로. */
+  action: 'apply' | 'skip' | 'back';
+  /** 이 사진의 편집 상태(재방문 시 복원용). */
+  state: EditState;
+  /** apply일 때 편집본(무편집이면 null), skip/back이면 null. */
+  blob: Blob | null;
+}
+
+export interface EditorOpts {
+  /** 이전 사진 존재 여부(← 이전 버튼 노출). */
+  canGoBack?: boolean;
+  /** 재방문 시 복원할 편집 상태. */
+  initialState?: EditState;
+}
+
+function cloneState(s: EditState): EditState {
+  return {
+    ...s,
+    heals: s.heals.map((hp) => ({ ...hp })),
+    freeCrop: s.freeCrop ? { ...s.freeCrop } : null,
+  };
+}
+
 /**
- * 편집 모달을 열고 사용자의 선택을 기다린다.
- * 반환: 편집된 Blob(적용) | null(원본 그대로 사용).
+ * 편집 모달을 열고 사용자의 선택을 기다린다(배치 편집: 이전/다음/닫기).
+ * 반환: EditorResult(action + state + blob).
  */
-export async function openPhotoEditor(file: Blob, fileLabel: string): Promise<Blob | null> {
+export async function openPhotoEditor(
+  file: Blob,
+  fileLabel: string,
+  opts: EditorOpts = {},
+): Promise<EditorResult> {
   const { bmp, w, h } = await decodeBitmap(file);
-  const state: EditState = freshEdit();
+  const state: EditState = opts.initialState ? cloneState(opts.initialState) : freshEdit();
   let healMode = false;
   let brushPct = 3; // 이미지 너비의 %
 
-  return new Promise<Blob | null>((resolve) => {
+  return new Promise<EditorResult>((resolve) => {
     const overlay = el('div', 'pe-overlay');
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-label', '사진 편집');
@@ -91,6 +119,11 @@ export async function openPhotoEditor(file: Blob, fileLabel: string): Promise<Bl
     const head = el('div', 'pe-head');
     head.appendChild(el('b', undefined, '✨ 사진 편집'));
     head.appendChild(el('span', 'pe-file muted small', fileLabel));
+    const closeBtn = el('button', 'pe-close', '✕') as HTMLButtonElement;
+    closeBtn.type = 'button';
+    closeBtn.setAttribute('aria-label', '닫기(원본 사용)');
+    closeBtn.addEventListener('click', () => finish('skip', null));
+    head.appendChild(closeBtn);
     sheet.appendChild(head);
 
     // ── 미리보기(캔버스 + 크롭 오버레이) ──
@@ -391,32 +424,39 @@ export async function openPhotoEditor(file: Blob, fileLabel: string): Promise<Bl
     skipBtn.type = 'button';
     const applyBtn = el('button', 'btn-primary', '적용') as HTMLButtonElement;
     applyBtn.type = 'button';
+    if (opts.canGoBack) {
+      const backBtn = el('button', 'btn-ghost', '← 이전') as HTMLButtonElement;
+      backBtn.type = 'button';
+      backBtn.addEventListener('click', () => finish('back', null));
+      actions.appendChild(backBtn);
+    }
     actions.append(resetBtn, skipBtn, applyBtn);
     sheet.appendChild(actions);
 
-    function close(result: Blob | null): void {
+    function finish(action: EditorResult['action'], blob: Blob | null): void {
       if ('close' in bmp && typeof (bmp as ImageBitmap).close === 'function') (bmp as ImageBitmap).close();
       overlay.remove();
-      resolve(result);
+      resolve({ action, state, blob });
     }
 
-    skipBtn.addEventListener('click', () => close(null));
+    skipBtn.addEventListener('click', () => finish('skip', null));
     applyBtn.addEventListener('click', () => {
       applyBtn.disabled = true;
       if (isIdentity(state)) {
-        close(null); // 무편집 → 재인코딩 손실 방지
+        finish('apply', null); // 무편집 → 재인코딩 손실 방지(원본 사용)
         return;
       }
       const full = bakeToCanvas(bmp, w, h, state, OUTPUT_MAX);
       full.toBlob(
-        (blob) => {
-          if (blob) close(blob);
-          else close(null); // 인코딩 실패 → 원본 사용(안전 폴백)
-        },
+        (blob) => finish('apply', blob ?? null), // 인코딩 실패 → 원본 폴백
         'image/jpeg',
         0.92,
       );
     });
+
+    // 재방문 복원: 상태에서 UI 반영(슬라이더·비율은 빌드 시 state를 읽어 이미 반영됨).
+    zoom.value = String(state.zoom);
+    undoBtn.disabled = state.heals.length === 0;
 
     document.body.appendChild(overlay);
     repaint();
