@@ -21,9 +21,16 @@ function scaledSize(w: number, h: number, maxEdge: number): { w: number; h: numb
 
 async function toBitmap(source: Blob): Promise<ImageBitmap | HTMLImageElement> {
   if (typeof createImageBitmap === 'function') {
-    return createImageBitmap(source);
+    // EXIF 방향(Orientation) 반영: 카메라가 세로로 찍고 방향 플래그만 세운 사진이
+    // 눕혀진 채 구워지던 문제(M-exif-orientation). 'from-image'로 픽셀을 바로 세운다.
+    // 구형 브라우저가 옵션을 모르면 옵션 없이 폴백.
+    try {
+      return await createImageBitmap(source, { imageOrientation: 'from-image' });
+    } catch {
+      return await createImageBitmap(source);
+    }
   }
-  // 폴백: <img> 디코드
+  // 폴백: <img> 디코드(브라우저 기본 image-orientation: from-image로 방향 반영).
   const url = URL.createObjectURL(source);
   try {
     const img = new Image();

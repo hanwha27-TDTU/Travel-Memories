@@ -811,6 +811,13 @@
   backdrop-filter: blur(6px); color: #fff; font-size: 0.9rem; font-weight: 700;
 }
 .photo-viewer-edit:disabled { opacity: 0.6; cursor: default; }
+.photo-viewer-rotate {
+  position: fixed; bottom: max(20px, env(safe-area-inset-bottom, 0)); left: 50%; transform: translateX(-50%); z-index: 51;
+  min-height: 44px; padding: 0 22px; border-radius: var(--radius-pill); cursor: pointer;
+  border: 1px solid rgba(255,255,255,.4); background: rgba(255,255,255,.18);
+  backdrop-filter: blur(6px); color: #fff; font-size: 0.9rem; font-weight: 700;
+}
+.photo-viewer-rotate:disabled { opacity: 0.6; cursor: default; }
 
 /* 사진 편집 모달 (photoEditor) */
 .pe-overlay {
