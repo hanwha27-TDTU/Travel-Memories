@@ -9,8 +9,10 @@ export interface CompressedImage {
 
 const DISPLAY_MAX = 1600;
 const THUMB_MAX = 320;
-const DISPLAY_QUALITY = 0.82;
-const THUMB_QUALITY = 0.72;
+// 표시본 품질 상향(0.82→0.90): 크기(1600px)는 유지해 용량 폭증을 피하면서 선명도만 올린다.
+// 측정 근거: 12MP급에서 표시본 장당 ~0.47MB→~0.66MB(+40%). 원본은 별도 보관이라 전체 증가는 ~10%대.
+const DISPLAY_QUALITY = 0.9;
+const THUMB_QUALITY = 0.8;
 
 function scaledSize(w: number, h: number, maxEdge: number): { w: number; h: number } {
   const long = Math.max(w, h);

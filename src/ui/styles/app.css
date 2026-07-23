@@ -727,6 +727,24 @@
 }
 .dm-file { display: none; }
 .dm-status { margin: var(--space-2) 0 0; font-size: 0.84rem; color: var(--ink-soft); line-height: 1.5; }
+
+/* 저장 용량 요약(사진/텍스트) */
+.dm-usage {
+  padding: var(--space-3) var(--space-4); margin-bottom: var(--space-3);
+  border: 1px solid var(--line); border-radius: var(--radius-medium); background: var(--bg);
+}
+.dm-usage-title { font-family: var(--font-disp); font-size: 0.95rem; color: var(--ink); margin-bottom: var(--space-2); }
+.dm-usage-rows { display: flex; flex-direction: column; gap: 8px; }
+.dm-usage-line { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.dm-usage-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dm-usage-name { font-size: 0.9rem; font-weight: 700; color: var(--ink); }
+.dm-usage-sub { line-height: 1.4; }
+.dm-usage-val { flex: 0 0 auto; font-size: 0.95rem; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
+.dm-usage-total { border-top: 1px dashed var(--line); padding-top: 8px; margin-top: 2px; align-items: center; }
+.dm-usage-total .dm-usage-label { font-size: 0.9rem; font-weight: 800; color: var(--ink); }
+.dm-usage-bar { height: 8px; border-radius: var(--radius-pill); background: var(--bg-2); overflow: hidden; margin-top: 4px; }
+.dm-usage-bar-fill { height: 100%; background: linear-gradient(90deg, var(--a2), var(--a1)); border-radius: inherit; }
+.dm-usage-quota { line-height: 1.5; }
 .dm-trash-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
 .dm-trash-row {
   display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap;
