@@ -115,10 +115,17 @@
 .small { font-size: 0.8rem; }
 .muted { color: var(--ink-soft); margin: 0; }
 
-/* ===== 여행 카드 (커버) ===== */
+/* ===== 여행 카드 (커버, 클릭 가능한 버튼) ===== */
 .trip-list { display: flex; flex-direction: column; gap: var(--space-3); }
 .trip-card {
   position: relative;
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
   height: 156px;
   border-radius: var(--radius-large);
   overflow: hidden;
@@ -205,4 +212,129 @@
 @media (max-width: 400px) {
   .app-title { font-size: 1.25rem; }
   .header-actions { width: 100%; justify-content: flex-start; }
+}
+
+/* ============================================================= */
+/* 여행 상세 + 타임라인 (screen-detail)                          */
+/* ============================================================= */
+.screen-detail { max-width: 780px; margin: 0 auto; padding-bottom: 48px; }
+
+.detail-hero {
+  position: relative;
+  min-height: 230px;
+  padding: max(18px, env(safe-area-inset-top, 0)) 20px 20px;
+  color: #fff;
+  overflow: hidden;
+  border-radius: 0 0 var(--radius-large) var(--radius-large);
+  box-shadow: var(--shadow-card);
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.hero-back {
+  position: absolute; z-index: 3; top: max(16px, env(safe-area-inset-top, 0)); left: 16px;
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, .35);
+  background: rgba(255, 255, 255, .2);
+  backdrop-filter: blur(6px);
+  color: #fff; font-size: 1.2rem; font-weight: 700; cursor: pointer;
+  display: grid; place-items: center;
+}
+.detail-hero-info { position: relative; z-index: 2; }
+.detail-title {
+  margin: 0 0 4px;
+  font-family: var(--font-disp);
+  font-size: 1.9rem; font-weight: 800; letter-spacing: -0.02em;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, .35); text-wrap: balance;
+}
+.detail-period { margin: 0; font-size: 0.9rem; font-weight: 600; opacity: 0.95; }
+.detail-stats { position: relative; z-index: 2; display: flex; gap: var(--space-2); margin-top: 14px; }
+.detail-stat {
+  flex: 0 0 auto; min-width: 62px; text-align: center;
+  background: rgba(255, 255, 255, .18); backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, .26); border-radius: var(--radius-medium);
+  padding: 8px 12px;
+}
+.detail-stat b { display: block; font-family: var(--font-disp); font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.detail-stat span { font-size: 0.7rem; opacity: 0.9; font-weight: 600; }
+
+.detail-body { padding: var(--space-4) 18px; display: flex; flex-direction: column; gap: var(--space-4); }
+
+/* 순간 기록 폼 */
+.moment-form {
+  display: flex; flex-direction: column; gap: var(--space-3);
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius-large); padding: var(--space-4);
+  box-shadow: var(--shadow-card);
+}
+.moment-input, .moment-place {
+  min-height: var(--touch-target-min);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--line); border-radius: var(--radius-medium);
+  background: var(--bg); color: var(--ink);
+  font-size: 0.95rem; font-family: inherit;
+}
+.moment-input::placeholder, .moment-place::placeholder { color: var(--ink-soft); }
+.emo-row { display: flex; gap: var(--space-2); justify-content: space-between; }
+.emo-row .emo {
+  flex: 1; min-height: 46px; border: 1px solid var(--line);
+  background: var(--bg); border-radius: var(--radius-medium);
+  font-size: 1.3rem; cursor: pointer;
+}
+.emo-row .emo[aria-pressed="true"] {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--a1), var(--a3));
+  box-shadow: 0 6px 14px -8px var(--a1);
+  transform: translateY(-1px);
+}
+
+/* 타임라인 */
+.timeline-wrap { display: flex; flex-direction: column; gap: var(--space-3); }
+.day-head {
+  margin: var(--space-2) 0 2px;
+  font-family: var(--font-disp); font-size: 1.05rem; font-weight: 800;
+  color: var(--a1d); letter-spacing: -0.01em;
+}
+.timeline { position: relative; display: flex; flex-direction: column; gap: var(--space-3); padding-left: 6px; }
+.tl-item { position: relative; padding-left: 30px; }
+.tl-item::before {
+  content: ""; position: absolute; left: 9px; top: 24px; bottom: -14px; width: 2px;
+  background: linear-gradient(var(--a1), var(--a2)); opacity: 0.3;
+}
+.tl-item:last-child::before { display: none; }
+.tl-node {
+  position: absolute; left: 2px; top: 5px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--surface); border: 3px solid var(--a1);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--a1) 16%, transparent);
+}
+.tl-time {
+  font-size: 0.75rem; font-weight: 800; color: var(--ink-soft);
+  font-variant-numeric: tabular-nums; letter-spacing: 0.02em; margin-bottom: 6px;
+}
+.moment-card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius-medium); padding: var(--space-3) var(--space-4);
+  box-shadow: 0 10px 24px -22px rgba(35, 37, 56, .5);
+}
+.moment-head { display: flex; gap: var(--space-2); align-items: flex-start; justify-content: space-between; }
+.moment-say { margin: 0; font-size: 0.98rem; line-height: 1.5; color: var(--ink); }
+.moment-emo { font-size: 1.3rem; flex: 0 0 auto; }
+.chips { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2); }
+.chip {
+  font-size: 0.72rem; font-weight: 700; padding: 5px 10px; border-radius: var(--radius-pill);
+  background: var(--bg-2); color: var(--ink-soft);
+}
+.chip.gps { background: color-mix(in srgb, var(--sem-sky) 15%, transparent); color: var(--sem-sky); }
+.chip.money { background: color-mix(in srgb, var(--sem-teal) 15%, transparent); color: var(--sem-teal); }
+
+/* 여행 없음 */
+.detail-notfound {
+  text-align: center; padding: 72px 24px; display: flex; flex-direction: column;
+  align-items: center; gap: var(--space-3);
+}
+.detail-notfound h2 { margin: 0; font-family: var(--font-disp); }
+
+@media (min-width: 620px) {
+  .detail-hero { border-radius: var(--radius-large); margin: 16px 18px 0; }
 }

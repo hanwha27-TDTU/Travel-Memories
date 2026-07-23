@@ -1,6 +1,6 @@
 // tests/unit/router.test.ts — 운영 순수함수 직접 테스트 (TEST_PLAN: 미러 테스트 금지)
 import { describe, it, expect } from 'vitest';
-import { pathToRoute } from '../../src/app/router';
+import { pathToRoute, pathToParam } from '../../src/app/router';
 
 const BASE = '/Travel-Memories/'; // GitHub Pages 하위경로 (vite.config.ts BASE)
 
@@ -29,5 +29,20 @@ describe('pathToRoute — GitHub Pages 하위경로(base) 인식', () => {
   it("base='/'(로컬 프리뷰 등)에서도 동작한다", () => {
     expect(pathToRoute('/trips', '/')).toBe('trips');
     expect(pathToRoute('/', '/')).toBe('home');
+  });
+  it('파라미터 라우트 /trip/<id> → trip-detail', () => {
+    expect(pathToRoute('/Travel-Memories/trip/abc-123', BASE)).toBe('trip-detail');
+    expect(pathToParam('/Travel-Memories/trip/abc-123', BASE)).toBe('abc-123');
+  });
+});
+
+describe('pathToParam — 2번째 세그먼트(id) 추출', () => {
+  it('id가 있으면 반환', () => {
+    expect(pathToParam('/Travel-Memories/trip/xyz', BASE)).toBe('xyz');
+  });
+  it('id가 없으면 undefined', () => {
+    expect(pathToParam('/Travel-Memories/trip', BASE)).toBeUndefined();
+    expect(pathToParam('/Travel-Memories/', BASE)).toBeUndefined();
+    expect(pathToParam('/Travel-Memories/trip/', BASE)).toBeUndefined();
   });
 });

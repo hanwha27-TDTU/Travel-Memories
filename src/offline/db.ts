@@ -23,6 +23,16 @@ export interface LocalTrip extends SyncMeta {
   status: 'planned' | 'active' | 'completed' | 'archived';
 }
 
+// 순간(Moment) — 여행 안의 한 기억. 선택 필드는 null 대신 ''로 통일(과적재 금지, SYNC_PROTOCOL).
+export interface LocalMoment extends SyncMeta {
+  tripId: string;
+  occurredAt: string; // ISO — 발생 시각(정렬·날짜 그룹 기준)
+  title: string; // 한 줄 기록
+  note: string; // 추가 메모(선택)
+  emotion: string; // 감정 이모지(선택)
+  placeName: string; // 장소명(선택)
+}
+
 export interface SyncQueueItem {
   operationId: string;
   entityType: string;
@@ -35,6 +45,7 @@ export interface SyncQueueItem {
 
 export class JourneyDB extends Dexie {
   localTrips!: Table<LocalTrip, string>;
+  localMoments!: Table<LocalMoment, string>;
   syncQueue!: Table<SyncQueueItem, string>;
 
   constructor() {
@@ -47,6 +58,10 @@ export class JourneyDB extends Dexie {
       // 센티널(0 | ISO 문자열) 마이그레이션으로 도입한다(docs/SYNC_PROTOCOL.md).
       localTrips: 'id, updatedAt, status',
       syncQueue: 'operationId, entityId, state, createdAt',
+    });
+    // v2: 순간(Moment) 로컬 store 추가(로컬우선; 서버 동기화는 후속).
+    this.version(2).stores({
+      localMoments: 'id, tripId, occurredAt, updatedAt',
     });
   }
 }
