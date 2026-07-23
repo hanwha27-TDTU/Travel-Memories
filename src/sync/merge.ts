@@ -1,15 +1,16 @@
 // sync/merge.ts — 동기화 결정의 순수 함수 (docs/SYNC_PROTOCOL.md 불변식).
 // 네트워크·DB 의존이 없어 직접 단위테스트로 잠근다(LESSONS §6: 미러 아닌 운영함수 테스트).
 
-import type { LocalTrip } from '../offline/db';
+import type { SyncMeta } from '../offline/db';
 
 /**
  * 서버 행을 로컬에 반영할지 결정. LWW(최신 updatedAt 우선) + tombstone 우선.
  * tombstone(삭제)도 하나의 수정이므로 updatedAt이 최신이면 활성 행을 이긴다(불변식 2).
+ * SyncMeta만 참조하므로 모든 동기화 엔티티(Trip·Moment…)에 공통 적용된다.
  */
 export function mergeDecision(
-  local: LocalTrip | undefined,
-  server: LocalTrip,
+  local: SyncMeta | undefined,
+  server: SyncMeta,
 ): 'take-server' | 'keep-local' {
   if (!local) return 'take-server';
   if (server.updatedAt > local.updatedAt) return 'take-server';

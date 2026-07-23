@@ -5,6 +5,12 @@
 
 ---
 
+## ADR-0022 · 순간(Moment) 서버 동기화 — 복합 FK 소유권 방어 + trips 대칭
+- 유형: `[user-decided]`(사용자 "다 진행") · AI: Claude Code · 날짜: 2026-07-23
+- 타임라인의 순간을 로컬우선에서 기기 간 동기화로 확장. migration `0003_journey_moments.sql`: `journey.moments` + **복합 FK `(trip_id,user_id)→trips(id,user_id)`**(H-02 — 타인 여행에 순간 부착 불가), 소유자 RLS + `is_allowed()`(초대제), tombstone 전용(DELETE 없음), `updated_at` 트리거.
+- 동기화 코드는 trips와 **대칭**: `MomentsRemote`·`pushPendingMoments`·`pullMoments`(멱등 upsert→read-back→LWW 서버시각→작업 제거, 빈-클라우드 가드). `runSync`는 **여행을 순간보다 먼저 push**(복합 FK가 서버의 부모 여행 존재를 요구). `mergeDecision`은 `SyncMeta`로 일반화.
+- 검증: `rls_attack_moments.sql` **MOMENTS_RLS_PASS**(격리·초대제·H-02 위조·user_id 위조·없는 trip 부착 전부 차단, ROLLBACK) via MCP. rowmap 왕복 유닛테스트. **실 2기기 네트워크 동기화는 대시보드/실기기 필요 — 이 환경 미검증(정직한 완료)**.
+
 ## ADR-0021 · 초대제 접근 잠금(allowlist) — DB RLS + 앱 게이트 이중
 - 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-07-23
 - 공유 프로젝트의 Google 로그인은 회계 앱과 공용이라 전역으로 열려 있어, 아무 Google 계정이나 여행 앱에 로그인해 자기 기록을 만들 수 있었다. RLS로 사용자 간 데이터는 이미 격리되지만(타인 데이터 열람 불가), 개인 기억 앱 원칙(개인자료 기본 비공개) + 낯선 사용자 데이터를 프로젝트 소유자가 보관·열람하게 되는 부담 때문에 **초대제(invite-only)로 잠금** 결정.
