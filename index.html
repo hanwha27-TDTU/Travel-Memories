@@ -14,7 +14,7 @@
        - 지도 제공자(A-006) 확정 시 style/tiles/glyphs/sprite 호스트를 connect-src·img-src에
          추가하고 check-csp.mjs의 계약도 같은 커밋에서 갱신할 것. -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' https://*.supabase.co wss://*.supabase.co; worker-src 'self' blob:; child-src blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
+        content="default-src 'self'; img-src 'self' data: blob: https://*.supabase.co https://tile.openstreetmap.org; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://tile.openstreetmap.org; worker-src 'self' blob:; child-src blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A7%B3%3C/text%3E%3C/svg%3E" />
   <!-- base 의존 링크는 하드코딩 금지 — Vite가 %BASE_URL%을 치환(check-base-consistency 게이트) -->
   <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />

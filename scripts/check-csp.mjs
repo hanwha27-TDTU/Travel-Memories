@@ -1,14 +1,15 @@
 // check-csp.mjs — CSP ↔ 기술 스택 계약 게이트 (docs/DEPLOYMENT.md S-05)
 // index.html의 meta CSP가 선언된 스택(Supabase Realtime·MapLibre 워커·Storage 썸네일)이
 // 요구하는 소스를 포함하고, 금지 소스(unsafe-eval 등)를 넣지 않았는지 검사한다.
-// 지도 제공자(A-006) 확정 시 아래 REQUIRED에 해당 호스트를 추가한다(CSP와 같은 커밋).
+// 지도 제공자(A-006): 기본 OSM 래스터. tile.openstreetmap.org를 img-src·connect-src에
+// 포함해야 지도 타일이 로드된다(VITE_MAP_STYLE_URL로 교체 시 해당 호스트도 함께 갱신).
 import { readFileSync } from 'node:fs';
 
 // 지시어별 필수 소스. 스택 근거는 index.html의 CSP 주석 참조.
 const REQUIRED = {
-  'connect-src': ["'self'", 'https://*.supabase.co', 'wss://*.supabase.co'],
+  'connect-src': ["'self'", 'https://*.supabase.co', 'wss://*.supabase.co', 'https://tile.openstreetmap.org'],
   'worker-src': ['blob:'],           // MapLibre GL blob: 워커
-  'img-src': ['data:', 'blob:', 'https://*.supabase.co'],
+  'img-src': ['data:', 'blob:', 'https://*.supabase.co', 'https://tile.openstreetmap.org'],
   'object-src': ["'none'"],
   'base-uri': ["'self'"],
 };
@@ -46,7 +47,7 @@ function checkHtml(html) {
 }
 
 // ── 셀프테스트: 알려진 실패 주입이 RED로 잡히는지 확인(게이트 비공허, CLAUDE.md §4) ──
-const GOOD = `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' https://*.supabase.co wss://*.supabase.co; worker-src 'self' blob:; script-src 'self'; object-src 'none'; base-uri 'self'" />`;
+const GOOD = `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: https://*.supabase.co https://tile.openstreetmap.org; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://tile.openstreetmap.org; worker-src 'self' blob:; script-src 'self'; object-src 'none'; base-uri 'self'" />`;
 const selfCases = [
   { name: '정상 CSP 통과', html: GOOD, expectClean: true },
   { name: 'wss 누락 검출', html: GOOD.replace(' wss://*.supabase.co', ''), expectClean: false },

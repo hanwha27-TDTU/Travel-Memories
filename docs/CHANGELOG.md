@@ -4,6 +4,23 @@
 
 ## [Unreleased] — Phase 0~1
 
+### Phase 4 — 지도와 장소 (MapLibre·장소목록·GeoJSON) (2026-07-23)
+- **지도 제공자 확정** ADR-0023(A-006): 기본 OSM 래스터(키 불필요·귀속표시), `VITE_MAP_STYLE_URL`로 교체 가능. CSP `img-src`·`connect-src`에 `tile.openstreetmap.org` 추가(index.html + `check-csp.mjs` REQUIRED·GOOD 셀프테스트 동시 갱신).
+- **순수 로직** `domain/place/geojson.ts`: `momentCoord`(사진 EXIF GPS 첫 좌표, 없으면 null — 대략위치 안 지어냄)·`toFeatureCollection`([lng,lat] RFC 7946). 유닛 4케이스.
+- **지도 모달** `ui/screens/mapView.ts`: 여행 히어로 `🗺 지도` → MapLibre(동적 import·코드분할 802KB 별도 청크) 마커+팝업. **팝업은 DOM 노드(textContent)로 안전**(문자열 보간 금지·map-experience-designer 규율). **사진이 주인공**(썸네일 우선).
+- **오프라인 우선 대체**: 위치 순간을 항상 **장소 목록**으로도 제공. 타일 차단·WebGL 미지원 시 4.5s 강등으로 캔버스 숨기고 목록 전용. 위치 없으면 빈 상태 안내.
+- **GeoJSON 내보내기**: 위치 순간을 `.geojson` FeatureCollection으로 다운로드(타일과 무관).
+- **라이브 검증(Playwright/Chromium, 앱 콘솔 에러 0)**: 빈 상태 → GPS 시드 → 장소 목록("협재 노을") → 타일/WebGL 불가 강등(is-failed) → GeoJSON 내보내기(`[126.41,33.24]`·제목 유지). 게이트: harness(6)·unit 73·build 그린. 정직: 실 타일 렌더 지도는 WebGL+타일 도달 필요 → 사용자 실기기 몫(샌드박스 프록시가 외부 타일 차단).
+
+### Phase 5a — 비용(Expense) 기록·통화별 합계 (2026-07-23)
+- **비용 엔티티** `LocalExpense`(Dexie v4 `localExpenses`): 순간에 딸린 지출. `originalAmount>0`·ISO 4217 통화(H-04: 원금액 불변). 환율/기준통화 환산은 후속.
+- **순수 로직** `domain/expense/format.ts`: `formatMoney`(통화별 소수자리·천단위)·`sumByCurrency`(통화 분리 합산, 환율 없이 안 섞음)·`formatTotals`. 유닛 9케이스(위조·NaN 방어 포함).
+- **서비스** `services/expenses.ts`: create/update/softDelete + listByTrip/byMoment. 미디어와 동일 로컬 전용(sync 큐 op 없음, 서버 동기화 후속).
+- **UI(tripDetail)**: 순간 생성 폼에 금액+통화(선택), 카드에 `💰` money chip, 인라인 편집에서 비용 생성/수정/삭제 조정, 여행 통계에 통화별 합계 stat.
+- **cascade·백업 통합**: 순간·여행 삭제/복원/영구삭제가 비용도 함께 tombstone/복원/purge. 백업(export/import)에 expenses 포함(mergeDecision 병합).
+- **라이브 검증(Playwright/Chromium, 콘솔 에러 0)**: 생성(칩 `₩12,000`·합계)→다통화(`₩12,000 · $15.00`, 분리)→편집(12,000→9,000)→백업 왕복(초기화 후 가져오기, 편집값 `₩9,000` 복원). 게이트: harness(6)·unit 69·build 그린.
+- **정직**: 비용 서버 동기화·비용 cascade의 독립 라이브 테스트는 미디어 검증 패턴에 준함(별도 미실행). 실기기 픽셀 미검증.
+
 ### Phase 3d — 데이터 관리 허브(백업·복원·휴지통) (2026-07-23)
 - **데이터 관리 허브**: 홈 헤더 `📦 데이터 관리` → 모달(백업·복원·휴지통·**가이드**). 기존 `📖 가이드` 버튼은 이 허브 안으로 이동. 가이드 모달 시각 시스템(.guide-*) 재사용.
 - **백업(내보내기)** `services/backup.ts`: 여행·순간·사진(원본·표시본·썸네일 base64)을 tombstone 포함 단일 JSON으로 다운로드. 사진이 곧 기억(북극성)이라 사진 포함이 기본, 크기 경고 표기.

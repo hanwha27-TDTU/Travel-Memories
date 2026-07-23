@@ -7,7 +7,7 @@
 //  - tombstone도 함께 내보낸다(삭제가 다른 기기/복원본으로 전파되도록).
 //  - 사진 원본은 읽기만 하고 수정하지 않는다(§0).
 
-import { db, type LocalTrip, type LocalMoment, type LocalMedia } from '../offline/db';
+import { db, type LocalTrip, type LocalMoment, type LocalMedia, type LocalExpense } from '../offline/db';
 import { mergeDecision, isEmptyCloudAnomaly } from '../sync/merge';
 
 export const BACKUP_APP_TAG = 'bugeon-journey';
@@ -28,12 +28,14 @@ export interface BackupFile {
   trips: LocalTrip[];
   moments: LocalMoment[];
   media: MediaExport[];
+  expenses: LocalExpense[];
 }
 
 export interface BackupStats {
   trips: number;
   moments: number;
   media: number;
+  expenses: number;
 }
 
 function blobToB64(blob: Blob): Promise<string> {
@@ -64,10 +66,11 @@ function b64ToBlob(dataUrl: string): Blob {
  */
 export async function exportBackup(includePhotos = true): Promise<{ blob: Blob; stats: BackupStats }> {
   const d = db();
-  const [trips, moments, media] = await Promise.all([
+  const [trips, moments, media, expenses] = await Promise.all([
     d.localTrips.toArray(),
     d.localMoments.toArray(),
     d.localMedia.toArray(),
+    d.localExpenses.toArray(),
   ]);
 
   const mediaOut: MediaExport[] = [];
@@ -91,15 +94,20 @@ export async function exportBackup(includePhotos = true): Promise<{ blob: Blob; 
     trips,
     moments,
     media: mediaOut,
+    expenses,
   };
   const blob = new Blob([JSON.stringify(file)], { type: 'application/json' });
-  return { blob, stats: { trips: trips.length, moments: moments.length, media: mediaOut.length } };
+  return {
+    blob,
+    stats: { trips: trips.length, moments: moments.length, media: mediaOut.length, expenses: expenses.length },
+  };
 }
 
 export interface ImportResult {
   trips: number;
   moments: number;
   media: number;
+  expenses: number;
   skippedEmptyGuard: boolean;
 }
 
@@ -121,6 +129,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
   const d = db();
   const moments = Array.isArray(parsed.moments) ? parsed.moments : [];
   const media = Array.isArray(parsed.media) ? parsed.media : [];
+  const expenses = Array.isArray(parsed.expenses) ? parsed.expenses : [];
 
   // 빈-데이터 가드: 백업이 사실상 비었는데 로컬에 활성 데이터가 있으면 반영하지 않는다.
   const backupTotal = parsed.trips.length + moments.length;
@@ -129,13 +138,14 @@ export async function importBackup(text: string): Promise<ImportResult> {
     localTrips.filter((t) => t.deletedAt === null).length +
     localMoments.filter((m) => m.deletedAt === null).length;
   if (isEmptyCloudAnomaly(backupTotal, localActive)) {
-    return { trips: 0, moments: 0, media: 0, skippedEmptyGuard: true };
+    return { trips: 0, moments: 0, media: 0, expenses: 0, skippedEmptyGuard: true };
   }
 
   let tc = 0;
   let mc = 0;
   let mdc = 0;
-  await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, async () => {
+  let ec = 0;
+  await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, d.localExpenses, async () => {
     for (const t of parsed.trips) {
       if (mergeDecision(await d.localTrips.get(t.id), t) === 'take-server') {
         await d.localTrips.put(t);
@@ -161,6 +171,12 @@ export async function importBackup(text: string): Promise<ImportResult> {
         mdc += 1;
       }
     }
+    for (const ex of expenses) {
+      if (mergeDecision(await d.localExpenses.get(ex.id), ex) === 'take-server') {
+        await d.localExpenses.put(ex);
+        ec += 1;
+      }
+    }
   });
-  return { trips: tc, moments: mc, media: mdc, skippedEmptyGuard: false };
+  return { trips: tc, moments: mc, media: mdc, expenses: ec, skippedEmptyGuard: false };
 }

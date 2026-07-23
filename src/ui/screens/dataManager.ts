@@ -54,7 +54,7 @@ function backupPanel(): HTMLElement {
         const { blob, stats } = await exportBackup(true);
         const stamp = fmtDate(new Date().toISOString()).replace(/\./g, '');
         downloadBlob(blob, `bugeon-journey-backup-${stamp}.json`);
-        status.textContent = `✅ 내보냄 · 여행 ${stats.trips} · 순간 ${stats.moments} · 사진 ${stats.media} · ${fmtBytes(blob.size)}`;
+        status.textContent = `✅ 내보냄 · 여행 ${stats.trips} · 순간 ${stats.moments} · 사진 ${stats.media} · 비용 ${stats.expenses} · ${fmtBytes(blob.size)}`;
       } catch (err) {
         status.textContent = `내보내기 실패: ${err instanceof Error ? err.message : String(err)}`;
       } finally {
@@ -91,7 +91,7 @@ function restorePanel(onChanged: () => void): HTMLElement {
         if (r.skippedEmptyGuard) {
           status.textContent = '⚠️ 백업이 비어 있어 건너뛰었어요(현재 데이터 보존).';
         } else {
-          status.textContent = `✅ 복원됨 · 여행 ${r.trips} · 순간 ${r.moments} · 사진 ${r.media} 반영`;
+          status.textContent = `✅ 복원됨 · 여행 ${r.trips} · 순간 ${r.moments} · 사진 ${r.media} · 비용 ${r.expenses} 반영`;
           onChanged();
         }
       } catch (err) {
