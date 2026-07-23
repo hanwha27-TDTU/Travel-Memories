@@ -31,6 +31,16 @@ export const DEVELOPER = {
 /** 최신이 맨 앞. 각 항목 = 실제 병합된 릴리스. */
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: '0.30',
+    date: '2026-07-23',
+    title: '좀비 방지 서버측 완성 + 프로젝트 격리 확정',
+    notes: [
+      '서버(Supabase)에도 tombstone 부활 방지 트리거 적용 — 낮거나 같은 version의 활성 갱신은 삭제를 되살리지 못한다(클라이언트와 동일 규칙).',
+      '트랜잭션 테스트로 검증(같은/낮은 version 거부, 진짜 복원만 허용)·프로덕션 데이터 무변경.',
+      '여행 앱은 Travel&Accounting 프로젝트의 journey 스키마 유지, 메디컬 앱은 별개 프로젝트로 완전 격리 확정.',
+    ],
+  },
+  {
     version: '0.29',
     date: '2026-07-23',
     title: '좀비데이터 원천 차단(삭제가 되살아나지 않음)',

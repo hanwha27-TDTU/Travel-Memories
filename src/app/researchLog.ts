@@ -128,4 +128,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '좀비 근본원인=병합이 벽시계(updatedAt) 우선이라 시계 스큐로 오래된 활성 사본이 tombstone을 덮음. version 기반 tombstone 우위(진짜 복원만 부활, 동률은 삭제 승)로 전환 제안. 스키마 격리는 이미 ADR-0020(journey)로 존재 — 방=Postgres 스키마, 벽=클라이언트 스키마 고정+소유자 RLS+앱별 버킷.',
     decision: 'mergeDecision을 version 우위로 강화(적대적 유닛). SYNC_PROTOCOL·client에 계약 명문화. 공유 프로젝트+스키마/버킷 격리 채택(메디컬=별도 스키마·버킷, 인증만 공유·RLS로 분리). 서버측 tombstone 강제는 Supabase 연결 시 후속.',
   },
+  {
+    seq: 16,
+    date: '2026-07-23',
+    topic: '서버측 좀비 방지 적용 + 프로젝트 실측',
+    human: '진행하자(Supabase 연결·동기화). (확인) Travel&Accounting 유지 + 서버측 좀비 방지 지금 적용.',
+    ai: '실측: Bugeon 조직에 Medical/Travel&Accounting 두 프로젝트. 여행 앱은 이미 Travel&Accounting의 journey 스키마(회계=public와 한 집 두 방), 메디컬은 별개 집. 서버 트리거로 tombstone 부활 차단 제안.',
+    decision: 'journey.trips·moments에 prevent_zombie_resurrection BEFORE UPDATE 트리거 적용(search_path 고정). BEGIN..ROLLBACK로 비공허 검증(프로덕션 무변경). 여행=Travel&Accounting 유지, 메디컬 별개 프로젝트로 격리 확정. 다음: place_lat/lng·media·expense 동기화.',
+  },
 ];
