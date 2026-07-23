@@ -21,6 +21,8 @@ import {
 import { runSync } from '../../services/sync';
 import { el } from '../dom';
 import { openDataManager } from './dataManager';
+import { openAboutApp } from './aboutApp';
+import { APP_VERSION } from '../../app/changelog';
 import {
   SEASONS,
   SEASON_LABEL,
@@ -152,7 +154,15 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
 
   const wrap = el('main', 'screen screen-home');
   const header = el('header', 'app-header');
-  header.appendChild(el('h1', 'app-title', '🧳 Bugeon Journey'));
+  // 제목 + 버전 배지(누르면 개발자 정보). 버전은 changelog SSOT에서 읽는다.
+  const titleRow = el('div', 'app-title-row');
+  titleRow.appendChild(el('h1', 'app-title', '🧳 Bugeon Journey'));
+  const verBadge = el('button', 'app-version', `v${APP_VERSION}`) as HTMLButtonElement;
+  verBadge.type = 'button';
+  verBadge.setAttribute('aria-label', `버전 ${APP_VERSION} · 개발자 정보 열기`);
+  verBadge.addEventListener('click', () => openAboutApp());
+  titleRow.appendChild(verBadge);
+  header.appendChild(titleRow);
   const controls = buildControls();
   const dataBtn = el('button', 'btn-ghost data-open', '📦 데이터 관리') as HTMLButtonElement;
   dataBtn.type = 'button';
