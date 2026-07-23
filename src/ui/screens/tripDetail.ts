@@ -56,15 +56,29 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
   row.append(input, searchBtn);
   const results = el('div', 'place-results');
   results.hidden = true;
-  wrap.append(row, results);
+  // 선택 확인 배지 — 좌표가 지정되면 "위치 지정됨"을 보여 무반응처럼 보이지 않게 한다.
+  const picked = el('div', 'place-picked');
+  picked.setAttribute('role', 'status');
+  wrap.append(row, results, picked);
 
   let lat: number | null = initial.lat;
   let lng: number | null = initial.lng;
+  const setPicked = (detail: string | null): void => {
+    if (detail === null) {
+      picked.hidden = true;
+      picked.textContent = '';
+    } else {
+      picked.hidden = false;
+      picked.textContent = detail ? `📍 위치 지정됨 · ${detail}` : '📍 위치 지정됨';
+    }
+  };
+  setPicked(lat !== null && lng !== null ? '' : null); // 기존 좌표가 있으면 배지 표시
   // 손으로 텍스트를 바꾸면 이전 좌표는 다른 장소일 수 있으니 무효화.
   input.addEventListener('input', () => {
     lat = null;
     lng = null;
     results.hidden = true;
+    setPicked(null);
   });
 
   const doSearch = (): void => {
@@ -89,6 +103,7 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
               lat = p.lat;
               lng = p.lng;
               results.hidden = true;
+              setPicked(p.displayName); // 선택 확인 피드백
             });
             results.appendChild(b);
           }
@@ -118,6 +133,7 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
       lng = null;
       results.hidden = true;
       results.innerHTML = '';
+      setPicked(null);
     },
   };
 }

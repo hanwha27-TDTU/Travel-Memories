@@ -31,7 +31,7 @@
   /* 디스플레이(제목): 한글+숫자를 한 폰트에서 렌더해야 자간이 갈라지지 않는다. 한글 커버
      폰트(SD Gothic Neo/Noto Sans KR)를 앞에 둬 숫자·영문도 같은 폰트로 나오게 한다.
      Trebuchet MS는 한글이 없어 숫자만 다른 폭으로 튀므로 맨 앞에서 뺀다(M-title-kerning). */
-  --font-disp: "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", var(--font-sans);
+  --font-disp: "Apple SD Gothic Neo", "Noto Sans KR", "Noto Sans CJK KR", "Malgun Gothic", "맑은 고딕", var(--font-sans);
 
   /* ===== 레거시 별칭 (기존 컴포넌트 호환) ===== */
   --color-bg-primary: var(--surface);
