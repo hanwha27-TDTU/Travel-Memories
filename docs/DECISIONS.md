@@ -5,6 +5,12 @@
 
 ---
 
+## ADR-0023 · A-006 지도 타일 제공자 = OSM 래스터 기본값(교체 가능)
+- 유형: `[AI-proposed→user-approved]`(사용자 "지도 진행하자") · AI: Claude Code · 날짜: 2026-07-23
+- 오래 대기하던 A-006(지도 타일 제공자·예산)을 확정. 기본값 = **OpenStreetMap 래스터 타일**(키·계정 불필요, GitHub Pages 정적 배포·무료 티어 호환, 귀속표시 필수). `VITE_MAP_STYLE_URL` 설정 시 그 스타일로 교체(사용자 자신의 MapTiler/Stadia 등). CSP `img-src`·`connect-src`에 `https://tile.openstreetmap.org` 추가(index.html + `check-csp.mjs` REQUIRED, 같은 커밋).
+- 근거: MapLibre GL 스택(이미 의존성)로 인라인 래스터 스타일 → 스타일 JSON 외부 fetch 불필요(글리프·스프라이트 없음), 타일만 로드. 대안(Mapbox=키·비용, MapTiler=키, 벡터 demotiles=저해상). **정직**: OSM 타일 사용정책은 대량 트래픽 앱을 권장하지 않음 — 개인·저트래픽 용도라 수용하되, 규모 확대 시 전용 제공자로 교체 권장(override 가능). 실 타일 렌더는 사용자 기기 몫(샌드박스 프록시가 외부 타일 차단).
+- 오프라인 우선: 타일 실패·WebGL 미지원 시 **장소 목록**으로 대체(기억 접근 보장). GeoJSON 내보내기는 타일과 무관하게 동작.
+
 ## ADR-0022 · 순간(Moment) 서버 동기화 — 복합 FK 소유권 방어 + trips 대칭
 - 유형: `[user-decided]`(사용자 "다 진행") · AI: Claude Code · 날짜: 2026-07-23
 - 타임라인의 순간을 로컬우선에서 기기 간 동기화로 확장. migration `0003_journey_moments.sql`: `journey.moments` + **복합 FK `(trip_id,user_id)→trips(id,user_id)`**(H-02 — 타인 여행에 순간 부착 불가), 소유자 RLS + `is_allowed()`(초대제), tombstone 전용(DELETE 없음), `updated_at` 트리거.
@@ -103,7 +109,7 @@
 
 ---
 ## 확인 대기 (사용자 결정 필요)
-- 지도 타일 제공자·예산 — A-006 (GitHub Pages 정적 배포 + 무료 티어 호환).
+- ~~지도 타일 제공자·예산 — A-006~~ → **ADR-0023에서 OSM 래스터 기본값으로 확정(교체 가능)**.
 - Supabase 프로젝트 생성 시점 — Q4.
 - Google OAuth 클라이언트 설정 시점 — Q5 (Phase 1).
 - SPA 라우팅·삭제 계약 기본값 검토(override 가능) — ADR-0011/0012.

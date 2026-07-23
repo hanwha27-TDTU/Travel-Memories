@@ -29,6 +29,8 @@ import {
   listExpensesByTrip,
 } from '../../services/expenses';
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, sumByCurrency, formatTotals } from '../../domain/expense/format';
+import { momentCoord } from '../../domain/place/geojson';
+import { openMapView, type MapPoint } from './mapView';
 import { openPhotoEditor, type EditorResult } from '../photoEditor';
 import { groupMomentsByDay, type DayGroup } from '../../domain/moment/timeline';
 import { supabase } from '../../services/supabase/client';
@@ -150,6 +152,13 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     editBtn.type = 'button';
     editBtn.setAttribute('aria-label', '여행 정보 편집');
 
+    // 지도 버튼 — 위치가 있는 순간을 지도/장소목록으로. 위치 없으면 안내를 띄운다.
+    let locatedPoints: MapPoint[] = [];
+    const mapBtn = el('button', 'hero-map', '🗺 지도') as HTMLButtonElement;
+    mapBtn.type = 'button';
+    mapBtn.setAttribute('aria-label', '이 여행의 지도 보기');
+    mapBtn.addEventListener('click', () => openMapView(trip!.title, locatedPoints));
+
     const heroInfo = el('div', 'detail-hero-info');
     const period = trip.startDate
       ? `${trip.startDate}${trip.endDate ? ` ~ ${trip.endDate}` : ''}`
@@ -159,7 +168,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     heroInfo.appendChild(el('h1', 'detail-title', trip.title));
     heroInfo.appendChild(el('p', 'detail-period', period));
     const statRow = el('div', 'detail-stats');
-    hero.append(back, editBtn, heroInfo, statRow);
+    hero.append(back, mapBtn, editBtn, heroInfo, statRow);
     wrap.appendChild(hero);
 
     // ===== 본문 =====
@@ -287,6 +296,24 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         const arr = expByMoment.get(ex.momentId);
         if (arr) arr.push(ex);
         else expByMoment.set(ex.momentId, [ex]);
+      }
+      // 위치가 있는 순간(사진 EXIF GPS) → 지도 포인트.
+      locatedPoints = [];
+      for (const m of moments) {
+        const mediaList = byMoment.get(m.id) ?? [];
+        const coord = momentCoord(mediaList);
+        if (coord) {
+          const point: MapPoint = {
+            momentId: m.id,
+            title: m.title,
+            occurredAt: m.occurredAt,
+            lat: coord.lat,
+            lng: coord.lng,
+            placeName: m.placeName,
+          };
+          if (mediaList[0]) point.thumbBlob = mediaList[0].thumbBlob;
+          locatedPoints.push(point);
+        }
       }
       renderTimeline(moments, byMoment, expByMoment);
       const groups = groupMomentsByDay(moments, trip!.startDate || undefined);

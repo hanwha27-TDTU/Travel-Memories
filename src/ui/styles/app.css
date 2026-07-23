@@ -368,6 +368,12 @@
   border: 1px solid rgba(255, 255, 255, .35); background: rgba(255, 255, 255, .2);
   backdrop-filter: blur(6px); color: #fff; font-size: 0.8rem; font-weight: 700; cursor: pointer;
 }
+.hero-map {
+  position: absolute; z-index: 3; top: max(16px, env(safe-area-inset-top, 0)); right: 96px;
+  min-height: 34px; padding: 0 12px; border-radius: var(--radius-pill);
+  border: 1px solid rgba(255, 255, 255, .35); background: rgba(255, 255, 255, .2);
+  backdrop-filter: blur(6px); color: #fff; font-size: 0.8rem; font-weight: 700; cursor: pointer;
+}
 .detail-badge {
   display: inline-block; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.06em;
   text-transform: uppercase; padding: 4px 9px; border-radius: var(--radius-pill);
@@ -580,6 +586,62 @@
 .dm-trash-info b { font-size: 0.9rem; color: var(--ink); }
 .dm-trash-meta { font-size: 0.72rem; color: var(--ink-soft); }
 .dm-trash-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+/* ===== 지도 모달 ===== */
+.map-overlay {
+  position: fixed; inset: 0; z-index: 72; display: flex; align-items: center; justify-content: center;
+  padding: 12px; background: rgba(8, 8, 18, .5); backdrop-filter: blur(3px);
+}
+.map-modal {
+  width: 100%; max-width: 920px; height: min(88dvh, 900px);
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius-large); box-shadow: var(--shadow-float);
+}
+.map-header {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); flex: 0 0 auto;
+}
+.map-title { margin: 0; font-family: var(--font-disp); font-size: 1.15rem; color: var(--ink); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-header-actions { display: flex; align-items: center; gap: var(--space-2); flex: 0 0 auto; }
+.map-close {
+  width: 36px; height: 36px; display: grid; place-items: center; flex: 0 0 auto;
+  border: 1px solid var(--line); border-radius: var(--radius-pill);
+  background: var(--surface); color: var(--ink-soft); font-size: 1rem; cursor: pointer;
+}
+.map-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.map-canvas { flex: 1 1 auto; min-height: 200px; background: var(--bg-2); position: relative; }
+.map-canvas.is-failed { display: none; }
+.map-list {
+  flex: 0 0 auto; max-height: 40%; overflow-y: auto; display: flex; flex-direction: column;
+  gap: 6px; padding: var(--space-3); border-top: 1px solid var(--line);
+}
+.map-list-row {
+  text-align: left; width: 100%; padding: var(--space-2); cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--radius-medium); background: var(--bg);
+}
+.map-list-row:hover { border-color: var(--a1); }
+.map-fallback-note { margin: 0; padding: var(--space-2) var(--space-3); font-size: 0.8rem; color: var(--ink-soft); }
+.map-empty { text-align: center; padding: 48px 24px; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); }
+.map-empty h3 { margin: 0; font-family: var(--font-disp); }
+
+/* 마커 팝업/목록 카드 내용 */
+.map-pop { display: flex; flex-direction: column; gap: 4px; max-width: 220px; }
+.map-pop-thumb {
+  width: 100%; max-height: 120px; object-fit: cover; border-radius: var(--radius-small);
+  background: var(--bg-2);
+}
+.map-pop-title { margin: 0; font-size: 0.9rem; font-weight: 700; color: var(--ink); line-height: 1.4; }
+.map-pop-meta { margin: 0; font-size: 0.75rem; color: var(--ink-soft); }
+.maplibregl-popup-content { border-radius: var(--radius-medium); padding: 10px; }
+
+@media (max-width: 560px) {
+  .map-overlay { padding: 0; }
+  .map-modal { height: 100dvh; max-width: none; border-radius: 0; }
+  .hero-map { right: 90px; padding: 0 9px; }
+  .hero-edit { padding: 0 9px; }
+}
 .photo-viewer {
   position: fixed; inset: 0; z-index: 50; background: rgba(6, 6, 14, .92);
   display: grid; place-items: center; padding: 20px; cursor: zoom-out;
