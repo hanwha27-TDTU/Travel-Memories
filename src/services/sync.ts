@@ -6,6 +6,7 @@
 import { db, type SyncQueueItem } from '../offline/db';
 import { toRow, fromRow, type TripRow } from '../domain/trip/rowmap';
 import { toMomentRow, fromMomentRow, type MomentRow } from '../domain/moment/rowmap';
+import { toExpenseRow, fromExpenseRow, type ExpenseRow } from '../domain/expense/rowmap';
 import { mergeDecision, isEmptyCloudAnomaly, classifyError } from '../sync/merge';
 import type { JourneyClient } from './supabase/client';
 
@@ -82,6 +83,42 @@ export function momentsRemote(client: JourneyClient): MomentsRemote {
       try {
         const r = await client.from('moments').select('*');
         return { data: (r.data as MomentRow[] | null) ?? [], error: r.error?.message };
+      } catch (e) {
+        return { data: [], error: (e as Error).message };
+      }
+    },
+  };
+}
+
+/** 비용 원격 포트 — 네트워크 격리(moments와 대칭). */
+export interface ExpensesRemote {
+  upsert(row: ExpenseRow): Promise<{ error?: string | undefined; status?: number | undefined }>;
+  getById(id: string): Promise<{ data: ExpenseRow | null; error?: string | undefined; status?: number | undefined }>;
+  listAll(): Promise<{ data: ExpenseRow[]; error?: string | undefined }>;
+}
+
+export function expensesRemote(client: JourneyClient): ExpensesRemote {
+  return {
+    async upsert(row) {
+      try {
+        const r = await client.from('expenses').upsert(row, { onConflict: 'id' });
+        return { error: r.error?.message, status: r.status };
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+    },
+    async getById(id) {
+      try {
+        const r = await client.from('expenses').select('*').eq('id', id).maybeSingle();
+        return { data: (r.data as ExpenseRow | null) ?? null, error: r.error?.message, status: r.status };
+      } catch (e) {
+        return { data: null, error: (e as Error).message };
+      }
+    },
+    async listAll() {
+      try {
+        const r = await client.from('expenses').select('*');
+        return { data: (r.data as ExpenseRow[] | null) ?? [], error: r.error?.message };
       } catch (e) {
         return { data: [], error: (e as Error).message };
       }
@@ -242,21 +279,93 @@ export async function pullMoments(remote: MomentsRemote): Promise<{ pulled: numb
   return { pulled, skippedEmptyCloud: false };
 }
 
+/** 비용 대기열 push(moments와 대칭: 멱등 upsert → read-back → 서버시각 반영 → 작업 제거). */
+export async function pushPendingExpenses(
+  remote: ExpensesRemote,
+  userId: string,
+): Promise<{ pushed: number; failed: number }> {
+  const d = db();
+  const items = (await d.syncQueue.orderBy('createdAt').toArray()).filter(
+    (q) => q.state === 'local_only' || q.state === 'retryable_failed',
+  );
+  let pushed = 0;
+  let failed = 0;
+
+  for (const op of items) {
+    if (op.entityType !== 'expense') continue;
+    const expense = await d.localExpenses.get(op.entityId);
+    if (!expense) {
+      await d.syncQueue.delete(op.operationId);
+      continue;
+    }
+
+    const up = await remote.upsert(toExpenseRow(expense, userId));
+    if (up.error) {
+      await markFail(op, up.status);
+      failed++;
+      continue;
+    }
+
+    const back = await remote.getById(expense.id);
+    if (back.error || !back.data || back.data.original_amount !== expense.originalAmount) {
+      await markFail(op, back.status);
+      failed++;
+      continue;
+    }
+
+    const serverExpense = fromExpenseRow(back.data);
+    await d.transaction('rw', d.localExpenses, d.syncQueue, async () => {
+      const cur = await d.localExpenses.get(expense.id);
+      if (cur) await d.localExpenses.put({ ...cur, updatedAt: serverExpense.updatedAt, version: serverExpense.version });
+      await d.syncQueue.delete(op.operationId);
+    });
+    pushed++;
+  }
+  return { pushed, failed };
+}
+
+/** 서버의 내 비용을 로컬에 병합(교체 아님, 빈-클라우드 가드, LWW/tombstone). */
+export async function pullExpenses(remote: ExpensesRemote): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
+  const d = db();
+  const res = await remote.listAll();
+  if (res.error) throw new Error(res.error);
+  const serverRows = res.data;
+
+  const localActive = (await d.localExpenses.toArray()).filter((e) => e.deletedAt === null).length;
+  if (isEmptyCloudAnomaly(serverRows.length, localActive)) {
+    return { pulled: 0, skippedEmptyCloud: true };
+  }
+
+  let pulled = 0;
+  for (const r of serverRows) {
+    const server = fromExpenseRow(r);
+    const local = await d.localExpenses.get(server.id);
+    if (mergeDecision(local, server) === 'take-server') {
+      await d.localExpenses.put(server);
+      pulled++;
+    }
+  }
+  return { pulled, skippedEmptyCloud: false };
+}
+
 /**
  * 로그인/온라인 시 전체 동기화. push 먼저(로컬 우선 전송) → pull 병합.
- * 여행을 순간보다 먼저 push한다(순간의 복합 FK가 서버의 여행 존재를 요구).
+ * push 순서: 여행 → 순간 → 비용(자식의 복합 FK가 서버의 부모 존재를 요구).
  */
 export async function runSync(client: JourneyClient, userId: string): Promise<SyncResult> {
   const remote = tripsRemote(client);
   const mRemote = momentsRemote(client);
+  const eRemote = expensesRemote(client);
   const p = await pushPending(remote, userId);
   const pm = await pushPendingMoments(mRemote, userId);
+  const pe = await pushPendingExpenses(eRemote, userId);
   const q = await pullTrips(remote);
   const qm = await pullMoments(mRemote);
+  const qe = await pullExpenses(eRemote);
   return {
-    pushed: p.pushed + pm.pushed,
-    failed: p.failed + pm.failed,
-    pulled: q.pulled + qm.pulled,
-    skippedEmptyCloud: q.skippedEmptyCloud || qm.skippedEmptyCloud,
+    pushed: p.pushed + pm.pushed + pe.pushed,
+    failed: p.failed + pm.failed + pe.failed,
+    pulled: q.pulled + qm.pulled + qe.pulled,
+    skippedEmptyCloud: q.skippedEmptyCloud || qm.skippedEmptyCloud || qe.skippedEmptyCloud,
   };
 }

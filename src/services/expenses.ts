@@ -1,11 +1,22 @@
 // services/expenses.ts — 비용(Expense) 로컬우선 저장. 원금액은 양수·불변(H-04).
-// 미디어와 동일하게 로컬 전용(sync 큐 op 없음) — 서버 동기화 push/pull은 후속.
-// 백업/복원에는 포함되어 기기 간 이전·유실 방지(§1).
+// 서버 동기화: 생성/수정/삭제마다 sync 큐에 'expense' op를 쌓아 push/pull(services/sync.ts)한다.
+// 순간 삭제 cascade가 비용을 tombstone할 때도 그 큐 op를 함께 넣어 전파한다(moments.ts).
+// 백업/복원에도 포함되어 기기 간 이전·유실 방지(§1).
 
-import { db, type LocalExpense } from '../offline/db';
+import { db, type LocalExpense, type SyncQueueItem } from '../offline/db';
 
 function uuid(): string {
   return crypto.randomUUID();
+}
+
+/** 'expense' 동기화 op 하나. moments와 동일 형태. */
+function expenseOp(
+  operationId: string,
+  entityId: string,
+  operationType: SyncQueueItem['operationType'],
+  createdAt: string,
+): SyncQueueItem {
+  return { operationId, entityType: 'expense', entityId, operationType, state: 'local_only', attempts: 0, createdAt };
 }
 
 export interface CreateExpenseInput {
@@ -24,6 +35,7 @@ export async function createExpenseLocalFirst(input: CreateExpenseInput): Promis
   if (!input.originalCurrency) throw new Error('통화가 없습니다.');
 
   const now = new Date().toISOString();
+  const opId = uuid();
   const expense: LocalExpense = {
     id: uuid(),
     momentId: input.momentId,
@@ -36,9 +48,13 @@ export async function createExpenseLocalFirst(input: CreateExpenseInput): Promis
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
+    clientOperationId: opId,
   };
   const d = db();
-  await d.localExpenses.add(expense);
+  await d.transaction('rw', d.localExpenses, d.syncQueue, async () => {
+    await d.localExpenses.add(expense);
+    await d.syncQueue.add(expenseOp(opId, expense.id, 'insert', now));
+  });
   const back = await d.localExpenses.get(expense.id);
   if (!back || back.originalAmount !== expense.originalAmount) {
     throw new Error('내구성 커밋 확인 실패: 비용 read-back 불일치');
@@ -62,6 +78,7 @@ export async function updateExpenseLocalFirst(id: string, patch: UpdateExpensePa
     throw new Error('금액은 0보다 커야 합니다.');
   }
   const now = new Date().toISOString();
+  const opId = uuid();
   const next: LocalExpense = {
     ...cur,
     ...(patch.originalAmount !== undefined ? { originalAmount: patch.originalAmount } : {}),
@@ -71,20 +88,35 @@ export async function updateExpenseLocalFirst(id: string, patch: UpdateExpensePa
     version: cur.version + 1,
     updatedAt: now,
     baseVersion: cur.version,
+    clientOperationId: opId,
   };
-  await d.localExpenses.put(next);
+  await d.transaction('rw', d.localExpenses, d.syncQueue, async () => {
+    await d.localExpenses.put(next);
+    await d.syncQueue.add(expenseOp(opId, id, 'update', now));
+  });
   const back = await d.localExpenses.get(id);
   if (!back || back.version !== next.version) throw new Error('내구성 커밋 확인 실패: 비용 수정 read-back 불일치');
   return back;
 }
 
-/** 비용 삭제 — tombstone(§0). */
+/** 비용 삭제 — tombstone(§0). 삭제도 동기화되도록 큐 op를 넣는다. */
 export async function softDeleteExpenseLocalFirst(id: string): Promise<void> {
   const d = db();
   const cur = await d.localExpenses.get(id);
   if (!cur || cur.deletedAt !== null) throw new Error('비용을 찾을 수 없습니다.');
   const now = new Date().toISOString();
-  await d.localExpenses.put({ ...cur, deletedAt: now, version: cur.version + 1, updatedAt: now });
+  const opId = uuid();
+  await d.transaction('rw', d.localExpenses, d.syncQueue, async () => {
+    await d.localExpenses.put({
+      ...cur,
+      deletedAt: now,
+      version: cur.version + 1,
+      updatedAt: now,
+      baseVersion: cur.version,
+      clientOperationId: opId,
+    });
+    await d.syncQueue.add(expenseOp(opId, id, 'delete', now));
+  });
   const back = await d.localExpenses.get(id);
   if (!back || back.deletedAt === null) throw new Error('내구성 커밋 확인 실패: 비용 삭제 read-back 불일치');
 }
