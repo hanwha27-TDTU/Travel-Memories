@@ -2,7 +2,16 @@
 
 [Keep a Changelog] 형식. 최신이 위. 이 파일은 손편집이 아니라 릴리스 시 갱신하며, 열거 가능한 사실(카운트 등)은 파생·게이트로 잠근다(LESSONS §7).
 
+> **사용자용 버전 이력 SSOT는 `src/app/changelog.ts`**(0.01 단위, PR 병합=릴리스). 앱의 "개발자 정보" 화면이 그 파일을 읽어 표시한다. 이 문서(docs/CHANGELOG.md)는 개발자용 **기술 상세 기록**이다. 버전 숫자·사용자 표기는 `src/app/changelog.ts`가 정본이며 여기서 손으로 복제하지 않는다.
+
 ## [Unreleased] — Phase 0~1
+
+### Phase 6a — 개발자 정보·버전 관리 + 사진 폭 채우기 옵션 + 문서 규범 체계 (2026-07-23) · v0.21
+- **버전 SSOT** `src/app/changelog.ts`: 0.00부터 0.01 단위. 지금까지 병합된 PR #1~#20을 v0.01~v0.20으로 소급 부여(실제 git 이력과 1:1). 이번 릴리스 v0.21. `APP_VERSION`·`LAST_MODIFIED`·`FIRST_DEV_DATE`를 이 파일에서 파생(손 복제 금지).
+- **개발자 정보 화면** `ui/screens/aboutApp.ts`: 제목 옆 버전 배지(`.app-version`) → 프로필·최초 개발/최종 수정·현재 버전·업데이트 이력(펼치기). 가이드 모달 셸 재사용. 개인 이메일 등 민감정보 비노출(PRIVACY).
+- **문서 규범 체계(거버넌스)**: 헌법(CLAUDE.md·AGENTS.md)→기본법(PROJECT_SPEC)→도메인 법령(DATA_MODEL·SYNC·SECURITY·PRIVACY·MEDIA·ARCHITECTURE)→시행지침(DEPLOYMENT·TEST_PLAN·AGENT_REGISTRY)→판례·기록(DECISIONS·LESSONS·HANDOFF·CHANGELOG)으로 문서 지도를 규범 위계로 재구성(새 사실 없음).
+- **사진 편집기 표시 방식 선택**: `↕ 폭 채우기`(폭 100%·세로 스크롤) ↔ `🔳 높이 맞춤`(여백 최소·스크롤 없음). 세로로 긴 사진(탑승권 등)을 여백 없이 크게. 두 방식 모두 크롭 오버레이가 이미지와 정렬.
+- 게이트: typecheck·harness(6)·build 그린. 라이브 검증은 배포 후 실기기 확인 권장(자동층은 통과).
 
 ### Phase 4b — 장소 검색(지오코딩, 무료·키 불필요) (2026-07-23)
 - **장소 검색**: 장소 필드에 `🔍 검색` → **Nominatim(OpenStreetMap 지오코딩)**으로 장소명→좌표. 구글맵은 API 키·결제 필요라 제외, OSM과 일관된 무료·키 불필요 선택(정책: 검색은 버튼/제출 시에만, 귀속·저트래픽).

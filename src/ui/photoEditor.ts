@@ -107,6 +107,7 @@ export async function openPhotoEditor(
   let healMode = false;
   let brushPct = 3; // 이미지 너비의 %
   let cropApplied = false; // 자유 크롭: 영역을 확정해 잘린 결과를 미리보기로 볼지 여부
+  let fitMode: 'contain' | 'width' = 'contain'; // 표시 방식: 높이 맞춤(여백 최소) ↔ 폭 100%(세로 스크롤)
 
   return new Promise<EditorResult>((resolve) => {
     const overlay = el('div', 'pe-overlay');
@@ -204,11 +205,17 @@ export async function openPhotoEditor(
         preview.width = baked.width;
         preview.height = baked.height;
         preview.getContext('2d')?.drawImage(baked, 0, 0);
-        // 폭 맞추기: 표시 폭을 최대로 채우되 높이는 화면의 62%(최대 640px)로 제한.
-        // 래퍼를 캔버스 비율에 맞춰 폭으로 잡으면 레터박스(어두운 여백)·오버레이 정렬 어긋남이 없다.
-        const ar = baked.width / baked.height;
-        const capH = Math.min(Math.round(window.innerHeight * 0.62), 640);
-        canvasWrap.style.maxWidth = `${Math.round(capH * ar)}px`;
+        // 표시 방식:
+        //  - contain(기본): 폭을 채우되 높이를 화면 62%(최대 640px)로 제한 → 스크롤 없이 한눈에.
+        //  - width: 폭 100%로 꽉 채우고 세로로 길면 시트가 스크롤 → 세로 사진을 크게(여백 0).
+        // 두 방식 모두 래퍼가 캔버스 비율에 맞춰 잡히므로 크롭 오버레이(%)가 이미지와 정렬된다.
+        if (fitMode === 'width') {
+          canvasWrap.style.maxWidth = '';
+        } else {
+          const ar = baked.width / baked.height;
+          const capH = Math.min(Math.round(window.innerHeight * 0.62), 640);
+          canvasWrap.style.maxWidth = `${Math.round(capH * ar)}px`;
+        }
         syncCropBox(showOverlay);
       });
     }
@@ -325,7 +332,21 @@ export async function openPhotoEditor(
       if (state.freeCrop) state.freeCrop = flipFreeCropH(state.freeCrop);
       repaint();
     });
-    geoRow.append(rotBtn, flipBtn);
+    // 표시 방식 토글: 폭 100%(세로 스크롤) ↔ 높이 맞춤(여백 최소). 세로로 긴 사진용.
+    const fitBtn = el('button', 'pe-chip pe-fit', '↕ 폭 채우기') as HTMLButtonElement;
+    fitBtn.type = 'button';
+    fitBtn.setAttribute('aria-pressed', 'false');
+    fitBtn.title = '세로로 긴 사진을 폭에 꽉 채워 크게 보기(세로 스크롤)';
+    fitBtn.addEventListener('click', () => {
+      fitMode = fitMode === 'width' ? 'contain' : 'width';
+      const on = fitMode === 'width';
+      fitBtn.textContent = on ? '🔳 높이 맞춤' : '↕ 폭 채우기';
+      fitBtn.setAttribute('aria-pressed', String(on));
+      stage.classList.toggle('is-fill', on);
+      canvasWrap.classList.toggle('is-fill', on);
+      repaint();
+    });
+    geoRow.append(rotBtn, flipBtn, fitBtn);
     for (const a of ASPECTS) {
       const b = el('button', 'pe-chip pe-aspect', a.label) as HTMLButtonElement;
       b.type = 'button';

@@ -16,6 +16,7 @@
   justify-content: space-between;
   gap: var(--space-3);
 }
+.app-title-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .app-title {
   margin: 0;
   font-family: var(--font-disp);
@@ -23,6 +24,15 @@
   font-weight: 800;
   letter-spacing: -0.02em;
 }
+/* 제목 옆 버전 배지(누르면 개발자 정보). */
+.app-version {
+  flex: 0 0 auto; cursor: pointer;
+  padding: 3px 10px; border-radius: var(--radius-pill);
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-soft);
+  font-size: 0.72rem; font-weight: 800; font-variant-numeric: tabular-nums;
+  line-height: 1.4; white-space: nowrap;
+}
+.app-version:hover { color: var(--a1d); border-color: var(--a1); }
 .header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); justify-content: flex-end; }
 
 /* 계절 세그먼트 + 테마 토글 */
@@ -602,6 +612,65 @@
   .guide-title { font-size: 1.3rem; }
 }
 
+/* 개발자 정보(aboutApp) — 가이드 모달 셸 재사용 + 전용 클래스 */
+.about-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.about-ver-badge {
+  padding: 2px 9px; border-radius: var(--radius-pill);
+  background: linear-gradient(120deg, var(--a1), var(--a3)); color: #fff;
+  font-size: 0.72rem; font-weight: 800; font-variant-numeric: tabular-nums;
+}
+.about-profile {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-medium);
+  background: var(--bg);
+}
+.about-avatar {
+  flex: 0 0 auto; width: 54px; height: 54px; border-radius: var(--radius-medium);
+  display: grid; place-items: center; font-size: 1.8rem;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--a1) 22%, transparent), color-mix(in srgb, var(--a2) 22%, transparent));
+}
+.about-profile-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.about-app-name { font-family: var(--font-disp); font-size: 1.05rem; color: var(--ink); }
+.about-dev { font-size: 0.84rem; color: var(--ink); font-weight: 700; }
+.about-tagline { line-height: 1.5; }
+.about-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); margin-top: var(--space-3); }
+.about-stat {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: var(--space-2) var(--space-3); border: 1px solid var(--line);
+  border-radius: var(--radius-medium); background: var(--surface);
+}
+.about-stat-v { font-size: 0.9rem; color: var(--ink); font-variant-numeric: tabular-nums; }
+.about-section-h { margin: var(--space-5) 0 0; font-family: var(--font-disp); font-size: 1rem; color: var(--ink); }
+.about-tiers { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
+.about-tier {
+  padding: var(--space-2) var(--space-3); border: 1px solid var(--line);
+  border-radius: var(--radius-medium); background: var(--surface);
+  border-left: 3px solid var(--a1);
+}
+.about-tier-head { display: flex; align-items: center; gap: 6px; }
+.about-tier-rank { font-size: 0.86rem; color: var(--ink); }
+.about-tier-role { display: block; margin: 2px 0 6px; line-height: 1.45; }
+.about-tier-docs { display: flex; flex-wrap: wrap; gap: 4px; }
+.about-doc-chip {
+  font-size: 0.68rem; font-weight: 700; color: var(--ink-soft);
+  padding: 2px 8px; border-radius: var(--radius-pill); background: var(--bg-2);
+  font-variant-numeric: tabular-nums;
+}
+.about-hist-head { display: flex; align-items: baseline; gap: 8px; }
+.about-hist, .about-hist-rest { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
+.about-entry {
+  padding: var(--space-2) var(--space-3); border: 1px solid var(--line);
+  border-radius: var(--radius-medium); background: var(--surface);
+}
+.about-entry-latest { border-color: color-mix(in srgb, var(--a2) 55%, var(--line)); background: color-mix(in srgb, var(--a2) 8%, var(--surface)); }
+.about-entry-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.about-entry-title { font-size: 0.85rem; color: var(--ink); }
+.about-entry-date { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.about-entry-notes { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+.about-entry-notes li { font-size: 0.8rem; color: var(--ink-soft); line-height: 1.5; }
+.about-hist-toggle { width: 100%; margin-top: var(--space-2); min-height: 42px; }
+@media (max-width: 560px) { .about-stats { grid-template-columns: 1fr; } }
+
 /* 데이터 관리(백업·복원·휴지통) — 가이드 시각 시스템 재사용 + 소수 전용 클래스 */
 .dm-wide {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -745,6 +814,9 @@
 
 /* 자유 크롭 오버레이 + 잡티 도구 */
 .pe-canvas-wrap { position: relative; display: block; width: 100%; margin: 0 auto; }
+/* 폭 채우기 방식: 스테이지가 세로로 자라고 시트가 스크롤(세로 사진을 여백 없이 크게). */
+.pe-stage.is-fill { overflow: visible; }
+.pe-canvas-wrap.is-fill { max-width: 100%; }
 /* 자르기 확정 바 — 이미지 바로 아래, 확정 버튼은 강조색으로. */
 .pe-cropbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .pe-crop-apply { background: linear-gradient(120deg, var(--a1), var(--a3)); color: #fff; border-color: transparent; }
