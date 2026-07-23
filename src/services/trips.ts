@@ -65,6 +65,12 @@ export async function createTripLocalFirst(input: CreateTripInput): Promise<Loca
   return readTrip;
 }
 
+/** 단일 여행 조회(활성만; tombstone/없음은 null). */
+export async function getTrip(id: string): Promise<LocalTrip | null> {
+  const t = await db().localTrips.get(id);
+  return t && t.deletedAt === null ? t : null;
+}
+
 /** 활성 여행 목록 (tombstone 제외 — deletedAt은 인덱스가 아니라 filter, M-0005). */
 export async function listTrips(): Promise<LocalTrip[]> {
   const d = db();

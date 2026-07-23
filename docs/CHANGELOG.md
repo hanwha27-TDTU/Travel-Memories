@@ -4,6 +4,13 @@
 
 ## [Unreleased] — Phase 0~1
 
+### Phase 2 착수 — 여행 상세 + 타임라인 + 순간 기록 (로컬우선) (2026-07-23)
+- **순간(Moment) 도메인** 추가: `LocalMoment`(Dexie v2 `localMoments`), `services/moments.ts`(내구성 로컬 커밋+read-back, 여행과 동일 규율), 순수 타임라인 로직 `domain/moment/timeline.ts`(날짜 그룹핑·Day 번호·tombstone 제외).
+- **여행 상세 화면**(`ui/screens/tripDetail.ts`): 커버 히어로(순간·일 통계), **순간 기록 폼**(한 줄+감정 이모지+장소, 10초 캡처 지향), **날짜별 타임라인**(시각 노드·감정·장소 칩).
+- **파라미터 라우팅**(`/trip/<id>` → `trip-detail`): `pathToRoute`/`pathToParam` 순수함수, 홈 여행 카드 클릭→상세, 뒤로가기.
+- 검증: 하네스 6게이트·유닛(타임라인 5·라우터 파라미터)·build 통과. **라이브 렌더**(Playwright): 여행 생성→카드 클릭→상세 진입(`/trip/<uuid>`)→순간 2건 기록→타임라인/통계 렌더→뒤로가기까지 **콘솔 에러 0**.
+- **범위 정직 표기**: 순간은 현재 **로컬우선(IndexedDB durable, 오프라인 OK)** — 여행(trip)처럼 서버 동기화(journey.moments migration+복합 FK RLS+동기화 파이프라인)는 후속. 순간은 아직 기기 간 동기화되지 않음.
+
 ### Phase 1 — 디자인 시스템 적용 (계절·테마·반응형) (2026-07-23)
 - **디자인 토큰 SSOT**(`tokens.css`): 계절 강조색(봄·여름·가을·겨울) × 라이트/다크 뉴트럴 × 시맨틱 색 분리. `data-season`/`data-theme` 속성으로 스위칭, 강조 위 텍스트 흰색 고정.
 - **테마 상태 모듈**(`ui/theme.ts`): 계절/테마 선택을 localStorage 캐시(표시 선호만; 기억 데이터는 IndexedDB). 미선택 시 계절은 이번 달 기준 자동, 테마는 OS 선호.

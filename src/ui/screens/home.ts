@@ -13,6 +13,7 @@ import {
   type SessionUser,
 } from '../../services/auth';
 import { runSync } from '../../services/sync';
+import { el } from '../dom';
 import {
   SEASONS,
   SEASON_LABEL,
@@ -22,7 +23,10 @@ import {
   toggleTheme,
   type Season,
 } from '../theme';
+import type { Route } from '../../app/router';
 import type { LocalTrip } from '../../offline/db';
+
+type Navigate = (route: Route, param?: string) => void;
 
 let unsubscribeAuth: (() => void) | null = null;
 
@@ -33,19 +37,11 @@ const STATUS_LABEL: Record<LocalTrip['status'], string> = {
   archived: '보관',
 };
 
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className?: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
-function tripCard(t: LocalTrip, index: number): HTMLElement {
-  const card = el('article', `trip-card cover--${index % 3}`);
+function tripCard(t: LocalTrip, index: number, navigate: Navigate): HTMLElement {
+  const card = el('button', `trip-card cover--${index % 3}`) as HTMLButtonElement;
+  card.type = 'button';
+  card.setAttribute('aria-label', `${t.title} 여행 열기`);
+  card.addEventListener('click', () => navigate('trip-detail', t.id));
   card.append(el('div', 'cover-veil'), el('div', 'cover-grain'));
   const info = el('div', 'cover-info');
   info.appendChild(el('span', 'trip-badge', STATUS_LABEL[t.status]));
@@ -101,7 +97,7 @@ async function trySync(user: SessionUser | null): Promise<void> {
   }
 }
 
-export function renderHome(mount: HTMLElement): void {
+export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   if (unsubscribeAuth) {
     unsubscribeAuth();
     unsubscribeAuth = null;
@@ -216,7 +212,7 @@ export function renderHome(mount: HTMLElement): void {
       empty.appendChild(el('p', 'muted', '제목 하나면 충분해요. 이 기기에 안전하게 저장됩니다.'));
       list.appendChild(empty);
     } else {
-      trips.forEach((t, i) => list.appendChild(tripCard(t, i)));
+      trips.forEach((t, i) => list.appendChild(tripCard(t, i, navigate)));
     }
     if (!isConfigured()) {
       status.textContent = `📴 로컬 저장 모드 · 대기 ${pending}건`;
