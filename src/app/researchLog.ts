@@ -136,4 +136,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '실측: Bugeon 조직에 Medical/Travel&Accounting 두 프로젝트. 여행 앱은 이미 Travel&Accounting의 journey 스키마(회계=public와 한 집 두 방), 메디컬은 별개 집. 서버 트리거로 tombstone 부활 차단 제안.',
     decision: 'journey.trips·moments에 prevent_zombie_resurrection BEFORE UPDATE 트리거 적용(search_path 고정). BEGIN..ROLLBACK로 비공허 검증(프로덕션 무변경). 여행=Travel&Accounting 유지, 메디컬 별개 프로젝트로 격리 확정. 다음: place_lat/lng·media·expense 동기화.',
   },
+  {
+    seq: 17,
+    date: '2026-07-23',
+    topic: '다기기 서버 스키마(사진·비용·좌표) + 정정',
+    human: '정정: seq15의 "메디컬과 한 프로젝트"는 착오였고 실제로는 회계장부 앱과 한 프로젝트다(여행+회계=Travel&Accounting, 메디컬은 별개). 추천대로 진행.',
+    ai: 'journey에 media(+journey-media Storage 버킷)·expenses 테이블과 moments place_lat/lng 추가 제안. 모두 소유자 RLS·초대제·복합 FK(H-02)·tombstone·좀비 트리거로 보호.',
+    decision: '마이그레이션 0005~0008 적용(프로젝트 Travel&Accounting). RLS 격리·H-02·좀비 방지 공격검사 트랜잭션 테스트 통과(MEDIA_EXPENSE_RLS_ZOMBIE_PASS), 어드바이저 신규 이슈 0, 프로덕션 무변경. 앱측 동기화 코드+OAuth 실연동은 실기기 검증 필요라 다음 단계.',
+  },
 ];
