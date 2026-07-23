@@ -2,7 +2,13 @@
 // 자유 텍스트는 textContent만 사용. 서버 동기화(순간)는 후속 — 지금은 이 기기에 내구성 저장.
 
 import { el } from '../dom';
-import { getTrip, updateTripLocalFirst } from '../../services/trips';
+import { showUndoToast } from '../toast';
+import {
+  getTrip,
+  updateTripLocalFirst,
+  softDeleteTripLocalFirst,
+  restoreTripLocalFirst,
+} from '../../services/trips';
 import {
   createMomentLocalFirst,
   listMoments,
@@ -132,12 +138,26 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const body = el('section', 'detail-body');
     wrap.appendChild(body);
 
-    // 편집 패널(날짜·상태) — 토글.
-    const editPanel = buildEditPanel(trip, async (patch) => {
-      await updateTripLocalFirst(trip.id, patch);
-      void trySync();
-      renderTripDetail(mount, tripId, navigate); // 최신 데이터로 재렌더
-    });
+    // 편집 패널(날짜·상태·삭제) — 토글.
+    const editPanel = buildEditPanel(
+      trip,
+      async (patch) => {
+        await updateTripLocalFirst(trip.id, patch);
+        void trySync();
+        renderTripDetail(mount, tripId, navigate); // 최신 데이터로 재렌더
+      },
+      async () => {
+        // 여행 삭제(cascade tombstone) → 홈으로. 실행취소 토스트는 body 부착이라 화면 전환에도 유지.
+        const { momentIds, mediaIds } = await softDeleteTripLocalFirst(trip!.id);
+        void trySync();
+        navigate('home');
+        showUndoToast('여행을 삭제했어요', async () => {
+          await restoreTripLocalFirst(trip!.id, momentIds, mediaIds);
+          void trySync();
+          navigate('home'); // 홈 목록에서 카드가 되살아나는 걸 바로 보여줌(실행취소를 누른 자리)
+        });
+      },
+    );
     editPanel.hidden = true;
     editBtn.addEventListener('click', () => {
       editPanel.hidden = !editPanel.hidden;
@@ -210,34 +230,6 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       objectUrls = [];
     }
 
-    // 실행취소 토스트 — 삭제는 tombstone이라 되살릴 수 있다(§5 복구가능성). 5초 후 자동 사라짐.
-    let undoTimer: ReturnType<typeof setTimeout> | null = null;
-    function showUndo(message: string, onUndo: () => Promise<void>): void {
-      wrap.querySelector('.undo-toast')?.remove();
-      if (undoTimer) clearTimeout(undoTimer);
-      const toast = el('div', 'undo-toast');
-      toast.setAttribute('role', 'status');
-      toast.appendChild(el('span', 'undo-msg', message));
-      const btn = el('button', 'undo-btn', '실행취소') as HTMLButtonElement;
-      btn.type = 'button';
-      let used = false;
-      const close = (): void => {
-        if (undoTimer) {
-          clearTimeout(undoTimer);
-          undoTimer = null;
-        }
-        toast.remove();
-      };
-      btn.addEventListener('click', () => {
-        if (used) return;
-        used = true;
-        close();
-        void onUndo();
-      });
-      toast.appendChild(btn);
-      wrap.appendChild(toast);
-      undoTimer = setTimeout(close, 5000);
-    }
 
     async function refresh(): Promise<void> {
       const [moments, media] = await Promise.all([listMoments(trip!.id), listMediaByTrip(trip!.id)]);
@@ -322,7 +314,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
             const { deletedMediaIds } = await softDeleteMomentLocalFirst(m.id);
             await refresh();
             void trySync();
-            showUndo('순간을 삭제했어요', async () => {
+            showUndoToast('순간을 삭제했어요', async () => {
               await restoreMomentLocalFirst(m.id, deletedMediaIds);
               await refresh();
               void trySync();
@@ -362,7 +354,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
               try {
                 await softDeleteMediaLocalFirst(md.id);
                 await refresh();
-                showUndo('사진을 삭제했어요', async () => {
+                showUndoToast('사진을 삭제했어요', async () => {
                   await restoreMediaLocalFirst(md.id);
                   await refresh();
                 });
@@ -476,10 +468,11 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
   })();
 }
 
-/** 여행 날짜·상태·제목 편집 패널. onSave(patch) 호출 후 상위에서 재렌더. */
+/** 여행 날짜·상태·제목 편집 패널 + 삭제. onSave(patch)/onDelete() 호출 후 상위에서 처리. */
 function buildEditPanel(
   trip: LocalTrip,
   onSave: (patch: { title: string; startDate: string; endDate: string; status: LocalTrip['status'] }) => Promise<void>,
+  onDelete: () => Promise<void>,
 ): HTMLElement {
   const panel = el('form', 'edit-panel');
 
@@ -520,6 +513,34 @@ function buildEditPanel(
   });
   row.append(save, cancel);
 
+  // 위험 구역: 여행 삭제(순간·사진 포함). 실수 방지로 2단계(삭제 → 정말 삭제) + 실행취소 토스트.
+  const danger = el('div', 'edit-danger');
+  const delBtn = el('button', 'btn-danger', '🗑 여행 삭제') as HTMLButtonElement;
+  delBtn.type = 'button';
+  const confirmRow = el('div', 'edit-confirm');
+  confirmRow.hidden = true;
+  confirmRow.appendChild(el('span', 'edit-confirm-msg', '순간·사진까지 함께 삭제돼요. 계속할까요?'));
+  const confirmBtn = el('button', 'btn-danger', '정말 삭제') as HTMLButtonElement;
+  confirmBtn.type = 'button';
+  const keepBtn = el('button', 'btn-ghost', '유지') as HTMLButtonElement;
+  keepBtn.type = 'button';
+  keepBtn.addEventListener('click', () => {
+    confirmRow.hidden = true;
+    delBtn.hidden = false;
+  });
+  delBtn.addEventListener('click', () => {
+    delBtn.hidden = true;
+    confirmRow.hidden = false;
+  });
+  confirmBtn.addEventListener('click', () => {
+    confirmBtn.disabled = true;
+    void onDelete().catch(() => {
+      confirmBtn.disabled = false;
+    });
+  });
+  confirmRow.append(confirmBtn, keepBtn);
+  danger.append(delBtn, confirmRow);
+
   panel.append(
     el('label', 'edit-label', '제목'),
     titleIn,
@@ -528,6 +549,7 @@ function buildEditPanel(
     el('label', 'edit-label', '상태'),
     status,
     row,
+    danger,
   );
 
   panel.addEventListener('submit', (e) => {

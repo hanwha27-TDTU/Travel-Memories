@@ -20,6 +20,7 @@ import {
 } from '../../services/auth';
 import { runSync } from '../../services/sync';
 import { el } from '../dom';
+import { openGuide } from './guide';
 import {
   SEASONS,
   SEASON_LABEL,
@@ -125,7 +126,12 @@ function buildControls(): HTMLElement {
   paintTheme(effectiveTheme());
   themeBtn.addEventListener('click', () => paintTheme(toggleTheme()));
 
-  controls.append(seg, themeBtn);
+  const guideBtn = el('button', 'btn-ghost guide-open', '📖 가이드') as HTMLButtonElement;
+  guideBtn.type = 'button';
+  guideBtn.setAttribute('aria-label', '가이드 열기 — 연결·설정과 개발·설계 안내');
+  guideBtn.addEventListener('click', () => openGuide());
+
+  controls.append(seg, themeBtn, guideBtn);
   return controls;
 }
 

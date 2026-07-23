@@ -4,6 +4,13 @@
 
 ## [Unreleased] — Phase 0~1
 
+### Phase 3c — 여행 삭제(대칭성) + 가이드 화면 (2026-07-23)
+- **여행 삭제(하드 삭제 아님)**: 편집 패널에 위험 구역(🗑 여행 삭제 → 2단계 확인) 추가. `softDeleteTripLocalFirst`가 여행 + 소속 순간·사진을 같은 트랜잭션에서 cascade tombstone(고아 방지), 순간은 sync 큐 delete op, 미디어는 로컬 tombstone. `restoreTripLocalFirst`가 정확히 그 자식들만 복원(version+1 LWW 승리). 이로써 Trip 생명주기 대칭성 회복(생성·수정·보관·삭제).
+- **공용 실행취소 토스트**: `src/ui/toast.ts`로 분리(document.body 부착 → 화면 전환에도 유지). 순간·사진·여행 삭제가 모두 재사용. tripDetail의 화면-로컬 토스트 제거(DRY).
+- **가이드 화면**: 홈 헤더 `📖 가이드` → 2열 모달([연결·설정] / [개발·설계]). 카드 → 상세(‹ 뒤로). 콘텐츠는 **이 저장소의 실제 사실**로 구성(정직 §4): 설계개요도(Trip→Moment 흐름), 기계화검증 흐름도(실제 harness 6게이트), 개발 규율, 개발 에이전트(통합10+디자인16), 자기점검(정직 상태표), AI 개발 거버넌스(비타협 원칙·§0). 모든 자유 텍스트 textContent(innerHTML 금지·CSP 준수). 포커스 이동·Esc·배경탭 닫기.
+- **라이브 검증(Playwright/Chromium)**: 900×1200에서 여행 생성→순간 저장→순간 편집("수정된 순간")→여행 삭제(홈·카드0·토스트)→실행취소(카드 복원)→**cascade 확인: 복원된 여행의 순간 1개·편집 텍스트 유지**, 가이드 2열/상세 렌더, 콘솔 에러 0. 지난 Phase 3b(순간·사진 편집·삭제)도 이 흐름에서 함께 라이브 확인됨.
+- 게이트: typecheck·harness(6)·unit 60·build 그린. **미검증(정직)**: 실기기 픽셀·제스처; 가이드의 게이트·에이전트 목록은 손 스냅샷(레지스트리 파생 게이트는 후속).
+
 ### Phase 3b — 순간 편집·삭제 + 사진 개별 삭제 (실행취소) (2026-07-23)
 - **순간 편집**: 카드에 ✎ → 한 줄·감정·장소·**메모**·**발생시각(datetime-local)** 수정. `updateMomentLocalFirst`(version+1·updatedAt·baseVersion·op update·read-back — 생성과 동일 규율). 그동안 데이터엔 있으나 편집 경로가 없던 `note`·`occurredAt`를 사용 가능하게 함.
 - **순간 삭제(하드 삭제 아님)**: 🗑 → `deletedAt` tombstone(§0). 순간에 달린 활성 **사진도 같은 트랜잭션에서 함께 tombstone**(고아 사진이 통계를 속이지 않도록), undo가 정확히 그 사진들만 복원(`softDeleteMomentLocalFirst`→`deletedMediaIds`, `restoreMomentLocalFirst`).

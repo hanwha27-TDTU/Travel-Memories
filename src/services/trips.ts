@@ -124,6 +124,112 @@ export async function updateTripLocalFirst(id: string, patch: UpdateTripPatch): 
   return readTrip;
 }
 
+/**
+ * 여행 삭제 — 하드 삭제 금지(§0): deletedAt tombstone. 순간(Moment)·사진(Media)까지
+ * 같은 트랜잭션에서 cascade tombstone하여 고아 데이터가 남지 않게 한다. 순간은 서버로
+ * 동기화되므로 각각 sync 큐 op(delete)를 만들고, 미디어는 로컬 전용이라 op를 만들지
+ * 않는다(처리 주체 부재 → 대기열 영구 잔류 방지). 되살리기가 정확히 이 자식들만 복원하도록
+ * id 목록을 반환한다. 되살리기·삭제 모두 version+1로 LWW에서 최신이 이긴다.
+ */
+export async function softDeleteTripLocalFirst(
+  id: string,
+): Promise<{ momentIds: string[]; mediaIds: string[] }> {
+  const d = db();
+  const cur = await d.localTrips.get(id);
+  if (!cur || cur.deletedAt !== null) throw new Error('여행을 찾을 수 없습니다.');
+
+  const now = new Date().toISOString();
+  const tripOpId = uuid();
+  const tombstonedTrip: LocalTrip = {
+    ...cur,
+    deletedAt: now,
+    version: cur.version + 1,
+    updatedAt: now,
+    baseVersion: cur.version,
+    clientOperationId: tripOpId,
+  };
+
+  const moments = (await d.localMoments.where('tripId').equals(id).toArray()).filter(
+    (m) => m.deletedAt === null,
+  );
+  const media = (await d.localMedia.where('tripId').equals(id).toArray()).filter(
+    (m) => m.deletedAt === null,
+  );
+  const momentIds = moments.map((m) => m.id);
+  const mediaIds = media.map((m) => m.id);
+
+  const ops: SyncQueueItem[] = [
+    { operationId: tripOpId, entityType: 'trip', entityId: id, operationType: 'delete', state: 'local_only', attempts: 0, createdAt: now },
+    ...moments.map((m) => ({
+      operationId: uuid(),
+      entityType: 'moment',
+      entityId: m.id,
+      operationType: 'delete' as const,
+      state: 'local_only',
+      attempts: 0,
+      createdAt: now,
+    })),
+  ];
+
+  await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, d.syncQueue, async () => {
+    await d.localTrips.put(tombstonedTrip);
+    for (const m of moments) await d.localMoments.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now });
+    for (const m of media) await d.localMedia.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now });
+    for (const op of ops) await d.syncQueue.add(op);
+  });
+
+  const back = await d.localTrips.get(id);
+  if (!back || back.deletedAt === null) throw new Error('내구성 커밋 확인 실패: 여행 삭제 read-back 불일치');
+  return { momentIds, mediaIds };
+}
+
+/** 여행 되살리기(실행취소) — 여행 + 삭제 시 함께 tombstone된 순간·사진을 복원. version+1로 LWW 승리. */
+export async function restoreTripLocalFirst(id: string, momentIds: string[], mediaIds: string[]): Promise<LocalTrip> {
+  const d = db();
+  const cur = await d.localTrips.get(id);
+  if (!cur) throw new Error('여행을 찾을 수 없습니다.');
+
+  const now = new Date().toISOString();
+  const tripOpId = uuid();
+  const restored: LocalTrip = {
+    ...cur,
+    deletedAt: null,
+    version: cur.version + 1,
+    updatedAt: now,
+    baseVersion: cur.version,
+    clientOperationId: tripOpId,
+  };
+  const ops: SyncQueueItem[] = [
+    { operationId: tripOpId, entityType: 'trip', entityId: id, operationType: 'update', state: 'local_only', attempts: 0, createdAt: now },
+    ...momentIds.map((mid) => ({
+      operationId: uuid(),
+      entityType: 'moment',
+      entityId: mid,
+      operationType: 'update' as const,
+      state: 'local_only',
+      attempts: 0,
+      createdAt: now,
+    })),
+  ];
+
+  await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, d.syncQueue, async () => {
+    await d.localTrips.put(restored);
+    for (const mid of momentIds) {
+      const m = await d.localMoments.get(mid);
+      if (m) await d.localMoments.put({ ...m, deletedAt: null, version: m.version + 1, updatedAt: now });
+    }
+    for (const mid of mediaIds) {
+      const m = await d.localMedia.get(mid);
+      if (m) await d.localMedia.put({ ...m, deletedAt: null, version: m.version + 1, updatedAt: now });
+    }
+    for (const op of ops) await d.syncQueue.add(op);
+  });
+
+  const back = await d.localTrips.get(id);
+  if (!back || back.deletedAt !== null) throw new Error('내구성 커밋 확인 실패: 여행 되살리기 read-back 불일치');
+  return back;
+}
+
 /** 홈 목록 (tombstone·보관 제외 — deletedAt/status는 filter, M-0005). */
 export async function listTrips(): Promise<LocalTrip[]> {
   const d = db();
