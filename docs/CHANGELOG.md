@@ -4,6 +4,11 @@
 
 ## [Unreleased] — Phase 0~1
 
+### Phase 1 — 초대제 접근 잠금 + 첫 실배포 (2026-07-23)
+- **첫 실배포**: PR #1 병합 → GitHub Pages 배포 성공. 대시보드 설정(journey 스키마 노출·Google OAuth 클라이언트·redirect URL) 완료 후 **2기기 Google 로그인·동기화 실동작 확인**(사용자 검증). RLS 격리 실증(다른 계정 로그인 시 타인 데이터 0건).
+- **초대제 잠금(ADR-0021)**: migration `0002_journey_invite_only.sql` — `journey.allowed_users` + `journey.is_allowed()`(SECURITY DEFINER) + trips 정책에 허용조건 결합. 앱 게이트(`isAllowedUser()`)로 비허용자 자동 로그아웃 안내. 공격검사 `rls_invite_only_trips.sql` **INVITE_ONLY_PASS**, `rls_attack_trips.sql` 갱신 후 **RLS_ATTACK_PASS** 유지.
+- 브랜드명 통일: 문서·주석·에이전트 정의의 제품명 Journey Archive → **Bugeon Journey**(기술 식별자·v0.2 원본 제외).
+
 ### Phase 1 — 동기화 push/pull 구현 (2026-07-22)
 - 인증(`services/auth.ts`): Google OAuth(PKCE) 로그인·로그아웃·세션·상태구독.
 - 동기화(`services/sync.ts`): 대기열 push(멱등 upsert + **정확한 read-back** + LWW 서버시각 반영) + pull 병합(**빈-클라우드 가드**, 교체 아님). 네트워크는 `TripsRemote` 포트 뒤로 격리.

@@ -4,7 +4,14 @@
 
 import { isConfigured, supabase } from '../../services/supabase/client';
 import { createTripLocalFirst, listTrips, pendingSyncCount } from '../../services/trips';
-import { currentUser, signInWithGoogle, signOut, onAuthChange, type SessionUser } from '../../services/auth';
+import {
+  currentUser,
+  signInWithGoogle,
+  signOut,
+  onAuthChange,
+  isAllowedUser,
+  type SessionUser,
+} from '../../services/auth';
 import { runSync } from '../../services/sync';
 import type { LocalTrip } from '../../offline/db';
 
@@ -130,6 +137,19 @@ export function renderHome(mount: HTMLElement): void {
     }
   }
 
+  /**
+   * 초대제 잠금 게이트(ADR-0021): 허용 목록에 없는 사용자는 자동 로그아웃 안내.
+   * DB RLS가 실제 방어이며 이건 UX용. 통과하면 그대로, 아니면 null 반환.
+   */
+  async function gateAccess(u: SessionUser | null): Promise<SessionUser | null> {
+    if (!u) return null;
+    const ok = await isAllowedUser();
+    if (ok) return u;
+    status.textContent = '🔒 이 앱은 초대된 사용자만 사용할 수 있어요. 접근이 필요하면 관리자에게 문의하세요.';
+    await signOut();
+    return null;
+  }
+
   async function refresh(): Promise<void> {
     const [trips, pending] = await Promise.all([listTrips(), pendingSyncCount()]);
     list.innerHTML = '';
@@ -157,9 +177,9 @@ export function renderHome(mount: HTMLElement): void {
 
   // 인증 상태 구독: 로그인되면 동기화 후 갱신.
   unsubscribeAuth = onAuthChange((u) => {
-    user = u;
-    renderAuth();
     void (async () => {
+      user = await gateAccess(u);
+      renderAuth();
       await trySync(user);
       await refresh();
     })();
@@ -170,7 +190,7 @@ export function renderHome(mount: HTMLElement): void {
 
   // 초기값: 현재 세션 확인(구독이 늦게 올 수 있으므로 즉시 1회).
   void (async () => {
-    user = await currentUser();
+    user = await gateAccess(await currentUser());
     renderAuth();
     await refresh();
     await trySync(user);
