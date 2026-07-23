@@ -11,7 +11,7 @@ import { toFeatureCollection, type LocatedPoint } from '../../domain/place/geojs
 
 export interface MapPoint extends LocatedPoint {
   placeName: string;
-  thumbBlob?: Blob;
+  previewBlob?: Blob; // 미리보기 이미지(표시본 ≤1600 — 썸네일보다 선명)
 }
 
 // 기본 지도 스타일(키 불필요, 귀속표시). VITE_MAP_STYLE_URL로 교체 가능(ADR A-006).
@@ -49,8 +49,8 @@ function timeLabel(iso: string): string {
 /** 팝업/목록에 쓰는 순간 카드(DOM 노드 — 문자열 보간 없음). objectUrls에 썸네일 URL 적재. */
 function pointNode(p: MapPoint, objectUrls: string[]): HTMLElement {
   const box = el('div', 'map-pop');
-  if (p.thumbBlob) {
-    const url = URL.createObjectURL(p.thumbBlob);
+  if (p.previewBlob) {
+    const url = URL.createObjectURL(p.previewBlob);
     objectUrls.push(url);
     const img = el('img', 'map-pop-thumb') as HTMLImageElement;
     img.src = url;
@@ -210,4 +210,105 @@ export function openMapView(tripTitle: string, points: MapPoint[]): void {
       degradeToList();
     }
   })();
+}
+
+/**
+ * 지도에서 위치를 골라 좌표를 반환한다(Nominatim에 없는 곳·정확한 지점용).
+ * 사용자가 지도를 탭하면 마커가 놓이고, "이 위치로 지정"으로 확정. 취소·닫기는 null.
+ * WebGL/타일 불가 기기에서는 안내만 표시(장소 검색으로 대체 가능).
+ */
+export function openMapPicker(initial: { lat: number; lng: number } | null): Promise<{ lat: number; lng: number } | null> {
+  return new Promise((resolve) => {
+    const prevFocus = document.activeElement as HTMLElement | null;
+    let picked: { lat: number; lng: number } | null = initial ? { ...initial } : null;
+    let settled = false;
+
+    const overlay = el('div', 'map-overlay');
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', '지도에서 위치 선택');
+    const modal = el('div', 'map-modal');
+    const header = el('div', 'map-header');
+    header.appendChild(el('h2', 'map-title', '🗺 지도에서 위치 선택'));
+    const actions = el('div', 'map-header-actions');
+    const confirmBtn = el('button', 'btn-primary map-pick-confirm', '이 위치로 지정') as HTMLButtonElement;
+    confirmBtn.type = 'button';
+    confirmBtn.disabled = picked === null;
+    const closeBtn = el('button', 'map-close', '✕') as HTMLButtonElement;
+    closeBtn.type = 'button';
+    closeBtn.setAttribute('aria-label', '닫기');
+    actions.append(confirmBtn, closeBtn);
+    header.appendChild(actions);
+    const body = el('div', 'map-body');
+    const hint = el('p', 'map-fallback-note', '지도를 눌러 위치를 지정하세요. 마커를 끌어 미세 조정할 수 있어요.');
+    const mapEl = el('div', 'map-canvas');
+    body.append(hint, mapEl);
+    modal.append(header, body);
+    overlay.appendChild(modal);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let map: any = null;
+    const finish = (result: { lat: number; lng: number } | null): void => {
+      if (settled) return;
+      settled = true;
+      try {
+        map?.remove();
+      } catch {
+        /* 이미 정리됨 */
+      }
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+      if (prevFocus && document.contains(prevFocus)) prevFocus.focus();
+      resolve(result);
+    };
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === 'Escape') finish(null);
+    }
+    closeBtn.addEventListener('click', () => finish(null));
+    confirmBtn.addEventListener('click', () => finish(picked));
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) finish(null);
+    });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(overlay);
+    confirmBtn.focus();
+
+    void (async () => {
+      try {
+        const maplibregl = (await import('maplibre-gl')).default;
+        await import('maplibre-gl/dist/maplibre-gl.css');
+        const styleUrl = import.meta.env.VITE_MAP_STYLE_URL as string | undefined;
+        const center: [number, number] = picked ? [picked.lng, picked.lat] : [127.8, 36.5];
+        map = new maplibregl.Map({
+          container: mapEl,
+          style: styleUrl && styleUrl.length > 0 ? styleUrl : (OSM_STYLE as unknown as string),
+          center,
+          zoom: picked ? 14 : 6,
+          attributionControl: { compact: true },
+        });
+        map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+        let marker: any = null; // eslint-disable-line @typescript-eslint/no-explicit-any
+        const place = (lng: number, lat: number): void => {
+          picked = { lat, lng };
+          confirmBtn.disabled = false;
+          if (marker) marker.setLngLat([lng, lat]);
+          else {
+            marker = new maplibregl.Marker({ color: '#f0836c', draggable: true }).setLngLat([lng, lat]).addTo(map);
+            marker.on('dragend', () => {
+              const p = marker.getLngLat();
+              picked = { lat: p.lat, lng: p.lng };
+            });
+          }
+        };
+        map.on('load', () => {
+          if (picked) place(picked.lng, picked.lat);
+          mapEl.classList.add('is-ready');
+        });
+        map.on('click', (e: { lngLat: { lng: number; lat: number } }) => place(e.lngLat.lng, e.lngLat.lat));
+      } catch {
+        mapEl.classList.add('is-failed');
+        hint.textContent = '이 기기에서는 지도 선택을 쓸 수 없어요. 장소 이름 검색을 이용해 주세요.';
+      }
+    })();
+  });
 }
