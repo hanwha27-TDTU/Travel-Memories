@@ -31,7 +31,7 @@ import {
 } from '../../services/expenses';
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, sumByCurrency, formatTotals } from '../../domain/expense/format';
 import { momentCoord } from '../../domain/place/geojson';
-import { openMapView, type MapPoint } from './mapView';
+import { openMapView, openMapPicker, type MapPoint } from './mapView';
 import { searchPlaces } from '../../services/geocode';
 
 /** 장소 입력 + 🔍 검색(Nominatim) + 결과 선택. 결과 텍스트는 textContent로만(외부 데이터·XSS 방지). */
@@ -53,7 +53,11 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
   const searchBtn = el('button', 'btn-ghost place-search', '🔍 검색') as HTMLButtonElement;
   searchBtn.type = 'button';
   searchBtn.setAttribute('aria-label', '장소 검색(지도)');
-  row.append(input, searchBtn);
+  // 지도에서 직접 위치 지정 — Nominatim에 없는 곳(등록되지 않은 장소)도 좌표로 남길 수 있다.
+  const mapBtn = el('button', 'btn-ghost place-map', '🗺 지도') as HTMLButtonElement;
+  mapBtn.type = 'button';
+  mapBtn.setAttribute('aria-label', '지도에서 위치 지정');
+  row.append(input, searchBtn, mapBtn);
   const results = el('div', 'place-results');
   results.hidden = true;
   // 선택 확인 배지 — 좌표가 지정되면 "위치 지정됨"을 보여 무반응처럼 보이지 않게 한다.
@@ -63,6 +67,9 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
 
   let lat: number | null = initial.lat;
   let lng: number | null = initial.lng;
+  // 좌표를 지도에서 직접 찍었는지 여부. 지도로 찍은 좌표는 이름을 나중에 적어도 유지한다
+  // (사용자가 이름과 위치를 따로 입력하는 흐름). 검색 결과 좌표는 이름과 묶여 있으므로 손편집 시 무효화한다.
+  let mapPicked = false;
   const setPicked = (detail: string | null): void => {
     if (detail === null) {
       picked.hidden = true;
@@ -73,11 +80,18 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
     }
   };
   setPicked(lat !== null && lng !== null ? '' : null); // 기존 좌표가 있으면 배지 표시
-  // 손으로 텍스트를 바꾸면 이전 좌표는 다른 장소일 수 있으니 무효화.
+  // 손으로 텍스트를 바꾸면 이전 검색 좌표는 다른 장소일 수 있으니 무효화한다.
+  // 단, 지도에서 직접 찍은 좌표는 이름과 독립적이므로 유지한다(이름만 갱신).
   input.addEventListener('input', () => {
+    results.hidden = true;
+    if (mapPicked) {
+      // 지도 좌표는 유지 — 배지의 이름만 갱신.
+      const name = input.value.trim();
+      setPicked(name ? name : '지도에서 지정');
+      return;
+    }
     lat = null;
     lng = null;
-    results.hidden = true;
     setPicked(null);
   });
 
@@ -102,6 +116,7 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
               input.value = p.name;
               lat = p.lat;
               lng = p.lng;
+              mapPicked = false; // 검색 좌표는 이름과 묶임
               results.hidden = true;
               setPicked(p.displayName); // 선택 확인 피드백
             });
@@ -123,6 +138,26 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
     }
   });
 
+  // 🗺 지도에서 위치 지정 — 장소 이름은 사용자가 직접 적고, 좌표만 지도로 찍는다.
+  // (등록되지 않은 곳일 수 있으므로 이름은 검색 결과에 의존하지 않는다.)
+  mapBtn.addEventListener('click', () => {
+    mapBtn.disabled = true;
+    void openMapPicker(lat !== null && lng !== null ? { lat, lng } : null)
+      .then((coords) => {
+        if (coords) {
+          lat = coords.lat;
+          lng = coords.lng;
+          mapPicked = true; // 지도 좌표는 이름과 독립 — 이후 이름을 적어도 유지
+          results.hidden = true;
+          const name = input.value.trim();
+          setPicked(name ? name : '지도에서 지정'); // 이름을 안 적었으면 안내만
+        }
+      })
+      .finally(() => {
+        mapBtn.disabled = false;
+      });
+  });
+
   return {
     el: wrap,
     getName: () => input.value,
@@ -131,6 +166,7 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
       input.value = '';
       lat = null;
       lng = null;
+      mapPicked = false;
       results.hidden = true;
       results.innerHTML = '';
       setPicked(null);
@@ -415,7 +451,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
             lng: coord.lng,
             placeName: m.placeName,
           };
-          if (mediaList[0]) point.thumbBlob = mediaList[0].thumbBlob;
+          if (mediaList[0]) point.previewBlob = mediaList[0].displayBlob; // 표시본(선명)
           locatedPoints.push(point);
         }
       }

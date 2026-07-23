@@ -417,6 +417,7 @@
 .place-row { display: flex; gap: var(--space-2); align-items: stretch; }
 .place-input { flex: 1 1 auto; min-width: 0; }
 .place-search { flex: 0 0 auto; white-space: nowrap; }
+.place-map { flex: 0 0 auto; white-space: nowrap; }
 .place-results {
   display: flex; flex-direction: column; gap: 4px;
   border: 1px solid var(--line); border-radius: var(--radius-medium);
@@ -637,6 +638,9 @@
 .map-title { margin: 0; font-family: var(--font-disp); font-size: 1.15rem; color: var(--ink); min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .map-header-actions { display: flex; align-items: center; gap: var(--space-2); flex: 0 0 auto; }
+.map-pick-confirm { flex: 0 0 auto; white-space: nowrap; padding: 8px 14px; font-size: 0.9rem; }
+.map-pick-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
+.map-canvas.is-ready { background: transparent; }
 .map-close {
   width: 36px; height: 36px; display: grid; place-items: center; flex: 0 0 auto;
   border: 1px solid var(--line); border-radius: var(--radius-pill);
