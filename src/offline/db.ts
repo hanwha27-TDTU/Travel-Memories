@@ -33,6 +33,24 @@ export interface LocalMoment extends SyncMeta {
   placeName: string; // 장소명(선택)
 }
 
+// 사진(Media) — 로컬 전용(3a). 원본 Blob은 절대 수정하지 않는다(§0).
+// 클라우드 업로드(압축본·썸네일)는 후속(3b)에서 syncQueue로 추가.
+export interface LocalMedia extends SyncMeta {
+  momentId: string;
+  tripId: string;
+  mime: string;
+  originalBlob: Blob; // 원본 보존(로컬)
+  displayBlob: Blob; // 표시본(≤1600 WebP)
+  thumbBlob: Blob; // 썸네일(≤320 WebP)
+  width: number;
+  height: number;
+  takenAt: string; // EXIF 촬영시각 또는 파일 mtime(ISO)
+  gpsLat: number | null; // EXIF GPS(기본 비공개 — 공유 시 제거)
+  gpsLng: number | null;
+  bytesOriginal: number;
+  bytesDisplay: number;
+}
+
 export interface SyncQueueItem {
   operationId: string;
   entityType: string;
@@ -46,6 +64,7 @@ export interface SyncQueueItem {
 export class JourneyDB extends Dexie {
   localTrips!: Table<LocalTrip, string>;
   localMoments!: Table<LocalMoment, string>;
+  localMedia!: Table<LocalMedia, string>;
   syncQueue!: Table<SyncQueueItem, string>;
 
   constructor() {
@@ -62,6 +81,10 @@ export class JourneyDB extends Dexie {
     // v2: 순간(Moment) 로컬 store 추가(로컬우선; 서버 동기화는 후속).
     this.version(2).stores({
       localMoments: 'id, tripId, occurredAt, updatedAt',
+    });
+    // v3: 사진(Media) 로컬 store. Blob 저장(원본+파생). 대용량이므로 인덱스는 관계키만.
+    this.version(3).stores({
+      localMedia: 'id, momentId, tripId, updatedAt',
     });
   }
 }

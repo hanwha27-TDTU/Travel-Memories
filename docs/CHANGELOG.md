@@ -4,6 +4,13 @@
 
 ## [Unreleased] — Phase 0~1
 
+### Phase 3a — 사진(로컬우선): EXIF 우선·원본 보존·압축본 (2026-07-23)
+- **§0 규율 코드화**: 압축 **전에** EXIF(촬영시각·GPS) 추출(`media/exif.ts`, 외부 라이브러리 없이 최소 JPEG 파서), **원본 Blob은 그대로 보관**(`media/compress.ts`는 원본을 읽기만).
+- **파생 생성**: WebP **표시본(≤1600)** + **썸네일(≤320)** 생성 후 로컬 저장(Dexie v3 `localMedia`, 원본+파생 Blob). `services/media.ts` 내구성 커밋+read-back.
+- **UI**: 순간 기록 시 사진 첨부, 타임라인 카드 썸네일, 탭하면 전체보기 오버레이. 사진 통계.
+- 검증: EXIF 파서 유닛(크래프트 바이트로 DateTimeOriginal→ISO), 라이브 렌더(Playwright, canvas 생성 JPEG 주입)로 썸네일·통계·뷰어·**콘솔 에러 0**. **버그 1건 발견·수정**: `.edit-panel` 클래스 display가 `[hidden]`을 이기던 문제 → `.edit-panel[hidden]{display:none}`.
+- 범위: **사진 클라우드 업로드(압축본·썸네일, GPS 제거)는 3b(후속)**. 현재 사진은 이 기기 로컬.
+
 ### Phase 2 — 여행 날짜·상태·제목 편집 (2026-07-23)
 - 상세 화면 **편집 패널**(제목·시작/종료일·상태): `updateTripLocalFirst`(내구성 커밋+version 증가+read-back+update 대기열), 저장 시 재렌더+동기화 트리거.
 - 시작일 설정 시 타임라인 **Day 번호 자동 계산**, 상태 배지 반영.

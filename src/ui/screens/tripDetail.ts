@@ -4,12 +4,13 @@
 import { el } from '../dom';
 import { getTrip, updateTripLocalFirst } from '../../services/trips';
 import { createMomentLocalFirst, listMoments } from '../../services/moments';
+import { addPhotoToMoment, listMediaByTrip } from '../../services/media';
 import { groupMomentsByDay, type DayGroup } from '../../domain/moment/timeline';
 import { supabase } from '../../services/supabase/client';
 import { currentUser } from '../../services/auth';
 import { runSync } from '../../services/sync';
 import type { Route } from '../../app/router';
-import type { LocalMoment, LocalTrip } from '../../offline/db';
+import type { LocalMoment, LocalTrip, LocalMedia } from '../../offline/db';
 
 type Navigate = (route: Route, param?: string) => void;
 
@@ -148,10 +149,24 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     place.maxLength = 80;
     place.setAttribute('aria-label', '장소(선택)');
 
+    // 사진 선택(원본은 기기에 보관·압축본은 파생, §0). label 안에 input을 넣어 접근성 확보.
+    const photoInput = el('input', 'moment-photo-input') as HTMLInputElement;
+    photoInput.type = 'file';
+    photoInput.accept = 'image/*';
+    photoInput.multiple = true;
+    photoInput.setAttribute('aria-label', '사진 추가');
+    const photoLabel = el('label', 'moment-photo-label');
+    const photoCount = el('span', 'moment-photo-count', '');
+    photoLabel.append(document.createTextNode('📷 사진 추가 '), photoCount, photoInput);
+    photoInput.addEventListener('change', () => {
+      const n = photoInput.files?.length ?? 0;
+      photoCount.textContent = n > 0 ? `· ${n}장 선택됨` : '';
+    });
+
     const save = el('button', 'btn-primary', '순간 저장') as HTMLButtonElement;
     save.type = 'submit';
 
-    form.append(input, emoRow, place, save);
+    form.append(input, emoRow, place, photoLabel, save);
     body.appendChild(form);
 
     const note = el('p', 'sync-note', '');
@@ -161,19 +176,33 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const timeline = el('div', 'timeline-wrap');
     body.appendChild(timeline);
 
+    // 썸네일 objectURL 관리(재렌더 시 이전 URL 회수).
+    let objectUrls: string[] = [];
+    function resetUrls(): void {
+      for (const u of objectUrls) URL.revokeObjectURL(u);
+      objectUrls = [];
+    }
+
     async function refresh(): Promise<void> {
-      const moments = await listMoments(trip!.id);
-      renderTimeline(moments);
-      const startArg = trip!.startDate || undefined;
-      const groups = groupMomentsByDay(moments, startArg);
+      const [moments, media] = await Promise.all([listMoments(trip!.id), listMediaByTrip(trip!.id)]);
+      const byMoment = new Map<string, LocalMedia[]>();
+      for (const md of media) {
+        const arr = byMoment.get(md.momentId);
+        if (arr) arr.push(md);
+        else byMoment.set(md.momentId, [md]);
+      }
+      renderTimeline(moments, byMoment);
+      const groups = groupMomentsByDay(moments, trip!.startDate || undefined);
       statRow.innerHTML = '';
       statRow.append(
         stat(String(moments.length), '순간'),
         stat(String(groups.length), '일'),
+        stat(String(media.length), '사진'),
       );
     }
 
-    function renderTimeline(moments: LocalMoment[]): void {
+    function renderTimeline(moments: LocalMoment[], byMoment: Map<string, LocalMedia[]>): void {
+      resetUrls();
       timeline.innerHTML = '';
       if (moments.length === 0) {
         const empty = el('div', 'empty-state');
@@ -183,33 +212,98 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         timeline.appendChild(empty);
         return;
       }
-      const startArg = trip!.startDate || undefined;
-      for (const g of groupMomentsByDay(moments, startArg)) {
+      for (const g of groupMomentsByDay(moments, trip!.startDate || undefined)) {
         timeline.appendChild(el('h3', 'day-head', dayHeaderLabel(g)));
         const items = el('div', 'timeline');
-        for (const m of g.items) items.appendChild(momentCard(m));
+        for (const m of g.items) items.appendChild(buildMomentCard(m, byMoment.get(m.id) ?? []));
         timeline.appendChild(items);
       }
+    }
+
+    function buildMomentCard(m: LocalMoment, mediaList: LocalMedia[]): HTMLElement {
+      const item = el('div', 'tl-item');
+      item.appendChild(el('span', 'tl-node'));
+      const t = timeLabel(m.occurredAt);
+      if (t) item.appendChild(el('div', 'tl-time', t));
+      const card = el('article', 'moment-card');
+      const head = el('div', 'moment-head');
+      head.appendChild(el('p', 'moment-say', m.title));
+      if (m.emotion) head.appendChild(el('span', 'moment-emo', m.emotion));
+      card.appendChild(head);
+      if (m.placeName) {
+        const chips = el('div', 'chips');
+        chips.appendChild(el('span', 'chip gps', `📍 ${m.placeName}`));
+        card.appendChild(chips);
+      }
+      if (mediaList.length) {
+        const grid = el('div', 'photo-thumbs');
+        for (const md of mediaList) {
+          const url = URL.createObjectURL(md.thumbBlob);
+          objectUrls.push(url);
+          const img = el('img', 'photo-thumb') as HTMLImageElement;
+          img.src = url;
+          img.alt = '여행 사진';
+          img.loading = 'lazy';
+          img.addEventListener('click', () => openViewer(md));
+          grid.appendChild(img);
+        }
+        card.appendChild(grid);
+      }
+      item.appendChild(card);
+      return item;
+    }
+
+    function openViewer(md: LocalMedia): void {
+      const url = URL.createObjectURL(md.displayBlob);
+      const overlay = el('div', 'photo-viewer');
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-label', '사진 보기');
+      const img = el('img') as HTMLImageElement;
+      img.src = url;
+      img.alt = '여행 사진';
+      overlay.appendChild(img);
+      const close = () => {
+        overlay.remove();
+        URL.revokeObjectURL(url);
+      };
+      overlay.addEventListener('click', close);
+      document.body.appendChild(overlay);
     }
 
     form.addEventListener('submit', (ev) => {
       ev.preventDefault();
       save.disabled = true;
+      const files = photoInput.files ? Array.from(photoInput.files) : [];
       void (async () => {
         try {
-          await createMomentLocalFirst({
+          const moment = await createMomentLocalFirst({
             tripId: trip!.id,
             title: input.value,
             emotion: picked,
             placeName: place.value,
           });
+          if (files.length) {
+            let done = 0;
+            note.textContent = `사진 처리 중… (0/${files.length})`;
+            for (const f of files) {
+              try {
+                await addPhotoToMoment(f, { momentId: moment.id, tripId: trip!.id });
+              } catch {
+                /* 개별 사진 실패는 건너뜀(순간 자체는 저장됨) */
+              }
+              done += 1;
+              note.textContent = `사진 처리 중… (${done}/${files.length})`;
+            }
+          }
           input.value = '';
           place.value = '';
           picked = '';
+          photoInput.value = '';
+          photoCount.textContent = '';
           for (const btn of emoButtons.values()) btn.setAttribute('aria-pressed', 'false');
           note.textContent = '✅ 저장됨';
           await refresh();
-          await trySync(); // 로그인 시 서버로 전송
+          await trySync(); // 로그인 시 서버로 전송(순간). 사진은 후속(3b).
           await refresh();
         } catch (err) {
           note.textContent = `저장 실패: ${err instanceof Error ? err.message : String(err)}`;
@@ -302,21 +396,3 @@ function stat(value: string, label: string): HTMLElement {
   return s;
 }
 
-function momentCard(m: LocalMoment): HTMLElement {
-  const item = el('div', 'tl-item');
-  item.appendChild(el('span', 'tl-node'));
-  const t = timeLabel(m.occurredAt);
-  if (t) item.appendChild(el('div', 'tl-time', t));
-  const card = el('article', 'moment-card');
-  const head = el('div', 'moment-head');
-  head.appendChild(el('p', 'moment-say', m.title));
-  if (m.emotion) head.appendChild(el('span', 'moment-emo', m.emotion));
-  card.appendChild(head);
-  if (m.placeName) {
-    const chips = el('div', 'chips');
-    chips.appendChild(el('span', 'chip gps', `📍 ${m.placeName}`));
-    card.appendChild(chips);
-  }
-  item.appendChild(card);
-  return item;
-}
