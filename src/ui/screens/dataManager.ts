@@ -4,7 +4,7 @@
 
 import { el } from '../dom';
 import { openGuide } from './guide';
-import { exportBackup, importBackup } from '../../services/backup';
+import { exportBackup, exportBackupZip, importBackupAuto } from '../../services/backup';
 import { listDeletedTrips, restoreTripFromTrash, purgeTripPermanently } from '../../services/trips';
 import { computeStorageUsage, formatBytes } from '../../services/storage';
 
@@ -102,16 +102,19 @@ function backupPanel(): HTMLElement {
   );
   const status = el('p', 'dm-status');
   status.setAttribute('role', 'status');
-  const btn = el('button', 'btn-primary dm-wide', '💾 백업 파일 내보내기') as HTMLButtonElement;
-  btn.type = 'button';
-  btn.addEventListener('click', () => {
+
+  const runExport = (
+    btn: HTMLButtonElement,
+    make: () => Promise<{ blob: Blob; stats: { trips: number; moments: number; media: number; expenses: number } }>,
+    filename: (stamp: string) => string,
+  ) => {
     btn.disabled = true;
     status.textContent = '백업 만드는 중…';
     void (async () => {
       try {
-        const { blob, stats } = await exportBackup(true);
+        const { blob, stats } = await make();
         const stamp = fmtDate(new Date().toISOString()).replace(/\./g, '');
-        downloadBlob(blob, `bugeon-journey-backup-${stamp}.json`);
+        downloadBlob(blob, filename(stamp));
         status.textContent = `✅ 내보냄 · 여행 ${stats.trips} · 순간 ${stats.moments} · 사진 ${stats.media} · 비용 ${stats.expenses} · ${fmtBytes(blob.size)}`;
       } catch (err) {
         status.textContent = `내보내기 실패: ${err instanceof Error ? err.message : String(err)}`;
@@ -119,8 +122,27 @@ function backupPanel(): HTMLElement {
         btn.disabled = false;
       }
     })();
-  });
-  box.append(btn, status, el('p', 'guide-note', '사진을 포함하므로 사진이 많으면 파일이 커질 수 있어요(수 MB~). 안전한 곳에 보관하세요.'));
+  };
+
+  const btnZip = el('button', 'btn-primary dm-wide', '🗂️ 여행별 폴더 백업 (ZIP)') as HTMLButtonElement;
+  btnZip.type = 'button';
+  btnZip.addEventListener('click', () =>
+    runExport(btnZip, () => exportBackupZip(true), (s) => `bugeon-journey-${s}.zip`),
+  );
+
+  const btnJson = el('button', 'btn-ghost dm-wide', '💾 단일 파일 백업 (JSON)') as HTMLButtonElement;
+  btnJson.type = 'button';
+  btnJson.addEventListener('click', () =>
+    runExport(btnJson, () => exportBackup(true), (s) => `bugeon-journey-backup-${s}.json`),
+  );
+
+  box.append(
+    el('p', 'guide-p', 'ZIP은 여행마다 폴더로 나뉘고 사진이 실제 이미지 파일로 들어가 탐색기에서 바로 볼 수 있어요(원본 포함). JSON은 전 여행을 파일 하나에 담는 가장 단순한 통짜 백업입니다. 둘 다 되살릴 수 있어요.'),
+    btnZip,
+    btnJson,
+    status,
+    el('p', 'guide-note', '사진(원본 포함)을 담으므로 파일이 커질 수 있어요(수십 MB~). 안전한 곳에 보관하세요.'),
+  );
   return box;
 }
 
@@ -129,13 +151,13 @@ function restorePanel(onChanged: () => void): HTMLElement {
   const box = el('div', 'guide-detail-body');
   box.append(
     el('h3', 'guide-h', '백업 파일에서 복원'),
-    el('p', 'guide-p', '내보낸 JSON 백업을 불러와 병합합니다. 덮어쓰기가 아니라 병합이에요 — 최신 기록이 우선(LWW)이고, 백업이 비어 있으면 현재 데이터를 지우지 않습니다.'),
+    el('p', 'guide-p', '내보낸 백업(ZIP 또는 JSON)을 불러와 병합합니다. 형식은 자동으로 알아봐요. 덮어쓰기가 아니라 병합이에요 — 최신 기록이 우선(LWW)이고, 백업이 비어 있으면 현재 데이터를 지우지 않습니다.'),
   );
   const status = el('p', 'dm-status');
   status.setAttribute('role', 'status');
   const fileInput = el('input', 'dm-file') as HTMLInputElement;
   fileInput.type = 'file';
-  fileInput.accept = 'application/json,.json';
+  fileInput.accept = 'application/zip,.zip,application/json,.json';
   const label = el('label', 'btn-primary dm-wide');
   label.append(document.createTextNode('📥 백업 파일 선택'), fileInput);
   fileInput.addEventListener('change', () => {
@@ -144,8 +166,8 @@ function restorePanel(onChanged: () => void): HTMLElement {
     status.textContent = '복원 중…';
     void (async () => {
       try {
-        const text = await file.text();
-        const r = await importBackup(text);
+        const buf = await file.arrayBuffer();
+        const r = await importBackupAuto(buf);
         if (r.skippedEmptyGuard) {
           status.textContent = '⚠️ 백업이 비어 있어 건너뛰었어요(현재 데이터 보존).';
         } else {
