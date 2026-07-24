@@ -9,6 +9,7 @@ const gates = [
   { name: 'check-csp', cmd: 'node scripts/check-csp.mjs' },
   { name: 'check-base-consistency', cmd: 'node scripts/check-base-consistency.mjs' },
   { name: 'check-schema-parity', cmd: 'node scripts/check-schema-parity.mjs' },
+  { name: 'check-backup-coverage', cmd: 'node scripts/check-backup-coverage.mjs' },
   { name: 'unit-tests', cmd: 'npm run -s test' },
 ];
 
