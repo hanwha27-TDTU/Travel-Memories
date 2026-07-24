@@ -727,6 +727,12 @@
 }
 .dm-file { display: none; }
 .dm-status { margin: var(--space-2) 0 0; font-size: 0.84rem; color: var(--ink-soft); line-height: 1.5; }
+.dm-pass {
+  width: 100%; min-height: 42px; margin-top: var(--space-2); box-sizing: border-box;
+  padding: 0 var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-medium);
+  background: var(--bg); color: var(--ink); font-size: 0.9rem;
+}
+.dm-pass::placeholder { color: var(--ink-soft); }
 
 /* 저장 용량 요약(사진/텍스트) */
 .dm-usage {

@@ -5,15 +5,21 @@
 //  1) 단일 JSON — 전 여행을 파일 하나에(사진 base64 내장). 조각날 일 없는 가장 안전한 통짜 복원본.
 //  2) 여행별 폴더 ZIP — ZIP 안에 여행마다 하위폴더 + 사진을 실제 이미지 파일로. 탐색기에서 바로 보기·개별 복원.
 //
-// 규율(SYNC_PROTOCOL 재사용, 손 병합 금지 — 두 형식이 공통 collect/merge 코어를 공유):
+// 층 분리(복원 드릴 검증 가능하게):
+//  - db 접근층: exportCollectRows(읽기) / importMergeRows(병합) — 유일하게 Dexie를 만진다.
+//  - 순수 직렬화층: serializeJson/deserializeJson, serializeZip/deserializeZip — db 없이 바이트↔행.
+//    → 순수층이라 export→import 왕복 파리티를 실기기 없이 유닛으로 드릴한다(tests/unit/backupRoundtrip).
+//  - 선택적 암호화(backupCrypto): 암호구절이 있으면 바이트 전체를 AES-GCM 봉투로 감싼다.
+//
+// 규율(SYNC_PROTOCOL 재사용, 손 병합 금지):
 //  - 복원은 "교체"가 아니라 "병합". 각 행은 mergeDecision(LWW+tombstone)으로만 반영한다.
 //  - 빈-데이터 가드: 백업이 비었는데 로컬에 활성 데이터가 있으면 로컬을 지우지 않는다.
-//  - 사진 원본은 읽기만 하고 수정하지 않는다(§0).
-//  - 고아 행(부모 여행이 없는 순간/사진/비용)도 유실 없이 담는다(완전성).
+//  - 사진 원본은 읽기만 하고 수정하지 않는다(§0). 고아 행(부모 없는 순간/사진/비용)도 유실 없이 담는다.
 
 import { db, type LocalTrip, type LocalMoment, type LocalMedia, type LocalExpense } from '../offline/db';
 import { mergeDecision, isEmptyCloudAnomaly } from '../sync/merge';
 import { zipStore, unzip, looksLikeZip, type ZipEntry } from './zip';
+import { encryptBytes, decryptBytes, isEncryptedEnvelope } from './backupCrypto';
 
 export const BACKUP_APP_TAG = 'bugeon-journey';
 export const BACKUP_VERSION = 1;
@@ -41,7 +47,11 @@ export interface ImportResult {
   skippedEmptyGuard: boolean;
 }
 
-// ── 공통 코어: 모든 사용자 데이터 테이블을 여기서만 읽고(export) / 여기서만 병합한다(import) ──
+function statsOf(rows: CollectedRows): BackupStats {
+  return { trips: rows.trips.length, moments: rows.moments.length, media: rows.media.length, expenses: rows.expenses.length };
+}
+
+// ═══════════════ db 접근층: 모든 사용자 데이터 테이블을 여기서만 읽고/병합한다 ═══════════════
 // 새 형식(JSON·ZIP)은 반드시 이 둘을 거치므로 어떤 형식도 테이블을 빠뜨릴 수 없다.
 // check-backup-coverage 게이트가 export-role/import-role 함수 양쪽에서 전 테이블 참조를 강제한다.
 
@@ -64,7 +74,6 @@ export async function exportCollectRows(): Promise<CollectedRows> {
 export async function importMergeRows(rows: CollectedRows): Promise<ImportResult> {
   const d = db();
 
-  // 빈-데이터 가드: 백업이 사실상 비었는데 로컬에 활성 데이터가 있으면 반영하지 않는다.
   const backupTotal = rows.trips.length + rows.moments.length;
   const [localTrips, localMoments] = await Promise.all([d.localTrips.toArray(), d.localMoments.toArray()]);
   const localActive =
@@ -107,14 +116,21 @@ export async function importMergeRows(rows: CollectedRows): Promise<ImportResult
   return { trips: tc, moments: mc, media: mdc, expenses: ec, skippedEmptyGuard: false };
 }
 
-// ── blob ↔ base64 (JSON 형식용) ──
-function blobToB64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result as string);
-    r.onerror = () => reject(r.error ?? new Error('사진 읽기 실패'));
-    r.readAsDataURL(blob);
-  });
+// ═══════════════ 순수 직렬화층: base64 · blob 유틸(FileReader 미사용 — Node/브라우저 공통) ═══════════════
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const mime = blob.type || 'application/octet-stream';
+  return `data:${mime};base64,${bytesToBase64(bytes)}`;
 }
 
 function b64ToBlob(dataUrl: string): Blob {
@@ -129,7 +145,11 @@ function b64ToBlob(dataUrl: string): Blob {
   return new Blob([arr], { type: mime });
 }
 
-// ═══════════════════════ 형식 1: 단일 JSON ═══════════════════════
+async function blobBytes(blob: Blob): Promise<Uint8Array<ArrayBuffer>> {
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+// ═══════════════════════ 형식 1: 단일 JSON (순수 직렬화) ═══════════════════════
 
 type MediaExport = Omit<LocalMedia, 'originalBlob' | 'displayBlob' | 'thumbBlob'> & {
   originalB64: string;
@@ -148,42 +168,29 @@ export interface BackupFile {
   expenses: LocalExpense[];
 }
 
-/** 전체 백업을 단일 JSON Blob으로. 사진 3종을 base64로 내장해 완전 복원 가능. */
-export async function exportBackup(includePhotos = true): Promise<{ blob: Blob; stats: BackupStats }> {
-  const rows = await exportCollectRows();
-
+/** 순수: CollectedRows → JSON 문자열(사진 base64 내장). db 접근 없음(왕복 드릴 가능). */
+export async function serializeJson(rows: CollectedRows): Promise<string> {
   const mediaOut: MediaExport[] = [];
-  if (includePhotos) {
-    for (const m of rows.media) {
-      const [o, di, t] = await Promise.all([
-        blobToB64(m.originalBlob),
-        blobToB64(m.displayBlob),
-        blobToB64(m.thumbBlob),
-      ]);
-      const { originalBlob: _o, displayBlob: _d, thumbBlob: _t, ...rest } = m;
-      mediaOut.push({ ...rest, originalB64: o, displayB64: di, thumbB64: t });
-    }
+  for (const m of rows.media) {
+    const [o, di, t] = await Promise.all([blobToDataUrl(m.originalBlob), blobToDataUrl(m.displayBlob), blobToDataUrl(m.thumbBlob)]);
+    const { originalBlob: _o, displayBlob: _d, thumbBlob: _t, ...rest } = m;
+    mediaOut.push({ ...rest, originalB64: o, displayB64: di, thumbB64: t });
   }
-
   const file: BackupFile = {
     app: BACKUP_APP_TAG,
     backupVersion: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
-    includePhotos,
+    includePhotos: true,
     trips: rows.trips,
     moments: rows.moments,
     media: mediaOut,
     expenses: rows.expenses,
   };
-  const blob = new Blob([JSON.stringify(file)], { type: 'application/json' });
-  return {
-    blob,
-    stats: { trips: rows.trips.length, moments: rows.moments.length, media: mediaOut.length, expenses: rows.expenses.length },
-  };
+  return JSON.stringify(file);
 }
 
-/** 단일 JSON 백업을 병합 복원. 미디어 blob을 base64에서 복원한 뒤 공통 코어로 병합. */
-export async function importBackup(text: string): Promise<ImportResult> {
+/** 순수: JSON 문자열 → CollectedRows(미디어 blob 복원). db 접근 없음. */
+export function deserializeJson(text: string): CollectedRows {
   let parsed: BackupFile;
   try {
     parsed = JSON.parse(text) as BackupFile;
@@ -193,32 +200,24 @@ export async function importBackup(text: string): Promise<ImportResult> {
   if (!parsed || parsed.app !== BACKUP_APP_TAG || !Array.isArray(parsed.trips)) {
     throw new Error('이 앱의 백업 파일이 아닙니다.');
   }
-
   const mediaExport = Array.isArray(parsed.media) ? parsed.media : [];
   const media: LocalMedia[] = mediaExport.map((me) => {
     const { originalB64, displayB64, thumbB64, ...rest } = me;
-    return {
-      ...rest,
-      originalBlob: b64ToBlob(originalB64),
-      displayBlob: b64ToBlob(displayB64),
-      thumbBlob: b64ToBlob(thumbB64),
-    };
+    return { ...rest, originalBlob: b64ToBlob(originalB64), displayBlob: b64ToBlob(displayB64), thumbBlob: b64ToBlob(thumbB64) };
   });
-
-  return importMergeRows({
+  return {
     trips: parsed.trips,
     moments: Array.isArray(parsed.moments) ? parsed.moments : [],
     media,
     expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
-  });
+  };
 }
 
-// ═══════════════════════ 형식 2: 여행별 폴더 ZIP ═══════════════════════
+// ═══════════════════════ 형식 2: 여행별 폴더 ZIP (순수 직렬화) ═══════════════════════
 
 const ZIP_FORMAT = 'zip-per-trip-v1';
 const ORPHAN_FOLDER = '_orphans';
 
-/** 미디어 메타(blob 제외) + ZIP 내 상대 파일 경로. trip.json/orphans.json에 담긴다. */
 type MediaMetaEntry = Omit<LocalMedia, 'originalBlob' | 'displayBlob' | 'thumbBlob'> & {
   displayFile: string;
   thumbFile: string;
@@ -226,7 +225,7 @@ type MediaMetaEntry = Omit<LocalMedia, 'originalBlob' | 'displayBlob' | 'thumbBl
 };
 
 interface TripBundle {
-  trip: LocalTrip | null; // 고아 묶음은 null
+  trip: LocalTrip | null;
   moments: LocalMoment[];
   media: MediaMetaEntry[];
   expenses: LocalExpense[];
@@ -241,12 +240,11 @@ interface ZipManifest {
   folders: string[];
 }
 
-/** 파일시스템 안전한 폴더명: 금지문자 제거·공백 압축 + 짧은 id 접미(중복 제목 충돌 방지). */
 function tripFolderName(trip: LocalTrip): string {
   const base = (trip.title || '여행')
-    .replace(/[\/\\:*?"<>| -]/g, '') // FS 금지문자·제어문자
+    .replace(/[\/\\:*?"<>| -]/g, '')
     .replace(/\s+/g, '_')
-    .replace(/\.+$/, '') // 뒤 점 제거(Windows)
+    .replace(/\.+$/, '')
     .slice(0, 60)
     .trim();
   const suffix = trip.id.replace(/-/g, '').slice(0, 8);
@@ -261,26 +259,16 @@ function extForMime(mime: string): string {
   return 'bin';
 }
 
-async function blobBytes(blob: Blob): Promise<Uint8Array<ArrayBuffer>> {
-  return new Uint8Array(await blob.arrayBuffer());
-}
-
-/**
- * 여행별 폴더 ZIP 생성. 각 여행 폴더에 trip.json + photos/ (실제 이미지 파일).
- * includeOriginals=true면 원본 사진도 photos/<id>.orig.<ext>로 담아 완전 복구.
- */
-export async function exportBackupZip(includeOriginals = true): Promise<{ blob: Blob; stats: BackupStats }> {
-  const rows = await exportCollectRows();
-
+/** 순수: CollectedRows → ZIP Blob(여행 폴더 + trip.json + photos/ 실제 파일). db 접근 없음. */
+export async function serializeZip(rows: CollectedRows, includeOriginals = true): Promise<Blob> {
   const tripById = new Map<string, LocalTrip>(rows.trips.map((t) => [t.id, t]));
-  const folderOf = new Map<string, string>(); // tripId → folder
+  const folderOf = new Map<string, string>();
   for (const t of rows.trips) folderOf.set(t.id, tripFolderName(t));
 
   const entries: ZipEntry[] = [];
-  // tripId(또는 ORPHAN) → 묶음 누적
   const bundles = new Map<string, TripBundle>();
-  const bundleFor = (tripId: string | null): { key: string; folder: string; bundle: TripBundle } => {
-    const known = tripId && tripById.has(tripId);
+  const bundleFor = (tripId: string | null): { folder: string; bundle: TripBundle } => {
+    const known = tripId !== null && tripById.has(tripId);
     const key = known ? tripId! : ORPHAN_FOLDER;
     const folder = known ? folderOf.get(tripId!)! : ORPHAN_FOLDER;
     let bundle = bundles.get(key);
@@ -288,12 +276,10 @@ export async function exportBackupZip(includeOriginals = true): Promise<{ blob: 
       bundle = { trip: known ? tripById.get(tripId!)! : null, moments: [], media: [], expenses: [] };
       bundles.set(key, bundle);
     }
-    return { key, folder, bundle };
+    return { folder, bundle };
   };
 
-  // 여행 폴더 먼저 등록(빈 여행도 폴더가 나오도록)
   for (const t of rows.trips) bundleFor(t.id);
-
   for (const m of rows.moments) bundleFor(m.tripId ?? null).bundle.moments.push(m);
   for (const ex of rows.expenses) bundleFor(ex.tripId ?? null).bundle.expenses.push(ex);
 
@@ -311,7 +297,6 @@ export async function exportBackupZip(includeOriginals = true): Promise<{ blob: 
     bundle.media.push({ ...rest, displayFile, thumbFile, originalFile });
   }
 
-  // 각 묶음의 trip.json / orphans.json 기록
   const folders: string[] = [];
   const enc = new TextEncoder();
   for (const [key, bundle] of bundles) {
@@ -340,15 +325,11 @@ export async function exportBackupZip(includeOriginals = true): Promise<{ blob: 
   };
   entries.push({ name: 'manifest.json', data: enc.encode(JSON.stringify(manifest)) });
 
-  const blob = zipStore(entries);
-  return {
-    blob,
-    stats: { trips: rows.trips.length, moments: rows.moments.length, media: rows.media.length, expenses: rows.expenses.length },
-  };
+  return zipStore(entries);
 }
 
-/** 여행별 폴더 ZIP을 병합 복원. 각 폴더의 trip.json + 사진 파일에서 행·blob 재구성 후 공통 코어로 병합. */
-export async function importBackupZip(buf: ArrayBuffer): Promise<ImportResult> {
+/** 순수: ZIP → CollectedRows(사진 파일에서 blob 재구성). db 접근 없음. */
+export function deserializeZip(buf: ArrayBuffer): CollectedRows {
   const files = unzip(buf);
   const byName = new Map<string, Uint8Array<ArrayBuffer>>(files.map((f) => [f.name, f.data]));
 
@@ -368,7 +349,6 @@ export async function importBackupZip(buf: ArrayBuffer): Promise<ImportResult> {
   const media: LocalMedia[] = [];
   const expenses: LocalExpense[] = [];
 
-  // trip.json / orphans.json 전부 순회(폴더명 변경돼도 이름 규칙으로 탐지).
   for (const f of files) {
     const isTrip = f.name.endsWith('/trip.json');
     const isOrphan = f.name === `${ORPHAN_FOLDER}/orphans.json`;
@@ -390,20 +370,68 @@ export async function importBackupZip(buf: ArrayBuffer): Promise<ImportResult> {
       const { displayFile, thumbFile, originalFile, ...rest } = meta;
       const displayData = byName.get(`${folder}/${displayFile}`);
       const thumbData = byName.get(`${folder}/${thumbFile}`);
-      if (!displayData || !thumbData) continue; // 표시본·썸네일 없으면 이 사진은 건너뜀(부분 손상 방어)
+      if (!displayData || !thumbData) continue;
       const displayBlob = new Blob([displayData], { type: 'image/webp' });
       const thumbBlob = new Blob([thumbData], { type: 'image/webp' });
       const origData = originalFile ? byName.get(`${folder}/${originalFile}`) : undefined;
-      const originalBlob = origData ? new Blob([origData], { type: rest.mime }) : displayBlob; // 원본 없으면 표시본 폴백
+      const originalBlob = origData ? new Blob([origData], { type: rest.mime }) : displayBlob;
       media.push({ ...rest, originalBlob, displayBlob, thumbBlob });
     }
   }
-
-  return importMergeRows({ trips, moments, media, expenses });
+  return { trips, moments, media, expenses };
 }
 
-/** 파일 바이트로 형식을 자동 감지해 복원(ZIP이면 폴더 백업, 아니면 JSON). */
-export async function importBackupAuto(buf: ArrayBuffer): Promise<ImportResult> {
-  if (looksLikeZip(new Uint8Array(buf.slice(0, 4)))) return importBackupZip(buf);
-  return importBackup(new TextDecoder().decode(buf));
+// ═══════════════════════ 공개 API: db + 직렬화 + (선택)암호화 결합 ═══════════════════════
+
+/** 단일 JSON 백업. passphrase가 있으면 AES-GCM 봉투로 암호화. */
+export async function exportBackup(_includePhotos = true, passphrase?: string): Promise<{ blob: Blob; stats: BackupStats }> {
+  const rows = await exportCollectRows();
+  const json = await serializeJson(rows);
+  let blob: Blob;
+  if (passphrase) {
+    const enc = await encryptBytes(new TextEncoder().encode(json), passphrase);
+    blob = new Blob([enc], { type: 'application/octet-stream' });
+  } else {
+    blob = new Blob([json], { type: 'application/json' });
+  }
+  return { blob, stats: statsOf(rows) };
+}
+
+/** 여행별 폴더 ZIP 백업. passphrase가 있으면 ZIP 바이트 전체를 AES-GCM 봉투로 암호화. */
+export async function exportBackupZip(includeOriginals = true, passphrase?: string): Promise<{ blob: Blob; stats: BackupStats }> {
+  const rows = await exportCollectRows();
+  const zipBlob = await serializeZip(rows, includeOriginals);
+  let blob: Blob = zipBlob;
+  if (passphrase) {
+    const enc = await encryptBytes(await blobBytes(zipBlob), passphrase);
+    blob = new Blob([enc], { type: 'application/octet-stream' });
+  }
+  return { blob, stats: statsOf(rows) };
+}
+
+export async function importBackup(text: string): Promise<ImportResult> {
+  return importMergeRows(deserializeJson(text));
+}
+
+export async function importBackupZip(buf: ArrayBuffer): Promise<ImportResult> {
+  return importMergeRows(deserializeZip(buf));
+}
+
+/**
+ * 파일 바이트로 형식을 자동 감지해 복원. 순서: 암호화 봉투 → (복호) → ZIP(PK) → JSON.
+ * 암호화 봉투인데 passphrase가 없으면 needsPassphrase로 UI에 알린다(복원 안 함).
+ */
+export async function importBackupAuto(
+  buf: ArrayBuffer,
+  passphrase?: string,
+): Promise<ImportResult & { needsPassphrase?: boolean }> {
+  let bytes = new Uint8Array(buf);
+  if (isEncryptedEnvelope(bytes)) {
+    if (!passphrase) return { trips: 0, moments: 0, media: 0, expenses: 0, skippedEmptyGuard: false, needsPassphrase: true };
+    const plain = await decryptBytes(bytes, passphrase); // 실패 시 throw(암호 틀림)
+    bytes = plain;
+  }
+  const view = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  if (looksLikeZip(bytes.subarray(0, 4))) return importBackupZip(view);
+  return importBackup(new TextDecoder().decode(bytes));
 }

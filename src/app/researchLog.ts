@@ -184,4 +184,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '브라우저는 일반 다운로드로 실제 OS 폴더를 못 만든다(폴더쓰기 API는 크롬 전용·iOS 불가) → 이식성 있는 정답은 ZIP 안 하위폴더. 사진을 base64 대신 실제 이미지 파일로 풀면 탐색기에서 바로 보기·개별 복원 가능. 라이브러리 없이 바닐라 store-ZIP으로 구현 제안. 기존 단일 JSON은 유지(가장 안전한 통짜 복원본).',
     decision: 'services/zip.ts(무압축 store ZIP 리더/라이터+CRC32, 의존성 0) + backup.ts를 공통 코어(exportCollectRows/importMergeRows)로 리팩터해 JSON·ZIP 두 형식이 같은 수집·병합을 공유. exportBackupZip(여행폴더+trip.json+photos/ 실제파일, 원본 포함, 고아는 _orphans/로 유실 방지)·importBackupZip·importBackupAuto(매직바이트 감지). check-backup-coverage 게이트를 역할기반(export-role/import-role 함수 전 테이블 참조 강제)으로 강화 — 형식이 늘어도 완전성 보증, 비공허(collector에서 localMedia 제거 시 RED). 검증: zip 유닛 5(CRC 벡터·왕복·한글폴더·50엔트리·손상), 표준 unzip -t "No errors"(외부도구 상호운용·CRC 무결성), harness 8게이트·build 그린. 데이터 안전 불변식(병합·빈가드·tombstone) 그대로.',
   },
+  {
+    seq: 23,
+    date: '2026-07-24',
+    topic: '비상 복구 강화 — DR 감사관 도입 + 실질 갭 3종 보완',
+    human: '외부 disaster-recovery-guardian 서브에이전트를 우리 앱에 적용 가능? (선택: 설치 + 진짜 갭 최대한 모두 보완)',
+    ai: '앱-비종속 읽기전용 감사관 — 우리 팀에 그대로 설치 가능(우리 "정직한 완료 §4"와 같은 결). 8기준 대조 결과 지금은 HOLD: ②③(무장된 스케줄·신선도)는 로컬퍼스트·비공개 개인앱이라 "백업 주인=사용자"로 일부러 자동화 안 함(설계상 경계, 이미 문서화). 진짜 갭은 3개 — G1 복원 왕복 드릴 부재, G2 백업 평문, G3 Storage 고아 스윕 부재.',
+    decision: 'disaster-recovery-guardian를 .claude/agents/에 verbatim 설치(앱-비종속 유지). G1: backup.ts를 db층(exportCollectRows/importMergeRows)과 순수 직렬화층(serialize/deserialize Json·Zip, FileReader 제거→Node/브라우저 공통)으로 분리 → tests/unit/backupRoundtrip로 export→import 왕복 파리티 드릴(사진 바이트·tombstone·고아·좌표·원본 폴백, 비공허 포함). G2: services/backupCrypto.ts(WebCrypto AES-GCM-256 + PBKDF2 210k, MAGIC 봉투 자동감지, 의존성 0) — 백업 시 선택적 암호구절, dataManager에 암호 입력·복원 needsPassphrase 흐름, 분실 경고. 키 미저장. G3: MediaRemote.remove + pushPendingMedia가 tombstone 반영 후 표시본 Storage 객체 정리(최선노력·유실 위험 0), 마이그 0010(journey_media_delete_own 소유자 폴더격리+초대제 DELETE 정책, DEL-CONTRACT 이행). 검증: 유닛 backupRoundtrip 7·crypto 3, harness 8게이트·build 그린; Storage DELETE 정책 qual이 select/insert/update와 동일 소유자범위 확인, 격리 술어(owner=true·other=false) BEGIN..ROLLBACK, 어드바이저 신규 0(기존 3건만)·프로덕션 무변경. 정직: ②③ 자동 스케줄·오프사이트는 비공개 기본(§3)이라 설계상 사용자 책임 — DR 문서에 경계 명시 유지. 실기기 Storage 실삭제·대용량 암호화 체감은 사용자 몫(로직·정책은 검증됨).',
+  },
 ];
