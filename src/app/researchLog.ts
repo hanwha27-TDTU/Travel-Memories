@@ -176,4 +176,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '실측 답: 표시본은 Storage(journey-media)에 업로드되고 원본·GPS는 로컬에만 유지(절약 모드·§0). 우리 복구 자세는 오히려 더 튼튼 — 원본은 외부 호스트 의존이 없고(약한 고리 없음), 백업 JSON은 사진을 base64로 품어 자족적, Supabase는 포트로 격리된 교체 가능 부품. 갭 3종=①백업 완전성 게이트 부재 ②복구 절차서 부재 ③연구노트 TSA 부재. ①을 CI 게이트로 잠그자고 제안.',
     decision: 'check-backup-coverage 게이트 신설 — db.ts 테이블 선언(진실원)의 모든 사용자 데이터 테이블이 exportBackup·importBackup 양쪽에서 참조되는지 저장소만으로 대조(syncQueue만 명시 제외), 비공허 자체검사 내장(실파일 뮤테이션으로 RED 확인), harness 8게이트 등록. docs/DISASTER_RECOVERY.md 신설(3계층·시나리오 A~D·기계적 보증·정직한 갭). TSA는 외부 시각 증명이라 별도 논의로 유보(과장 금지).',
   },
+  {
+    seq: 22,
+    date: '2026-07-24',
+    topic: '여행별 폴더 백업(ZIP)',
+    human: '백업 시 여행별로 폴더로 구분해서 백업하게 할 수 있나? (선택: 여행별 폴더 ZIP + 원본 포함)',
+    ai: '브라우저는 일반 다운로드로 실제 OS 폴더를 못 만든다(폴더쓰기 API는 크롬 전용·iOS 불가) → 이식성 있는 정답은 ZIP 안 하위폴더. 사진을 base64 대신 실제 이미지 파일로 풀면 탐색기에서 바로 보기·개별 복원 가능. 라이브러리 없이 바닐라 store-ZIP으로 구현 제안. 기존 단일 JSON은 유지(가장 안전한 통짜 복원본).',
+    decision: 'services/zip.ts(무압축 store ZIP 리더/라이터+CRC32, 의존성 0) + backup.ts를 공통 코어(exportCollectRows/importMergeRows)로 리팩터해 JSON·ZIP 두 형식이 같은 수집·병합을 공유. exportBackupZip(여행폴더+trip.json+photos/ 실제파일, 원본 포함, 고아는 _orphans/로 유실 방지)·importBackupZip·importBackupAuto(매직바이트 감지). check-backup-coverage 게이트를 역할기반(export-role/import-role 함수 전 테이블 참조 강제)으로 강화 — 형식이 늘어도 완전성 보증, 비공허(collector에서 localMedia 제거 시 RED). 검증: zip 유닛 5(CRC 벡터·왕복·한글폴더·50엔트리·손상), 표준 unzip -t "No errors"(외부도구 상호운용·CRC 무결성), harness 8게이트·build 그린. 데이터 안전 불변식(병합·빈가드·tombstone) 그대로.',
+  },
 ];
