@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v0.44 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(현재 v0.44), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq 1–30).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v0.46 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(현재 v0.46), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq 1–32).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 0001–0010 적용.
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -26,7 +26,9 @@
 | 비상 복구 체계(하네스 게이트·복원 드릴·좀비 트리거·DR 감사관) | ✅ | `scripts/harness.mjs`, `docs/DISASTER_RECOVERY.md`, `.claude/agents/disaster-recovery-guardian.md` |
 | 개발자정보·버전·연구노트(해시체인)·가이드 화면 | ✅ | `app/{changelog,researchLog,hashchain}.ts`, `ui/screens/guide.ts` |
 
-**하네스 게이트**: SSOT=`scripts/harness.mjs`. **개수·목록은 손으로 세지 않는다** — `src/app/registry.gen.ts`(자동 생성, `check-registry-gen`이 드리프트 차단)에서 파생하고 개발자 정보→설계 개요도/가이드가 그 목록을 그대로 표시한다. 현재 게이트 계열: typecheck · check-secret-leak · check-domain-wiring · check-csp · check-base-consistency · check-schema-parity · check-backup-coverage · check-blueprint · check-registry-gen · unit-tests. 선택 라이브 게이트: `node scripts/verify-editor-live.mjs`(편집기·뷰어·개요도).
+**하네스 게이트**: SSOT=`scripts/harness.mjs`. **개수·목록은 손으로 세지 않는다** — `src/app/registry.gen.ts`(자동 생성, `check-registry-gen`이 드리프트 차단)에서 파생하고 개발자 정보→설계 개요도/가이드가 그 목록을 그대로 표시한다. 현재 게이트 계열: typecheck · check-secret-leak · check-domain-wiring · check-csp · check-base-consistency · check-schema-parity · check-backup-coverage · check-blueprint · check-registry-gen · check-doc-counts · unit-tests. 선택 라이브 게이트: `node scripts/verify-editor-live.mjs`(편집기·뷰어·개요도·기계화 검증 흐름도).
+
+**Phase 7b(2026-07-24)**: 기계화 검증 흐름도 대시보드 + 문서 프로즈 카운트 게이트(v0.46). **동기(사용자)**: seq31의 특수 케이스 2건 확정 — (1) 게이트를 카테고리별로 보여주는 "기계화 검증 흐름도" 대시보드 화면을 만들자, (2) 문서 산문 속 숫자에 전용 게이트를 추가하자. **구현**: ① `src/app/gates.ts`(공유 `GATE_DESC`·`GATE_CATEGORY`·`CATEGORY_LABEL`·`categoryOf` — guide·mechChecks 두 화면이 설명을 손으로 중복 안 쓰게). ② `src/ui/screens/mechChecks.ts`(`openMechChecks`: ①원본→②자동생성→③게이트→④배포 4단계 흐름 + 게이트 개수 배지(`REGISTRY.gateCount`) + 카테고리별 게이트 카드(`REGISTRY.gates.filter(categoryOf)` 파생) + 라이브 렌더 별도 섹션). `aboutApp`에 "🛡️ 기계화 검증 흐름도 열기", `guide` 검증 카드에 대시보드 열기 버튼. ③ `gen-registry.mjs`에 `findMarkers`/`patchMarkers`(순수) + `DOC_FILES` 추가 — 실행 시 문서 `<!--reg:키-->값<!--/reg-->` 마커를 실제 카운트로 자동 재심음(KEY는 `[A-Za-z0-9_]`만 매칭하므로 이렇게 한글 예시로 적으면 게이트가 실제 마커로 오인하지 않음). ④ **`scripts/check-doc-counts.mjs`(11번째 게이트)**: `DOC_FILES`의 마커가 실제 registry와 일치하는지 대조(알 수 없는 KEY도 RED, 비공허 자체검사 — 맞는 값 통과·틀린 값·오타 KEY RED). HANDOFF 게이트 개수 줄에 마커 시연 삽입. **검증**: harness **11게이트** PASS, 문서 마커 99로 손상 시 RED·복원 시 PASS 재현(비공허), **verify-editor-live 45/45**(기계화 흐름도 4단계·배지 자동집계 "자동 검사 11가지"·카드 12=게이트 11+라이브 1·콘솔0), build 그린. registry.gen `gateCount 10→11`·`screenCount 8→9` 자동 반영. v0.46·연구노트 seq32. **정직**: 색·미세정렬은 사람 눈 확인.
 
 **Phase 7a(2026-07-24)**: 손그림 조사 → 카운트·게이트 목록 기계화(v0.45). **동기(사용자)**: 손으로 그리는 것 모두 조사해 기계화, 특수 케이스는 질문(메디컬 "기계화 검증 흐름도" 참조). **실측 드리프트**: 가이드 화면이 "6게이트·26에이전트·유닛60"을 손 스냅샷으로 적어 실제(게이트 10·에이전트 28)와 어긋남(guide.ts가 스스로 "파생 게이트는 후속" 인정) — LESSONS §7 대상. **기계화**: ① `scripts/gen-registry.mjs` → **`src/app/registry.gen.ts`(GENERATED)**: gates 목록·gateCount·agentCount·screenCount·migrationCount·changelogCount·researchCount를 `harness.mjs`·`.claude/agents/`·화면·마이그·changelog·researchLog에서 자동 집계. ② **`scripts/check-registry-gen.mjs`(10번째 게이트)**: 커밋본==재생성본 대조(비공허, 손상 시 RED 재현). ③ `guide.ts`가 `REGISTRY`에서 게이트 목록·개수 파생(손 나열 제거, `GATE_DESC`만 설명 유지). ④ `tests/unit/logIntegrity`(6): changelog 0.01 연속·날짜 내림, researchLog seq 1..N 연속·날짜 오름·필드 채움. ⑤ **문서 프로즈 하드카운트 제거**(HANDOFF·CLAUDE.md의 "N게이트·N에이전트" → 숫자 빼고 `registry.gen.ts` 참조 — 드리프트 원천 제거). **검증**: harness **10게이트**·build·verify-editor-live 42/42 그린. **원칙**: 손편집 카운트 금지 — 파생하거나(자동집계) 프로즈에서 숫자를 뺀다. v0.45·연구노트 seq31. **특수 케이스(사용자 질문)**: 전용 "기계화 검증 흐름도" 대시보드 화면(이미지처럼 게이트를 카테고리별로) · 남은 프로즈 카운트의 전용 게이트(역사적 Phase 기록엔 당대 숫자가 정당해 false-positive 위험).
 
@@ -100,7 +102,7 @@
 ```
 npm ci
 git config core.hooksPath .githooks   # commit-msg hook 활성
-npm run harness                        # Required 게이트 전체 (목록은 scripts/harness.mjs — 손편집 나열 금지, M-0001)
+npm run harness                        # Required 게이트 전체 (현재 <!--reg:gateCount-->11<!--/reg-->개 — 목록은 scripts/harness.mjs, 손편집 나열 금지 M-0001; 이 숫자는 gen-registry가 자동 갱신·check-doc-counts가 대조)
 npm run build                          # base=/Travel-Memories/ 정적 빌드
 npm run dev                            # 홈 화면 확인 (선택)
 ```

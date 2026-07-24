@@ -8,20 +8,8 @@
 
 import { el } from '../dom';
 import { REGISTRY } from '../../app/registry.gen';
-
-// 게이트 한 줄 설명(목록·개수는 REGISTRY에서 파생 — 여기선 설명만 붙인다. 없으면 이름만 표시).
-const GATE_DESC: Record<string, string> = {
-  typecheck: 'TypeScript strict 타입 오류 0',
-  'check-secret-leak': '시크릿(키·토큰) 형태가 코드에 새지 않았는지',
-  'check-domain-wiring': '도메인↔화면 배선이 죽지 않았는지',
-  'check-csp': 'CSP 위반(인라인·외부 리소스) 없는지',
-  'check-base-consistency': 'base 경로·자산 참조 일관성',
-  'check-schema-parity': '클라 rowmap 필드 ⊆ 서버 마이그레이션 컬럼(드리프트 차단)',
-  'check-backup-coverage': '모든 사용자 테이블이 백업 export/import에 다 있는지',
-  'check-blueprint': '설계 개요도(배선맵) 선언 ↔ 실제 구조 일치',
-  'check-registry-gen': '자동 집계 카운트·목록이 SSOT와 일치(손 스냅샷 드리프트 차단)',
-  'unit-tests': '순수 로직 유닛(비공허 확인)',
-};
+import { GATE_DESC } from '../../app/gates';
+import { openMechChecks } from './mechChecks';
 
 // ── 상세 패널 조립 헬퍼 ──────────────────────────────────────────────
 function h(text: string): HTMLElement {
@@ -193,15 +181,21 @@ const DEV_GROUP: GuideGroup = {
       icon: '🧪',
       label: '기계화검증 흐름도',
       hint: '잘못된 변경은 자동으로 막힙니다',
-      render: () =>
-        panel([
+      render: () => {
+        const body = panel([
           h(`의도가 아니라 현실로 검증 — Required 게이트 ${REGISTRY.gateCount}가지`),
           p('“통과했다”고 말하려면 자동 게이트가 실제로 통과해야 합니다. 아래 목록·개수는 손으로 세지 않고 scripts/harness.mjs에서 자동 집계합니다(registry.gen.ts).'),
           defs(REGISTRY.gates.map((g) => [g, GATE_DESC[g] ?? '(설명 미등록)'])),
           h('게이트를 비공허하게'),
           p('알려진 실패를 일부러 주입해 RED로 잡히는지 확인한 뒤에만 게이트를 신뢰합니다. 셀렉터 불일치로 조용히 통과하지 않는지 검사합니다.'),
           note('이 목록은 자동 생성입니다 — scripts/harness.mjs가 정본, check-registry-gen이 일치를 강제.'),
-        ]),
+        ]);
+        const open = el('button', 'guide-open-dashboard', '🛡️ 기계화 검증 흐름도 대시보드 열기') as HTMLButtonElement;
+        open.type = 'button';
+        open.addEventListener('click', openMechChecks);
+        body.appendChild(open);
+        return body;
+      },
     },
     {
       icon: '📋',
