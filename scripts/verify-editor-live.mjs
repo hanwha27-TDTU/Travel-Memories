@@ -228,6 +228,47 @@ await page.evaluate(() => {
 await page.waitForTimeout(500);
 const zoomAfterPinch = parseFloat(await page.$eval('.pe-zoom', (i) => i.value));
 check('핀치(두 손가락 벌리기) → 확대', zoomAfterPinch > zoomAfterWheel, `${zoomAfterWheel} → ${zoomAfterPinch}`);
+
+// ── v0.39: 원근 펴기(4점) — 모드 진입 → 핸들 드래그 → 적용 → 픽셀 변화 → undo 원복 ──
+const pxPrePersp = await page.$eval('.pe-canvas', (c) => c.getContext('2d').getImageData(1, 1, 1, 1).data.join(','));
+await page.getByRole('button', { name: '📐 펴기' }).click();
+await page.waitForTimeout(400);
+const quadShown = await page.evaluate(() => {
+  const box = document.querySelector('.pe-quad-box');
+  return box && !box.hidden && document.querySelectorAll('.pe-quad-h').length === 4;
+});
+check('펴기 모드: 4점 오버레이 표시', !!quadShown);
+const perspBarShown = await page.evaluate(() => !document.querySelector('.pe-perspbar').hidden);
+check('펴기 모드: 확정 바 노출', perspBarShown);
+// TL 핸들을 아래로 드래그(세로 그라데이션이라 색이 달라지는 방향)
+const polyBefore = await page.$eval('.pe-quad-svg polygon', (p) => p.getAttribute('points'));
+await page.evaluate(() => {
+  const box = document.querySelector('.pe-quad-box');
+  const hnd = document.querySelector('.pe-quad-h[data-idx="0"]');
+  const wrap = document.querySelector('.pe-canvas-wrap').getBoundingClientRect();
+  const r = hnd.getBoundingClientRect();
+  const sx = r.left + r.width / 2; const sy = r.top + r.height / 2;
+  const ev = (type, x, y) =>
+    (type === 'pointerdown' ? hnd : box).dispatchEvent(
+      new PointerEvent(type, { pointerId: 31, clientX: x, clientY: y, bubbles: true, isPrimary: true }),
+    );
+  ev('pointerdown', sx, sy);
+  ev('pointermove', sx, sy + wrap.height * 0.25);
+  ev('pointerup', sx, sy + wrap.height * 0.25);
+});
+await page.waitForTimeout(200);
+const polyAfter = await page.$eval('.pe-quad-svg polygon', (p) => p.getAttribute('points'));
+check('펴기: 핸들 드래그 → 사다리꼴 갱신', polyBefore !== polyAfter, `${polyBefore} → ${polyAfter}`);
+await page.getByRole('button', { name: '📐 반듯하게 펴기' }).click();
+await page.waitForTimeout(600);
+const quadGone = await page.$eval('.pe-quad-box', (b) => b.hidden);
+const pxPersp = await page.$eval('.pe-canvas', (c) => c.getContext('2d').getImageData(1, 1, 1, 1).data.join(','));
+check('펴기 적용: 오버레이 종료 + 픽셀 실제 변화', quadGone && pxPersp !== pxPrePersp, `${pxPrePersp} → ${pxPersp}`);
+await page.locator('.pe-undo').click();
+await page.waitForTimeout(600);
+const pxUndoPersp = await page.$eval('.pe-canvas', (c) => c.getContext('2d').getImageData(1, 1, 1, 1).data.join(','));
+check('펴기 undo → 픽셀 원복', pxUndoPersp === pxPrePersp, `${pxPersp} → ${pxUndoPersp}`);
+
 await page.getByRole('button', { name: '원본 사용', exact: true }).click();
 await page.waitForSelector('.pe-overlay', { state: 'detached' });
 

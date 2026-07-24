@@ -24,9 +24,10 @@ description: 사진 편집기 개발 프롬프트 — photoEditor.ts·editor-cor
 1. **비파괴**: 원본 Blob은 읽기만 한다. 편집 결과는 항상 새 Blob. EXIF(촬영시각·GPS)는 **원본에서** 읽는다.
 2. **WYSIWYG 단일 경로**: 미리보기와 최종 저장은 같은 `bakeToCanvas`를 쓴다. 미리보기 전용 지름길(CSS filter 등) 금지 — 저장 결과와 달라진다.
 3. **EditState는 순수 JSON 값**: Dexie 저장·백업 왕복·재편집 복원에 그대로 쓰인다. 함수·DOM 참조·비직렬화 값 금지.
-4. **좌표계 계약**: `heals`·`freeCrop`은 **rotate90 적용 후 기하 공간의 0..1 정규화 좌표**다.
-   - 회전/반전 시 반드시 `rotateHeals90`/`flipHealsH`/`rotateFreeCrop90`/`flipFreeCropH`로 함께 변환한다(안 하면 기존 잡티·크롭이 엉뚱한 곳으로 간다).
+4. **좌표계 계약**: `heals`·`freeCrop`은 **기하 공간의 0..1 정규화 좌표**다. 기하 공간이란 rotate90(+flip+angle) 적용 후, `quad`(원근 펴기)가 있으면 **펴기까지 적용된** 공간(`gd = quadOutputDims`)이다.
+   - 회전/반전 시 반드시 `rotateHeals90`/`flipHealsH`/`rotateFreeCrop90`/`flipFreeCropH`/`rotateQuad90`/`flipQuadH`로 함께 변환한다(안 하면 기존 잡티·크롭·펴기 모서리가 엉뚱한 곳으로 간다).
    - `angle`(수평 보정)은 창 계산에 포함되지 않는 "커버 확대"다. 탭 좌표 역투영과 bake 재투영이 같은 `resolveWindow`를 쓰므로 일관된다 — 이 대칭을 깨지 말 것.
+   - `quad`는 rotate90 후 공간의 0..1 4점(**TL·TR·BR·BL 순서 고정**). bake 1.5단계에서 `squareToQuadCoeffs`(단위정사각형→quad 사영) 역매핑 + bilinear(`warpPerspective`)로 편다. 창·heal 재투영은 rd가 아니라 **gd** 기준 — quad를 추가/수정할 때 이 치환을 빠뜨리면 크롭·잡티가 어긋난다.
    - heal 반경 `r`은 "창 폭 대비 비율"로 저장 → 화면 체감 크기가 해상도와 무관하게 유지된다.
 5. **무편집이면 재인코딩 금지**: `isIdentity(state)` → 원본 그대로(JPEG 세대손실 방지).
 

@@ -149,3 +149,50 @@ export function grain(
     }
   }
 }
+
+/**
+ * 원근 워프(역매핑 + bilinear): 출력 (dw×dh)의 각 픽셀 (s,t)∈(0..1)²를
+ * coeffs(단위정사각형→원본 px 사영계수 [a..h])로 원본 좌표에 투영해 샘플한다.
+ * 순수 함수 — 출력 크기에서만 루프(§2-4), 원본 배열 불변. 경계 밖은 가장자리 클램프.
+ */
+export function warpPerspective(
+  src: Uint8ClampedArray,
+  sw: number,
+  sh: number,
+  dw: number,
+  dh: number,
+  coeffs: number[],
+): Uint8ClampedArray<ArrayBuffer> {
+  const [a, b, c, d, e, f, g, h] = coeffs as [number, number, number, number, number, number, number, number];
+  const out = new Uint8ClampedArray(dw * dh * 4);
+  for (let j = 0; j < dh; j += 1) {
+    const t = (j + 0.5) / dh;
+    for (let i = 0; i < dw; i += 1) {
+      const s = (i + 0.5) / dw;
+      const den = g * s + h * t + 1;
+      // 원본 px 좌표(픽셀 중심 관례: 연속좌표 X에서 샘플 인덱스는 X-0.5)
+      const x = (a * s + b * t + c) / den - 0.5;
+      const y = (d * s + e * t + f) / den - 0.5;
+      // bilinear 샘플(경계 클램프)
+      const x0 = Math.floor(x);
+      const y0 = Math.floor(y);
+      const fx = x - x0;
+      const fy = y - y0;
+      const cx0 = x0 < 0 ? 0 : x0 >= sw ? sw - 1 : x0;
+      const cx1 = x0 + 1 < 0 ? 0 : x0 + 1 >= sw ? sw - 1 : x0 + 1;
+      const cy0 = y0 < 0 ? 0 : y0 >= sh ? sh - 1 : y0;
+      const cy1 = y0 + 1 < 0 ? 0 : y0 + 1 >= sh ? sh - 1 : y0 + 1;
+      const p00 = (cy0 * sw + cx0) * 4;
+      const p10 = (cy0 * sw + cx1) * 4;
+      const p01 = (cy1 * sw + cx0) * 4;
+      const p11 = (cy1 * sw + cx1) * 4;
+      const o = (j * dw + i) * 4;
+      for (let ch = 0; ch < 4; ch += 1) {
+        const top = src[p00 + ch]! * (1 - fx) + src[p10 + ch]! * fx;
+        const bot = src[p01 + ch]! * (1 - fx) + src[p11 + ch]! * fx;
+        out[o + ch] = top * (1 - fy) + bot * fy;
+      }
+    }
+  }
+  return out;
+}
