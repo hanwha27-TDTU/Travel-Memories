@@ -168,4 +168,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '표시본만 Storage 업로드(원본은 로컬 유지·절약 모드), GPS는 PII라 미동기화. 안전 불변식: pull은 로컬 blob 비파괴(다운로드 성공 시만 교체·tombstone은 표시만·다운로드 실패 시 로컬 유지), push는 추가전용.',
     decision: 'domain/media/rowmap(메타만·MediaMeta) + mediaStoragePath + media 서비스 5개 mutation·moments cascade에 media op enqueue + sync.ts MediaRemote(메타+Storage)·pushPendingMedia·pullMedia·runSync(여행→순간→사진·비용). 검증: 스키마 게이트(MediaRow 15↔journey.media), 유닛 4(경로·GPS/blob 미포함·메타 왕복·tombstone), 서버 메타 round-trip(MEDIA_META_ROUNDTRIP_OK·좀비 차단·프로덕션 무변경). Storage blob 업/다운은 샌드박스 미검증 → 실기기 몫(안전 불변식으로 기억 유실은 구조적 불가).',
   },
+  {
+    seq: 21,
+    date: '2026-07-24',
+    topic: '비상 복구 체계 — 백업 완전성 게이트 + 절차서',
+    human: '메디컬 앱처럼 비상 상황 대응 시스템이 우리 앱에도 갖춰져 있나? 바로 만들자. (그리고 우리 압축 사진은 Supabase에 업로드되나?)',
+    ai: '실측 답: 표시본은 Storage(journey-media)에 업로드되고 원본·GPS는 로컬에만 유지(절약 모드·§0). 우리 복구 자세는 오히려 더 튼튼 — 원본은 외부 호스트 의존이 없고(약한 고리 없음), 백업 JSON은 사진을 base64로 품어 자족적, Supabase는 포트로 격리된 교체 가능 부품. 갭 3종=①백업 완전성 게이트 부재 ②복구 절차서 부재 ③연구노트 TSA 부재. ①을 CI 게이트로 잠그자고 제안.',
+    decision: 'check-backup-coverage 게이트 신설 — db.ts 테이블 선언(진실원)의 모든 사용자 데이터 테이블이 exportBackup·importBackup 양쪽에서 참조되는지 저장소만으로 대조(syncQueue만 명시 제외), 비공허 자체검사 내장(실파일 뮤테이션으로 RED 확인), harness 8게이트 등록. docs/DISASTER_RECOVERY.md 신설(3계층·시나리오 A~D·기계적 보증·정직한 갭). TSA는 외부 시각 증명이라 별도 논의로 유보(과장 금지).',
+  },
 ];
