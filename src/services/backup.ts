@@ -240,13 +240,18 @@ interface ZipManifest {
   folders: string[];
 }
 
-function tripFolderName(trip: LocalTrip): string {
-  const base = (trip.title || '여행')
-    .replace(/[\/\\:*?"<>| -]/g, '')
+/** 파일시스템 안전 문자열: 금지문자 제거·공백→_·앞뒤 정리. */
+function fsSafe(s: string, max = 40): string {
+  return (s || '')
+    .replace(/[\/\\:*?"<>|]/g, '')
     .replace(/\s+/g, '_')
-    .replace(/\.+$/, '')
-    .slice(0, 60)
+    .replace(/^\.+|\.+$/g, '')
+    .slice(0, max)
     .trim();
+}
+
+function tripFolderName(trip: LocalTrip): string {
+  const base = fsSafe(trip.title || '여행', 60);
   const suffix = trip.id.replace(/-/g, '').slice(0, 8);
   return `${base || '여행'}__${suffix}`;
 }
@@ -258,6 +263,31 @@ function extForMime(mime: string): string {
   if (mime === 'image/heic') return 'heic';
   return 'bin';
 }
+
+/** ISO → { date:'YYYYMMDD', time:'HHMM' }. 로컬 시각 기준. 파싱 불가면 '00000000'/'0000'. */
+export function stampFromISO(iso: string | null | undefined): { date: string; time: string } {
+  const t = iso ? Date.parse(iso) : NaN;
+  if (Number.isNaN(t)) return { date: '00000000', time: '0000' };
+  const d = new Date(t);
+  const p = (n: number, w = 2) => String(n).padStart(w, '0');
+  return {
+    date: `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`,
+    time: `${p(d.getHours())}${p(d.getMinutes())}`,
+  };
+}
+
+/**
+ * 백업 사진 파일명(순수): '날짜_시간_제목_용도__id8'. 사람이 알아볼 수 있게.
+ * 같은 분·같은 제목이어도 미디어 id 접미로 충돌하지 않는다(복원은 메타 경로로 되읽으므로 안전).
+ */
+export function photoFileBase(takenAt: string | null | undefined, title: string, mediaId: string): string {
+  const { date, time } = stampFromISO(takenAt);
+  const t = fsSafe(title, 30) || '사진';
+  const id8 = mediaId.replace(/-/g, '').slice(0, 8);
+  return `${date}_${time}_${t}__${id8}`;
+}
+
+const PURPOSE = { original: '원본', display: '표시본', thumb: '썸네일' } as const;
 
 /** 순수: CollectedRows → ZIP Blob(여행 폴더 + trip.json + photos/ 실제 파일). db 접근 없음. */
 export async function serializeZip(rows: CollectedRows, includeOriginals = true): Promise<Blob> {
@@ -279,15 +309,20 @@ export async function serializeZip(rows: CollectedRows, includeOriginals = true)
     return { folder, bundle };
   };
 
+  // 사진 제목: 순간 제목 우선, 없으면 여행 제목, 그것도 없으면 '사진'.
+  const momentTitle = new Map<string, string>(rows.moments.map((m) => [m.id, m.title]));
+
   for (const t of rows.trips) bundleFor(t.id);
   for (const m of rows.moments) bundleFor(m.tripId ?? null).bundle.moments.push(m);
   for (const ex of rows.expenses) bundleFor(ex.tripId ?? null).bundle.expenses.push(ex);
 
   for (const me of rows.media) {
     const { folder, bundle } = bundleFor(me.tripId ?? null);
-    const displayFile = `photos/${me.id}.webp`;
-    const thumbFile = `photos/${me.id}.thumb.webp`;
-    const originalFile = includeOriginals ? `photos/${me.id}.orig.${extForMime(me.mime)}` : null;
+    const title = momentTitle.get(me.momentId) || (me.tripId ? tripById.get(me.tripId)?.title : '') || '';
+    const base = photoFileBase(me.takenAt, title, me.id);
+    const displayFile = `photos/${base}_${PURPOSE.display}.webp`;
+    const thumbFile = `photos/${base}_${PURPOSE.thumb}.webp`;
+    const originalFile = includeOriginals ? `photos/${base}_${PURPOSE.original}.${extForMime(me.mime)}` : null;
 
     entries.push({ name: `${folder}/${displayFile}`, data: await blobBytes(me.displayBlob) });
     entries.push({ name: `${folder}/${thumbFile}`, data: await blobBytes(me.thumbBlob) });

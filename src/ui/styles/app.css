@@ -824,9 +824,18 @@
 }
 .photo-viewer {
   position: fixed; inset: 0; z-index: 50; background: rgba(6, 6, 14, .92);
-  display: grid; place-items: center; padding: 20px; cursor: zoom-out;
+  display: grid; place-items: center; cursor: zoom-out;
+  /* 기기 반응형: 폰은 여백 최소로 사진 크게, 태블릿+는 여백 조금. safe-area 존중. 100dvh로 모바일 주소창 대응. */
+  height: 100dvh; padding: max(env(safe-area-inset-top, 0), 8px) max(env(safe-area-inset-right, 0), 8px) max(env(safe-area-inset-bottom, 0), 8px) max(env(safe-area-inset-left, 0), 8px);
+  overflow: hidden;
 }
-.photo-viewer img { max-width: 100%; max-height: 100%; border-radius: var(--radius-medium); box-shadow: 0 20px 60px -20px rgba(0,0,0,.8); }
+.photo-viewer img {
+  max-width: 100%; max-height: 100%; border-radius: var(--radius-medium);
+  box-shadow: 0 20px 60px -20px rgba(0,0,0,.8);
+  transform-origin: center center; will-change: transform; cursor: zoom-in;
+}
+.photo-viewer img.is-zoomed { cursor: grab; border-radius: 0; }
+@media (min-width: 900px) { .photo-viewer { padding: 24px; } }
 .photo-viewer-close {
   position: fixed; top: 16px; right: 16px; z-index: 51;
   width: 44px; height: 44px; border-radius: 50%;

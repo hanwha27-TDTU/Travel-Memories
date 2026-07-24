@@ -208,4 +208,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '실측: 수평(기울기) 슬라이더는 v0.24부터 이미 존재(발견성 문제). 제시된 사진의 진짜 문제는 회전이 아니라 원근 왜곡(사각 화면이 사다리꼴) — 문서 스캐너식 4점 펴기(호모그래피)가 필요. 2D 캔버스는 사영변환 미지원이라 역매핑+bilinear를 순수 픽셀 함수로 직접 구현 제안. 편집기 좌표계 계약(잡티·크롭)과 맞물리는 위험 표면이라 헌장 로드 후 신중 진행.',
     decision: 'editor-core: EditState.quad(TL·TR·BR·BL 0..1, 순수 JSON) + squareToQuadCoeffs(Heckbert 단위정사각형→quad 사영) + quadOutputDims(마주보는 변 평균=스캐너 관례) + rotateQuad90/flipQuadH(freeCrop·heals와 동일 규율). pixelops.warpPerspective(역매핑+bilinear, 출력 크기만 루프·경계 클램프, 순수). bake 1.5단계 워프 — 기하 공간을 gd(펴기 후)로 정의해 창·heal 재투영 일관(rd→gd 치환). UI: 📐 펴기 모드(4점 독립 핸들+SVG 사다리꼴, 드래프트는 적용 시 undo 한 단계), 회전/반전 시 quad 동반 변환, 수평 라벨 "수평(기울기)"·±15°. 검증: 유닛 10(호모그래피 모서리 정확 매핑·워프 항등/절반 추출·비공허 기울임·quad 회전 4회 원위치·isIdentity), 라이브 33/33 PASS(4점 표시→핸들 드래그→적용 픽셀 실변화→undo 원복, 콘솔 에러 0), harness 8게이트·build 그린. 헌장 §1-4 좌표계 계약에 quad 명문화. 실기기 터치 드래그 체감은 사용자 확인 권장.',
   },
+  {
+    seq: 26,
+    date: '2026-07-24',
+    topic: '전체보기 뷰어 확대/이동(반응형) + 백업 파일명 규칙',
+    human: '1) 전체보기를 접속 기기에 맞게 최적화(반응형)? 2) 백업 파일명을 "날짜_시간_제목_용도"로? (선택: 둘 다 추천안)',
+    ai: '뷰어는 contain이라 넓은 화면에서 세로 사진 좌우 여백이 큼 — 세로 사진은 비율상 꽉 채우면 잘라야 하니 실질 최적화는 확대. 파일명은 trip.json 메타 경로로 복원하므로 파일명 자유 변경해도 복원 안전(같은 분·제목 충돌은 id8 접미로 방지).',
+    decision: '① 뷰어: 확대/이동 추가 — scale/tx/ty + zoomAround(화면점 고정 확대: 휠·핀치·더블탭 공통) + clampPan(화면 밖 이탈 방지), 포인터 통합(1개=확대 전 스와이프/확대 중 팬, 2개=핀치), show() 시 리셋, 방향키/0 키 리셋, 반응형 CSS(폰 여백 최소·태블릿 24px·100dvh·safe-area·is-zoomed 커서). ② 파일명: services/backup에 stampFromISO·photoFileBase(날짜_시간_제목__id8, FS안전 fsSafe 추출) + PURPOSE(원본/표시본/썸네일) → serializeZip이 사진을 "20260717_0617_제목_원본__id8.jpg"로(제목=순간 제목→여행 제목→사진), 최상위 백업명 bugeon-journey_YYYYMMDD_HHMM.{zip,json}. 검증: 유닛 backupNaming 5(형식·FS금지문자·충돌방지)·backupRoundtrip 7(파일명 바뀌어도 메타 경로로 복원 성공=안전 증명), verify-editor-live 35/35(뷰어 휠 확대 2.05x·0키 원복·무회귀), harness 8게이트·build 그린. 실기기 핀치/더블탭 체감은 사용자 확인 권장.',
+  },
 ];

@@ -123,7 +123,10 @@ function backupPanel(): HTMLElement {
     void (async () => {
       try {
         const { blob, stats } = await make();
-        const stamp = fmtDate(new Date().toISOString()).replace(/\./g, '');
+        const now = new Date();
+        const p = (n: number) => String(n).padStart(2, '0');
+        // 날짜_시간: YYYYMMDD_HHMM (파일명 규칙 '날짜_시간_…'의 상위 형태).
+        const stamp = `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}`;
         downloadBlob(blob, filename(stamp));
         recordBackupNow();
         renderFresh();
@@ -154,7 +157,7 @@ function backupPanel(): HTMLElement {
   btnZip.addEventListener('click', () => {
     const p = pass();
     if (!confirmPlaintext(p)) return;
-    runExport(btnZip, () => exportBackupZip(true, p), (s) => `bugeon-journey-${s}${p ? '.zip.enc' : '.zip'}`);
+    runExport(btnZip, () => exportBackupZip(true, p), (s) => `bugeon-journey_${s}${p ? '.zip.enc' : '.zip'}`);
   });
 
   const btnJson = el('button', 'btn-ghost dm-wide', '💾 단일 파일 백업 (JSON)') as HTMLButtonElement;
@@ -162,7 +165,7 @@ function backupPanel(): HTMLElement {
   btnJson.addEventListener('click', () => {
     const p = pass();
     if (!confirmPlaintext(p)) return;
-    runExport(btnJson, () => exportBackup(true, p), (s) => `bugeon-journey-backup-${s}${p ? '.json.enc' : '.json'}`);
+    runExport(btnJson, () => exportBackup(true, p), (s) => `bugeon-journey_${s}${p ? '.json.enc' : '.json'}`);
   });
 
   box.append(
