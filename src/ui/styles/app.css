@@ -956,6 +956,16 @@
 .pe-h-ne { right: -11px; top: -11px; cursor: nesw-resize; }
 .pe-h-sw { left: -11px; bottom: -11px; cursor: nesw-resize; }
 .pe-h-se { right: -11px; bottom: -11px; cursor: nwse-resize; }
+/* 원근 펴기 오버레이: 4점 독립 핸들 + 사다리꼴 윤곽(SVG). 배경은 이벤트 통과, 핸들만 조작. */
+.pe-quad-box { position: absolute; inset: 0; pointer-events: none; }
+.pe-quad-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.pe-quad-svg polygon {
+  fill: rgba(0, 0, 0, .25); stroke: rgba(255, 255, 255, .95);
+  stroke-width: 1.5; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke;
+}
+.pe-quad-h {
+  pointer-events: auto; transform: translate(-50%, -50%); cursor: grab;
+}
 .pe-heal-row { border-top: 1px dashed var(--line); padding-top: var(--space-2); }
 /* 원본 비교: 길게 누르는 동안 텍스트 선택·스크롤이 끼어들지 않게. */
 .pe-compare { user-select: none; -webkit-user-select: none; touch-action: none; }

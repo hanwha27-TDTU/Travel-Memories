@@ -200,4 +200,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '감사관(서브에이전트)이 게이트·드릴을 직접 실행하고 HOLD 판정: DR 구조는 강하고 과장 없이 정직하나, 최후 방어선(사용자 백업)이 설계상 사용자 주도라 실제 존재/신선도를 저장소로 검증 불가(소유자 확인 필요)+평문 기본값이 실질 교정. 권고 3: #1 마지막 백업 시각 관측화, #2 평문 PII 내보내기 명시 확인, #3 실기기(fake-indexeddb) 복원 드릴.',
     decision: '감사관 판정 HOLD를 정직히 수용(②③는 로컬퍼스트·비공개 설계 경계). 교정 전부 반영: #1 services/backupMeta.ts(localStorage 마지막 백업 시각·신선도, 캐시성 메타) + 데이터 관리에 "마지막 백업: N일 전"·오래됨/없음 권고 표시(내보내기 성공 시 기록). #2 암호 없이 내보낼 때 window.confirm으로 "암호화 안 됨(사진·GPS·메모 평문)" 명시 확인(암호 있으면 생략). #3 fake-indexeddb dev 의존 + tests/unit/restoreDrill로 importMergeRows를 실 Dexie로 구움(빈db 저장·되읽기·blob 바이트 왕복·빈가드·LWW·tombstone 우위) — 순수층뿐 아니라 db 접근층까지 검증. + backupMeta 유닛(신선도, now 주입). 검증: harness 8게이트·build 그린, 유닛 restoreDrill 4·backupMeta 2·backupRoundtrip 7·crypto 3·zip 5. 남은 HOLD 근거(실제 백업 존재·신선도)는 정의상 앱 밖 사실이라 소유자 확인 몫 — 앱은 관측화·경고·완전성까지 책임(정직한 경계 유지).',
   },
+  {
+    seq: 25,
+    date: '2026-07-24',
+    topic: '기울기 보정 요청 → 원근 펴기(4점) 구현',
+    human: '기울기 보정 기능도 추가할 수 있나? (키오스크 화면을 비스듬히 찍은 사진 제시. 선택: 원근 보정 추가 + 수평 슬라이더 개선 둘 다)',
+    ai: '실측: 수평(기울기) 슬라이더는 v0.24부터 이미 존재(발견성 문제). 제시된 사진의 진짜 문제는 회전이 아니라 원근 왜곡(사각 화면이 사다리꼴) — 문서 스캐너식 4점 펴기(호모그래피)가 필요. 2D 캔버스는 사영변환 미지원이라 역매핑+bilinear를 순수 픽셀 함수로 직접 구현 제안. 편집기 좌표계 계약(잡티·크롭)과 맞물리는 위험 표면이라 헌장 로드 후 신중 진행.',
+    decision: 'editor-core: EditState.quad(TL·TR·BR·BL 0..1, 순수 JSON) + squareToQuadCoeffs(Heckbert 단위정사각형→quad 사영) + quadOutputDims(마주보는 변 평균=스캐너 관례) + rotateQuad90/flipQuadH(freeCrop·heals와 동일 규율). pixelops.warpPerspective(역매핑+bilinear, 출력 크기만 루프·경계 클램프, 순수). bake 1.5단계 워프 — 기하 공간을 gd(펴기 후)로 정의해 창·heal 재투영 일관(rd→gd 치환). UI: 📐 펴기 모드(4점 독립 핸들+SVG 사다리꼴, 드래프트는 적용 시 undo 한 단계), 회전/반전 시 quad 동반 변환, 수평 라벨 "수평(기울기)"·±15°. 검증: 유닛 10(호모그래피 모서리 정확 매핑·워프 항등/절반 추출·비공허 기울임·quad 회전 4회 원위치·isIdentity), 라이브 33/33 PASS(4점 표시→핸들 드래그→적용 픽셀 실변화→undo 원복, 콘솔 에러 0), harness 8게이트·build 그린. 헌장 §1-4 좌표계 계약에 quad 명문화. 실기기 터치 드래그 체감은 사용자 확인 권장.',
+  },
 ];
