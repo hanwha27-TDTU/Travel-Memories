@@ -272,4 +272,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '사용자는 타슈켄트 소재(우즈베키스탄)라 실사용 통화가 UZS. VND는 format.ts CURRENCIES에만 존재(도메인 단일 출처). 솜은 접두 심볼이 없고 관례상 금액 뒤 "soʻm" — 접두로 위조하면 어색·부정확(§정직: 심볼 위조 안 함). 최소·원칙적 개선으로 suffix 지원 추가 제안.',
     decision: 'domain/expense/format.ts: CurrencyMeta에 optional suffix 추가, CURRENCIES에서 VND 제거하고 { UZS, soʻm, decimals 0, suffix true }를 USD 바로 뒤에 삽입(KRW·USD·UZS·JPY·EUR). formatMoney는 suffix면 "num symbol", 아니면 "symbol num". 드롭다운(tripDetail.currencySelect)은 CURRENCIES를 그대로 순회하므로 순서·라벨 자동 반영(SSOT 파생). 테스트 잠금: expenseFormat "UZS→1,000,000 soʻm(뒤) / JPY→¥500(앞)". 데이터 안전: 기존 VND 비용이 있으면 알 수 없는 통화 폴백으로 "금액 VND"로 정직 표시(원금액·코드 보존·유실 0·§1). 검증: typecheck·유닛 9/9·harness 11게이트·build 그린.',
   },
+  {
+    seq: 34,
+    date: '2026-07-24',
+    topic: '통화 목록 확장 — 세계 36개 통화(네이티브 드롭다운)',
+    human: '"드롭다운 방식으로 가죠." (통화 선택 관련) → 명확화 질문에 "통화 목록 확장" 선택.',
+    ai: '통화 선택은 이미 네이티브 select. "확장"=더 많은 세계 통화. 커스텀 검색 콤보박스는 접근성·모바일 위험·무게 증가 → 네이티브 select는 이미 타입어헤드(코드 첫 글자 입력 시 이동) 제공하므로 목록만 늘리면 검색성도 확보(10초 기록 흐름·모바일 OS 피커 유지). 심볼 없는 통화를 위조하지 않도록 포맷 계층 보강 필요.',
+    decision: 'domain/expense/format.ts: CURRENCIES를 5→36(자주 쓰는 KRW·USD·UZS·JPY·EUR 상단 유지 + 세계 통화 코드 알파벳순). CurrencyMeta.symbol 빈 문자열 허용 → formatMoney가 심볼 없으면 "num code"(정직, decimals는 유지), 있으면 suffix/prefix. 관례 반영: 북유럽 kr·PLN zł·CZK Kč·UZS soʻm·VND ₫는 suffix. tripDetail.currencySelect 라벨은 symbol 있으면 "symbol code", 없으면 code만(빈 심볼 중복 방지). DB 영향 0(originalCurrency 자유 문자열). 테스트 잠금(12): £ 앞·AED/CHF 코드 뒤·NOK/SEK/PLN suffix·XXX 폴백·코드 유일성·상단 5개 순서. 검증: typecheck·유닛 12/12·harness 11게이트·build·verify-editor-live 45/45 그린. 정직: 여러 통화가 $·¥·kr 심볼을 공유하나 드롭다운은 코드로 구분·포맷은 심볼 그대로(위조 아님).',
+  },
 ];
