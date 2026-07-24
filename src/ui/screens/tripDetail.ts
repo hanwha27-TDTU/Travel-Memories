@@ -675,6 +675,47 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         URL.revokeObjectURL(currentUrl);
         document.removeEventListener('keydown', keys); // 어떤 경로로 닫혀도 리스너 잔류 없음
       };
+      // ── 확대/이동(기기 최적화): 더블탭·핀치·휠로 확대, 끌어서 이동. scale=1이면 스와이프로 넘기기. ──
+      const MAX_ZOOM = 5;
+      let scale = 1;
+      let tx = 0;
+      let ty = 0;
+      function applyTransform(animate = false): void {
+        img.style.transition = animate ? 'transform .16s ease' : 'none';
+        img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+        img.classList.toggle('is-zoomed', scale > 1.01);
+      }
+      function clampPan(): void {
+        // 확대된 이미지가 화면 밖으로 완전히 빠지지 않도록(약간의 여유 포함) 이동 범위를 제한.
+        const mx = Math.max(0, (img.clientWidth * scale - window.innerWidth) / 2 + 24);
+        const my = Math.max(0, (img.clientHeight * scale - window.innerHeight) / 2 + 24);
+        tx = Math.max(-mx, Math.min(mx, tx));
+        ty = Math.max(-my, Math.min(my, ty));
+      }
+      // 화면점(px,py)을 고정한 채 목표 배율로 확대/축소(휠·핀치·더블탭 공통).
+      function zoomAround(px: number, py: number, target: number, animate = false): void {
+        const vcx = window.innerWidth / 2;
+        const vcy = window.innerHeight / 2;
+        const lx = (px - vcx - tx) / scale;
+        const ly = (py - vcy - ty) / scale;
+        scale = Math.max(1, Math.min(MAX_ZOOM, target));
+        tx = px - vcx - scale * lx;
+        ty = py - vcy - scale * ly;
+        if (scale <= 1.001) {
+          scale = 1;
+          tx = 0;
+          ty = 0;
+        }
+        clampPan();
+        applyTransform(animate);
+      }
+      function resetZoom(): void {
+        scale = 1;
+        tx = 0;
+        ty = 0;
+        applyTransform();
+      }
+
       function show(next: number): void {
         idx = (next + list.length) % list.length; // 끝에서 처음으로 순환
         current = list[idx]!;
@@ -683,28 +724,102 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         URL.revokeObjectURL(currentUrl);
         currentUrl = newUrl;
         counter.textContent = `${idx + 1} / ${list.length}`;
+        resetZoom(); // 다음 사진은 항상 꽉 맞춤에서 시작
       }
       function keys(e: KeyboardEvent): void {
         if (e.key === 'Escape') close();
         else if (e.key === 'ArrowLeft' && list.length > 1) show(idx - 1);
         else if (e.key === 'ArrowRight' && list.length > 1) show(idx + 1);
+        else if ((e.key === '0' || e.key === 'Escape') && scale > 1) resetZoom();
       }
 
-      // 좌우 스와이프로 넘기기. 세로 이동이 더 크면(스크롤 의도) 무시.
-      let swipeStart: { x: number; y: number } | null = null;
+      // 포인터: 1개 = 스와이프(확대 전) 또는 팬(확대 중), 2개 = 핀치 줌.
+      const pts = new Map<number, { x: number; y: number }>();
+      let pinchStart: { dist: number; scale: number } | null = null;
+      let dragStart: { x: number; y: number; tx: number; ty: number; moved: boolean } | null = null;
+      let lastTap = 0;
+      let lastTapX = 0;
+      let lastTapY = 0;
+      const dist2 = (): number => {
+        const [a, b] = [...pts.values()];
+        return Math.hypot(a!.x - b!.x, a!.y - b!.y);
+      };
+      const mid2 = (): { x: number; y: number } => {
+        const [a, b] = [...pts.values()];
+        return { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 };
+      };
       img.addEventListener('pointerdown', (e) => {
-        swipeStart = { x: e.clientX, y: e.clientY };
+        pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        try {
+          img.setPointerCapture(e.pointerId);
+        } catch {
+          /* 합성/종료 포인터 캡처 불가 시에도 추적은 계속 */
+        }
+        if (pts.size === 2) {
+          pinchStart = { dist: dist2(), scale };
+          dragStart = null;
+        } else {
+          dragStart = { x: e.clientX, y: e.clientY, tx, ty, moved: false };
+        }
       });
-      img.addEventListener('pointerup', (e) => {
-        if (!swipeStart || list.length <= 1) {
-          swipeStart = null;
+      img.addEventListener('pointermove', (e) => {
+        if (!pts.has(e.pointerId)) return;
+        pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pinchStart && pts.size === 2) {
+          const m = mid2();
+          zoomAround(m.x, m.y, (pinchStart.scale * dist2()) / pinchStart.dist);
           return;
         }
-        const dx = e.clientX - swipeStart.x;
-        const dy = e.clientY - swipeStart.y;
-        swipeStart = null;
-        if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) show(dx < 0 ? idx + 1 : idx - 1);
+        if (dragStart && scale > 1) {
+          // 확대 중 → 팬(이동)
+          tx = dragStart.tx + (e.clientX - dragStart.x);
+          ty = dragStart.ty + (e.clientY - dragStart.y);
+          dragStart.moved = true;
+          clampPan();
+          applyTransform();
+        }
       });
+      function endPointer(e: PointerEvent): void {
+        pts.delete(e.pointerId);
+        if (pinchStart && pts.size < 2) pinchStart = null;
+        if (pts.size > 0) return;
+        // 마지막 포인터가 떨어짐: 더블탭 / 스와이프 판정(확대 전에만).
+        const ds = dragStart;
+        dragStart = null;
+        if (!ds) return;
+        const dx = e.clientX - ds.x;
+        const dy = e.clientY - ds.y;
+        const isTap = Math.abs(dx) < 12 && Math.abs(dy) < 12 && !ds.moved;
+        if (isTap) {
+          const now = e.timeStamp;
+          if (now - lastTap < 320 && Math.hypot(e.clientX - lastTapX, e.clientY - lastTapY) < 40) {
+            // 더블탭: 확대 토글(탭 지점 기준)
+            lastTap = 0;
+            zoomAround(e.clientX, e.clientY, scale > 1 ? 1 : 2.5, true);
+          } else {
+            lastTap = now;
+            lastTapX = e.clientX;
+            lastTapY = e.clientY;
+          }
+          return;
+        }
+        // 확대 전 좌우 스와이프로 넘기기(세로 이동이 크면 무시).
+        if (scale <= 1 && list.length > 1 && Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          show(dx < 0 ? idx + 1 : idx - 1);
+        }
+      }
+      img.addEventListener('pointerup', endPointer);
+      img.addEventListener('pointercancel', endPointer);
+      // 데스크톱: 휠(또는 트랙패드 핀치=ctrl+wheel)로 커서 기준 확대.
+      img.addEventListener(
+        'wheel',
+        (e) => {
+          e.preventDefault();
+          const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+          zoomAround(e.clientX, e.clientY, scale * Math.exp(-dy * 0.0018));
+        },
+        { passive: false },
+      );
 
       // 회전 — 눕혀 보이는 사진을 90°(시계방향) 돌려 세운다. 원본 불변(§0), 표시본만 갱신·영구 저장.
       const rotateBtn = el('button', 'photo-viewer-rotate', '↻ 회전') as HTMLButtonElement;

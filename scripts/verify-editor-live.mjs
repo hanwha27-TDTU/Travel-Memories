@@ -174,6 +174,26 @@ await page.waitForTimeout(150);
 const counterWrap = await page.$eval('.photo-viewer-count', (e) => e.textContent);
 check('뷰어: 방향키 + 끝에서 순환(1 / 2)', counterWrap === '1 / 2', counterWrap);
 check('뷰어: 넘겨도 열림 유지', (await page.locator('.photo-viewer').count()) === 1);
+
+// v0.40: 뷰어 확대(휠) → is-zoomed + transform scale 상승, '0' 키로 원복
+const vbox = await page.locator('.photo-viewer img').boundingBox();
+await page.mouse.move(vbox.x + vbox.width / 2, vbox.y + vbox.height / 2);
+await page.mouse.wheel(0, -400);
+await page.waitForTimeout(150);
+const zoomedCls = await page.$eval('.photo-viewer img', (i) => i.classList.contains('is-zoomed'));
+const zoomedScale = await page.$eval('.photo-viewer img', (i) => {
+  const m = /scale\(([\d.]+)\)/.exec(i.style.transform);
+  return m ? parseFloat(m[1]) : 1;
+});
+check('뷰어: 휠 확대 → 배율 상승·is-zoomed', zoomedCls && zoomedScale > 1.05, `scale=${zoomedScale}`);
+await page.keyboard.press('0');
+await page.waitForTimeout(150);
+const resetScale = await page.$eval('.photo-viewer img', (i) => {
+  const m = /scale\(([\d.]+)\)/.exec(i.style.transform);
+  return m ? parseFloat(m[1]) : 1;
+});
+check("뷰어: '0' 키 → 확대 원복(1x)", resetScale === 1, `scale=${resetScale}`);
+
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 check('뷰어: Esc로 닫힘', (await page.locator('.photo-viewer').count()) === 0);
