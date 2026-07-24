@@ -98,4 +98,4 @@ TypeScript(strict) · Vite · Vanilla TS 컴포넌트 · Supabase(Auth/Postgres/
 
 ## 에이전트 운영
 
-139개 논리 역할(`docs/AGENT_REGISTRY.md`)을 통합 10개 + 디자인 16개로 `.claude/agents/`에 구현. 동시에 다 돌리지 않고 Orchestrator가 필요한 역할만 호출한다. 규칙은 `AGENTS.md`.
+139개 논리 역할(`docs/AGENT_REGISTRY.md`)을 통합·디자인 세트로 `.claude/agents/`에 구현(개수는 손으로 세지 않고 `src/app/registry.gen.ts` 자동 집계·`check-registry-gen`이 드리프트 차단). 동시에 다 돌리지 않고 Orchestrator가 필요한 역할만 호출한다. 규칙은 `AGENTS.md`.

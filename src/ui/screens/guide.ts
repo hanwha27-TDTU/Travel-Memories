@@ -2,11 +2,26 @@
 // 별도 창으로 보여준다(현재 화면은 유지). 두 묶음: [연결·설정] / [개발·설계].
 //
 // 정직성(§4·CLAUDE.md): 여기 적힌 사실은 "이 저장소에서 실제로 동작·게이트되는 것"만이다.
-// 열거물(게이트·에이전트 목록)은 손 큐레이션 스냅샷이며, 실제 정본은 scripts/harness.mjs와
-// .claude/agents/ 다. 드리프트가 생기면 저장소가 이긴다(레지스트리 파생 게이트는 후속).
+// 카운트·게이트 목록은 손으로 세지 않고 src/app/registry.gen.ts(자동 생성·check-registry-gen 게이트)에서
+// 읽는다 — SSOT는 scripts/harness.mjs·.claude/agents/. 드리프트는 게이트가 RED로 잡는다(§7).
 // 모든 자유 텍스트는 textContent로만 넣는다(innerHTML 금지 — dom.ts 규칙·CSP 게이트).
 
 import { el } from '../dom';
+import { REGISTRY } from '../../app/registry.gen';
+
+// 게이트 한 줄 설명(목록·개수는 REGISTRY에서 파생 — 여기선 설명만 붙인다. 없으면 이름만 표시).
+const GATE_DESC: Record<string, string> = {
+  typecheck: 'TypeScript strict 타입 오류 0',
+  'check-secret-leak': '시크릿(키·토큰) 형태가 코드에 새지 않았는지',
+  'check-domain-wiring': '도메인↔화면 배선이 죽지 않았는지',
+  'check-csp': 'CSP 위반(인라인·외부 리소스) 없는지',
+  'check-base-consistency': 'base 경로·자산 참조 일관성',
+  'check-schema-parity': '클라 rowmap 필드 ⊆ 서버 마이그레이션 컬럼(드리프트 차단)',
+  'check-backup-coverage': '모든 사용자 테이블이 백업 export/import에 다 있는지',
+  'check-blueprint': '설계 개요도(배선맵) 선언 ↔ 실제 구조 일치',
+  'check-registry-gen': '자동 집계 카운트·목록이 SSOT와 일치(손 스냅샷 드리프트 차단)',
+  'unit-tests': '순수 로직 유닛(비공허 확인)',
+};
 
 // ── 상세 패널 조립 헬퍼 ──────────────────────────────────────────────
 function h(text: string): HTMLElement {
@@ -180,19 +195,12 @@ const DEV_GROUP: GuideGroup = {
       hint: '잘못된 변경은 자동으로 막힙니다',
       render: () =>
         panel([
-          h('의도가 아니라 현실로 검증'),
-          p('“통과했다”고 말하려면 자동 게이트가 실제로 통과해야 합니다. 아래는 npm run harness가 돌리는 Required 게이트입니다(정본: scripts/harness.mjs).'),
-          defs([
-            ['typecheck', 'TypeScript strict 타입 오류 0'],
-            ['check-secret-leak', '시크릿(키·토큰) 형태가 코드에 새지 않았는지'],
-            ['check-domain-wiring', '도메인↔화면 배선이 죽지 않았는지'],
-            ['check-csp', 'CSP 위반(인라인·외부 리소스) 없는지'],
-            ['check-base-consistency', 'base 경로·자산 참조 일관성'],
-            ['unit-tests', '순수 로직 유닛(현재 60케이스)'],
-          ]),
+          h(`의도가 아니라 현실로 검증 — Required 게이트 ${REGISTRY.gateCount}가지`),
+          p('“통과했다”고 말하려면 자동 게이트가 실제로 통과해야 합니다. 아래 목록·개수는 손으로 세지 않고 scripts/harness.mjs에서 자동 집계합니다(registry.gen.ts).'),
+          defs(REGISTRY.gates.map((g) => [g, GATE_DESC[g] ?? '(설명 미등록)'])),
           h('게이트를 비공허하게'),
           p('알려진 실패를 일부러 주입해 RED로 잡히는지 확인한 뒤에만 게이트를 신뢰합니다. 셀렉터 불일치로 조용히 통과하지 않는지 검사합니다.'),
-          note('스냅샷입니다 — 실제 게이트 목록은 scripts/harness.mjs가 정본.'),
+          note('이 목록은 자동 생성입니다 — scripts/harness.mjs가 정본, check-registry-gen이 일치를 강제.'),
         ]),
     },
     {
@@ -220,8 +228,8 @@ const DEV_GROUP: GuideGroup = {
       hint: '어떤 검토 역할이 언제 켜지나',
       render: () =>
         panel([
-          h('139개 논리 역할 → 통합 10 + 디자인 16'),
-          p('동시에 다 돌리지 않고, Orchestrator가 변경 유형에 필요한 역할만 호출합니다.'),
+          h(`139개 논리 역할 → .claude/agents/에 ${REGISTRY.agentCount}개 구현`),
+          p('동시에 다 돌리지 않고, Orchestrator가 변경 유형에 필요한 역할만 호출합니다. (개수는 자동 집계 — registry.gen.ts)'),
           h('통합(구현·검증)'),
           bullets([
             'orchestrator — 분해·라우팅·게이트 선택',
@@ -258,10 +266,10 @@ const DEV_GROUP: GuideGroup = {
           defs([
             ['데이터 안전', '✅ 로컬 원자커밋+read-back, tombstone, 빈-클라우드 가드 (게이트/유닛 잠금)'],
             ['보안·프라이버시', '✅ 시크릿 스캔·anon 키만·RLS 소유자범위'],
-            ['테스트·검증', '✅ harness 6게이트·유닛 60 (비공허 확인)'],
+            ['테스트·검증', `✅ harness ${REGISTRY.gateCount}게이트 (비공허 확인)`],
             ['동기화 실연동', '⚠️ 코드 완료·실 기기 왕복은 사용자 환경 확인 필요'],
             ['라이브 UI', '⚠️ 픽셀·제스처·실기기 상호작용은 이 세션 자동검증 밖'],
-            ['목록 기계화', '⚠️ 이 가이드의 게이트·에이전트 목록은 손 스냅샷(파생 게이트는 후속)'],
+            ['목록 기계화', '✅ 게이트·카운트는 registry.gen.ts로 자동 집계(check-registry-gen이 드리프트 차단)'],
           ]),
           note('정직한 완료(§4): 자동 검증층이 통과한 것만 “통과”라 말합니다.'),
         ]),
