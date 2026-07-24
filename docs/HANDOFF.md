@@ -8,8 +8,25 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **여행/순간 동기화 라이브(실연동 완료).** Google OAuth(PKCE)·GitHub Variables·Exposed schemas(journey)가 모두 설정되어 **실제로 작동 중** — 2026-07-23 DB 실측: auth.users 2명(provider=google, 최근 로그인 당일), journey.trips 1·moments 1이 실 owner 계정으로 동기화됨, 초대제(allowlist=hanwha27@gmail.com) 작동. push 멱등 upsert+read-back+LWW / pull 빈-클라우드 가드 병합, 순수 결정로직 유닛테스트로 잠금. (이전 "실연동 대기" 표기는 stale였음 — 정정.) **순간 좌표**: 클라 rowmap이 place_lat/place_lng를 이미 매핑하는데 서버 컬럼이 없어 막혀 있었고, 0005 마이그레이션으로 컬럼 추가되어 이제 좌표까지 동기화됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨.
-> **주의(정직)**: 앱 런타임 동기화 자체는 실기기에서 확인됨(위 DB 증거). 단 이 **샌드박스**는 `*.supabase.co` 차단이라 여기서 앱을 띄워 재현하는 검증은 여전히 불가 — 신규 동기화(media·expense) 실사용 확인은 사용자 실기기 몫.
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v0.40 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(현재 v0.40), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq 1–26).
+
+> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 0001–0010 적용.
+> **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
+
+### 현재 기능 지도 (v0.40 — 새 AI는 이 표로 기능 표면을 즉시 파악)
+
+| 영역 | 상태 | 핵심 파일 |
+|---|---|---|
+| 여행·순간·장소·비용·사진 CRUD(로컬 우선, tombstone·실행취소·cascade) | ✅ | `services/{trips,moments,media,expenses}.ts`, `offline/db.ts`(Dexie) |
+| 다기기 동기화(4엔티티, 좀비 차단) | ✅ 코드완성·실기기 몫 | `services/sync.ts`, `domain/*/rowmap.ts`, `supabase/migrations/*` |
+| 사진 편집기(크롭·자유크롭·잡티·색·프리셋·회전·반전·**원근 펴기**·**수평 보정**·재편집) | ✅ | `ui/photoEditor.ts`, `media/{editor-core,pixelops}.ts` (스킬: photo-editor-dev) |
+| 전체보기 뷰어(넘기기·회전·재편집·**확대/이동**·반응형) | ✅ | `ui/screens/tripDetail.ts` openViewer |
+| 지도·GeoJSON(MapLibre·OSM 타일·장소검색 Nominatim) | ✅ | `ui/screens/mapView.ts`, `domain/place/geojson.ts`, `services/geocode.ts` |
+| 백업/복원(단일 JSON + **여행별 폴더 ZIP**·**AES-GCM 암호화**·**신선도 표시**·병합복원) | ✅ | `services/{backup,backupCrypto,backupMeta,zip}.ts`, `ui/screens/dataManager.ts` |
+| 비상 복구 체계(8게이트·복원 드릴·좀비 트리거·DR 감사관) | ✅ | `scripts/harness.mjs`, `docs/DISASTER_RECOVERY.md`, `.claude/agents/disaster-recovery-guardian.md` |
+| 개발자정보·버전·연구노트(해시체인)·가이드 화면 | ✅ | `app/{changelog,researchLog,hashchain}.ts`, `ui/screens/guide.ts` |
+
+**하네스 게이트(8, SSOT=`scripts/harness.mjs`)**: typecheck · check-secret-leak · check-domain-wiring · check-csp · check-base-consistency · check-schema-parity(클라 rowmap⊆서버 컬럼) · check-backup-coverage(전 테이블 export/import 커버) · unit-tests. 선택 라이브 게이트: `node scripts/verify-editor-live.mjs`(편집기·뷰어 35/35).
 
 **Phase 3k(2026-07-24)**: 전체보기 뷰어 확대/이동(반응형) + 백업 파일명 규칙(v0.40). **동기(사용자)**: ① 전체보기를 접속 기기에 맞게 최적화(반응형)? ② 백업 파일명을 "날짜_시간_제목_용도"로? → 선택: 둘 다. ① **뷰어 확대/이동**(`tripDetail.ts` openViewer): `scale/tx/ty` + `zoomAround`(화면점 고정 확대 — 휠·핀치·더블탭 공통) + `clampPan`(화면 밖 이탈 방지), 포인터 통합(1개=scale≤1 스와이프·scale>1 팬, 2개=핀치 `dist2`/`mid2`), `show()`에서 리셋, 방향키/`0` 키 리셋. **반응형 CSS**: `.photo-viewer` 폰 여백 최소·태블릿(≥900px) 24px·`height:100dvh`·safe-area 인셋·`.is-zoomed` 커서(grab). ② **백업 파일명 규칙**(`backup.ts`): `stampFromISO`(ISO→YYYYMMDD/HHMM)·`photoFileBase`(날짜_시간_제목__id8, `fsSafe` 추출) + `PURPOSE`(원본/표시본/썸네일) → serializeZip이 사진을 `20260717_0617_제목_원본__id8.jpg`로(제목=순간 제목→여행 제목→'사진'). 최상위 백업명 `bugeon-journey_YYYYMMDD_HHMM.{zip,json}`(dataManager). **핵심 안전**: 파일명은 trip.json 메타(`displayFile`/`thumbFile`/`originalFile`)에 기록되어 복원은 그 경로로 되읽으므로 파일명 자유 변경해도 복원 무결(같은 분·제목 충돌은 id8 접미로 방지). **검증**: 유닛 `backupNaming` 5(형식·FS금지문자·충돌방지)·`backupRoundtrip` 7(파일명 변경 후에도 메타 경로 복원 성공=안전 증명), **verify-editor-live 35/35 PASS**(뷰어 휠 확대 2.05x·`0`키 원복·기존 전 기능 무회귀·콘솔 에러 0), harness 8게이트·build 그린. v0.40·연구노트 seq26. **정직**: 실기기 핀치·더블탭 체감은 사용자 확인 권장.
 
@@ -61,11 +78,13 @@
 
 **읽기 순서**:
 1. `CLAUDE.md`(Claude) / `AGENTS.md`(Codex) — 어댑터·비타협 원칙·작업 루프
-2. `docs/PROJECT_SPEC.md`(최상위) → `docs/LESSONS.md`(교훈)
-3. 도메인 계약: `DATA_MODEL` · `SYNC_PROTOCOL` · `SECURITY` · `MEDIA_PIPELINE` · `PRIVACY` · `DEPLOYMENT` · `ARCHITECTURE`
-4. `docs/AGENT_REGISTRY.md`(139역할→26에이전트) → `docs/DECISIONS.md` + `docs/ASSUMPTIONS.md`
-5. `docs/ROADMAP.md`(Phase 계획) → `docs/ACTIVE_TASKS.md` → 이 HANDOFF
-6. v0.2 원본 참조: `docs/reference/v0.2/`
+2. **이 HANDOFF 인계 요약 위쪽(현재 단계·기능 지도)** — 지금 어디까지 됐는지
+3. `docs/PROJECT_SPEC.md`(최상위) → `docs/LESSONS.md`(교훈)
+4. 도메인 계약: `DATA_MODEL` · `SYNC_PROTOCOL` · `SECURITY` · `MEDIA_PIPELINE` · `PRIVACY` · `DEPLOYMENT` · `ARCHITECTURE` · **`DISASTER_RECOVERY`(백업·복원·복구 우선순위)**
+5. `docs/AGENT_REGISTRY.md` → `docs/DECISIONS.md` + `docs/ASSUMPTIONS.md`
+6. `docs/ROADMAP.md`(Phase 계획) → `docs/ACTIVE_TASKS.md`
+7. **작업 전 필수 스킬**(해당 영역 수정 시): 사진 편집기/뷰어 → `.claude/skills/photo-editor-dev/SKILL.md` **반드시 로드**. 데이터 안전(백업·동기화) 변경 → `.claude/agents/disaster-recovery-guardian`로 사전·사후 감사.
+8. v0.2 원본 참조: `docs/reference/v0.2/`
 
 **클론 후 검증**(그대로 실행):
 ```
@@ -76,11 +95,14 @@ npm run build                          # base=/Travel-Memories/ 정적 빌드
 npm run dev                            # 홈 화면 확인 (선택)
 ```
 
-**다음 작업 후보**:
-- (a) **Phase 0B 잔여**: SW 캐시 버저닝 · 배선맵(TERMINALS) 생성기 · camelCase↔snake_case 경계 게이트 · empty-seed 게이트.
-- (b) **Phase 1**: 인증(Google, invite-only·소유자 한정) · 여행 CRUD · 소유자 범위 RLS · 오프라인 저장. **Supabase 프로젝트 생성 필요**.
+**다음 작업 후보**(v0.40 이후 — 앞선 Phase 기록에서 "후속"으로 남긴 것들):
+- **회고(Reflection) + 대표사진**: Phase 5의 원래 잔여. 여행/하루의 회고 텍스트·대표사진 지정(memory-centered-ux·photo-storytelling-designer 에이전트 영역).
+- **Storage 옛 고아 스윕**: v0.37에서 tombstone 시점 스윕은 구현(0010 DELETE 정책). 그 이전에 삭제된 옛 표시본 객체의 1회성 일괄 정리는 미구현(유실 아님·잉여).
+- **연구노트 TSA(외부 타임스탬프)**: 해시체인은 앱 내 무결성만 보장. 외부 시각 증명은 별도 논의(사용자 대기).
+- **AI 산출물 테이블(ai_artifacts, Phase 7)**: 아직 미구현. 구현 시 사용자 필드와 절대 혼합 금지(비타협 원칙 #2).
+- **실기기 검증 갭 해소**: 네트워크 동기화·Storage 업/다운·핀치/드래그·PWA 설치는 샌드박스 미검증 → 사용자 실기기 확인이 필요한 상시 항목.
 
-**사용자 대기 열린 결정**: 지도 타일 제공자·예산(A-006) · Supabase 프로젝트 생성 시점(Q4) · Google OAuth 설정(Q5) · ADR-0015 인라인 AI 컬럼 제거 검토.
+**사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
 
