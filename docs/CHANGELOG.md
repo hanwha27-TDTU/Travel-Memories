@@ -4,7 +4,9 @@
 
 > **사용자용 버전 이력 SSOT는 `src/app/changelog.ts`**(0.01 단위, PR 병합=릴리스). 앱의 "개발자 정보" 화면이 그 파일을 읽어 표시한다. 이 문서(docs/CHANGELOG.md)는 개발자용 **기술 상세 기록**이다. 버전 숫자·사용자 표기는 `src/app/changelog.ts`가 정본이며 여기서 손으로 복제하지 않는다.
 
-## [Unreleased] — Phase 0~1
+## [Unreleased]
+
+> **v0.22–v0.40 기술 상세는 `docs/HANDOFF.md`의 Phase 기록과 `src/app/researchLog.ts`(사람/AI/결정 해시체인)가 정본이다.** 이 문서를 손으로 복제하지 않는다(LESSONS §7 — 손편집 중복은 결함). 새 AI는 HANDOFF 인계 요약의 "현재 기능 지도"로 전체 표면을 파악하고, 세부는 각 Phase 기록을 본다. 아래는 v0.21까지의 초기 기록(역사적 보존).
 
 ### Phase 6a — 개발자 정보·버전 관리 + 사진 폭 채우기 옵션 + 문서 규범 체계 (2026-07-23) · v0.21
 - **버전 SSOT** `src/app/changelog.ts`: 0.00부터 0.01 단위. 지금까지 병합된 PR #1~#20을 v0.01~v0.20으로 소급 부여(실제 git 이력과 1:1). 이번 릴리스 v0.21. `APP_VERSION`·`LAST_MODIFIED`·`FIRST_DEV_DATE`를 이 파일에서 파생(손 복제 금지).

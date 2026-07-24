@@ -48,7 +48,7 @@ description: 사진 편집기 개발 프롬프트 — photoEditor.ts·editor-cor
 - **닫기 보호**: 편집 존재(`!isIdentity`) 시 ✕/Esc는 confirm. 모달 열릴 때 단 keydown 리스너는 `finish()`에서 반드시 제거.
 - 길게 누르는 버튼(원본 비교)은 `contextmenu` preventDefault + `touch-action:none`(모바일 길게 누르기 메뉴 차단).
 - 배치 추가는 사용자를 장당 편집기에 가두지 않는다(`skipAll` 경로 유지).
-- 뷰어: 사진 탭은 닫기가 아니다(배경·✕·Esc만). 스와이프는 `|dx|>48 && |dx|>1.5|dy|`.
+- 뷰어(`tripDetail.ts` openViewer): 사진 탭은 닫기가 아니다(배경·✕·Esc만). **확대/이동**(v0.40): `scale/tx/ty` + `zoomAround`(화면점 고정 확대 — 휠·핀치·더블탭 공통) + `clampPan`(화면 밖 이탈 방지). 포인터 통합 규칙 — `scale≤1`이면 단일 드래그=스와이프 넘기기(`|dx|>48 && |dx|>1.5|dy|`), `scale>1`이면 단일 드래그=팬, 두 손가락=핀치. 사진 넘기면(`show()`) 리셋, 방향키/`0` 키 리셋. CSS `transform-origin:center`·`.is-zoomed`. 새 제스처 추가 시 이 배타 규칙(스와이프↔팬)을 깨지 말 것.
 
 ## 4. 과거 결함 등록부 (재발 방지 — 같은 형이 보이면 즉시 의심)
 
@@ -62,6 +62,7 @@ description: 사진 편집기 개발 프롬프트 — photoEditor.ts·editor-cor
 | 0.24 | 뷰어 Esc 리스너 누수·사진 탭 시 닫힘 | 닫기 경로별 정리 누락·이벤트 버블 | close()에서 일괄 제거·img stopPropagation |
 | 0.25 | (개선) 잡티 되돌리기만 있고 전역 undo 없음 | 부분 이력 | 전역 이력 스택으로 통합 |
 | 0.26 | 세로 사진 미리보기 위쪽만 보임(스테이지 압착) | 스크롤 flex 컨테이너에서 overflow:hidden 자식은 자동 최소크기가 0 → 내용이 넘치면 짜부라져 클립 | `.pe-stage`에 `flex:0 0 auto`(수축 금지). 같은 형: 스크롤 flex 부모 안의 overflow 가진 자식은 항상 shrink 여부를 명시 |
+| 0.39 | (예방) 새 기하 단계(원근 펴기 quad) 추가 시 크롭·잡티 어긋남 위험 | 기하 공간 크기가 바뀌는데 창·heal 재투영이 옛 공간(rd) 기준이면 좌표 어긋남 | 기하 공간을 **gd**(=quad 적용 후 크기 `quadOutputDims`)로 정의하고 `resolveWindow`·heal 재투영·회전/반전 변환을 모두 gd 기준으로 일치. 새 기하 변형을 넣으면 이 치환을 빠뜨리지 말 것 |
 
 **결함 → 결함군 승격 규율**: 위 근본형이 다른 파일에서 보이면(예: 다른 오버레이의 리스너 누수) 단건 수정하지 말고 형제 위치를 쓸어라.
 
