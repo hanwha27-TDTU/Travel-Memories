@@ -11,6 +11,7 @@ const gates = [
   { name: 'check-schema-parity', cmd: 'node scripts/check-schema-parity.mjs' },
   { name: 'check-backup-coverage', cmd: 'node scripts/check-backup-coverage.mjs' },
   { name: 'check-blueprint', cmd: 'node scripts/check-blueprint.mjs' },
+  { name: 'check-registry-gen', cmd: 'node scripts/check-registry-gen.mjs' },
   { name: 'unit-tests', cmd: 'npm run -s test' },
 ];
 

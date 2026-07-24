@@ -248,4 +248,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '이건 새 기능이 아니라 우리 LESSONS §3(배선맵 "발전원→배선→콘센트", 화면까지 닿아야 100점) + §7(SSOT→생성→게이트)를 화면으로 구현하는 것. 이미 DOMAIN_REGISTRY가 발전원 SSOT. 핵심: 손그림 금지 — 실제 레지스트리+Dexie 실카운트+라우터에서 자동 생성하고 CI 게이트로 그림↔현실 대조해야 끊긴 배선을 눈+게이트로 잡아 오류가 준다(사용자 직관 정확).',
     decision: 'app/blueprint.ts(SSOT: SOURCES 발전원 9(실장 4·계획 5)·SHAPING·STORAGE·SCREENS 7·selfCheck 순수·liveCounts Dexie) + ui/screens/designOverview.ts(메디컬 프레임 동일: 자가점검 점수+막대+그룹, ①태어남 실카운트 ②다듬기 ③보관·동기화 ④화면 연결됨/정보 배지, 범례). 개발자 정보(aboutApp)에 진입 버튼. scripts/check-blueprint.mjs(9번째 게이트): db.ts 사용자 테이블⊆implemented SOURCE·hasRowmap→rowmap 파일·hasSync→sync.ts 참조·SCREEN.file 실재 대조, 비공허(빠진 발전원 RED). 검증: 유닛 blueprint 4(점수100·로드맵·화면연결·유령배선 금지), 게이트 비공허(localTrips 매핑 제거 시 RED), verify-editor-live 42/42(개발자정보→설계개요도→4단계·점수100·실카운트 여행=1 자동 채움·콘솔0), 스크린샷으로 프레임 일치 사용자 확인. harness 9게이트·build 그린. 정직: 계획 도메인은 "예정"으로 표시(감점 아님). LESSONS §3 배선맵 생성기 후속과제 해소.',
   },
+  {
+    seq: 31,
+    date: '2026-07-24',
+    topic: '손그림 조사 → 카운트/게이트 목록 기계화(자동 집계 + 게이트)',
+    human: '손으로 그리는 것들 모두 조사해서 기계화 가능하면 모두 기계화. 특수한 경우면 물어봐. (메디컬 앱 "기계화 검증 흐름도" 이미지 참조)',
+    ai: '조사 결과 실측 드리프트 발견 — 가이드 화면이 "6게이트·26에이전트·유닛60"을 손 스냅샷으로 적어 실제(게이트 10·에이전트 28)와 어긋남(guide.ts가 스스로 "파생 게이트는 후속" 인정). LESSONS §7(SSOT→생성→게이트) 대상. 생성 파일 + 커밋본==재생성본 게이트로 제안.',
+    decision: 'scripts/gen-registry.mjs → src/app/registry.gen.ts(GENERATED: gates 목록·gateCount·agentCount·screenCount·migrationCount·changelogCount·researchCount를 harness.mjs·.claude/agents/·화면·마이그·changelog·researchLog에서 자동 집계). scripts/check-registry-gen.mjs(10번째 게이트): 커밋본==재생성본 대조(비공허 자체검사, 손상 시 RED 재현 확인). guide.ts가 REGISTRY에서 게이트 목록·개수를 파생(손 나열 제거, GATE_DESC만 설명). tests/unit/logIntegrity(6): changelog 0.01 연속·날짜 내림, researchLog seq 1..N 연속·날짜 오름·human/ai/decision 채움. 문서 프로즈 하드카운트(HANDOFF·CLAUDE.md "9게이트·26에이전트")는 숫자를 빼고 registry.gen 참조로 교체(드리프트 원천 제거). 검증: harness 10게이트·build·verify-editor-live 42/42 그린. 특수 케이스는 사용자에게 질문(전용 대시보드 화면·남은 프로즈 카운트 게이트).',
+  },
 ];
