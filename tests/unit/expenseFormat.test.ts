@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatMoney, sumByCurrency, formatTotals, DEFAULT_CURRENCY } from '../../src/domain/expense/format';
+import { formatMoney, sumByCurrency, formatTotals, DEFAULT_CURRENCY, CURRENCIES } from '../../src/domain/expense/format';
 
 describe('formatMoney', () => {
   it('KRW: 소수 없음 + 천단위 구분', () => {
@@ -14,11 +14,26 @@ describe('formatMoney', () => {
     expect(formatMoney(1000000, 'UZS')).toBe('1,000,000 soʻm');
     expect(formatMoney(500, 'JPY')).toBe('¥500');
   });
-  it('알 수 없는 통화는 심볼 위조 없이 코드를 붙인다', () => {
-    expect(formatMoney(100, 'GBP')).toBe('100.00 GBP');
+  it('심볼 있는 통화는 앞에(£), 없는 통화는 코드를 뒤에(AED·CHF — 심볼 위조 안 함)', () => {
+    expect(formatMoney(1000, 'GBP')).toBe('£1,000.00');
+    expect(formatMoney(1000, 'AED')).toBe('1,000.00 AED');
+    expect(formatMoney(1000, 'CHF')).toBe('1,000.00 CHF');
+  });
+  it('북유럽 kr·PLN zł은 관례상 심볼 뒤', () => {
+    expect(formatMoney(1000, 'NOK')).toBe('1,000.00 kr');
+    expect(formatMoney(1000, 'SEK')).toBe('1,000.00 kr');
+    expect(formatMoney(1000, 'PLN')).toBe('1,000.00 zł');
+  });
+  it('진짜 알 수 없는 통화도 코드를 붙인다', () => {
+    expect(formatMoney(100, 'XXX')).toBe('100.00 XXX');
   });
   it('기본 통화는 KRW', () => {
     expect(DEFAULT_CURRENCY).toBe('KRW');
+  });
+  it('통화 목록: 코드 유일 + 자주 쓰는 통화가 위(순서 KRW·USD·UZS·JPY·EUR)', () => {
+    const codes = CURRENCIES.map((c) => c.code);
+    expect(new Set(codes).size).toBe(codes.length); // 중복 없음
+    expect(codes.slice(0, 5)).toEqual(['KRW', 'USD', 'UZS', 'JPY', 'EUR']);
   });
 });
 
