@@ -232,4 +232,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '확인: JSON은 원본 포함 완전백업 맞음(현재 ZIP도 원본 포함이라 둘 다 완전백업 상태). Supabase Storage엔 표시본만 올라감(원본·GPS 미동기화) → "원본 제외"=표시본+썸네일+메타(클라우드와 사실상 동일·브라우징 가능·약 1/8 용량). 메커니즘은 이미 존재(exportBackupZip(includeOriginals=false)·왕복 테스트 통과) — 버튼 대신 체크박스 토글 추천(카면 방지·JSON=완전백업 유지).',
     decision: 'dataManager 백업 패널에 "원본 사진 포함" 체크박스(기본 켬) 추가 — ZIP 버튼이 checkbox.checked를 exportBackupZip에 전달, 해제 시 파일명 접미 "_표시본만". 안내문·주의문을 완전백업(원본 포함)=JSON 중심으로 정정. 검증: backupRoundtrip에 가벼운 백업 단언 강화(light<full 크기·_원본 엔트리 없음·표시본 폴백 복원), harness 8게이트·build 그린. 체크박스는 이미 검증된 boolean 파라미터 토글이라 자동층으로 충분(실기기 다운로드 UX는 사용자 확인). 데이터 안전 불변식 그대로 — 원본은 로컬·완전백업에만, 가벼운 백업 복원은 표시본 폴백(기억 유실 아님).',
   },
+  {
+    seq: 29,
+    date: '2026-07-24',
+    topic: '여행 목록에서 바로 삭제(발견성)',
+    human: '여행 목록에 삭제 기능이 없네요. 추가하는게 어떨까요?',
+    ai: '실측: 여행 삭제 서비스·안전장치(cascade tombstone·실행취소·휴지통)는 Phase 3c부터 존재하나 상세→편집 패널 안에만 노출돼 발견성이 낮음. 목록 카드에 삭제 버튼을 얹되 기존 안전장치를 그대로 재사용 제안(복구 가능성 우선).',
+    decision: 'home.ts tripCard를 button→div(role=button)로 전환(버튼 중첩 회피, archivedCard 패턴)해 🗑 삭제 버튼 중첩(stopPropagation). deleteTrip(t): window.confirm(순간·사진 함께 삭제·복구 가능 안내) → softDeleteTripLocalFirst → refresh → showUndoToast(restoreTripLocalFirst). 서버 전파는 trySync. CSS .trip-delete(우상단 원형·danger hover). 검증: verify-editor-live에 목록 삭제 테스트 추가 — 확인 수락 시 카드 제거(1→0), 실행취소로 복원(0→1), 39/39 PASS·콘솔 에러 0, harness 8게이트·build 그린. 하드삭제 없음(§0)·복구 가능(§5) 그대로.',
+  },
 ];

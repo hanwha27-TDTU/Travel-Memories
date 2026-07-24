@@ -195,6 +195,15 @@
   backdrop-filter: blur(5px); color: #fff; font-size: 0.78rem; font-weight: 800; cursor: pointer;
 }
 .trip-restore:hover { background: rgba(255, 255, 255, .36); }
+.trip-delete {
+  position: absolute; z-index: 3; top: 12px; right: 12px;
+  width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; border: 1px solid rgba(255, 255, 255, .42);
+  background: rgba(20, 6, 10, .28); backdrop-filter: blur(5px);
+  color: #fff; font-size: 0.9rem; cursor: pointer; line-height: 1;
+}
+.trip-delete:hover { background: rgba(190, 40, 60, .6); }
+.trip-delete:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
 /* ===== 빈 상태 ===== */
 .empty-state {
