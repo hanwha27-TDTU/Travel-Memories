@@ -824,13 +824,17 @@
 }
 .photo-viewer {
   position: fixed; inset: 0; z-index: 50; background: rgba(6, 6, 14, .92);
-  display: grid; place-items: center; cursor: zoom-out;
-  /* 기기 반응형: 폰은 여백 최소로 사진 크게, 태블릿+는 여백 조금. safe-area 존중. 100dvh로 모바일 주소창 대응. */
-  height: 100dvh; padding: max(env(safe-area-inset-top, 0), 8px) max(env(safe-area-inset-right, 0), 8px) max(env(safe-area-inset-bottom, 0), 8px) max(env(safe-area-inset-left, 0), 8px);
+  /* flex 중앙 정렬 — grid+max-height:100%는 가로 사진을 가로 화면에서 높이 제약 못 해 위아래가 잘렸다.
+     flex는 definite-height 컨테이너(fixed inset:0)에서 max-height:100%를 신뢰성 있게 해석한다. */
+  display: flex; align-items: center; justify-content: center; cursor: zoom-out;
+  /* 반응형: 폰은 여백 최소로 사진 크게, 태블릿+는 여백 조금. safe-area 존중. */
+  padding: max(env(safe-area-inset-top, 0), 8px) max(env(safe-area-inset-right, 0), 8px) max(env(safe-area-inset-bottom, 0), 8px) max(env(safe-area-inset-left, 0), 8px);
   overflow: hidden;
 }
 .photo-viewer img {
-  max-width: 100%; max-height: 100%; border-radius: var(--radius-medium);
+  max-width: 100%; max-height: 100%; width: auto; height: auto;
+  object-fit: contain; /* 안전망: 세로·가로 어느 방향이든 전체 사진이 잘리지 않게 */
+  border-radius: var(--radius-medium);
   box-shadow: 0 20px 60px -20px rgba(0,0,0,.8);
   transform-origin: center center; will-change: transform; cursor: zoom-in;
 }

@@ -63,6 +63,7 @@ description: 사진 편집기 개발 프롬프트 — photoEditor.ts·editor-cor
 | 0.25 | (개선) 잡티 되돌리기만 있고 전역 undo 없음 | 부분 이력 | 전역 이력 스택으로 통합 |
 | 0.26 | 세로 사진 미리보기 위쪽만 보임(스테이지 압착) | 스크롤 flex 컨테이너에서 overflow:hidden 자식은 자동 최소크기가 0 → 내용이 넘치면 짜부라져 클립 | `.pe-stage`에 `flex:0 0 auto`(수축 금지). 같은 형: 스크롤 flex 부모 안의 overflow 가진 자식은 항상 shrink 여부를 명시 |
 | 0.39 | (예방) 새 기하 단계(원근 펴기 quad) 추가 시 크롭·잡티 어긋남 위험 | 기하 공간 크기가 바뀌는데 창·heal 재투영이 옛 공간(rd) 기준이면 좌표 어긋남 | 기하 공간을 **gd**(=quad 적용 후 크기 `quadOutputDims`)로 정의하고 `resolveWindow`·heal 재투영·회전/반전 변환을 모두 gd 기준으로 일치. 새 기하 변형을 넣으면 이 치환을 빠뜨리지 말 것 |
+| 0.41 | 가로 태블릿에서 가로 사진 전체보기 위아래 잘림 | 뷰어 컨테이너가 `display:grid; place-items:center`일 때 `img{max-height:100%}`가 auto-sized grid 트랙에 대해 해석되지 않아 높이 제약 실패 → 폭만 맞고 세로 오버플로(세로 화면은 폭 제약이라 안 드러남) | `.photo-viewer`를 **flex 중앙정렬**(definite-height 컨테이너에서 max-height:100% 신뢰) + img에 `object-fit:contain` 안전망 + `height:100dvh` 과잉제약 제거. 라이브 검증은 **가로 뷰포트(1600×1000)**에서 렌더 rect가 뷰포트에 들어오는지 측정(세로 뷰포트만 보면 이 부류 결함을 놓친다) |
 
 **결함 → 결함군 승격 규율**: 위 근본형이 다른 파일에서 보이면(예: 다른 오버레이의 리스너 누수) 단건 수정하지 말고 형제 위치를 쓸어라.
 

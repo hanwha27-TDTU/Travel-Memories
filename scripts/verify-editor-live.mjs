@@ -292,6 +292,39 @@ check('펴기 undo → 픽셀 원복', pxUndoPersp === pxPrePersp, `${pxPersp} �
 await page.getByRole('button', { name: '원본 사용', exact: true }).click();
 await page.waitForSelector('.pe-overlay', { state: 'detached' });
 
+// ── v0.41: 가로 태블릿에서 가로 사진 전체보기 — 위아래 잘림 없이 전체가 뷰포트에 들어와야 함 ──
+// (버그: grid+max-height:100%가 가로 화면에서 높이 제약 실패 → 폭만 맞고 상하 오버플로.)
+await page.setViewportSize({ width: 1600, height: 1000 }); // 가로 태블릿
+const wideBuf = Buffer.from(await page.evaluate(async () => {
+  const c = document.createElement('canvas'); c.width = 1600; c.height = 1200; // 4:3 가로 사진
+  const x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, 1600, 1200);
+  g.addColorStop(0, '#2b8a3e'); g.addColorStop(1, '#e8590c');
+  x.fillStyle = g; x.fillRect(0, 0, 1600, 1200);
+  const b = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9));
+  return Array.from(new Uint8Array(await b.arrayBuffer()));
+}));
+await page.fill('input[placeholder^="이 순간을"]', '가로 사진 태블릿 검증');
+await page.setInputFiles('.moment-photo-input', [{ name: 'wide.jpg', mimeType: 'image/jpeg', buffer: wideBuf }]);
+await page.getByRole('button', { name: '순간 저장' }).click();
+await page.waitForSelector('.pe-overlay', { timeout: 10000 });
+await page.getByRole('button', { name: '원본 사용', exact: true }).click();
+await page.waitForSelector('.pe-overlay', { state: 'detached' });
+await page.waitForTimeout(600);
+await page.locator('.photo-thumb').last().click();
+await page.waitForSelector('.photo-viewer');
+await page.waitForTimeout(300);
+const fit = await page.evaluate(() => {
+  const im = document.querySelector('.photo-viewer img');
+  const r = im.getBoundingClientRect();
+  return { rw: Math.round(r.width), rh: Math.round(r.height), vw: window.innerWidth, vh: window.innerHeight };
+});
+check('가로 태블릿: 가로 사진 전체가 뷰포트에 들어옴(상하 안 잘림)',
+  fit.rh <= fit.vh + 1 && fit.rw <= fit.vw + 1, JSON.stringify(fit));
+// 가로 사진(4:3)이 가로 뷰포트(16:10)에서 높이 제약을 받는지: 렌더 높이가 뷰포트에 거의 꽉 참
+check('가로 태블릿: 높이 기준 맞춤(꽉 채움)', fit.rh >= fit.vh - 60, JSON.stringify(fit));
+await page.keyboard.press('Escape');
+
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 
 await browser.close();

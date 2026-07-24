@@ -216,4 +216,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '뷰어는 contain이라 넓은 화면에서 세로 사진 좌우 여백이 큼 — 세로 사진은 비율상 꽉 채우면 잘라야 하니 실질 최적화는 확대. 파일명은 trip.json 메타 경로로 복원하므로 파일명 자유 변경해도 복원 안전(같은 분·제목 충돌은 id8 접미로 방지).',
     decision: '① 뷰어: 확대/이동 추가 — scale/tx/ty + zoomAround(화면점 고정 확대: 휠·핀치·더블탭 공통) + clampPan(화면 밖 이탈 방지), 포인터 통합(1개=확대 전 스와이프/확대 중 팬, 2개=핀치), show() 시 리셋, 방향키/0 키 리셋, 반응형 CSS(폰 여백 최소·태블릿 24px·100dvh·safe-area·is-zoomed 커서). ② 파일명: services/backup에 stampFromISO·photoFileBase(날짜_시간_제목__id8, FS안전 fsSafe 추출) + PURPOSE(원본/표시본/썸네일) → serializeZip이 사진을 "20260717_0617_제목_원본__id8.jpg"로(제목=순간 제목→여행 제목→사진), 최상위 백업명 bugeon-journey_YYYYMMDD_HHMM.{zip,json}. 검증: 유닛 backupNaming 5(형식·FS금지문자·충돌방지)·backupRoundtrip 7(파일명 바뀌어도 메타 경로로 복원 성공=안전 증명), verify-editor-live 35/35(뷰어 휠 확대 2.05x·0키 원복·무회귀), harness 8게이트·build 그린. 실기기 핀치/더블탭 체감은 사용자 확인 권장.',
   },
+  {
+    seq: 27,
+    date: '2026-07-24',
+    topic: '가로 태블릿 전체보기 잘림 수정',
+    human: '태블릿에서 전체사진으로 볼 수가 없어요(가로 사진 위아래 잘림). 참고로 모바일 확대화면은 해결됨.',
+    ai: '근본형: v0.40에서 뷰어를 display:grid; place-items:center로 바꾸며 img{max-height:100%}가 auto-sized grid 트랙에 대해 해석 안 돼 높이 제약 실패 → 가로 화면(높이 기준)에서 폭만 맞고 세로 오버플로(세로 화면은 폭 기준이라 안 드러남 — 사용자의 "모바일은 정상"이 이를 확증). + height:100dvh가 inset:0과 과잉제약. flex 중앙정렬 + object-fit:contain 제안.',
+    decision: '.photo-viewer를 flex 중앙정렬(definite-height 컨테이너에서 max-height:100% 신뢰)로 전환 + img object-fit:contain 안전망 + height:100dvh 제거. 검증(현실로): verify-editor-live에 가로 뷰포트(1600×1000) 측정 테스트 추가 — 비공허 확인(옛 grid로 되돌리면 1552×1164 오버플로 FAIL, 수정본 1269×952 PASS). 37/37 PASS·harness 8게이트·build 그린. 교훈(스킬 §4 등재): 반응형 회귀는 세로/가로 두 방향 모두 측정해야 잡힌다 — 세로 뷰포트만 보면 높이-제약 결함을 놓친다.',
+  },
 ];
