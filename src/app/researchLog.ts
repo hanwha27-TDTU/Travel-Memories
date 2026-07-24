@@ -256,4 +256,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '조사 결과 실측 드리프트 발견 — 가이드 화면이 "6게이트·26에이전트·유닛60"을 손 스냅샷으로 적어 실제(게이트 10·에이전트 28)와 어긋남(guide.ts가 스스로 "파생 게이트는 후속" 인정). LESSONS §7(SSOT→생성→게이트) 대상. 생성 파일 + 커밋본==재생성본 게이트로 제안.',
     decision: 'scripts/gen-registry.mjs → src/app/registry.gen.ts(GENERATED: gates 목록·gateCount·agentCount·screenCount·migrationCount·changelogCount·researchCount를 harness.mjs·.claude/agents/·화면·마이그·changelog·researchLog에서 자동 집계). scripts/check-registry-gen.mjs(10번째 게이트): 커밋본==재생성본 대조(비공허 자체검사, 손상 시 RED 재현 확인). guide.ts가 REGISTRY에서 게이트 목록·개수를 파생(손 나열 제거, GATE_DESC만 설명). tests/unit/logIntegrity(6): changelog 0.01 연속·날짜 내림, researchLog seq 1..N 연속·날짜 오름·human/ai/decision 채움. 문서 프로즈 하드카운트(HANDOFF·CLAUDE.md "9게이트·26에이전트")는 숫자를 빼고 registry.gen 참조로 교체(드리프트 원천 제거). 검증: harness 10게이트·build·verify-editor-live 42/42 그린. 특수 케이스는 사용자에게 질문(전용 대시보드 화면·남은 프로즈 카운트 게이트).',
   },
+  {
+    seq: 32,
+    date: '2026-07-24',
+    topic: '기계화 검증 흐름도 대시보드 + 문서 프로즈 카운트 게이트',
+    human: 'seq31의 두 특수 케이스 답: (1) 게이트를 카테고리별로 보여주는 "기계화 검증 흐름도" 대시보드 화면을 만들자. (2) 문서 산문 속 숫자에 전용 게이트를 추가하자.',
+    ai: '두 손그림 잔여를 마저 기계화. (1) 대시보드는 REGISTRY.gates에서 파생(손 나열 금지)해 정적·자동생성·유닛 카테고리로 묶어 표시. (2) 문서 프로즈 카운트는 seq31에서 "숫자 제거"로 임시 처리했으나, 숫자를 다시 넣고 싶을 때를 위해 마커+게이트로 원천 봉쇄 — <!--reg:키-->값<!--/reg--> 마커를 gen-registry가 자동으로 심고 check-doc-counts가 대조.',
+    decision: 'app/gates.ts(공유 GATE_DESC·GATE_CATEGORY·CATEGORY_LABEL — guide/mechChecks 두 화면이 설명을 손으로 중복 안 쓰게). ui/screens/mechChecks.ts(openMechChecks: 4단계 흐름 + 게이트 개수 배지(REGISTRY.gateCount) + 카테고리별 게이트 카드(REGISTRY.gates.filter(categoryOf) 파생) + 라이브 렌더 별도 섹션). aboutApp·guide에 진입 버튼. gen-registry.mjs에 findMarkers/patchMarkers(순수) + DOC_FILES 추가, 실행 시 문서 마커 자동 재심음. scripts/check-doc-counts.mjs(11번째 게이트): DOC_FILES의 <!--reg:키-->값<!--/reg-->이 실제 registry와 일치하는지 대조, 알 수 없는 KEY도 RED, 비공허 자체검사(맞는 값 통과·틀린 값·오타 KEY RED). HANDOFF에 게이트 개수 마커 시연 삽입. 검증(현실로): harness 11게이트 PASS, 문서 마커 99로 손상 시 RED·복원 시 PASS 재현, verify-editor-live 45/45(기계화 흐름도 4단계·배지 자동집계·카드=게이트+라이브 1·콘솔0), build 그린. registry.gen gateCount 10→11·screenCount 8→9 자동 반영. **결함군 승격(자기적용)**: 게이트를 설명하는 프로즈가 게이트가 찾는 마커 문법과 충돌 — Phase 7b 기록에 예시로 적은 <!--reg:KEY-->가 실제 마커로 오인돼 스스로 RED(게이트 비공허 실증). 근본형: "검사 대상의 문법을 문서가 리터럴로 포함하면 오탐". 처방: KEY 정규식을 [A-Za-z0-9_]로 좁혀, 문서 예시는 한글 KEY(키)로 적으면 매칭에서 제외 — 실제 마커(영문 KEY)만 검사.',
+  },
 ];

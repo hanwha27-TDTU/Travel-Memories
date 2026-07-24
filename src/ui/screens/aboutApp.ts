@@ -7,6 +7,7 @@ import { el } from '../dom';
 import { CHANGELOG, DEVELOPER, APP_VERSION, LAST_MODIFIED, FIRST_DEV_DATE } from '../../app/changelog';
 import { openResearchNote } from './researchNote';
 import { openDesignOverview } from './designOverview';
+import { openMechChecks } from './mechChecks';
 
 /** 문서 규범 체계(법령 체계) — 기존 문서 지도를 규범 위계로 재구성. 새 사실을 만들지 않는다. */
 interface NormTier {
@@ -106,7 +107,10 @@ export function openAboutApp(): void {
   const bpBtn = el('button', 'btn-ghost about-rn-open', '🗺️ 설계 개요도 열기') as HTMLButtonElement;
   bpBtn.type = 'button';
   bpBtn.addEventListener('click', () => openDesignOverview());
-  bp.appendChild(bpBtn);
+  const mcBtn = el('button', 'btn-ghost about-rn-open', '🛡️ 기계화 검증 흐름도 열기') as HTMLButtonElement;
+  mcBtn.type = 'button';
+  mcBtn.addEventListener('click', () => openMechChecks());
+  bp.append(bpBtn, mcBtn);
   bodyEl.appendChild(bp);
 
   // ── 문서 규범 체계(법령 체계) ──

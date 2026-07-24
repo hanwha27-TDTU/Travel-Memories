@@ -95,6 +95,25 @@ while ((await page.locator('.guide-overlay').count()) > 0) {
   await page.waitForTimeout(200);
 }
 
+// v0.46: 기계화 검증 흐름도 — 개발자 정보 → 열기 → 4단계 + 게이트 카드가 실제 harness 개수와 일치
+await page.locator('.app-version').click();
+await page.getByRole('button', { name: /기계화 검증 흐름도 열기/ }).click();
+await page.waitForSelector('.mc-flow');
+const mcSteps = await page.locator('.mc-step').count();
+check('기계화 검증 흐름도: 4단계 렌더', mcSteps === 4, `steps=${mcSteps}`);
+const mcBadge = await page.$eval('.mc-badge', (e) => e.textContent);
+check('기계화 검증 흐름도: 게이트 개수 배지(자동 집계)', /자동 검사 \d+가지/.test(mcBadge ?? ''), mcBadge ?? '');
+// 카테고리별 게이트 카드 개수 합 = 배지의 개수(손 나열이 아니라 REGISTRY 파생) + 라이브 렌더 1
+const mcBadgeN = parseInt((mcBadge ?? '').match(/(\d+)가지/)?.[1] ?? '0', 10);
+const mcGates = await page.locator('.mc-gate').count();
+check('기계화 검증 흐름도: 카드 개수 = 게이트 수 + 라이브 1', mcGates === mcBadgeN + 1, `cards=${mcGates}, badge=${mcBadgeN}`);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(250);
+while ((await page.locator('.guide-overlay').count()) > 0) {
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+}
+
 await page.getByLabel('편집기 검증 여행 여행 열기').first().click();
 await page.waitForSelector('.moment-photo-input', { state: 'attached' });
 

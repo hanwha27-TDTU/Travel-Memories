@@ -624,6 +624,57 @@
   .guide-title { font-size: 1.3rem; }
 }
 
+/* 가이드에서 대시보드 여는 버튼 */
+.guide-open-dashboard {
+  margin-top: var(--space-3); align-self: flex-start;
+  padding: 8px 14px; border: 1px solid var(--line); border-radius: var(--radius-pill);
+  background: var(--bg); color: var(--ink); font-size: 0.82rem; font-weight: 700; cursor: pointer;
+}
+.guide-open-dashboard:hover { background: var(--surface-2, var(--bg)); border-color: var(--a1); }
+
+/* 기계화 검증 흐름도(mechChecks) — 가이드 모달 셸 재사용 + 전용 클래스 */
+.mc-flow { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-3) 0; }
+.mc-step {
+  display: flex; align-items: flex-start; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3); border: 1px solid var(--line);
+  border-radius: var(--radius-medium); background: var(--bg);
+}
+.mc-step > div { display: flex; flex-direction: column; gap: 2px; }
+.mc-step > div b { font-size: 0.85rem; color: var(--ink); }
+.mc-step-n {
+  flex: 0 0 auto; width: 24px; height: 24px; display: grid; place-items: center;
+  background: var(--a1); color: #fff; border-radius: 50%; font-size: 0.75rem; font-weight: 800;
+}
+.mc-summary {
+  display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
+  margin: var(--space-3) 0 var(--space-2);
+}
+.mc-badge {
+  padding: 4px 12px; border-radius: var(--radius-pill);
+  background: linear-gradient(120deg, var(--a1), var(--a3)); color: #fff;
+  font-size: 0.82rem; font-weight: 800;
+}
+.mc-cat { margin: var(--space-3) 0; }
+.mc-cat-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: var(--space-2); }
+.mc-cat-head b { font-size: 0.9rem; color: var(--ink); }
+.mc-cat-count {
+  padding: 1px 8px; border-radius: var(--radius-pill);
+  background: var(--line); color: var(--ink-soft); font-size: 0.72rem; font-weight: 700;
+}
+.mc-grid {
+  display: grid; gap: var(--space-2);
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+.mc-gate {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: var(--space-2) var(--space-3); border: 1px solid var(--line);
+  border-radius: var(--radius-medium); background: var(--bg);
+}
+.mc-gate-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem; color: var(--ink); word-break: break-all;
+}
+
 /* 개발자 정보(aboutApp) — 가이드 모달 셸 재사용 + 전용 클래스 */
 .about-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .about-ver-badge {
