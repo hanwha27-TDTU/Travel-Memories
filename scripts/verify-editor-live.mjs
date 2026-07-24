@@ -67,6 +67,34 @@ await page.waitForTimeout(500);
 
 await page.getByLabel('여행 제목').fill('편집기 검증 여행');
 await page.getByRole('button', { name: '+ 새 여행' }).click();
+await page.waitForTimeout(400);
+
+// v0.44: 설계 개요도(배선맵) — 개발자 정보 → 설계 개요도 → 자가점검·4단계·실카운트
+await page.locator('.app-version').click();
+await page.getByRole('button', { name: /설계 개요도 열기/ }).click();
+await page.waitForSelector('.bp-score');
+const bpStages = await page.locator('.bp-stage').count();
+check('설계 개요도: 4단계 렌더', bpStages === 4, `stages=${bpStages}`);
+const bpScore = await page.$eval('.bp-score-badge', (e) => e.textContent);
+check('설계 개요도: 자가점검 점수(100)', bpScore === '100', `score=${bpScore}`);
+await page
+  .waitForFunction(() => {
+    const row = [...document.querySelectorAll('.bp-src-row')].find((r) => r.textContent.includes('trips'));
+    return row && (row.querySelector('.bp-src-val')?.textContent ?? '') === '1';
+  }, null, { timeout: 5000 })
+  .catch(() => {});
+const bpTrip = await page.evaluate(() => {
+  const row = [...document.querySelectorAll('.bp-src-row')].find((r) => r.textContent.includes('trips'));
+  return row?.querySelector('.bp-src-val')?.textContent ?? '?';
+});
+check('설계 개요도: 실카운트(여행=1) 자동 채움', bpTrip === '1', `trips=${bpTrip}`);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(250);
+while ((await page.locator('.guide-overlay').count()) > 0) {
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+}
+
 await page.getByLabel('편집기 검증 여행 여행 열기').first().click();
 await page.waitForSelector('.moment-photo-input', { state: 'attached' });
 

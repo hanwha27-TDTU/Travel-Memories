@@ -8,12 +8,12 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v0.41 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(현재 v0.41), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq 1–27).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v0.44 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(현재 v0.44), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq 1–30).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 0001–0010 적용.
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
 
-### 현재 기능 지도 (v0.41 — 새 AI는 이 표로 기능 표면을 즉시 파악)
+### 현재 기능 지도 (v0.44 — 새 AI는 이 표로 기능 표면을 즉시 파악)
 
 | 영역 | 상태 | 핵심 파일 |
 |---|---|---|
@@ -26,7 +26,9 @@
 | 비상 복구 체계(8게이트·복원 드릴·좀비 트리거·DR 감사관) | ✅ | `scripts/harness.mjs`, `docs/DISASTER_RECOVERY.md`, `.claude/agents/disaster-recovery-guardian.md` |
 | 개발자정보·버전·연구노트(해시체인)·가이드 화면 | ✅ | `app/{changelog,researchLog,hashchain}.ts`, `ui/screens/guide.ts` |
 
-**하네스 게이트(8, SSOT=`scripts/harness.mjs`)**: typecheck · check-secret-leak · check-domain-wiring · check-csp · check-base-consistency · check-schema-parity(클라 rowmap⊆서버 컬럼) · check-backup-coverage(전 테이블 export/import 커버) · unit-tests. 선택 라이브 게이트: `node scripts/verify-editor-live.mjs`(편집기·뷰어 37/37).
+**하네스 게이트(9, SSOT=`scripts/harness.mjs`)**: typecheck · check-secret-leak · check-domain-wiring · check-csp · check-base-consistency · check-schema-parity · check-backup-coverage · check-blueprint(설계 개요도↔현실 대조) · unit-tests. 선택 라이브 게이트: `node scripts/verify-editor-live.mjs`(편집기·뷰어·개요도 42/42).
+
+**Phase 6e(2026-07-24)**: 설계 개요도(배선맵) — 데이터가 화면까지 닿는 큰 그림(v0.44). **동기(사용자)**: 메디컬 앱의 설계 개요도처럼 프레임 동일하게 + 클릭 시 로딩 + 발전원→말단 배선 기계적 도식. **본질**: 새 기능이 아니라 LESSONS §3(배선맵)+§7(SSOT→생성→게이트)의 화면 구현. **구현**: ① `app/blueprint.ts`(SSOT) — `SOURCES`(발전원 9: 실장 4 trip/moment/expense/media + 계획 5) · `SHAPING`·`STORAGE`·`SCREENS`(7) · `selfCheck()`(순수 점수) · `liveCounts()`(Dexie 실카운트). ② `ui/screens/designOverview.ts` — 메디컬 프레임 동일: 자가점검 점수·막대·그룹, ①태어남(실카운트) ②다듬기 ③보관·동기화 ④화면(연결됨/정보 배지) + 범례. `aboutApp`에 "🗺️ 설계 개요도 열기" 진입. ③ **`scripts/check-blueprint.mjs`(9번째 게이트)**: db.ts 사용자 테이블 ⊆ implemented SOURCE · hasRowmap→rowmap 파일 실재 · hasSync→sync.ts 참조 · SCREEN.file 실재를 저장소만으로 대조(비공허=빠진 발전원 RED). **핵심 원칙**: 손그림 금지 — 실제 구조+실데이터에서 자동 생성, 게이트가 그림↔현실 대조. **검증**: 유닛 `blueprint` 4, 게이트 비공허(localTrips 매핑 제거 시 RED 재현), **verify-editor-live 42/42**(개발자정보→설계개요도→4단계·점수100·**실카운트 여행=1 자동 채움**·콘솔0), 스크린샷으로 프레임 일치 확인, harness **9게이트**·build 그린. **정직**: 계획 도메인(장소·회고·동행·여행하루·태그)은 "예정"으로 표시(감점 아님). → **LESSONS §3 "배선맵 생성기" 후속과제 해소.** v0.44·연구노트 seq30.
 
 **Phase 3n(2026-07-24)**: 여행 목록에서 바로 삭제(v0.43). **동기(사용자)**: "여행 목록에 삭제 기능이 없네요, 추가하는게 어떨까요?" **실측**: 여행 삭제 서비스+안전장치(cascade tombstone·실행취소·휴지통)는 Phase 3c부터 존재하나 **상세→편집 패널 안에만** 노출돼 발견성 낮음. **구현**: `home.ts` `tripCard`를 `button`→`div(role=button)`로 전환(버튼 중첩 회피 — `archivedCard` 패턴 재사용)해 🗑 삭제 버튼 중첩(stopPropagation). `deleteTrip(t)`: `window.confirm`(순간·사진 함께 삭제·복구 가능 안내) → `softDeleteTripLocalFirst` → refresh → `showUndoToast(restoreTripLocalFirst)` → `trySync`. CSS `.trip-delete`(우상단 원형·danger hover). **검증**: `verify-editor-live`에 목록 삭제 테스트 추가 — 확인 수락 시 카드 제거(1→0)·실행취소 복원(0→1), **39/39 PASS**·콘솔 에러 0, harness 8게이트·build 그린. 하드삭제 없음(§0)·복구 가능(§5) 그대로. v0.43·연구노트 seq29.
 

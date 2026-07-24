@@ -6,6 +6,7 @@
 import { el } from '../dom';
 import { CHANGELOG, DEVELOPER, APP_VERSION, LAST_MODIFIED, FIRST_DEV_DATE } from '../../app/changelog';
 import { openResearchNote } from './researchNote';
+import { openDesignOverview } from './designOverview';
 
 /** 문서 규범 체계(법령 체계) — 기존 문서 지도를 규범 위계로 재구성. 새 사실을 만들지 않는다. */
 interface NormTier {
@@ -91,6 +92,22 @@ export function openAboutApp(): void {
   rnBtn.addEventListener('click', () => openResearchNote());
   rn.appendChild(rnBtn);
   bodyEl.appendChild(rn);
+
+  // ── 설계 개요도(배선맵) ──
+  const bp = el('div', 'about-rn');
+  bp.append(
+    el('b', 'about-rn-title', '🗺️ 설계 개요도 (데이터가 화면까지 닿는 큰 그림)'),
+    el(
+      'p',
+      'about-rn-desc',
+      '데이터가 태어나 → 다듬어지고 → 보관·동기화되어 → 화면까지 닿는 전체 배선을, 손이 아니라 앱이 실제 목록·구조에서 자동으로 그립니다. 끊긴 배선이 있으면 그대로 드러나 오류를 줄여줍니다.',
+    ),
+  );
+  const bpBtn = el('button', 'btn-ghost about-rn-open', '🗺️ 설계 개요도 열기') as HTMLButtonElement;
+  bpBtn.type = 'button';
+  bpBtn.addEventListener('click', () => openDesignOverview());
+  bp.appendChild(bpBtn);
+  bodyEl.appendChild(bp);
 
   // ── 문서 규범 체계(법령 체계) ──
   bodyEl.appendChild(el('h3', 'about-section-h', '📐 문서 규범 체계 (거버넌스)'));

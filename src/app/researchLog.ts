@@ -240,4 +240,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '실측: 여행 삭제 서비스·안전장치(cascade tombstone·실행취소·휴지통)는 Phase 3c부터 존재하나 상세→편집 패널 안에만 노출돼 발견성이 낮음. 목록 카드에 삭제 버튼을 얹되 기존 안전장치를 그대로 재사용 제안(복구 가능성 우선).',
     decision: 'home.ts tripCard를 button→div(role=button)로 전환(버튼 중첩 회피, archivedCard 패턴)해 🗑 삭제 버튼 중첩(stopPropagation). deleteTrip(t): window.confirm(순간·사진 함께 삭제·복구 가능 안내) → softDeleteTripLocalFirst → refresh → showUndoToast(restoreTripLocalFirst). 서버 전파는 trySync. CSS .trip-delete(우상단 원형·danger hover). 검증: verify-editor-live에 목록 삭제 테스트 추가 — 확인 수락 시 카드 제거(1→0), 실행취소로 복원(0→1), 39/39 PASS·콘솔 에러 0, harness 8게이트·build 그린. 하드삭제 없음(§0)·복구 가능(§5) 그대로.',
   },
+  {
+    seq: 30,
+    date: '2026-07-24',
+    topic: '설계 개요도(배선맵) — 데이터가 화면까지 닿는 큰 그림',
+    human: '메디컬 앱의 설계 개요도처럼 이미지·프레임 동일하게. 클릭하면 로딩되게. 발전원부터 말단까지 배선도 기계적으로 도식. (선택: 개발자 정보 안 · 완전 범위)',
+    ai: '이건 새 기능이 아니라 우리 LESSONS §3(배선맵 "발전원→배선→콘센트", 화면까지 닿아야 100점) + §7(SSOT→생성→게이트)를 화면으로 구현하는 것. 이미 DOMAIN_REGISTRY가 발전원 SSOT. 핵심: 손그림 금지 — 실제 레지스트리+Dexie 실카운트+라우터에서 자동 생성하고 CI 게이트로 그림↔현실 대조해야 끊긴 배선을 눈+게이트로 잡아 오류가 준다(사용자 직관 정확).',
+    decision: 'app/blueprint.ts(SSOT: SOURCES 발전원 9(실장 4·계획 5)·SHAPING·STORAGE·SCREENS 7·selfCheck 순수·liveCounts Dexie) + ui/screens/designOverview.ts(메디컬 프레임 동일: 자가점검 점수+막대+그룹, ①태어남 실카운트 ②다듬기 ③보관·동기화 ④화면 연결됨/정보 배지, 범례). 개발자 정보(aboutApp)에 진입 버튼. scripts/check-blueprint.mjs(9번째 게이트): db.ts 사용자 테이블⊆implemented SOURCE·hasRowmap→rowmap 파일·hasSync→sync.ts 참조·SCREEN.file 실재 대조, 비공허(빠진 발전원 RED). 검증: 유닛 blueprint 4(점수100·로드맵·화면연결·유령배선 금지), 게이트 비공허(localTrips 매핑 제거 시 RED), verify-editor-live 42/42(개발자정보→설계개요도→4단계·점수100·실카운트 여행=1 자동 채움·콘솔0), 스크린샷으로 프레임 일치 사용자 확인. harness 9게이트·build 그린. 정직: 계획 도메인은 "예정"으로 표시(감점 아님). LESSONS §3 배선맵 생성기 후속과제 해소.',
+  },
 ];
