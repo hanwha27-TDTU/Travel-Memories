@@ -5,6 +5,7 @@
 import { el } from '../dom';
 import { openGuide } from './guide';
 import { exportBackup, exportBackupZip, importBackupAuto } from '../../services/backup';
+import { recordBackupNow, getLastBackupAt, backupFreshness } from '../../services/backupMeta';
 import { listDeletedTrips, restoreTripFromTrash, purgeTripPermanently } from '../../services/trips';
 import { computeStorageUsage, formatBytes } from '../../services/storage';
 
@@ -103,6 +104,15 @@ function backupPanel(): HTMLElement {
   const status = el('p', 'dm-status');
   status.setAttribute('role', 'status');
 
+  // 마지막 백업 신선도(관측 가능화) — 오래됐거나 없으면 부드럽게 권고.
+  const fresh = el('p', 'dm-fresh');
+  const renderFresh = () => {
+    const f = backupFreshness(getLastBackupAt());
+    fresh.textContent = f.never ? `🔔 ${f.text} — 지금 한 번 내려받아 두는 걸 권해요.` : `${f.stale ? '🔔 ' : '🗓️ '}${f.text}${f.stale ? ' — 오래됐어요. 새로 백업해 두세요.' : ''}`;
+    fresh.classList.toggle('dm-fresh-warn', f.stale);
+  };
+  renderFresh();
+
   const runExport = (
     btn: HTMLButtonElement,
     make: () => Promise<{ blob: Blob; stats: { trips: number; moments: number; media: number; expenses: number } }>,
@@ -115,6 +125,8 @@ function backupPanel(): HTMLElement {
         const { blob, stats } = await make();
         const stamp = fmtDate(new Date().toISOString()).replace(/\./g, '');
         downloadBlob(blob, filename(stamp));
+        recordBackupNow();
+        renderFresh();
         status.textContent = `✅ 내보냄 · 여행 ${stats.trips} · 순간 ${stats.moments} · 사진 ${stats.media} · 비용 ${stats.expenses} · ${fmtBytes(blob.size)}`;
       } catch (err) {
         status.textContent = `내보내기 실패: ${err instanceof Error ? err.message : String(err)}`;
@@ -130,10 +142,18 @@ function backupPanel(): HTMLElement {
   passInput.placeholder = '암호 (선택) — 입력하면 파일을 암호화';
   const pass = () => passInput.value.trim() || undefined;
 
+  // 암호 없이 내보낼 때만: 평문 PII 경고 확인(감사관 교정 #2). 암호가 있으면 바로 진행.
+  const confirmPlaintext = (p: string | undefined): boolean =>
+    !!p ||
+    window.confirm(
+      '이 백업 파일은 암호화되지 않습니다.\n사진·위치(GPS)·메모·비용이 그대로 담기므로, 파일이 유출되면 누구나 열 수 있어요.\n\n위 칸에 암호를 입력하면 암호화할 수 있습니다.\n암호 없이 이대로 내보낼까요?',
+    );
+
   const btnZip = el('button', 'btn-primary dm-wide', '🗂️ 여행별 폴더 백업 (ZIP)') as HTMLButtonElement;
   btnZip.type = 'button';
   btnZip.addEventListener('click', () => {
     const p = pass();
+    if (!confirmPlaintext(p)) return;
     runExport(btnZip, () => exportBackupZip(true, p), (s) => `bugeon-journey-${s}${p ? '.zip.enc' : '.zip'}`);
   });
 
@@ -141,11 +161,13 @@ function backupPanel(): HTMLElement {
   btnJson.type = 'button';
   btnJson.addEventListener('click', () => {
     const p = pass();
+    if (!confirmPlaintext(p)) return;
     runExport(btnJson, () => exportBackup(true, p), (s) => `bugeon-journey-backup-${s}${p ? '.json.enc' : '.json'}`);
   });
 
   box.append(
     el('p', 'guide-p', 'ZIP은 여행마다 폴더로 나뉘고 사진이 실제 이미지 파일로 들어가 탐색기에서 바로 볼 수 있어요(원본 포함). JSON은 전 여행을 파일 하나에 담는 가장 단순한 통짜 백업입니다. 둘 다 되살릴 수 있어요.'),
+    fresh,
     passInput,
     btnZip,
     btnJson,
