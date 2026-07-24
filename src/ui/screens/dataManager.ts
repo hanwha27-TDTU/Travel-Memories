@@ -152,12 +152,27 @@ function backupPanel(): HTMLElement {
       '이 백업 파일은 암호화되지 않습니다.\n사진·위치(GPS)·메모·비용이 그대로 담기므로, 파일이 유출되면 누구나 열 수 있어요.\n\n위 칸에 암호를 입력하면 암호화할 수 있습니다.\n암호 없이 이대로 내보낼까요?',
     );
 
+  // 원본 포함 토글(여행별 폴더 ZIP에만 적용). 해제하면 표시본+썸네일만 담아 파일이 훨씬 작다
+  // (클라우드에 올라간 것과 사실상 동일 — 원본은 로컬·JSON 완전백업에 보관). 기본 포함.
+  const incOrig = el('input') as HTMLInputElement;
+  incOrig.type = 'checkbox';
+  incOrig.checked = true;
+  incOrig.id = 'dm-inc-orig';
+  const incOrigLabel = el('label', 'dm-check');
+  incOrigLabel.htmlFor = 'dm-inc-orig';
+  incOrigLabel.append(incOrig, document.createTextNode(' 원본 사진 포함 (해제하면 표시본만 — 파일이 훨씬 작아요)'));
+
   const btnZip = el('button', 'btn-primary dm-wide', '🗂️ 여행별 폴더 백업 (ZIP)') as HTMLButtonElement;
   btnZip.type = 'button';
   btnZip.addEventListener('click', () => {
     const p = pass();
     if (!confirmPlaintext(p)) return;
-    runExport(btnZip, () => exportBackupZip(true, p), (s) => `bugeon-journey_${s}${p ? '.zip.enc' : '.zip'}`);
+    const withOrig = incOrig.checked;
+    runExport(
+      btnZip,
+      () => exportBackupZip(withOrig, p),
+      (s) => `bugeon-journey_${s}${withOrig ? '' : '_표시본만'}${p ? '.zip.enc' : '.zip'}`,
+    );
   });
 
   const btnJson = el('button', 'btn-ghost dm-wide', '💾 단일 파일 백업 (JSON)') as HTMLButtonElement;
@@ -169,13 +184,14 @@ function backupPanel(): HTMLElement {
   });
 
   box.append(
-    el('p', 'guide-p', 'ZIP은 여행마다 폴더로 나뉘고 사진이 실제 이미지 파일로 들어가 탐색기에서 바로 볼 수 있어요(원본 포함). JSON은 전 여행을 파일 하나에 담는 가장 단순한 통짜 백업입니다. 둘 다 되살릴 수 있어요.'),
+    el('p', 'guide-p', 'ZIP은 여행마다 폴더로 나뉘고 사진이 실제 이미지 파일로 들어가 탐색기에서 바로 볼 수 있어요. 원본 포함을 해제하면 표시본만 담아 파일이 훨씬 작아집니다(가벼운 백업·다른 기기로 옮기기 좋아요). JSON은 전 여행을 파일 하나에 담는 가장 단순한 완전백업(원본 포함)입니다. 둘 다 되살릴 수 있어요.'),
     fresh,
     passInput,
+    incOrigLabel,
     btnZip,
     btnJson,
     status,
-    el('p', 'guide-note', '사진(원본 포함)을 담으므로 파일이 커질 수 있어요(수십 MB~). 안전한 곳에 보관하세요. 암호를 입력하면 파일을 열 때 그 암호가 필요합니다 — 분실하면 복원할 수 없으니 암호도 안전하게 보관하세요.'),
+    el('p', 'guide-note', '완전백업(원본 포함)은 파일이 커요(수십 MB~). 원본은 각 기기와 완전백업에만 보관되니, 원본 보존이 중요하면 완전백업을 하나 남겨두세요. 암호를 입력하면 파일을 열 때 그 암호가 필요합니다 — 분실하면 복원할 수 없으니 암호도 안전하게 보관하세요.'),
   );
   return box;
 }

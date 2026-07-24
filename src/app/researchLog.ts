@@ -224,4 +224,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '근본형: v0.40에서 뷰어를 display:grid; place-items:center로 바꾸며 img{max-height:100%}가 auto-sized grid 트랙에 대해 해석 안 돼 높이 제약 실패 → 가로 화면(높이 기준)에서 폭만 맞고 세로 오버플로(세로 화면은 폭 기준이라 안 드러남 — 사용자의 "모바일은 정상"이 이를 확증). + height:100dvh가 inset:0과 과잉제약. flex 중앙정렬 + object-fit:contain 제안.',
     decision: '.photo-viewer를 flex 중앙정렬(definite-height 컨테이너에서 max-height:100% 신뢰)로 전환 + img object-fit:contain 안전망 + height:100dvh 제거. 검증(현실로): verify-editor-live에 가로 뷰포트(1600×1000) 측정 테스트 추가 — 비공허 확인(옛 grid로 되돌리면 1552×1164 오버플로 FAIL, 수정본 1269×952 PASS). 37/37 PASS·harness 8게이트·build 그린. 교훈(스킬 §4 등재): 반응형 회귀는 세로/가로 두 방향 모두 측정해야 잡힌다 — 세로 뷰포트만 보면 높이-제약 결함을 놓친다.',
   },
+  {
+    seq: 28,
+    date: '2026-07-24',
+    topic: '가벼운 백업(원본 제외) 옵션',
+    human: '여행폴더 백업에 원본 뺀, supabase에 저장된 것만 받는 옵션을 넣으면? 완벽한 전체백업은 json으로 진행 맞죠? (선택: 체크박스 토글)',
+    ai: '확인: JSON은 원본 포함 완전백업 맞음(현재 ZIP도 원본 포함이라 둘 다 완전백업 상태). Supabase Storage엔 표시본만 올라감(원본·GPS 미동기화) → "원본 제외"=표시본+썸네일+메타(클라우드와 사실상 동일·브라우징 가능·약 1/8 용량). 메커니즘은 이미 존재(exportBackupZip(includeOriginals=false)·왕복 테스트 통과) — 버튼 대신 체크박스 토글 추천(카면 방지·JSON=완전백업 유지).',
+    decision: 'dataManager 백업 패널에 "원본 사진 포함" 체크박스(기본 켬) 추가 — ZIP 버튼이 checkbox.checked를 exportBackupZip에 전달, 해제 시 파일명 접미 "_표시본만". 안내문·주의문을 완전백업(원본 포함)=JSON 중심으로 정정. 검증: backupRoundtrip에 가벼운 백업 단언 강화(light<full 크기·_원본 엔트리 없음·표시본 폴백 복원), harness 8게이트·build 그린. 체크박스는 이미 검증된 boolean 파라미터 토글이라 자동층으로 충분(실기기 다운로드 UX는 사용자 확인). 데이터 안전 불변식 그대로 — 원본은 로컬·완전백업에만, 가벼운 백업 복원은 표시본 폴백(기억 유실 아님).',
+  },
 ];

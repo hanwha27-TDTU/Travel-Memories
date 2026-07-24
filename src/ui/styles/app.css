@@ -735,6 +735,11 @@
 .dm-pass::placeholder { color: var(--ink-soft); }
 .dm-fresh { margin: var(--space-2) 0 0; font-size: 0.82rem; color: var(--ink-soft); line-height: 1.5; }
 .dm-fresh-warn { color: var(--a1d); font-weight: 700; }
+.dm-check {
+  display: flex; align-items: center; gap: 8px; margin-top: var(--space-2);
+  font-size: 0.84rem; color: var(--ink); line-height: 1.4; cursor: pointer;
+}
+.dm-check input { width: 18px; height: 18px; flex: 0 0 auto; accent-color: var(--a1d); cursor: pointer; }
 
 /* 저장 용량 요약(사진/텍스트) */
 .dm-usage {
