@@ -192,4 +192,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '앱-비종속 읽기전용 감사관 — 우리 팀에 그대로 설치 가능(우리 "정직한 완료 §4"와 같은 결). 8기준 대조 결과 지금은 HOLD: ②③(무장된 스케줄·신선도)는 로컬퍼스트·비공개 개인앱이라 "백업 주인=사용자"로 일부러 자동화 안 함(설계상 경계, 이미 문서화). 진짜 갭은 3개 — G1 복원 왕복 드릴 부재, G2 백업 평문, G3 Storage 고아 스윕 부재.',
     decision: 'disaster-recovery-guardian를 .claude/agents/에 verbatim 설치(앱-비종속 유지). G1: backup.ts를 db층(exportCollectRows/importMergeRows)과 순수 직렬화층(serialize/deserialize Json·Zip, FileReader 제거→Node/브라우저 공통)으로 분리 → tests/unit/backupRoundtrip로 export→import 왕복 파리티 드릴(사진 바이트·tombstone·고아·좌표·원본 폴백, 비공허 포함). G2: services/backupCrypto.ts(WebCrypto AES-GCM-256 + PBKDF2 210k, MAGIC 봉투 자동감지, 의존성 0) — 백업 시 선택적 암호구절, dataManager에 암호 입력·복원 needsPassphrase 흐름, 분실 경고. 키 미저장. G3: MediaRemote.remove + pushPendingMedia가 tombstone 반영 후 표시본 Storage 객체 정리(최선노력·유실 위험 0), 마이그 0010(journey_media_delete_own 소유자 폴더격리+초대제 DELETE 정책, DEL-CONTRACT 이행). 검증: 유닛 backupRoundtrip 7·crypto 3, harness 8게이트·build 그린; Storage DELETE 정책 qual이 select/insert/update와 동일 소유자범위 확인, 격리 술어(owner=true·other=false) BEGIN..ROLLBACK, 어드바이저 신규 0(기존 3건만)·프로덕션 무변경. 정직: ②③ 자동 스케줄·오프사이트는 비공개 기본(§3)이라 설계상 사용자 책임 — DR 문서에 경계 명시 유지. 실기기 Storage 실삭제·대용량 암호화 체감은 사용자 몫(로직·정책은 검증됨).',
   },
+  {
+    seq: 24,
+    date: '2026-07-24',
+    topic: 'DR 감사관 실행 + 교정 3종 반영',
+    human: '설치한 감사관을 실제로 돌려 판정을 받아보자. (그리고 감사관이 권한 교정을 최대한 모두 구현)',
+    ai: '감사관(서브에이전트)이 게이트·드릴을 직접 실행하고 HOLD 판정: DR 구조는 강하고 과장 없이 정직하나, 최후 방어선(사용자 백업)이 설계상 사용자 주도라 실제 존재/신선도를 저장소로 검증 불가(소유자 확인 필요)+평문 기본값이 실질 교정. 권고 3: #1 마지막 백업 시각 관측화, #2 평문 PII 내보내기 명시 확인, #3 실기기(fake-indexeddb) 복원 드릴.',
+    decision: '감사관 판정 HOLD를 정직히 수용(②③는 로컬퍼스트·비공개 설계 경계). 교정 전부 반영: #1 services/backupMeta.ts(localStorage 마지막 백업 시각·신선도, 캐시성 메타) + 데이터 관리에 "마지막 백업: N일 전"·오래됨/없음 권고 표시(내보내기 성공 시 기록). #2 암호 없이 내보낼 때 window.confirm으로 "암호화 안 됨(사진·GPS·메모 평문)" 명시 확인(암호 있으면 생략). #3 fake-indexeddb dev 의존 + tests/unit/restoreDrill로 importMergeRows를 실 Dexie로 구움(빈db 저장·되읽기·blob 바이트 왕복·빈가드·LWW·tombstone 우위) — 순수층뿐 아니라 db 접근층까지 검증. + backupMeta 유닛(신선도, now 주입). 검증: harness 8게이트·build 그린, 유닛 restoreDrill 4·backupMeta 2·backupRoundtrip 7·crypto 3·zip 5. 남은 HOLD 근거(실제 백업 존재·신선도)는 정의상 앱 밖 사실이라 소유자 확인 몫 — 앱은 관측화·경고·완전성까지 책임(정직한 경계 유지).',
+  },
 ];
