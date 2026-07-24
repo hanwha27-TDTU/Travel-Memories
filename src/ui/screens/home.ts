@@ -8,8 +8,11 @@ import {
   listTrips,
   listArchivedTrips,
   updateTripLocalFirst,
+  softDeleteTripLocalFirst,
+  restoreTripLocalFirst,
   pendingSyncCount,
 } from '../../services/trips';
+import { showUndoToast } from '../toast';
 import {
   currentUser,
   signInWithGoogle,
@@ -46,12 +49,36 @@ const STATUS_LABEL: Record<LocalTrip['status'], string> = {
   archived: '보관',
 };
 
-function tripCard(t: LocalTrip, index: number, navigate: Navigate): HTMLElement {
-  const card = el('button', `trip-card cover--${index % 3}`) as HTMLButtonElement;
-  card.type = 'button';
+// 활성 여행 카드 — div(role=button)로 만들어 내부에 '삭제' 버튼을 중첩 허용(button 중첩 불가 회피).
+function tripCard(
+  t: LocalTrip,
+  index: number,
+  navigate: Navigate,
+  onDelete: (t: LocalTrip) => void,
+): HTMLElement {
+  const card = el('div', `trip-card cover--${index % 3}`);
+  card.setAttribute('role', 'button');
+  card.tabIndex = 0;
   card.setAttribute('aria-label', `${t.title} 여행 열기`);
-  card.addEventListener('click', () => navigate('trip-detail', t.id));
+  const go = (): void => navigate('trip-detail', t.id);
+  card.addEventListener('click', go);
+  card.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      go();
+    }
+  });
   card.append(el('div', 'cover-veil'), el('div', 'cover-grain'));
+  // 삭제(🗑) — 카드 열기와 겹치지 않게 stopPropagation. 실제 삭제는 확인 + 실행취소 + 휴지통(복구 가능).
+  const del = el('button', 'trip-delete', '🗑') as HTMLButtonElement;
+  del.type = 'button';
+  del.title = '여행 삭제';
+  del.setAttribute('aria-label', `${t.title} 여행 삭제`);
+  del.addEventListener('click', (e) => {
+    e.stopPropagation();
+    onDelete(t);
+  });
+  card.appendChild(del);
   const info = el('div', 'cover-info');
   info.appendChild(el('span', 'trip-badge', STATUS_LABEL[t.status]));
   info.appendChild(el('h3', 'trip-title', t.title));
@@ -191,6 +218,28 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   });
   viewBar.appendChild(archiveToggle);
 
+  /** 여행 삭제(cascade tombstone) — 확인 → 소프트삭제 → 실행취소 토스트. 휴지통에서도 복구 가능. */
+  function deleteTrip(t: LocalTrip): void {
+    const ok = window.confirm(
+      `"${t.title}" 여행을 삭제할까요?\n순간·사진·비용도 함께 삭제되지만, 실행취소나 [데이터 관리 › 휴지통]에서 되살릴 수 있어요.`,
+    );
+    if (!ok) return;
+    void (async () => {
+      try {
+        const { momentIds, mediaIds } = await softDeleteTripLocalFirst(t.id);
+        void trySync(user);
+        await refresh();
+        showUndoToast('여행을 삭제했어요', async () => {
+          await restoreTripLocalFirst(t.id, momentIds, mediaIds);
+          void trySync(user);
+          await refresh();
+        });
+      } catch (err) {
+        status.textContent = `삭제 실패: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    })();
+  }
+
   /** 보관 여행을 완료 상태로 복원(홈으로 되돌림). */
   function restoreTrip(id: string): void {
     void (async () => {
@@ -321,7 +370,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
     } else if (view === 'archived') {
       items.forEach((t, i) => list.appendChild(archivedCard(t, i, navigate, restoreTrip)));
     } else {
-      items.forEach((t, i) => list.appendChild(tripCard(t, i, navigate)));
+      items.forEach((t, i) => list.appendChild(tripCard(t, i, navigate, deleteTrip)));
     }
     if (!isConfigured()) {
       status.textContent = `📴 로컬 저장 모드 · 대기 ${pending}건`;

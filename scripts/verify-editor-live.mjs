@@ -46,6 +46,25 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(String(e)));
 
 await page.goto(`http://localhost:4173${BASE}`);
+
+// v0.43: 홈 목록에서 여행 삭제(확인 → 카드 제거) + 실행취소 복원
+await page.getByLabel('여행 제목').fill('삭제 테스트 여행');
+await page.getByRole('button', { name: '+ 새 여행' }).click();
+await page.waitForTimeout(500);
+const delN0 = await page.locator('.trip-card').count();
+page.once('dialog', (d) => d.accept()); // 삭제 확인 창 수락
+await page.locator('.trip-delete').first().click();
+await page.waitForTimeout(500);
+const delN1 = await page.locator('.trip-card').count();
+check('홈 목록 삭제(확인) → 카드 제거', delN1 === delN0 - 1, `${delN0}→${delN1}`);
+await page.locator('.undo-toast .undo-btn').click();
+await page.waitForTimeout(600);
+const delN2 = await page.locator('.trip-card').count();
+check('삭제 실행취소 → 여행 복원', delN2 === delN0, `${delN1}→${delN2}`);
+page.once('dialog', (d) => d.accept()); // 정리: 테스트 여행 다시 삭제(본 흐름과 분리)
+await page.locator('.trip-delete').first().click();
+await page.waitForTimeout(500);
+
 await page.getByLabel('여행 제목').fill('편집기 검증 여행');
 await page.getByRole('button', { name: '+ 새 여행' }).click();
 await page.getByLabel('편집기 검증 여행 여행 열기').first().click();
