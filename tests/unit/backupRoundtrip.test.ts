@@ -10,6 +10,7 @@ import {
   type CollectedRows,
 } from '../../src/services/backup';
 import { encryptBytes, decryptBytes, isEncryptedEnvelope } from '../../src/services/backupCrypto';
+import { unzip } from '../../src/services/zip';
 import type { LocalTrip, LocalMoment, LocalMedia, LocalExpense } from '../../src/offline/db';
 
 const bytesOf = async (b: Blob) => new Uint8Array(await b.arrayBuffer());
@@ -81,12 +82,19 @@ describe('백업 복원 왕복 드릴(순수)', () => {
     await expectParity(deserializeZip(buf), src);
   });
 
-  it('ZIP: 원본 미포함 시 originalBlob=표시본 폴백(유실 아님)', async () => {
+  it('ZIP 가벼운 백업(원본 제외): 원본 파일 없음·더 작음·표시본 폴백(유실 아님)', async () => {
     const src = sampleRows();
-    const buf = await (await serializeZip(src, false)).arrayBuffer();
-    const back = deserializeZip(buf);
+    const full = await serializeZip(src, true);
+    const light = await serializeZip(src, false);
+    // 가벼운 백업이 완전백업보다 작다(원본 바이트만큼)
+    expect(light.size).toBeLessThan(full.size);
+    // 가벼운 ZIP엔 _원본 파일 엔트리가 없다
+    const names = unzip(await light.arrayBuffer()).map((e) => e.name);
+    expect(names.some((n) => n.includes('_원본.'))).toBe(false);
+    expect(names.some((n) => n.includes('_표시본.'))).toBe(true);
+    // 복원 시 원본 파일이 없으니 표시본으로 폴백(기억 유실 아님)
+    const back = deserializeZip(await light.arrayBuffer());
     const bm = back.media.find((m) => m.id === 'md-1')!;
-    // 원본 파일이 없으니 표시본으로 폴백
     expect([...(await bytesOf(bm.originalBlob))]).toEqual([...(await bytesOf(src.media[0]!.displayBlob))]);
   });
 
