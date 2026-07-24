@@ -124,24 +124,33 @@ function backupPanel(): HTMLElement {
     })();
   };
 
+  const passInput = el('input', 'dm-pass') as HTMLInputElement;
+  passInput.type = 'password';
+  passInput.autocomplete = 'new-password';
+  passInput.placeholder = '암호 (선택) — 입력하면 파일을 암호화';
+  const pass = () => passInput.value.trim() || undefined;
+
   const btnZip = el('button', 'btn-primary dm-wide', '🗂️ 여행별 폴더 백업 (ZIP)') as HTMLButtonElement;
   btnZip.type = 'button';
-  btnZip.addEventListener('click', () =>
-    runExport(btnZip, () => exportBackupZip(true), (s) => `bugeon-journey-${s}.zip`),
-  );
+  btnZip.addEventListener('click', () => {
+    const p = pass();
+    runExport(btnZip, () => exportBackupZip(true, p), (s) => `bugeon-journey-${s}${p ? '.zip.enc' : '.zip'}`);
+  });
 
   const btnJson = el('button', 'btn-ghost dm-wide', '💾 단일 파일 백업 (JSON)') as HTMLButtonElement;
   btnJson.type = 'button';
-  btnJson.addEventListener('click', () =>
-    runExport(btnJson, () => exportBackup(true), (s) => `bugeon-journey-backup-${s}.json`),
-  );
+  btnJson.addEventListener('click', () => {
+    const p = pass();
+    runExport(btnJson, () => exportBackup(true, p), (s) => `bugeon-journey-backup-${s}${p ? '.json.enc' : '.json'}`);
+  });
 
   box.append(
     el('p', 'guide-p', 'ZIP은 여행마다 폴더로 나뉘고 사진이 실제 이미지 파일로 들어가 탐색기에서 바로 볼 수 있어요(원본 포함). JSON은 전 여행을 파일 하나에 담는 가장 단순한 통짜 백업입니다. 둘 다 되살릴 수 있어요.'),
+    passInput,
     btnZip,
     btnJson,
     status,
-    el('p', 'guide-note', '사진(원본 포함)을 담으므로 파일이 커질 수 있어요(수십 MB~). 안전한 곳에 보관하세요.'),
+    el('p', 'guide-note', '사진(원본 포함)을 담으므로 파일이 커질 수 있어요(수십 MB~). 안전한 곳에 보관하세요. 암호를 입력하면 파일을 열 때 그 암호가 필요합니다 — 분실하면 복원할 수 없으니 암호도 안전하게 보관하세요.'),
   );
   return box;
 }
@@ -155,9 +164,13 @@ function restorePanel(onChanged: () => void): HTMLElement {
   );
   const status = el('p', 'dm-status');
   status.setAttribute('role', 'status');
+  const passInput = el('input', 'dm-pass') as HTMLInputElement;
+  passInput.type = 'password';
+  passInput.autocomplete = 'current-password';
+  passInput.placeholder = '암호 (암호화 백업이면 입력)';
   const fileInput = el('input', 'dm-file') as HTMLInputElement;
   fileInput.type = 'file';
-  fileInput.accept = 'application/zip,.zip,application/json,.json';
+  fileInput.accept = 'application/zip,.zip,application/json,.json,.enc';
   const label = el('label', 'btn-primary dm-wide');
   label.append(document.createTextNode('📥 백업 파일 선택'), fileInput);
   fileInput.addEventListener('change', () => {
@@ -167,8 +180,10 @@ function restorePanel(onChanged: () => void): HTMLElement {
     void (async () => {
       try {
         const buf = await file.arrayBuffer();
-        const r = await importBackupAuto(buf);
-        if (r.skippedEmptyGuard) {
+        const r = await importBackupAuto(buf, passInput.value.trim() || undefined);
+        if (r.needsPassphrase) {
+          status.textContent = '🔒 암호화된 백업이에요. 위에 암호를 입력하고 파일을 다시 선택하세요.';
+        } else if (r.skippedEmptyGuard) {
           status.textContent = '⚠️ 백업이 비어 있어 건너뛰었어요(현재 데이터 보존).';
         } else {
           status.textContent = `✅ 복원됨 · 여행 ${r.trips} · 순간 ${r.moments} · 사진 ${r.media} · 비용 ${r.expenses} 반영`;
@@ -181,7 +196,7 @@ function restorePanel(onChanged: () => void): HTMLElement {
       }
     })();
   });
-  box.append(label, status, el('p', 'guide-note', '같은 기록은 최신본만 반영되고, 삭제(tombstone)도 함께 복원됩니다.'));
+  box.append(passInput, label, status, el('p', 'guide-note', '같은 기록은 최신본만 반영되고, 삭제(tombstone)도 함께 복원됩니다. 암호화된 백업(.enc)은 만들 때 쓴 암호가 필요합니다.'));
   return box;
 }
 

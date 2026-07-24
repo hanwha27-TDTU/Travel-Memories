@@ -135,6 +135,7 @@ export interface MediaRemote {
   listAll(): Promise<{ data: MediaRow[]; error?: string | undefined }>;
   uploadDisplay(path: string, blob: Blob): Promise<{ error?: string | undefined; status?: number | undefined }>;
   download(path: string): Promise<{ data: Blob | null; error?: string | undefined; status?: number | undefined }>;
+  remove(path: string): Promise<{ error?: string | undefined }>;
 }
 
 export function mediaRemote(client: JourneyClient): MediaRemote {
@@ -178,6 +179,14 @@ export function mediaRemote(client: JourneyClient): MediaRemote {
         return { data: r.data ?? null, error: r.error?.message };
       } catch (e) {
         return { data: null, error: (e as Error).message };
+      }
+    },
+    async remove(path) {
+      try {
+        const r = await bucket.remove([path]);
+        return { error: r.error?.message };
+      } catch (e) {
+        return { error: (e as Error).message };
       }
     },
   };
@@ -451,6 +460,9 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
       if (cur) await d.localMedia.put({ ...cur, updatedAt: server.updatedAt, version: server.version });
       await d.syncQueue.delete(op.operationId);
     });
+    // 고아 스윕(DEL-CONTRACT): tombstone이 서버에 반영됐으면 표시본 Storage 객체를 정리한다.
+    // 최선노력 — 실패해도 tombstone은 이미 durable하므로 op는 이미 제거됐고 유실 위험 없음(잉여만 남음).
+    if (media.deletedAt !== null) await remote.remove(path);
     pushed++;
   }
   return { pushed, failed };
