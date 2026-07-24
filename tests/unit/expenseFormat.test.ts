@@ -10,8 +10,8 @@ describe('formatMoney', () => {
     expect(formatMoney(15, 'USD')).toBe('$15.00');
     expect(formatMoney(1234.5, 'USD')).toBe('$1,234.50');
   });
-  it('VND/JPY: 소수 없음', () => {
-    expect(formatMoney(1000000, 'VND')).toBe('₫1,000,000');
+  it('UZS: 소수 없음 + 심볼 뒤(soʻm 관례) / JPY: 앞', () => {
+    expect(formatMoney(1000000, 'UZS')).toBe('1,000,000 soʻm');
     expect(formatMoney(500, 'JPY')).toBe('¥500');
   });
   it('알 수 없는 통화는 심볼 위조 없이 코드를 붙인다', () => {

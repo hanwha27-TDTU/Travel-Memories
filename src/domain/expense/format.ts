@@ -5,15 +5,17 @@ export interface CurrencyMeta {
   code: string;
   symbol: string;
   decimals: number;
+  /** 심볼을 금액 뒤에 붙인다(예: 우즈벡 soʻm은 "1,000,000 soʻm"이 관례). 기본은 앞. */
+  suffix?: boolean;
 }
 
-/** 지원 통화(MVP). 표시 소수자릿수는 통화 관례를 따른다(KRW·JPY·VND=0). */
+/** 지원 통화(MVP). 표시 소수자릿수는 통화 관례를 따른다(KRW·JPY·UZS=0). */
 export const CURRENCIES: readonly CurrencyMeta[] = [
   { code: 'KRW', symbol: '₩', decimals: 0 },
   { code: 'USD', symbol: '$', decimals: 2 },
+  { code: 'UZS', symbol: 'soʻm', decimals: 0, suffix: true },
   { code: 'JPY', symbol: '¥', decimals: 0 },
   { code: 'EUR', symbol: '€', decimals: 2 },
-  { code: 'VND', symbol: '₫', decimals: 0 },
 ] as const;
 
 export const DEFAULT_CURRENCY = 'KRW';
@@ -35,7 +37,8 @@ export function formatMoney(amount: number, currency: string): string {
   const [intPart, frac] = fixed.split('.');
   const grouped = groupThousands(intPart ?? '0');
   const num = frac ? `${grouped}.${frac}` : grouped;
-  return m ? `${m.symbol}${num}` : `${num} ${currency}`;
+  if (!m) return `${num} ${currency}`;
+  return m.suffix ? `${num} ${m.symbol}` : `${m.symbol}${num}`;
 }
 
 /** 통화별 합계. 서로 다른 통화는 섞지 않는다(환율 없이 합산 금지 — 정직). */
