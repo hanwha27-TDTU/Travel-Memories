@@ -264,4 +264,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '두 손그림 잔여를 마저 기계화. (1) 대시보드는 REGISTRY.gates에서 파생(손 나열 금지)해 정적·자동생성·유닛 카테고리로 묶어 표시. (2) 문서 프로즈 카운트는 seq31에서 "숫자 제거"로 임시 처리했으나, 숫자를 다시 넣고 싶을 때를 위해 마커+게이트로 원천 봉쇄 — <!--reg:키-->값<!--/reg--> 마커를 gen-registry가 자동으로 심고 check-doc-counts가 대조.',
     decision: 'app/gates.ts(공유 GATE_DESC·GATE_CATEGORY·CATEGORY_LABEL — guide/mechChecks 두 화면이 설명을 손으로 중복 안 쓰게). ui/screens/mechChecks.ts(openMechChecks: 4단계 흐름 + 게이트 개수 배지(REGISTRY.gateCount) + 카테고리별 게이트 카드(REGISTRY.gates.filter(categoryOf) 파생) + 라이브 렌더 별도 섹션). aboutApp·guide에 진입 버튼. gen-registry.mjs에 findMarkers/patchMarkers(순수) + DOC_FILES 추가, 실행 시 문서 마커 자동 재심음. scripts/check-doc-counts.mjs(11번째 게이트): DOC_FILES의 <!--reg:키-->값<!--/reg-->이 실제 registry와 일치하는지 대조, 알 수 없는 KEY도 RED, 비공허 자체검사(맞는 값 통과·틀린 값·오타 KEY RED). HANDOFF에 게이트 개수 마커 시연 삽입. 검증(현실로): harness 11게이트 PASS, 문서 마커 99로 손상 시 RED·복원 시 PASS 재현, verify-editor-live 45/45(기계화 흐름도 4단계·배지 자동집계·카드=게이트+라이브 1·콘솔0), build 그린. registry.gen gateCount 10→11·screenCount 8→9 자동 반영. **결함군 승격(자기적용)**: 게이트를 설명하는 프로즈가 게이트가 찾는 마커 문법과 충돌 — Phase 7b 기록에 예시로 적은 <!--reg:KEY-->가 실제 마커로 오인돼 스스로 RED(게이트 비공허 실증). 근본형: "검사 대상의 문법을 문서가 리터럴로 포함하면 오탐". 처방: KEY 정규식을 [A-Za-z0-9_]로 좁혀, 문서 예시는 한글 KEY(키)로 적으면 매칭에서 제외 — 실제 마커(영문 KEY)만 검사.',
   },
+  {
+    seq: 33,
+    date: '2026-07-24',
+    topic: '통화 UZS(우즈베크 soʻm) — VND 교체 + 달러 다음 배치',
+    human: 'VND 대신 우즈벡 화폐단위 UZS로 바꾸자. 위치도 달러 다음으로 배치(스크린샷: 통화 드롭다운).',
+    ai: '사용자는 타슈켄트 소재(우즈베키스탄)라 실사용 통화가 UZS. VND는 format.ts CURRENCIES에만 존재(도메인 단일 출처). 솜은 접두 심볼이 없고 관례상 금액 뒤 "soʻm" — 접두로 위조하면 어색·부정확(§정직: 심볼 위조 안 함). 최소·원칙적 개선으로 suffix 지원 추가 제안.',
+    decision: 'domain/expense/format.ts: CurrencyMeta에 optional suffix 추가, CURRENCIES에서 VND 제거하고 { UZS, soʻm, decimals 0, suffix true }를 USD 바로 뒤에 삽입(KRW·USD·UZS·JPY·EUR). formatMoney는 suffix면 "num symbol", 아니면 "symbol num". 드롭다운(tripDetail.currencySelect)은 CURRENCIES를 그대로 순회하므로 순서·라벨 자동 반영(SSOT 파생). 테스트 잠금: expenseFormat "UZS→1,000,000 soʻm(뒤) / JPY→¥500(앞)". 데이터 안전: 기존 VND 비용이 있으면 알 수 없는 통화 폴백으로 "금액 VND"로 정직 표시(원금액·코드 보존·유실 0·§1). 검증: typecheck·유닛 9/9·harness 11게이트·build 그린.',
+  },
 ];
