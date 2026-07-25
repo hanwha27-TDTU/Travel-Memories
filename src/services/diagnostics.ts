@@ -16,10 +16,16 @@ export interface SyncDiagnosis {
   /** 로컬 tombstone 개수(종류별). */
   tombstones: Record<string, number>;
   /**
-   * **고아 tombstone** — 로컬은 지워졌는데 대기열 op가 없어 서버로 영영 못 가는 항목.
-   * 이 숫자가 0이 아니면 서버·바이트 저장소에 지워지지 않은 것이 남아 있다는 뜻이다.
+   * op 없는 tombstone.
+   *
+   * ⚠️ 정직한 한계(2026-07-25 정정): 이 숫자는 **"아직 서버에 못 간 것"과 "이미 다 간 것"을
+   * 구분하지 못한다** — push가 성공하면 op를 지우기 때문에 정상 항목도 여기 잡힌다.
+   * 처음에 "서버로 못 간 삭제"라고 이름 붙인 것은 **거짓 경보**였다. 서버와 대조해야만 알 수
+   * 있고, 그 대조는 동기화(pull)가 한다. 여기서는 사실만 적는다: "op가 없는 지운 항목".
    */
-  orphanTombstones: Record<string, number>;
+  opLessTombstones: Record<string, number>;
+  /** 각 항목의 실제 id·상태 — 개수만으로는 어느 것인지 알 수 없어 추측하게 된다. */
+  items: { type: string; id: string; deleted: boolean; queued: boolean }[];
   /** 영구삭제 표식 수(pull이 건너뛰는 id). */
   purgedMarks: number;
   /** 사진 바이트가 어디로 가는가. */
@@ -46,7 +52,8 @@ export async function diagnoseSync(): Promise<SyncDiagnosis> {
 
   const queued = new Set(queue.map((q) => `${q.entityType}:${q.entityId}`));
   const tombstones: Record<string, number> = {};
-  const orphanTombstones: Record<string, number> = {};
+  const opLessTombstones: Record<string, number> = {};
+  const items: { type: string; id: string; deleted: boolean; queued: boolean }[] = [];
   const groups: [string, { id: string; deletedAt: string | null }[]][] = [
     ['trip', trips],
     ['moment', moments],
@@ -56,10 +63,14 @@ export async function diagnoseSync(): Promise<SyncDiagnosis> {
   for (const [type, rows] of groups) {
     const dead = rows.filter((r) => r.deletedAt !== null);
     tombstones[type] = dead.length;
-    orphanTombstones[type] = dead.filter((r) => !queued.has(`${type}:${r.id}`)).length;
+    opLessTombstones[type] = dead.filter((r) => !queued.has(`${type}:${r.id}`)).length;
+    // 사진·비용은 개수가 적고 진단 가치가 크므로 목록을 그대로 낸다(여행·순간은 개수로 충분).
+    if (type === 'media' || type === 'expense') {
+      for (const r of rows) items.push({ type, id: r.id, deleted: r.deletedAt !== null, queued: queued.has(`${type}:${r.id}`) });
+    }
   }
 
-  return { queue: { total: queue.length, byState, byType }, tombstones, orphanTombstones, purgedMarks: purged, mediaStore: mediaStoreKind() };
+  return { queue: { total: queue.length, byState, byType }, tombstones, opLessTombstones, items, purgedMarks: purged, mediaStore: mediaStoreKind() };
 }
 
 /**

@@ -418,14 +418,19 @@ function diagnosticsPanel(): HTMLElement {
         row('사진 저장소', d.mediaStore === 'r2' ? 'Cloudflare R2' : 'Supabase Storage'),
         row('대기 중인 작업', d.queue.total === 0 ? '없음' : `${d.queue.total}건 — ${fmt(d.queue.byState)} / ${fmt(d.queue.byType)}`),
         row('지운 항목(이 기기)', fmt(d.tombstones)),
-        row('⚠️ 서버로 못 간 삭제', fmt(d.orphanTombstones)),
+        row('지움 + 보낼목록 없음', fmt(d.opLessTombstones)),
         row('영구삭제 표식', String(d.purgedMarks)),
       );
-      const orphans = Object.values(d.orphanTombstones).reduce((a, b) => a + b, 0);
-      if (orphans > 0) {
-        setNote(note, `서버에 반영되지 못한 삭제가 ${orphans}건 있어요. 아래 [정리 실행] 후 동기화하면 해결됩니다.`, 'error');
-      } else if (d.queue.total > 0) {
-        setNote(note, '대기 중인 작업이 있어요. 동기화를 한 번 눌러 주세요.', 'info');
+      // 개수만으로는 "어느 것"인지 알 수 없어 추측하게 된다 — 사진·비용은 id를 그대로 보여준다.
+      for (const it of d.items) {
+        table.appendChild(row(`${it.type} ${it.id.slice(0, 8)}`, `${it.deleted ? '🗑 지움' : '● 활성'}${it.queued ? ' · 보낼 목록에 있음' : ''}`));
+      }
+      const opless = Object.values(d.opLessTombstones).reduce((a: number, b: number) => a + b, 0);
+      if (d.queue.total > 0) {
+        setNote(note, '보낼 작업이 남아 있어요. 동기화를 한 번 눌러 주세요.', 'info');
+      } else if (opless > 0) {
+        // 정직: 로컬만 봐서는 "이미 갔는지"를 알 수 없다. 겁주지 않고 사실만 말한다.
+        setNote(note, `지웠는데 보낼 목록에 없는 항목이 ${opless}건 있어요. 이미 서버에 반영됐을 수도(정상), 못 갔을 수도 있어요 — 로컬만 봐서는 구분되지 않습니다. 동기화를 누르면 서버와 대조해 자동 처리합니다.`, 'info');
       } else {
         setNote(note, '이 기기에서 서버로 보낼 것이 남아 있지 않습니다.', 'ok');
       }
