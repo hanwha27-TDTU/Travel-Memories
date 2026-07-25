@@ -125,11 +125,17 @@ export async function updateTripLocalFirst(id: string, patch: UpdateTripPatch): 
 }
 
 /**
- * 여행 삭제 — 하드 삭제 금지(§0): deletedAt tombstone. 순간(Moment)·사진(Media)까지
- * 같은 트랜잭션에서 cascade tombstone하여 고아 데이터가 남지 않게 한다. 순간은 서버로
- * 동기화되므로 각각 sync 큐 op(delete)를 만들고, 미디어는 로컬 전용이라 op를 만들지
- * 않는다(처리 주체 부재 → 대기열 영구 잔류 방지). 되살리기가 정확히 이 자식들만 복원하도록
- * id 목록을 반환한다. 되살리기·삭제 모두 version+1로 LWW에서 최신이 이긴다.
+ * 여행 삭제 — 하드 삭제 금지(§0): deletedAt tombstone. 순간·사진·비용까지 같은 트랜잭션에서
+ * cascade tombstone하고, **네 종류 모두 sync 큐 op(delete)를 만든다.**
+ *
+ * ⚠️ 결함 이력(2026-07-25): 예전 주석은 "미디어는 로컬 전용이라 op를 만들지 않는다"였다.
+ * 그 전제는 사진·비용 동기화가 생기면서 무너졌는데 이 함수만 갱신되지 않아, **여행을 지워도
+ * 서버 사진 행이 활성으로 남고 R2 객체도 지워지지 않았다**(실측으로 확인). 순간 삭제
+ * (`softDeleteMomentLocalFirst`)는 처음부터 올바랐다 — 같은 규율을 두 곳에 손으로 구현한 것이
+ * 뿌리다. 형제 위치를 함께 고쳤고 유닛으로 잠갔다(tests/unit/cascadeOps.test.ts).
+ *
+ * 되살리기가 정확히 이 자식들만 복원하도록 id 목록을 반환한다.
+ * 되살리기·삭제 모두 version+1로 LWW에서 최신이 이긴다.
  */
 export async function softDeleteTripLocalFirst(
   id: string,
@@ -162,17 +168,22 @@ export async function softDeleteTripLocalFirst(
   const mediaIds = media.map((m) => m.id);
   const expenseIds = expenses.map((e) => e.id);
 
+  // 자식 op는 **tombstone하는 종류 전부**에 대해 만든다. 하나라도 빠지면 그 종류만 서버에
+  // 활성으로 남아 다른 기기에서 되살아나고(사진은 R2 객체까지 잔류) 원인이 보이지 않는다.
+  const childOp = (entityType: 'moment' | 'media' | 'expense', entityId: string): SyncQueueItem => ({
+    operationId: uuid(),
+    entityType,
+    entityId,
+    operationType: 'delete',
+    state: 'local_only',
+    attempts: 0,
+    createdAt: now,
+  });
   const ops: SyncQueueItem[] = [
     { operationId: tripOpId, entityType: 'trip', entityId: id, operationType: 'delete', state: 'local_only', attempts: 0, createdAt: now },
-    ...moments.map((m) => ({
-      operationId: uuid(),
-      entityType: 'moment',
-      entityId: m.id,
-      operationType: 'delete' as const,
-      state: 'local_only',
-      attempts: 0,
-      createdAt: now,
-    })),
+    ...moments.map((m) => childOp('moment', m.id)),
+    ...media.map((m) => childOp('media', m.id)),
+    ...expenses.map((e) => childOp('expense', e.id)),
   ];
 
   await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.syncQueue, async () => {
@@ -209,17 +220,22 @@ export async function restoreTripLocalFirst(
     baseVersion: cur.version,
     clientOperationId: tripOpId,
   };
+  // 삭제와 **대칭**이어야 한다. 복원 op가 빠지면 서버에는 tombstone이 남아, 다음 pull에서
+  // 되살린 것이 도로 지워진다(사용자 눈에는 "복원이 안 되는" 것으로 보인다).
+  const childOp = (entityType: 'moment' | 'media' | 'expense', entityId: string): SyncQueueItem => ({
+    operationId: uuid(),
+    entityType,
+    entityId,
+    operationType: 'update',
+    state: 'local_only',
+    attempts: 0,
+    createdAt: now,
+  });
   const ops: SyncQueueItem[] = [
     { operationId: tripOpId, entityType: 'trip', entityId: id, operationType: 'update', state: 'local_only', attempts: 0, createdAt: now },
-    ...momentIds.map((mid) => ({
-      operationId: uuid(),
-      entityType: 'moment',
-      entityId: mid,
-      operationType: 'update' as const,
-      state: 'local_only',
-      attempts: 0,
-      createdAt: now,
-    })),
+    ...momentIds.map((mid) => childOp('moment', mid)),
+    ...mediaIds.map((mid) => childOp('media', mid)),
+    ...expenseIds.map((eid) => childOp('expense', eid)),
   ];
 
   await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.syncQueue, async () => {
