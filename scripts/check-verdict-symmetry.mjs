@@ -27,15 +27,16 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** 화면에 그려지는 문자열을 담는 파일 — 여기서 마크다운 리터럴은 결함이다. */
-const TEXT_SURFACES = [
-  'src/ui/panels/verdict.ts',
-  'src/ui/panels/diagnostics.ts',
-  'src/ui/screens/diagnosticsHub.ts',
-  'src/services/envReport.ts',
-  'src/services/diagnostics.ts',
-  'src/domain/integrity.ts',
-];
+/**
+ * 강조(`**…**`)를 안전하게 렌더하는 **유일한 경로**. 이게 있어야 문자열 쪽에 규칙을 걸 필요가 없다.
+ *
+ * ⚠️ 이 게이트 자신의 결함(M-0012): 처음엔 "이 6개 파일에서 `**` 금지"로 만들었다. 대상 파일을
+ * **손으로 골랐기 때문에** dataManager·r2Setup·changelog가 통째로 빠졌고, 사용자 화면에 별표가
+ * 그대로 찍혔다. CLAUDE.md §7이 "형제 목록을 손으로 세지 말고 등록부·디렉터리에서 뽑으라"고
+ * 적힌 그대로의 위반이다. 지금은 규칙을 **렌더러 한 곳**에 두고, 그 렌더러가 살아 있는지와
+ * 우회 경로가 없는지를 검사한다.
+ */
+const RICH_TEXT_RENDERER = 'src/ui/dom.ts';
 
 /** 판정 렌더러를 우회하면 안 되는 파일과, 거기서 금지된 옛 나열형 클래스. */
 const NO_LEGACY_ROWS = { file: 'src/ui/panels/diagnostics.ts', banned: ['r2-row', 'r2-table', 'se-item', 'se-findings'] };
@@ -82,17 +83,36 @@ export function metricsMissingExpected(src) {
   return bad;
 }
 
-// ── 검사 B: 화면 문자열의 마크다운 리터럴 ───────────────────────────────────
-/** 주석은 제외한다(주석에는 강조를 써도 화면에 안 나온다). 따옴표/백틱 문자열만 본다. */
-export function markdownInStrings(src) {
+// ── 검사 B: 강조 문자열이 안전한 렌더러를 **우회**하지 않는가 ──────────────
+/**
+ * 강조를 담은 문자열을 `.textContent =` 로 직접 넣으면 별표가 그대로 찍힌다(실제 결함).
+ * 문자열을 금지하는 대신 **우회 경로**를 금지한다 — 강조는 el()/applyText()/setNote()가 처리한다.
+ * 주석은 제외한다(주석의 강조는 화면에 안 나온다).
+ */
+export function markdownBypass(src) {
   const bad = [];
   const noComments = src
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
-  for (const m of noComments.matchAll(/(['"`])((?:\\.|(?!\1)[\s\S])*?)\1/g)) {
+  for (const m of noComments.matchAll(/\.textContent\s*=\s*(['"`])((?:\\.|(?!\1)[\s\S])*?)\1/g)) {
     const body = m[2];
-    if (/\*\*[^*]+\*\*/.test(body)) bad.push(`화면 문자열에 마크다운 강조: "${body.slice(0, 70)}"`);
+    if (/\*\*[^*]+\*\*/.test(body)) {
+      bad.push(`강조 문자열을 textContent로 직접 대입(별표가 화면에 찍힘): "${body.slice(0, 60)}" → el()/applyText()를 쓸 것`);
+    }
   }
+  return bad;
+}
+
+/** 안전 렌더러가 살아 있는가 — 이게 사라지면 위 규칙 전체가 무너진다. */
+export function richTextRendererIntact(src) {
+  const bad = [];
+  // 주석을 먼저 벗긴다 — dom.ts 머리주석의 "innerHTML 금지"를 사용으로 오탐했다(이 게이트의 오탐 1건).
+  // 게이트의 오탐은 신뢰를 깎아 결국 게이트를 끄게 만든다 — 실패만큼 나쁘다.
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  if (!/export function applyText\(/.test(code)) bad.push('dom.ts에 applyText()가 없음 — 강조 렌더 경로가 사라졌다');
+  if (!/createElement\('strong'\)/.test(code)) bad.push('applyText가 <strong>을 만들지 않음 — 강조가 평문으로 떨어진다');
+  if (/innerHTML/.test(code)) bad.push('dom.ts에 innerHTML 사용 — 강조 렌더는 textContent 조각으로만 해야 한다');
+  if (!/if \(text !== undefined\) applyText\(node, text\)/.test(code)) bad.push('el()이 applyText를 쓰지 않음 — 대부분의 화면 문자열이 우회한다');
   return bad;
 }
 
@@ -152,13 +172,29 @@ export function legacyRows(src, banned) {
       fn: () => metricsMissingExpected(`const v = { meta: { x: 1 }, label: 'a', actual: '1', expected: '0', level: 'ok' };`),
       clean: true,
     },
-    { name: '마크다운 없는 문자열 통과', fn: () => markdownInStrings(`const t = '앱 데이터를 지울 수 있습니다.';`), clean: true },
+    { name: 'el()로 넘기는 강조 문자열은 정상', fn: () => markdownBypass(`el('p', 'x', '**이 기기**를 비웁니다');`), clean: true },
     {
-      name: '마크다운 리터럴 검출(실제 결함 — 저장소 경고)',
-      fn: () => markdownInStrings(`const t = '브라우저가 **앱 데이터를 지울 수 있습니다.** 백업하세요';`),
+      name: 'textContent 직접 대입 검출(실제 결함 — 별표 노출)',
+      fn: () => markdownBypass(`n.textContent = '브라우저가 **앱 데이터를 지울 수 있습니다.**';`),
       clean: false,
     },
-    { name: '주석 안 강조는 결함이 아니다', fn: () => markdownInStrings(`// 이것은 **강조**된 주석이다\nconst t = '평범한 문자열';`), clean: true },
+    { name: '주석 안 강조는 결함이 아니다', fn: () => markdownBypass(`// 이것은 **강조**된 주석이다\nconst t = '평범한 문자열';`), clean: true },
+    { name: '강조 없는 textContent 대입은 무관', fn: () => markdownBypass(`n.textContent = '평범한 값';`), clean: true },
+    {
+      name: '안전 렌더러 온전(주석의 innerHTML 언급은 오탐이 아니다)',
+      fn: () => richTextRendererIntact(`// innerHTML 금지\nexport function applyText(n,t){ document.createElement('strong'); }\n if (text !== undefined) applyText(node, text);`),
+      clean: true,
+    },
+    {
+      name: '안전 렌더러 제거 검출(규칙 전체가 무너지는 경우)',
+      fn: () => richTextRendererIntact(`export function el(){ node.textContent = text; }`),
+      clean: false,
+    },
+    {
+      name: 'innerHTML로 바뀌면 검출(XSS 경로)',
+      fn: () => richTextRendererIntact(`export function applyText(n,t){ n.innerHTML = t; document.createElement('strong'); }\n if (text !== undefined) applyText(node, text);`),
+      clean: false,
+    },
     {
       name: 'guide-card 계약 통과',
       fn: () => guideCardContract(`el('button', 'guide-card'); el('span','guide-card-ic'); el('span','guide-card-mid');`),
@@ -200,9 +236,7 @@ export function legacyRows(src, banned) {
 const problems = [];
 const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
 
-for (const rel of TEXT_SURFACES) {
-  for (const p of markdownInStrings(read(rel))) problems.push(`${rel}: ${p}`);
-}
+for (const p of richTextRendererIntact(read(RICH_TEXT_RENDERER))) problems.push(`${RICH_TEXT_RENDERER}: ${p}`);
 for (const p of metricsMissingExpected(read('src/ui/panels/diagnostics.ts'))) problems.push(`src/ui/panels/diagnostics.ts: ${p}`);
 for (const p of toolRegistryComplete(read('src/ui/panels/diagnostics.ts'))) problems.push(`src/ui/panels/diagnostics.ts: ${p}`);
 for (const p of legacyRows(read(NO_LEGACY_ROWS.file), NO_LEGACY_ROWS.banned)) problems.push(`${NO_LEGACY_ROWS.file}: ${p}`);
@@ -219,9 +253,15 @@ function walk(dir, out = []) {
 let cardFiles = 0;
 for (const abs of walk(join(ROOT, 'src/ui'))) {
   const src = readFileSync(abs, 'utf8');
-  const found = guideCardContract(src);
   if (/'guide-card(?: |')/.test(src)) cardFiles++;
-  for (const p of found) problems.push(`${relative(ROOT, abs)}: ${p}`);
+  for (const p of guideCardContract(src)) problems.push(`${relative(ROOT, abs)}: ${p}`);
+}
+
+// 우회 경로 검사는 **src 전체**에 건다 — 손으로 고른 목록이 바로 M-0012의 원인이었다.
+let scanned = 0;
+for (const abs of walk(join(ROOT, 'src'))) {
+  scanned++;
+  for (const p of markdownBypass(readFileSync(abs, 'utf8'))) problems.push(`${relative(ROOT, abs)}: ${p}`);
 }
 
 if (problems.length) {
@@ -229,4 +269,4 @@ if (problems.length) {
   console.error('check-verdict-symmetry: 진단 판정 계약 위반 — 도구 간 대칭이 깨졌다.');
   process.exit(1);
 }
-console.log(`check-verdict-symmetry: OK (셀프테스트 14건 통과 · guide-card 화면 ${cardFiles}곳 계약 준수 · 지표 기대값·도구 필드·문구 전부 정상)`);
+console.log(`check-verdict-symmetry: OK (셀프테스트 18건 통과 · 강조 렌더러 온전 · src ${scanned}개 파일 우회 0 · guide-card 화면 ${cardFiles}곳 계약 준수 · 지표 기대값·도구 필드 정상)`);

@@ -19,7 +19,7 @@
 //  - 전부 **읽기 전용 관측**이 기본. 상태를 바꾸는 것은 각 도구의 액션뿐이고, 어느 것도
 //    사용자의 기억을 지우지 않는다.
 
-import { el } from '../dom';
+import { el, applyText } from '../dom';
 import { CORE_TOOLS, DIAG_TOOLS, renderDiagTool, rollup, type DiagTool } from '../panels/diagnostics';
 import { LEVELS, type Level } from '../panels/verdict';
 
@@ -103,14 +103,16 @@ export function openDiagnosticsHub(): void {
         bDot.replaceWith(dot(r.level));
         const bad = r.per.filter((p) => p.level === 'problem');
         const todo = r.per.filter((p) => p.level === 'todo');
-        bLine.textContent =
+        applyText(
+          bLine,
           r.level === 'problem'
             ? `지금 확인할 것 ${bad.length}가지 — ${bad.map((p) => p.label).join(' · ')}`
             : r.level === 'todo'
               ? `해두면 좋은 일 ${todo.length}가지 — ${todo.map((p) => p.label).join(' · ')}`
               : r.level === 'unknown'
                 ? '확인하지 못한 항목이 있어요'
-                : '이상 없음 · 방금 확인했어요';
+                : '이상 없음 · 방금 확인했어요',
+        );
 
         for (const p of r.per) {
           const slot = slots.get(p.id);

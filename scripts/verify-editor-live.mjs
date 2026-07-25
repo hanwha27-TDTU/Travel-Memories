@@ -608,6 +608,33 @@ check('진단 도구: 지표에 기대값(정상)이 화면에 보인다', Boole
 check('진단 도구: [다시 확인]이 항상 있다', Boolean(tool) && tool.recheck);
 check('진단 도구: 폰 세로 가로 넘침 0', Boolean(tool) && tool.overflow <= 0, tool ? `overflow=${tool.overflow}` : 'none');
 
+// ── v0.70: 화면 어디에도 마크다운 별표가 보이지 않는가(M-0012) ──
+// 이 검사가 결함의 **최종 판정층**이다. 정적 게이트는 "우회 경로가 없다"까지만 보고,
+// 유닛은 파싱 규칙만 본다. "사용자 눈에 별표가 보이는가"는 실제 렌더만 답할 수 있다.
+// 원래 결함은 [데이터 관리 › 휴지통]의 영구삭제 설명에서 사용자가 발견했다 — 그 화면을 연다.
+await page.goto(`http://localhost:4173${BASE}`);
+await page.waitForTimeout(400);
+await page.getByRole('button', { name: /데이터 관리/ }).first().click().catch(() => {});
+await page.waitForTimeout(400);
+await page.locator('.guide-card:has-text("휴지통")').first().click().catch(() => {});
+await page.waitForTimeout(600);
+const trashText = await page.evaluate(() => {
+  const modal = document.querySelector('.guide-modal');
+  return { txt: modal?.textContent ?? '', strongs: modal?.querySelectorAll('strong').length ?? 0 };
+});
+check('휴지통: 화면에 마크다운 별표가 안 보인다(M-0012)', !trashText.txt.includes('**'),
+  trashText.txt.includes('**') ? `노출: ${trashText.txt.slice(trashText.txt.indexOf('**') - 20, trashText.txt.indexOf('**') + 40)}` : `strong ${trashText.strongs}개로 렌더`);
+check('휴지통: 강조가 <strong>으로 실제 렌더된다', trashText.strongs > 0, `strong ${trashText.strongs}개`);
+
+// 앱 정보(변경 이력) — 내가 v0.69 노트에 새 `**`를 넣었던 자리.
+await page.goto(`http://localhost:4173${BASE}`);
+await page.waitForTimeout(400);
+await page.getByRole('button', { name: /앱 정보|정보/ }).first().click().catch(() => {});
+await page.waitForTimeout(600);
+const aboutTxt = await page.evaluate(() => document.querySelector('.guide-modal, .about-modal, body')?.textContent ?? '');
+check('변경 이력: 화면에 마크다운 별표가 안 보인다', !aboutTxt.includes('**'),
+  aboutTxt.includes('**') ? `노출: ${aboutTxt.slice(aboutTxt.indexOf('**') - 20, aboutTxt.indexOf('**') + 40)}` : 'clean');
+
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 
 await browser.close();
