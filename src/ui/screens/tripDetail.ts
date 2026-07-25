@@ -74,15 +74,29 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
   // 좌표를 지도에서 직접 찍었는지 여부. 지도로 찍은 좌표는 이름을 나중에 적어도 유지한다
   // (사용자가 이름과 위치를 따로 입력하는 흐름). 검색 결과 좌표는 이름과 묶여 있으므로 손편집 시 무효화한다.
   let mapPicked = false;
+  // 해제 버튼 — **선택했으면 해제할 수 있어야 한다**(결함군, 2026-07-26 사용자 지적).
+  // 지도로 찍은 좌표는 이름을 지워도 유지되는데(의도된 동작), 그러면 되돌릴 길이 없었다.
+  const clearPlace = el('button', 'chip-clear', '✕') as HTMLButtonElement;
+  clearPlace.type = 'button';
+  clearPlace.setAttribute('aria-label', '지정한 위치 해제');
+  clearPlace.title = '위치 해제';
+  const pickedText = el('span', 'place-picked-text');
+  picked.append(pickedText, clearPlace);
   const setPicked = (detail: string | null): void => {
     if (detail === null) {
       picked.hidden = true;
-      picked.textContent = '';
+      pickedText.textContent = '';
     } else {
       picked.hidden = false;
-      picked.textContent = detail ? `📍 위치 지정됨 · ${detail}` : '📍 위치 지정됨';
+      pickedText.textContent = detail ? `📍 위치 지정됨 · ${detail}` : '📍 위치 지정됨';
     }
   };
+  clearPlace.addEventListener('click', () => {
+    lat = null;
+    lng = null;
+    mapPicked = false;
+    setPicked(null);
+  });
   setPicked(lat !== null && lng !== null ? '' : null); // 기존 좌표가 있으면 배지 표시
   // 손으로 텍스트를 바꾸면 이전 검색 좌표는 다른 장소일 수 있으니 무효화한다.
   // 단, 지도에서 직접 찍은 좌표는 이름과 독립적이므로 유지한다(이름만 갱신).
@@ -390,10 +404,56 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const photoLabel = el('label', 'moment-photo-label');
     const photoCount = el('span', 'moment-photo-count', '');
     photoLabel.append(document.createTextNode('📷 사진 추가 '), photoCount, photoInput);
-    photoInput.addEventListener('change', () => {
-      const n = photoInput.files?.length ?? 0;
-      photoCount.textContent = n > 0 ? `· ${n}장 선택됨` : '';
-    });
+    // 선택한 사진 미리보기 + **해제**.
+    //
+    // 결함(2026-07-26 사용자 지적): 예전엔 "· 2장 선택됨" 글자만 있고 **무엇을 골랐는지도,
+    // 어떻게 취소하는지도** 없었다. 저장된 사진에는 ✕가 있는데 저장 전 선택분에만 없어서,
+    // 같은 화면 안에서 어휘가 갈렸다(§7 사용자 대면 대칭 위반). 잘못 고르면 폼을 떠나는 수밖에.
+    //
+    // FileList는 읽기 전용이라 DataTransfer로 다시 만들어 넣는다(표준 경로).
+    const photoPreview = el('div', 'pick-preview');
+    photoPreview.hidden = true;
+    let previewUrls: string[] = [];
+    const clearAllPhotos = el('button', 'pick-clear-all', '전체 해제') as HTMLButtonElement;
+    clearAllPhotos.type = 'button';
+
+    const setFiles = (files: File[]): void => {
+      const dt = new DataTransfer();
+      for (const f of files) dt.items.add(f);
+      photoInput.files = dt.files;
+      renderPicks();
+    };
+
+    function renderPicks(): void {
+      for (const u of previewUrls) URL.revokeObjectURL(u);
+      previewUrls = [];
+      photoPreview.replaceChildren();
+      const files = photoInput.files ? Array.from(photoInput.files) : [];
+      photoCount.textContent = files.length > 0 ? `· ${files.length}장 선택됨` : '';
+      photoPreview.hidden = files.length === 0;
+      if (!files.length) return;
+
+      for (const [i, f] of files.entries()) {
+        const cell = el('div', 'pick-cell');
+        const url = URL.createObjectURL(f);
+        previewUrls.push(url);
+        const img = el('img', 'pick-thumb') as HTMLImageElement;
+        img.src = url;
+        img.alt = f.name;
+        img.loading = 'lazy';
+        const x = el('button', 'pick-x', '✕') as HTMLButtonElement;
+        x.type = 'button';
+        x.setAttribute('aria-label', `${f.name} 선택 해제`);
+        x.addEventListener('click', () => setFiles(files.filter((_, j) => j !== i)));
+        cell.append(img, x);
+        photoPreview.appendChild(cell);
+      }
+      photoPreview.appendChild(clearAllPhotos);
+    }
+
+    clearAllPhotos.addEventListener('click', () => setFiles([]));
+    photoInput.addEventListener('change', renderPicks);
+
 
     // 비용(선택) — 금액 + 통화. "10초 기록"을 방해하지 않도록 한 줄, 비우면 저장 안 함.
     const moneyRow = el('div', 'moment-money');
@@ -409,7 +469,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const save = el('button', 'btn-primary', '순간 저장') as HTMLButtonElement;
     save.type = 'submit';
 
-    form.append(input, emoRow, placeField.el, moneyRow, photoLabel, save);
+    form.append(input, emoRow, placeField.el, moneyRow, photoLabel, photoPreview, save);
     compose.appendChild(form);
 
     const note = el('p', 'sync-note', '');
@@ -1061,8 +1121,8 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           picked = '';
           amountIn.value = '';
           currencyIn.value = DEFAULT_CURRENCY;
-          photoInput.value = '';
-          photoCount.textContent = '';
+          // 미리보기 URL 회수 + 개수 문구까지 한 번에(초기화 경로를 두 개 만들지 않는다).
+          setFiles([]);
           for (const btn of emoButtons.values()) btn.setAttribute('aria-pressed', 'false');
           setNote(note, '✅ 저장됨', 'ok'); // 정상 — 조용하게
           await refresh();

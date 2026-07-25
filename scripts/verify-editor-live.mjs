@@ -686,6 +686,54 @@ const aboutTxt = await page.evaluate(() => document.querySelector('.guide-modal,
 check('변경 이력: 화면에 마크다운 별표가 안 보인다', !aboutTxt.includes('**'),
   aboutTxt.includes('**') ? `노출: ${aboutTxt.slice(aboutTxt.indexOf('**') - 20, aboutTxt.indexOf('**') + 40)}` : 'clean');
 
+// ── v0.73: 선택한 것은 해제할 수 있는가(§7 사용자 대면 대칭) ──
+// 사용자 지적(2026-07-26): "선택한 사진을 해제하는 기능이 없네요." 저장된 사진에는 ✕가 있는데
+// 저장 전 선택분에만 없어서, 같은 화면 안에서 어휘가 갈렸다. 형제 감사에서 장소(지도 지정)도
+// 같은 결함이 드러났다 — 좌표를 찍고 나면 되돌릴 길이 없었다.
+await page.setViewportSize({ width: 412, height: 915 });
+await page.goto(`http://localhost:4173${BASE}`);
+await page.waitForTimeout(500);
+await page.locator('.trip-card').first().click();
+await page.waitForSelector('.moment-form', { timeout: 8000 });
+
+await page.setInputFiles('.moment-photo-input', [
+  { name: 'p1.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgBuf) },
+  { name: 'p2.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgBuf) },
+  { name: 'p3.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgBuf) },
+]);
+await page.waitForTimeout(400);
+const pick0 = await page.evaluate(() => ({
+  cells: document.querySelectorAll('.pick-cell').length,
+  count: document.querySelector('.moment-photo-count')?.textContent ?? '',
+  files: document.querySelector('.moment-photo-input')?.files?.length ?? -1,
+}));
+check('사진 선택: 고른 만큼 미리보기 + 개수', pick0.cells === 3 && pick0.files === 3 && pick0.count.includes('3장'), JSON.stringify(pick0));
+
+await page.locator('.pick-x').first().click();
+await page.waitForTimeout(300);
+const pick1 = await page.evaluate(() => ({
+  cells: document.querySelectorAll('.pick-cell').length,
+  files: document.querySelector('.moment-photo-input')?.files?.length ?? -1,
+  count: document.querySelector('.moment-photo-count')?.textContent ?? '',
+}));
+check('사진 선택: ✕ 하나로 한 장만 해제(실제 FileList까지)', pick1.cells === 2 && pick1.files === 2 && pick1.count.includes('2장'), JSON.stringify(pick1));
+
+await page.locator('.pick-clear-all').click();
+await page.waitForTimeout(300);
+const pick2 = await page.evaluate(() => ({
+  hidden: document.querySelector('.pick-preview')?.hidden ?? null,
+  files: document.querySelector('.moment-photo-input')?.files?.length ?? -1,
+  count: document.querySelector('.moment-photo-count')?.textContent ?? '',
+}));
+check('사진 선택: 전체 해제 → 선택 0장 + 미리보기 숨김', pick2.files === 0 && pick2.hidden === true && pick2.count === '', JSON.stringify(pick2));
+
+// 장소(지도 지정) 해제 — 배지의 ✕가 좌표까지 지우는가.
+const placeClear = await page.evaluate(() => {
+  const btn = document.querySelector('.place-picked .chip-clear');
+  return { exists: Boolean(btn), label: btn?.getAttribute('aria-label') ?? '' };
+});
+check('장소: 지정 해제 버튼이 존재한다', placeClear.exists, JSON.stringify(placeClear));
+
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 
 await browser.close();
