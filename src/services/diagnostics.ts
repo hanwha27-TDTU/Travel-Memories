@@ -24,13 +24,21 @@ export interface SyncDiagnosis {
    * 있고, 그 대조는 동기화(pull)가 한다. 여기서는 사실만 적는다: "op가 없는 지운 항목".
    */
   opLessTombstones: Record<string, number>;
-  /** 각 항목의 실제 id·상태 — 개수만으로는 어느 것인지 알 수 없어 추측하게 된다. */
+  /**
+   * **설명이 필요한 항목**의 실제 id·상태 — 개수만으로는 어느 것인지 알 수 없어 추측하게 된다.
+   * 정상적으로 살아 있고 큐도 비어 있는 항목은 담지 않는다(정상은 나열하지 않는다).
+   */
   items: { type: string; id: string; deleted: boolean; queued: boolean }[];
+  /** 상한(ITEM_CAP)을 넘어 생략된 항목 수 — **조용히 자르지 않는다**(잘랐으면 잘랐다고 말한다). */
+  itemsOmitted: number;
   /** 영구삭제 표식 수(pull이 건너뛰는 id). */
   purgedMarks: number;
   /** 사진 바이트가 어디로 가는가. */
   mediaStore: 'r2' | 'supabase';
 }
+
+/** 목록 상한 — 이보다 많으면 개수로만 알린다. 화면이 목록으로 뒤덮이면 수리 버튼에 못 닿는다. */
+export const ITEM_CAP = 20;
 
 export async function diagnoseSync(): Promise<SyncDiagnosis> {
   const d = db();
@@ -54,6 +62,7 @@ export async function diagnoseSync(): Promise<SyncDiagnosis> {
   const tombstones: Record<string, number> = {};
   const opLessTombstones: Record<string, number> = {};
   const items: { type: string; id: string; deleted: boolean; queued: boolean }[] = [];
+  let overflow = 0;
   const groups: [string, { id: string; deletedAt: string | null }[]][] = [
     ['trip', trips],
     ['moment', moments],
@@ -64,13 +73,38 @@ export async function diagnoseSync(): Promise<SyncDiagnosis> {
     const dead = rows.filter((r) => r.deletedAt !== null);
     tombstones[type] = dead.length;
     opLessTombstones[type] = dead.filter((r) => !queued.has(`${type}:${r.id}`)).length;
-    // 사진·비용은 개수가 적고 진단 가치가 크므로 목록을 그대로 낸다(여행·순간은 개수로 충분).
+    // **설명이 필요한 항목만** 낸다.
+    //
+    // 옛 코드는 사진·비용의 *전 행*을 넣었다. 주석엔 "개수가 적고"라고 적혀 있었지만 이 앱은
+    // 여행 사진 앱이다 — 한 번 여행하면 수백 장이 정상이다. 실제로 사진 10장 계정에서 진단
+    // 화면이 정상 항목 나열로 뒤덮였고(2026-07-26 사용자 지적), 수백 장이면 수리 버튼이
+    // 목록 뒤로 밀려 도달 불가가 된다. 진단 도구가 스스로 수리 경로를 막는 셈이다.
+    //
+    // 판정 기준: 정상적으로 살아 있고 큐도 비어 있으면 설명할 것이 없다 → 뺀다.
+    // 지웠는데 큐에 없거나(정말 갔나?), 큐에 남아 있으면(왜 안 갔나?) 설명이 필요하다 → 넣는다.
     if (type === 'media' || type === 'expense') {
-      for (const r of rows) items.push({ type, id: r.id, deleted: r.deletedAt !== null, queued: queued.has(`${type}:${r.id}`) });
+      for (const r of rows) {
+        const isQueued = queued.has(`${type}:${r.id}`);
+        const isDeleted = r.deletedAt !== null;
+        if (!isDeleted && !isQueued) continue; // 정상 활성 — 침묵이 정상 신호
+        if (items.length >= ITEM_CAP) {
+          overflow += 1;
+          continue;
+        }
+        items.push({ type, id: r.id, deleted: isDeleted, queued: isQueued });
+      }
     }
   }
 
-  return { queue: { total: queue.length, byState, byType }, tombstones, opLessTombstones, items, purgedMarks: purged, mediaStore: mediaStoreKind() };
+  return {
+    queue: { total: queue.length, byState, byType },
+    tombstones,
+    opLessTombstones,
+    items,
+    itemsOmitted: overflow,
+    purgedMarks: purged,
+    mediaStore: mediaStoreKind(),
+  };
 }
 
 /**

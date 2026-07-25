@@ -1,199 +1,38 @@
-// ui/panels/diagnostics.ts — 진단 패널 **한 쌍**(동기화 진단 · ID 무결성 점검).
+// ui/panels/diagnostics.ts — 진단 도구 **여섯 개의 판정(Verdict)**.
 //
-// 왜 공용 모듈인가: 이 둘은 "뭔가 이상한데"를 만난 사용자가 **어느 쪽 문제인지 아직 모르는
-// 상태**에서 여는 도구다. 한 쌍이어야 할 것이 두 모달에 흩어져 있으면 판별하려고 두 곳을 다
-// 열어야 한다(2026-07-26 사용자 지적). 그래서 여기 한 번 정의하고 [데이터 관리]와 [가이드]
-// 양쪽에서 같은 함수를 연다 — 진단 도구는 **찾을 수 있어야** 가치가 있고, 사람마다 먼저 여는
-// 문이 다르다. guide ↔ dataManager 직접 import는 순환이 되므로 이 모듈이 그 매듭도 푼다.
+// 이 파일에는 **그리는 코드가 없다.** 각 도구는 `Verdict`(데이터)만 만들고, 그리는 일은
+// `panels/verdict.ts`의 `renderTool()` 한 곳이 한다. 왜 그렇게까지 하는지는 그 파일의 머리주석에
+// 적었다 — 요약하면 "선언만으로는 대칭이 안 지켜진다"(M-0006에서 실제로 겪었다).
 //
-// 둘 다 **읽기 전용 관측**이 기본이다. 동기화 진단만 수리 버튼(정리 실행·실패 재시도)을 갖는데,
-// 그것도 데이터를 지우지 않고 **대기열 상태만** 되돌린다.
+// 2026-07-26 재설계의 계기(사용자 지적):
+//   "뭐가 문제인지도 잘 모르겠고 **너무 나열되어** 있기도 하구요.
+//    우리가 이런 도구를 만드는 건 **정상은 어떤 상태이고 문제가 발생한 게 뭔지 차이를 아는 것**
+//    아닐까요?"
+// 이전 화면은 정상 항목 11개를 이상 항목과 똑같은 알약으로 나열했다. 지금은 정상이 한 줄로
+// 접히고, **남아 있는 것이 곧 문제**다.
+//
+// 지표 감사(무엇을 최상위에 둘지 임의로 고르지 않았다 — 기대값을 쓸 수 있는가로 걸렀다):
+//   ○ 최상위 지표  = "정상이면 이 값" 을 쓸 수 있는 것만. (막힌 작업 없음, 미지원 기능 없음 …)
+//   ○ 접힌 출처    = 판정 불가하거나 목록인 것. (지운 항목 개수, 영구삭제 표식, 항목 id …)
+//   ○ 맥락(context) = 상태가 아닌 환경 사실. (앱 버전·시간대·사진 저장소 …)
+// 옛 동기화 진단 5줄 중 최상위 자격이 있는 것은 사실상 하나뿐이었다.
 
-import { el, setNote } from '../dom';
+import { el } from '../dom';
 import { db } from '../../offline/db';
 import { diagnoseSync } from '../../services/diagnostics';
-import { forceRepairCascadeOps, retryFailedOps } from '../../services/sync';
+import { forceRepairCascadeOps, retryFailedOps, runSync } from '../../services/sync';
 import { checkIntegrity, CHECK_COUNT } from '../../domain/integrity';
 import { collectEnv, evictionRisk, requestPersist } from '../../services/envReport';
 import { recentErrors, clearErrors } from '../../app/errorLog';
 import { CHANGELOG } from '../../app/changelog';
+import { supabase } from '../../services/supabase/client';
+import { currentUser } from '../../services/auth';
+import { renderTool, levelFromMetrics, worst, type Verdict, type Metric, type Level } from './verdict';
 
 /** 화면에 표시할 앱 버전 — changelog가 SSOT(손으로 적지 않는다). */
 const APP_VERSION = `v${CHANGELOG[0]?.version ?? '0.00'}`;
 
-function h(text: string): HTMLElement {
-  return el('h3', 'guide-h', text);
-}
-function p(text: string): HTMLElement {
-  return el('p', 'guide-p', text);
-}
-function note(text: string): HTMLElement {
-  return el('p', 'guide-note', text);
-}
-function panel(children: HTMLElement[]): HTMLElement {
-  const box = el('div', 'guide-detail-body');
-  for (const c of children) box.appendChild(c);
-  return box;
-}
-
-/**
- * 동기화 진단 — **로컬 상태를 보이게 만든다**(읽기 전용 + 수동 정리).
- *
- * 2026-07-25: "지운 것이 되살아난다"를 여러 번 진단하면서, 서버는 보이는데 기기 안이 안 보여
- * 매번 추측하게 되는 것이 진짜 병목임이 드러났다. 이 패널이 그 창이다.
- */
-export function syncDiagnosticsPanel(): HTMLElement {
-  const box = el('div', 'guide-detail-body');
-  box.append(
-    el('h3', 'guide-h', '동기화 진단'),
-    el('p', 'guide-p', '이 기기의 동기화 상태를 그대로 보여줍니다. 문제를 추측하지 않고 확인하기 위한 화면이에요.'),
-  );
-  const table = el('div', 'r2-table');
-  box.appendChild(table);
-  const note = el('p', 'r2-probe-note');
-  note.hidden = true;
-  box.appendChild(note);
-
-  const row = (k: string, v: string): HTMLElement => {
-    const r = el('div', 'r2-row');
-    r.append(el('code', 'r2-key r2-key-wide', k), el('span', 'r2-val', v));
-    return r;
-  };
-
-  const render = (): void => {
-    void (async () => {
-      const d = await diagnoseSync();
-      table.textContent = '';
-      const fmt = (o: Record<string, number>): string =>
-        Object.entries(o).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(' · ') || '없음';
-      table.append(
-        row('사진 저장소', d.mediaStore === 'r2' ? 'Cloudflare R2' : 'Supabase Storage'),
-        row('대기 중인 작업', d.queue.total === 0 ? '없음' : `${d.queue.total}건 — ${fmt(d.queue.byState)} / ${fmt(d.queue.byType)}`),
-        row('지운 항목(이 기기)', fmt(d.tombstones)),
-        row('지움 + 보낼목록 없음', fmt(d.opLessTombstones)),
-        row('영구삭제 표식', String(d.purgedMarks)),
-      );
-      // 개수만으로는 "어느 것"인지 알 수 없어 추측하게 된다 — 사진·비용은 id를 그대로 보여준다.
-      for (const it of d.items) {
-        table.appendChild(row(`${it.type} ${it.id.slice(0, 8)}`, `${it.deleted ? '🗑 지움' : '● 활성'}${it.queued ? ' · 보낼 목록에 있음' : ''}`));
-      }
-      const opless = Object.values(d.opLessTombstones).reduce((a: number, b: number) => a + b, 0);
-      if (d.queue.total > 0) {
-        setNote(note, '보낼 작업이 남아 있어요. 동기화를 한 번 눌러 주세요.', 'info');
-      } else if (opless > 0) {
-        // 정직: 로컬만 봐서는 "이미 갔는지"를 알 수 없다. 겁주지 않고 사실만 말한다.
-        setNote(note, `지웠는데 보낼 목록에 없는 항목이 ${opless}건 있어요. 이미 서버에 반영됐을 수도(정상), 못 갔을 수도 있어요 — 로컬만 봐서는 구분되지 않습니다. 동기화를 누르면 서버와 대조해 자동 처리합니다.`, 'info');
-      } else {
-        setNote(note, '이 기기에서 서버로 보낼 것이 남아 있지 않습니다.', 'ok');
-      }
-    })();
-  };
-  render();
-
-  const actions = el('div', 'r2-probe');
-  const repair = el('button', 'btn-ghost', '정리 실행') as HTMLButtonElement;
-  repair.type = 'button';
-  repair.setAttribute('data-repair-sync', '');
-  repair.addEventListener('click', () => {
-    repair.disabled = true;
-    void forceRepairCascadeOps()
-      .then((r) => {
-        setNote(note, `사진 ${r.media}건 · 비용 ${r.expenses}건을 다시 보낼 목록에 넣었어요. 이제 동기화를 눌러 주세요.`, 'ok');
-        render();
-      })
-      .catch((e: Error) => setNote(note, `정리 실패: ${e.message}`, 'error'))
-      .finally(() => {
-        repair.disabled = false;
-      });
-  });
-  const retry = el('button', 'btn-ghost', '실패 재시도') as HTMLButtonElement;
-  retry.type = 'button';
-  retry.setAttribute('data-retry-failed', '');
-  retry.addEventListener('click', () => {
-    retry.disabled = true;
-    void retryFailedOps()
-      .then((n) => {
-        setNote(note, n ? `실패로 박혀 있던 작업 ${n}건을 다시 시도하도록 되돌렸어요. 동기화를 눌러 주세요.` : '실패로 박힌 작업이 없어요.', n ? 'ok' : 'info');
-        render();
-      })
-      .catch((e: Error) => setNote(note, `재시도 실패: ${e.message}`, 'error'))
-      .finally(() => {
-        retry.disabled = false;
-      });
-  });
-  const again = el('button', 'btn-ghost', '다시 확인') as HTMLButtonElement;
-  again.type = 'button';
-  again.addEventListener('click', render);
-  actions.append(repair, retry, again);
-  box.appendChild(actions);
-  box.appendChild(
-    el('p', 'guide-note', '[정리 실행]은 데이터를 지우지 않아요 — 서버로 보내지 못한 삭제를 다시 보낼 목록에 넣을 뿐입니다.'),
-  );
-  return box;
-}
-
-
-/**
- * ID 무결성 점검 — 저장된 기억이 서로 앞뒤가 맞는지 본다.
- * **읽기 전용**: 자동 수리는 잘못 판단하면 기억을 지우므로 하지 않는다.
- */
-export function integrityPanel(): HTMLElement {
-  const wrap = panel([h('ID 무결성 점검'), p('읽기 전용입니다 — 아무것도 바꾸지 않아요. 저장된 기록이 서로 앞뒤가 맞는지만 확인합니다.')]);
-  const summary = el('p', 'r2-probe-note');
-  summary.hidden = true;
-  const list = el('div', 'se-findings');
-  wrap.append(summary, list);
-
-  const run = (): void => {
-    void (async () => {
-      const d = db();
-      const [trips, moments, media, expenses] = await Promise.all([
-        d.localTrips.toArray(),
-        d.localMoments.toArray(),
-        d.localMedia.toArray(),
-        d.localExpenses.toArray(),
-      ]);
-      const r = checkIntegrity({ trips, moments, media, expenses });
-      list.textContent = '';
-      setNote(
-        summary,
-        r.ok
-          ? '지금 사용에는 문제 없어요. 아래는 예방·참고 항목입니다.'
-          : `지금 확인이 필요한 항목이 ${r.bySeverity.now}건 있어요.`,
-        r.ok ? 'ok' : 'error',
-      );
-      list.appendChild(
-        el('p', 'se-legend', `점검 ${CHECK_COUNT}개 분류 · 기록 ${r.checked}건 검사 · 지금 확인 ${r.bySeverity.now} · 예방 주의 ${r.bySeverity.prevent} · 참고 ${r.bySeverity.info}`),
-      );
-      for (const f of r.findings) {
-        const card = el('div', 'se-item');
-        const top = el('div', 'se-item-top');
-        const tone = f.severity === 'now' ? 'weak' : f.severity === 'prevent' ? 'ok' : 'good';
-        top.append(
-          el('span', `se-badge se-${tone}`, f.severity === 'now' ? '지금 확인' : f.severity === 'prevent' ? '예방 주의' : '참고'),
-          el('span', 'se-item-title', `${f.title} ${f.count}건`),
-        );
-        card.append(top, el('p', 'se-basis', f.detail), el('p', 'se-gap', `기술: ${f.code} · 예: ${f.samples.join(', ')}`));
-        list.appendChild(card);
-      }
-      if (!r.findings.length) list.appendChild(el('p', 'se-basis', '발견된 항목이 없습니다.'));
-    })();
-  };
-  run();
-
-  const actions = el('div', 'r2-probe');
-  const again = el('button', 'btn-ghost', '다시 점검') as HTMLButtonElement;
-  again.type = 'button';
-  again.setAttribute('data-recheck-integrity', '');
-  again.addEventListener('click', run);
-  actions.appendChild(again);
-  wrap.appendChild(actions);
-  wrap.appendChild(note('무결성 점검은 이 기기에 저장된 기록만 봅니다. 서버·사진 저장소 상태는 [데이터 관리 › 동기화 진단]에서 확인하세요.'));
-  return wrap;
-}
-
-
-/** 사람이 읽는 바이트. envReport와 storage 양쪽에서 쓰므로 여기 한 번만 정의한다. */
+/** 사람이 읽는 바이트. */
 function bytes(n: number | null): string {
   if (n === null) return '알 수 없음';
   if (n < 1024) return `${n} B`;
@@ -202,188 +41,595 @@ function bytes(n: number | null): string {
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-function row(k: string, v: string): HTMLElement {
-  const r = el('div', 'r2-row');
-  r.append(el('code', 'r2-key r2-key-wide', k), el('span', 'r2-val', v));
-  return r;
+/** 접힌 출처용 표 — 목록·원자료는 전부 이 형태로 내려간다. */
+function table(rows: [string, string][]): HTMLElement {
+  const t = el('div', 'vd-src-table');
+  for (const [k, v] of rows) {
+    const r = el('div', 'vd-src-row');
+    r.append(el('span', 'vd-src-k', k), el('span', 'vd-src-v', v));
+    t.appendChild(r);
+  }
+  if (!rows.length) t.appendChild(el('p', 'vd-src-empty', '없음'));
+  return t;
 }
+
+const countMap = (o: Record<string, number>): string =>
+  Object.entries(o)
+    .filter(([, n]) => n > 0)
+    .map(([k, n]) => `${k} ${n}`)
+    .join(' · ') || '없음';
+
+// ────────────────────────────────────────────────────────────────────────────
+// ① 저장소 안전 — 앱 밖 원인의 유일한 기억 손실 경로
+// ────────────────────────────────────────────────────────────────────────────
+
+export async function storageProbe(): Promise<Verdict> {
+  const env = await collectEnv(APP_VERSION);
+  const risk = evictionRisk(env);
+  const { usage, quota, persisted, canPersist } = env.storage;
+  const pct = usage !== null && quota ? Math.round((usage / quota) * 100) : null;
+
+  const metrics: Metric[] = [
+    {
+      label: '저장소 보호(persist)',
+      actual: persisted === null ? '알 수 없음' : persisted ? '적용됨' : '미적용',
+      expected: '적용됨',
+      level: persisted === null ? 'unknown' : persisted ? 'ok' : 'todo',
+      ...(persisted === false
+        ? { meaning: '보호가 없으면 브라우저가 공간이 부족할 때 이 앱의 기록을 지울 수 있어요. 아래 버튼으로 요청할 수 있습니다(브라우저가 거절할 수도 있어요).' }
+        : {}),
+    },
+    {
+      label: '저장 공간 사용률',
+      actual: pct === null ? '알 수 없음' : `${pct}% (${bytes(usage)} / ${bytes(quota)})`,
+      expected: '80% 미만',
+      level: pct === null ? 'unknown' : pct >= 80 ? 'problem' : 'ok',
+      ...(pct !== null && pct >= 80
+        ? { meaning: '여유가 적어요. 브라우저가 공간을 회수하며 앱 데이터를 지울 수 있습니다. 지금 [데이터 관리 › 백업]으로 파일을 받아 두세요.' }
+        : {}),
+    },
+  ];
+
+  const level = levelFromMetrics(metrics);
+  const v: Verdict = {
+    level,
+    headline:
+      level === 'problem'
+        ? '저장 공간이 부족해요 — 지금 백업을 받으세요'
+        : level === 'todo'
+          ? '저장소 보호를 켜면 더 안전해요'
+          : level === 'unknown'
+            ? '이 브라우저는 저장 용량을 알려주지 않아요'
+            : '브라우저가 이 기기의 기록을 임의로 지우지 않습니다',
+    because: risk.text,
+    metrics,
+    actions: [],
+    evidence: [],
+    context: [{ label: '기기', value: env.device.platform }],
+  };
+  if (persisted !== true && canPersist) {
+    v.actions.push({
+      label: '저장소 보호 요청',
+      primary: true,
+      hook: 'data-ask-persist',
+      run: async () => {
+        const ok = await requestPersist();
+        return ok
+          ? '보호가 적용됐어요. 브라우저가 임의로 지우지 않습니다.'
+          : '브라우저가 요청을 받아들이지 않았어요. 가장 확실한 보호는 [데이터 관리 › 백업]입니다.';
+      },
+    });
+  }
+  return v;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ② 동기화 상태 — 서버와 얼마나 어긋나 있나
+// ────────────────────────────────────────────────────────────────────────────
 
 /**
- * 저장소 안전 — **앱 밖 원인의 유일한 기억 손실 경로**를 관측한다.
- *
- * 비타협 원칙 #1은 "앱 원인 유실 0"이지만 브라우저 축출·사이트데이터 삭제는 앱 통제 밖이다.
- * 그 위험을 숫자로 보여주고, 브라우저에 보호를 요청할 수단을 준다.
+ * 대기열을 **두 가지로 쪼갠다** — 이게 옛 화면의 핵심 결함이었다.
+ * "대기 중인 작업 3건"은 *아직 안 보낸 것*과 *보내다 막힌 것*을 한 숫자에 섞었다. 앞은 동기화를
+ * 누르면 풀리는 '할 일'이고, 뒤는 눌러도 안 풀리는 '문제'다. 사용자가 해야 할 행동이 정반대다.
  */
-export function storagePanel(): HTMLElement {
-  const wrap = panel([h('저장소 안전'), p('브라우저가 공간이 부족하면 앱 데이터를 지울 수 있어요. 이 화면은 그 위험을 보여줍니다.')]);
-  const table = el('div', 'r2-table');
-  const note1 = el('p', 'r2-probe-note');
-  note1.hidden = true;
-  wrap.append(table, note1);
+export const STUCK_STATES = new Set(['permanent_failed', 'conflict', 'failed']);
 
-  const render = (): void => {
-    void (async () => {
-      const env = await collectEnv(APP_VERSION);
-      const risk = evictionRisk(env);
-      table.textContent = '';
-      table.append(
-        row('사용 중', bytes(env.storage.usage)),
-        row('허용 한도', bytes(env.storage.quota)),
-        row('저장소 보호(persist)', env.storage.persisted === null ? '알 수 없음' : env.storage.persisted ? '적용됨' : '미적용'),
-      );
-      setNote(note1, risk.text, risk.level);
-    })();
+export async function syncProbe(): Promise<Verdict> {
+  const d = await diagnoseSync();
+  const stuck = Object.entries(d.queue.byState)
+    .filter(([s]) => STUCK_STATES.has(s))
+    .reduce((a, [, n]) => a + n, 0);
+  const waiting = d.queue.total - stuck;
+  const opless = Object.values(d.opLessTombstones).reduce((a, b) => a + b, 0);
+
+  const metrics: Metric[] = [
+    {
+      label: '막힌 작업',
+      actual: stuck === 0 ? '없음' : `${stuck}건`,
+      expected: '없음',
+      level: stuck > 0 ? 'problem' : 'ok',
+      ...(stuck > 0
+        ? { meaning: '보내다 실패해 멈춘 작업이에요. 동기화를 눌러도 저절로 풀리지 않습니다 — 아래 [실패 재시도]를 눌러 주세요.' }
+        : {}),
+    },
+    {
+      label: '보낼 대기',
+      actual: waiting === 0 ? '없음' : `${waiting}건`,
+      expected: '없음',
+      level: waiting > 0 ? 'todo' : 'ok',
+      ...(waiting > 0 ? { meaning: '아직 서버로 보내지 않은 변경이에요. 동기화를 누르면 올라갑니다 — 정상적인 대기 상태입니다.' } : {}),
+    },
+    {
+      label: '지웠지만 보낼 목록엔 없는 항목',
+      actual: opless === 0 ? '없음' : `${opless}건`,
+      expected: '로컬만으로는 판정 불가',
+      // 정직(비타협 원칙 #4): 이 숫자는 "이미 서버에 갔다"와 "못 갔다"를 구분하지 못한다.
+      // M-0008에서 이걸 "서버로 못 간 삭제"라 단정해 거짓 경보를 냈다. 모르는 건 모른다고 쓴다.
+      level: opless > 0 ? 'unknown' : 'ok',
+      ...(opless > 0
+        ? { meaning: '이미 서버에 반영됐을 수도(정상), 못 갔을 수도 있어요 — 이 기기 정보만으로는 구분되지 않습니다. 동기화를 누르면 서버와 대조해 자동으로 처리합니다.' }
+        : {}),
+    },
+  ];
+
+  const level = levelFromMetrics(metrics);
+  const v: Verdict = {
+    level,
+    headline:
+      level === 'problem'
+        ? `보내지 못하고 멈춘 작업이 ${stuck}건 있어요`
+        : level === 'todo'
+          ? `서버로 보낼 변경이 ${waiting}건 남아 있어요`
+          : level === 'unknown'
+            ? '서버와 한 번 대조해 봐야 알 수 있어요'
+            : '이 기기에서 서버로 보낼 것이 남아 있지 않습니다',
+    metrics,
+    actions: [],
+    evidence: [
+      {
+        label: '자세히 — 지운 항목·표식',
+        build: () =>
+          table([
+            ['지운 항목(이 기기)', countMap(d.tombstones)],
+            ['영구삭제 표식', String(d.purgedMarks)],
+            ['대기열 종류별', countMap(d.queue.byType)],
+            ['대기열 상태별', countMap(d.queue.byState)],
+          ]),
+      },
+      {
+        // 잘랐으면 잘랐다고 라벨에 적는다 — 조용한 절단은 "전부 봤다"로 읽힌다.
+        label: `설명이 필요한 항목 ${d.items.length}개${d.itemsOmitted ? ` (외 ${d.itemsOmitted}건 생략)` : ''}`,
+        build: () =>
+          table([
+            ...d.items.map(
+              (it): [string, string] => [
+                `${it.type} ${it.id.slice(0, 8)}`,
+                `${it.deleted ? '지움' : '활성'}${it.queued ? ' · 보낼 목록에 있음' : ' · 보낼 목록에 없음'}`,
+              ],
+            ),
+            ...(d.itemsOmitted ? ([['…', `외 ${d.itemsOmitted}건은 화면에서 생략했어요(전체는 [진단 요약 복사]에 담깁니다)`]] as [string, string][]) : []),
+          ]),
+      },
+    ],
+    context: [{ label: '사진 저장소', value: d.mediaStore === 'r2' ? 'Cloudflare R2' : 'Supabase Storage' }],
   };
-  render();
 
-  const actions = el('div', 'r2-probe');
-  const ask = el('button', 'btn-ghost', '저장소 보호 요청') as HTMLButtonElement;
-  ask.type = 'button';
-  ask.setAttribute('data-ask-persist', '');
-  ask.addEventListener('click', () => {
-    ask.disabled = true;
-    void requestPersist()
-      .then((ok) => {
-        setNote(note1, ok ? '보호가 적용됐어요. 브라우저가 임의로 지우지 않습니다.' : '브라우저가 요청을 받아들이지 않았어요. 백업을 주기적으로 받아두시면 안전합니다.', ok ? 'ok' : 'info');
-        if (ok) render();
-      })
-      .finally(() => {
-        ask.disabled = false;
-      });
+  // 주행동은 판정에 따라 **하나만** primary. 여러 버튼을 늘어놓으면 무엇을 눌러야 할지 다시 사용자 몫이 된다.
+  if (stuck > 0) {
+    v.actions.push({
+      label: '실패 재시도',
+      primary: true,
+      hook: 'data-retry-failed',
+      run: async () => {
+        const n = await retryFailedOps();
+        return n ? `막혀 있던 작업 ${n}건을 다시 시도하도록 되돌렸어요. 이어서 [지금 동기화]를 눌러 주세요.` : '막힌 작업이 없어요.';
+      },
+    });
+  }
+  v.actions.push({
+    label: '지금 동기화',
+    primary: stuck === 0 && (waiting > 0 || opless > 0),
+    hook: 'data-sync-now',
+    run: async () => {
+      const c = supabase();
+      const u = await currentUser();
+      if (!c || !u) return '로그인 상태가 아니에요. 홈 화면에서 로그인한 뒤 다시 시도해 주세요.';
+      const r = await runSync(c, u.id);
+      return `동기화했어요 — 올림 ${r.pushed}건 · 내림 ${r.pulled}건.`;
+    },
   });
-  actions.appendChild(ask);
-  wrap.appendChild(actions);
-  wrap.appendChild(note('저장소 보호는 브라우저가 결정합니다 — 요청해도 거절될 수 있어요. 가장 확실한 보호는 [데이터 관리 › 백업]입니다.'));
-  return wrap;
+  if (opless > 0) {
+    // 강등: [정리 실행]은 옛 화면에서 최상위 버튼이었는데, 대부분의 경우 [지금 동기화]가 같은 일을
+    // 자동으로 한다. 사용자가 먼저 손댈 버튼이 아니다.
+    v.actions.push({
+      label: '정리 실행',
+      hook: 'data-repair-sync',
+      run: async () => {
+        const r = await forceRepairCascadeOps();
+        return `사진 ${r.media}건 · 비용 ${r.expenses}건을 다시 보낼 목록에 넣었어요. 이어서 [지금 동기화]를 눌러 주세요. (데이터는 지워지지 않습니다.)`;
+      },
+    });
+  }
+  return v;
 }
 
-/** 환경·기능 지원 — "왜 안 되지/왜 느리지"의 답이 대개 여기 있다. */
-export function environmentPanel(): HTMLElement {
-  const wrap = panel([h('환경·기능 지원'), p('이 기기·브라우저가 앱에 필요한 기능을 갖췄는지 봅니다. 없으면 앱은 대체 방식으로 도는데, 느리거나 화질이 달라질 수 있어요.')]);
-  const table = el('div', 'r2-table');
-  wrap.appendChild(table);
-  void (async () => {
-    const env = await collectEnv(APP_VERSION);
-    table.append(
-      row('앱 버전', env.app.version),
-      row('사진 저장소', env.app.mediaStore),
-      row('화면', `${env.screen.w}×${env.screen.h} · ${env.screen.orientation} · 배율 ${env.screen.dpr}`),
-      row('시간대', `${env.clock.tz} (UTC${env.clock.tzOffsetMin >= 0 ? '+' : ''}${env.clock.tzOffsetMin / 60})`),
-      row('네트워크', env.device.online ? '온라인' : '오프라인'),
-      row('서비스워커', env.sw.supported ? (env.sw.controlled ? '동작 중(캐시 사용)' : '지원하나 미제어') : '미지원'),
-    );
-    for (const [k, ok] of Object.entries(env.features)) table.appendChild(row(k, ok ? '✅ 지원' : '⚠️ 미지원'));
-  })();
-  wrap.appendChild(note('“새로고침했는데 화면이 그대로”라면 서비스워커가 옛 화면을 붙잡고 있을 수 있어요. 탭을 완전히 닫았다 다시 열면 해결됩니다.'));
-  return wrap;
-}
+// ────────────────────────────────────────────────────────────────────────────
+// ③ ID 무결성 — 기록이 서로 앞뒤가 맞나
+// ────────────────────────────────────────────────────────────────────────────
 
-/** 오류 기록 — 사용자가 캡처 대신 텍스트로 줄 수 있게. */
-export function errorPanel(): HTMLElement {
-  const wrap = panel([h('오류 기록'), p('앱이 도는 동안 생긴 오류를 모아 둡니다. 새로고침하면 사라져요(이 세션만).')]);
-  const list = el('div', 'se-findings');
-  wrap.appendChild(list);
+export async function integrityProbe(): Promise<Verdict> {
+  const d = db();
+  const [trips, moments, media, expenses] = await Promise.all([
+    d.localTrips.toArray(),
+    d.localMoments.toArray(),
+    d.localMedia.toArray(),
+    d.localExpenses.toArray(),
+  ]);
+  const r = checkIntegrity({ trips, moments, media, expenses });
+  const nowFinds = r.findings.filter((f) => f.severity === 'now');
+  const prevFinds = r.findings.filter((f) => f.severity === 'prevent');
 
-  const render = (): void => {
-    list.textContent = '';
-    const errs = recentErrors();
-    if (!errs.length) {
-      list.appendChild(el('p', 'se-basis', '기록된 오류가 없습니다.'));
-      return;
-    }
-    for (const e of errs) {
-      const card = el('div', 'se-item');
-      const top = el('div', 'se-item-top');
-      top.append(el('span', 'se-badge se-weak', e.kind), el('span', 'se-item-title', e.message));
-      card.append(top);
-      if (e.where) card.appendChild(el('p', 'se-gap', e.where));
-      card.appendChild(el('p', 'se-item-sub', e.at));
-      list.appendChild(card);
-    }
+  const metrics: Metric[] = [
+    {
+      label: '지금 확인이 필요한 기록',
+      actual: r.bySeverity.now === 0 ? '없음' : `${r.bySeverity.now}종 ${nowFinds.reduce((a, f) => a + f.count, 0)}건`,
+      expected: '없음',
+      level: r.bySeverity.now > 0 ? 'problem' : 'ok',
+      ...(nowFinds.length ? { meaning: nowFinds.map((f) => `${f.title}: ${f.detail}`).join(' / ') } : {}),
+    },
+    {
+      label: '예방 차원에서 볼 기록',
+      actual: r.bySeverity.prevent === 0 ? '없음' : `${r.bySeverity.prevent}종 ${prevFinds.reduce((a, f) => a + f.count, 0)}건`,
+      expected: '없음',
+      level: r.bySeverity.prevent > 0 ? 'todo' : 'ok',
+      ...(prevFinds.length ? { meaning: prevFinds.map((f) => `${f.title}: ${f.detail}`).join(' / ') } : {}),
+    },
+  ];
+
+  const level = levelFromMetrics(metrics);
+  return {
+    level,
+    headline:
+      level === 'problem'
+        ? '앞뒤가 맞지 않는 기록이 있어요'
+        : level === 'todo'
+          ? '지금 쓰는 데는 지장 없지만, 봐 둘 항목이 있어요'
+          : '저장된 기록이 서로 앞뒤가 맞습니다',
+    because: `기록 ${r.checked}건을 ${CHECK_COUNT}가지 기준으로 확인했어요. 읽기 전용이라 아무것도 바꾸지 않습니다.`,
+    metrics,
+    actions: [],
+    evidence: [
+      {
+        label: `발견 전체 ${r.findings.length}종 (기술 코드 포함)`,
+        build: () => table(r.findings.map((f) => [`${f.code} ×${f.count}`, `${f.title} — 예: ${f.samples.join(', ')}`])),
+      },
+    ],
+    context: [{ label: '참고 항목', value: `${r.bySeverity.info}종(정상 범위)` }],
   };
-  render();
-
-  const actions = el('div', 'r2-probe');
-  const again = el('button', 'btn-ghost', '다시 보기') as HTMLButtonElement;
-  again.type = 'button';
-  again.addEventListener('click', render);
-  const clear = el('button', 'btn-ghost', '기록 지우기') as HTMLButtonElement;
-  clear.type = 'button';
-  clear.addEventListener('click', () => {
-    clearErrors();
-    render();
-  });
-  actions.append(again, clear);
-  wrap.appendChild(actions);
-  return wrap;
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// ④ 환경·기능 지원 — "왜 안 되지/왜 느리지"의 답
+// ────────────────────────────────────────────────────────────────────────────
+
+/** 없으면 앱이 제 기능을 못 하는 것 vs 없어도 대체 경로가 있는 것 — 같은 무게로 다루면 안 된다. */
+const ESSENTIAL = new Set(['IndexedDB', 'Crypto.subtle']);
+
+export async function environmentProbe(): Promise<Verdict> {
+  const env = await collectEnv(APP_VERSION);
+  const missing = Object.entries(env.features)
+    .filter(([, ok]) => !ok)
+    .map(([k]) => k);
+  const missingEssential = missing.filter((k) => ESSENTIAL.has(k));
+
+  const metrics: Metric[] = [
+    {
+      label: '앱에 필요한 기능',
+      actual:
+        missing.length === 0 ? `${Object.keys(env.features).length}개 모두 지원` : `${missing.length}개 미지원 — ${missing.join(', ')}`,
+      expected: '모두 지원',
+      level: missingEssential.length ? 'problem' : missing.length ? 'todo' : 'ok',
+      ...(missing.length
+        ? {
+            meaning: missingEssential.length
+              ? '앱의 기본 동작에 꼭 필요한 기능이 없어요. 다른 브라우저(크롬·사파리 최신)에서 열어 주세요.'
+              : '없어도 앱은 돌지만 대체 경로를 쓰게 돼요 — 사진 처리가 느리거나 화질이 달라질 수 있습니다.',
+          }
+        : {}),
+    },
+    {
+      label: '네트워크',
+      actual: env.device.online ? '온라인' : '오프라인',
+      expected: '온라인',
+      level: env.device.online ? 'ok' : 'todo',
+      ...(env.device.online
+        ? {}
+        : { meaning: '지금은 오프라인이에요. 기록은 이 기기에 안전히 저장되고, 연결되면 자동으로 올라갑니다 — 정상 동작입니다.' }),
+    },
+  ];
+
+  const level = levelFromMetrics(metrics);
+  return {
+    level,
+    headline:
+      level === 'problem'
+        ? '이 브라우저에는 꼭 필요한 기능이 없어요'
+        : level === 'todo'
+          ? '일부 기능이 대체 경로로 동작해요'
+          : '이 기기는 앱에 필요한 기능을 모두 갖췄습니다',
+    metrics,
+    actions: [],
+    evidence: [
+      { label: '기능 지원 전체', build: () => table(Object.entries(env.features).map(([k, ok]) => [k, ok ? '지원' : '미지원'])) },
+      {
+        label: '화면·서비스워커·브라우저',
+        build: () =>
+          table([
+            ['화면', `${env.screen.w}×${env.screen.h} · ${env.screen.orientation} · 배율 ${env.screen.dpr}`],
+            ['서비스워커', env.sw.supported ? (env.sw.controlled ? '동작 중(캐시 사용)' : '지원하나 미제어') : '미지원'],
+            ['브라우저', env.device.ua],
+          ]),
+      },
+    ],
+    context: [
+      { label: '앱', value: env.app.version },
+      { label: '사진 저장소', value: env.app.mediaStore },
+      { label: '시간대', value: `${env.clock.tz} (UTC${env.clock.tzOffsetMin >= 0 ? '+' : ''}${env.clock.tzOffsetMin / 60})` },
+    ],
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ⑤ 오류 기록 — 사용자가 콘솔을 열 줄 몰라도
+// ────────────────────────────────────────────────────────────────────────────
+
+export function errorProbe(): Promise<Verdict> {
+  const errs = recentErrors();
+  const metrics: Metric[] = [
+    {
+      label: '이 세션에서 생긴 오류',
+      actual: errs.length === 0 ? '없음' : `${errs.length}건`,
+      expected: '없음',
+      level: errs.length > 0 ? 'problem' : 'ok',
+      ...(errs.length ? { meaning: '앱이 도는 중 오류가 났어요. [진단 요약 복사]로 전달해 주시면 원인을 찾을 수 있습니다.' } : {}),
+    },
+  ];
+  const v: Verdict = {
+    level: levelFromMetrics(metrics),
+    headline: errs.length ? `오류가 ${errs.length}건 기록됐어요` : '이 세션에서 생긴 오류가 없습니다',
+    because: '새로고침하면 사라집니다(이 세션만 기억해요).',
+    metrics,
+    actions: [],
+    evidence: errs.length
+      ? [
+          {
+            label: '오류 전체',
+            build: () => table(errs.map((e) => [`${e.kind} · ${e.at.slice(11, 19)}`, `${e.message}${e.where ? ` ← ${e.where}` : ''}`])),
+          },
+        ]
+      : [],
+    context: [],
+  };
+  if (errs.length) {
+    v.actions.push({
+      label: '기록 지우기',
+      hook: 'data-clear-errors',
+      run: async () => {
+        clearErrors();
+        return '오류 기록을 지웠어요.';
+      },
+    });
+  }
+  return Promise.resolve(v);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ⑥ 전체 요약 — 다섯 도구의 롤업 + 텍스트 복사
+// ────────────────────────────────────────────────────────────────────────────
 
 /**
- * 진단 요약 복사 — **개발자와 사용자 사이의 왕복을 한 번으로 줄인다.**
+ * 다섯 도구를 한 번에 돌려 **총괄 판정**을 만든다.
  *
- * 오늘(2026-07-25~26) 같은 문제를 네 번 진단하며 캡처를 여러 장 주고받았다. 텍스트 한 덩어리면
- * 한 번에 끝난다. 개인정보는 담지 않는다 — **개수·상태·환경만**, 기록 내용과 id 전체는 제외.
+ * 이 함수 하나가 두 곳에 쓰인다 — 허브 홈의 배지·총괄 줄, 그리고 요약 복사 도구. 롤업 규칙을
+ * 두 번 쓰면 허브는 '정상'인데 요약은 '문제'인 화면이 언젠가 나온다(SSOT — 규칙을 두 번 쓰지 않는다).
  */
-export function summaryPanel(): HTMLElement {
-  const wrap = panel([h('진단 요약 복사'), p('아래 내용을 한 번에 복사해 개발자에게 전달할 수 있어요. 여행 제목·사진·메모 같은 기록 내용은 담기지 않습니다.')]);
-  const pre = el('pre', 'diag-pre');
-  const note2 = el('p', 'r2-probe-note');
-  note2.hidden = true;
-  wrap.append(pre, note2);
+export async function rollup(): Promise<{ level: Level; per: { id: string; label: string; level: Level; headline: string }[] }> {
+  const per = await Promise.all(
+    CORE_TOOLS.map(async (t) => {
+      try {
+        const v = await t.probe();
+        return { id: t.id, label: t.label, level: v.level, headline: v.headline };
+      } catch {
+        // 판정을 못 했으면 '정상'이 아니라 '확인 불가'다 — 미검사를 통과로 적지 않는다(원칙 #4).
+        return { id: t.id, label: t.label, level: 'unknown' as Level, headline: '확인하지 못했어요' };
+      }
+    }),
+  );
+  return { level: worst(per.map((p) => p.level)), per };
+}
 
-  let text = '';
-  const build = (): void => {
-    void (async () => {
-      const d = db();
-      const [trips, moments, media, expenses] = await Promise.all([
-        d.localTrips.toArray(),
-        d.localMoments.toArray(),
-        d.localMedia.toArray(),
-        d.localExpenses.toArray(),
-      ]);
-      const [env, sync] = await Promise.all([collectEnv(APP_VERSION), diagnoseSync()]);
-      const integ = checkIntegrity({ trips, moments, media, expenses });
-      const errs = recentErrors();
-      const fmt = (o: Record<string, number>): string =>
-        Object.entries(o).filter(([, n]) => n > 0).map(([k, n]) => `${k}=${n}`).join(' ') || '없음';
+async function summaryText(): Promise<string> {
+  const d = db();
+  const [trips, moments, media, expenses] = await Promise.all([
+    d.localTrips.toArray(),
+    d.localMoments.toArray(),
+    d.localMedia.toArray(),
+    d.localExpenses.toArray(),
+  ]);
+  const [env, sync, roll] = await Promise.all([collectEnv(APP_VERSION), diagnoseSync(), rollup()]);
+  const integ = checkIntegrity({ trips, moments, media, expenses });
+  const errs = recentErrors();
+  const fmt = (o: Record<string, number>): string =>
+    Object.entries(o)
+      .filter(([, n]) => n > 0)
+      .map(([k, n]) => `${k}=${n}`)
+      .join(' ') || '없음';
 
-      text = [
-        `[Bugeon Journey 진단 요약] ${env.clock.nowIso}`,
-        `앱 ${env.app.version} · base ${env.app.base} · 사진저장소 ${env.app.mediaStore}`,
-        `화면 ${env.screen.w}x${env.screen.h}@${env.screen.dpr} ${env.screen.orientation} · ${env.clock.tz}(UTC${env.clock.tzOffsetMin >= 0 ? '+' : ''}${env.clock.tzOffsetMin / 60}) · ${env.device.online ? '온라인' : '오프라인'}`,
-        `UA ${env.device.ua}`,
-        `저장 ${bytes(env.storage.usage)}/${bytes(env.storage.quota)} · persist=${String(env.storage.persisted)}`,
-        `미지원 기능: ${Object.entries(env.features).filter(([, v]) => !v).map(([k]) => k).join(', ') || '없음'}`,
-        `SW ${env.sw.supported ? (env.sw.controlled ? '제어중' : '미제어') : '미지원'}`,
-        `--- 동기화 ---`,
-        `대기 ${sync.queue.total} (${fmt(sync.queue.byState)} / ${fmt(sync.queue.byType)})`,
-        `tombstone ${fmt(sync.tombstones)} · op없는tombstone ${fmt(sync.opLessTombstones)} · 영구삭제표식 ${sync.purgedMarks}`,
-        `--- 무결성 (${integ.checked}건 검사) ---`,
-        `지금확인 ${integ.bySeverity.now} · 예방 ${integ.bySeverity.prevent} · 참고 ${integ.bySeverity.info}`,
-        ...integ.findings.map((f) => `  ${f.severity} ${f.code} x${f.count} [${f.samples.join(' ')}]`),
-        `--- 오류 ${errs.length}건 ---`,
-        ...errs.slice(0, 5).map((e) => `  ${e.kind}: ${e.message}`),
-      ].join('\n');
-      pre.textContent = text;
-    })();
+  return [
+    `[Bugeon Journey 진단 요약] ${env.clock.nowIso}`,
+    `총괄 판정: ${roll.level}`,
+    ...roll.per.map((p) => `  ${p.level.padEnd(7)} ${p.label} — ${p.headline}`),
+    `--- 환경 ---`,
+    `앱 ${env.app.version} · base ${env.app.base} · 사진저장소 ${env.app.mediaStore}`,
+    `화면 ${env.screen.w}x${env.screen.h}@${env.screen.dpr} ${env.screen.orientation} · ${env.clock.tz}(UTC${env.clock.tzOffsetMin >= 0 ? '+' : ''}${env.clock.tzOffsetMin / 60}) · ${env.device.online ? '온라인' : '오프라인'}`,
+    `UA ${env.device.ua}`,
+    `저장 ${bytes(env.storage.usage)}/${bytes(env.storage.quota)} · persist=${String(env.storage.persisted)}`,
+    `미지원 기능: ${
+      Object.entries(env.features)
+        .filter(([, v]) => !v)
+        .map(([k]) => k)
+        .join(', ') || '없음'
+    }`,
+    `SW ${env.sw.supported ? (env.sw.controlled ? '제어중' : '미제어') : '미지원'}`,
+    `--- 동기화 ---`,
+    `대기 ${sync.queue.total} (${fmt(sync.queue.byState)} / ${fmt(sync.queue.byType)})`,
+    `tombstone ${fmt(sync.tombstones)} · op없는tombstone ${fmt(sync.opLessTombstones)} · 영구삭제표식 ${sync.purgedMarks}`,
+    ...sync.items.map((i) => `  ${i.type} ${i.id.slice(0, 8)} ${i.deleted ? 'del' : 'alive'}${i.queued ? ' queued' : ''}`),
+    `--- 무결성 (${integ.checked}건 검사) ---`,
+    `지금확인 ${integ.bySeverity.now} · 예방 ${integ.bySeverity.prevent} · 참고 ${integ.bySeverity.info}`,
+    ...integ.findings.map((f) => `  ${f.severity} ${f.code} x${f.count} [${f.samples.join(' ')}]`),
+    `--- 오류 ${errs.length}건 ---`,
+    ...errs.slice(0, 5).map((e) => `  ${e.kind}: ${e.message}`),
+  ].join('\n');
+}
+
+export async function summaryProbe(): Promise<Verdict> {
+  const roll = await rollup();
+  const metrics: Metric[] = roll.per.map((p) => ({
+    label: p.label,
+    actual: p.headline,
+    expected: '정상',
+    level: p.level,
+  }));
+  const bad = roll.per.filter((p) => p.level === 'problem').length;
+  return {
+    level: roll.level,
+    headline:
+      roll.level === 'problem'
+        ? `지금 확인할 것이 ${bad}가지 있어요`
+        : roll.level === 'todo'
+          ? '지금 해두면 좋은 일이 있어요'
+          : roll.level === 'unknown'
+            ? '확인하지 못한 항목이 있어요'
+            : '다섯 가지 모두 정상입니다',
+    because: '[복사하기]를 누르면 이 결과를 텍스트로 전달할 수 있어요. 여행 제목·사진·메모 같은 기록 내용은 담기지 않습니다.',
+    metrics,
+    actions: [
+      {
+        label: '복사하기',
+        primary: true,
+        hook: 'data-copy-diag',
+        run: async () => {
+          const text = await summaryText();
+          if (!navigator.clipboard?.writeText) return '이 브라우저는 자동 복사가 막혀 있어요. 아래 [원문 보기]를 열어 길게 눌러 복사해 주세요.';
+          try {
+            await navigator.clipboard.writeText(text);
+            return '복사했어요. 대화창에 붙여넣으시면 됩니다.';
+          } catch {
+            return '복사가 막혔어요. 아래 [원문 보기]를 열어 길게 눌러 복사해 주세요.';
+          }
+        },
+      },
+    ],
+    evidence: [
+      {
+        label: '원문 보기',
+        build: () => {
+          const pre = el('pre', 'vd-pre', '만드는 중…');
+          void summaryText().then((t) => {
+            pre.textContent = t;
+          });
+          return pre;
+        },
+      },
+    ],
+    context: [{ label: '담기지 않는 것', value: '여행 제목·메모·사진·위치·이메일' }],
   };
-  build();
+}
 
-  const actions = el('div', 'r2-probe');
-  const copy = el('button', 'btn-ghost', '복사하기') as HTMLButtonElement;
-  copy.type = 'button';
-  copy.setAttribute('data-copy-diag', '');
-  copy.addEventListener('click', () => {
-    void navigator.clipboard
-      ?.writeText(text)
-      .then(() => setNote(note2, '복사했어요. 대화창에 붙여넣으시면 됩니다.', 'ok'))
-      .catch(() => setNote(note2, '복사가 막혔어요. 위 내용을 길게 눌러 직접 선택·복사해 주세요.', 'info'));
-  });
-  const again2 = el('button', 'btn-ghost', '다시 만들기') as HTMLButtonElement;
-  again2.type = 'button';
-  again2.addEventListener('click', build);
-  actions.append(copy, again2);
-  wrap.appendChild(actions);
-  wrap.appendChild(note('담기는 것: 앱·기기·화면·시간대·저장용량·기능지원·동기화 개수·무결성 결과·오류 메시지. 담기지 않는 것: 여행 제목·메모·사진·위치·이메일. 식별번호는 앞 8자리만.'));
-  return wrap;
+// ────────────────────────────────────────────────────────────────────────────
+// 도구 등록부 — 허브와 패널이 **같은 목록**을 본다
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface DiagTool {
+  id: string;
+  icon: string;
+  label: string;
+  hint: string;
+  lead: string;
+  probe: () => Promise<Verdict>;
+}
+
+/** 판정 롤업에 참여하는 도구 — 요약 자신은 롤업 대상이 아니다(자기참조가 된다). */
+export const CORE_TOOLS: DiagTool[] = [
+  {
+    id: 'storage',
+    icon: '💾',
+    label: '저장소 안전',
+    hint: '브라우저가 데이터를 지울 위험',
+    lead: '브라우저가 공간이 부족하면 앱 데이터를 지울 수 있어요. 그 위험을 봅니다.',
+    probe: storageProbe,
+  },
+  {
+    id: 'sync',
+    icon: '🔄',
+    label: '동기화 상태',
+    hint: '서버와 얼마나 어긋나 있나',
+    lead: '이 기기의 변경이 서버까지 갔는지 봅니다.',
+    probe: syncProbe,
+  },
+  {
+    id: 'integrity',
+    icon: '🧷',
+    label: 'ID 무결성',
+    hint: '기록이 서로 앞뒤가 맞나',
+    lead: '저장된 기록끼리 참조가 끊기지 않았는지 봅니다. 읽기 전용이라 아무것도 바꾸지 않아요.',
+    probe: integrityProbe,
+  },
+  {
+    id: 'environment',
+    icon: '🧩',
+    label: '환경·기능',
+    hint: '이 기기가 갖춘 기능',
+    lead: '이 기기·브라우저가 앱에 필요한 기능을 갖췄는지 봅니다.',
+    probe: environmentProbe,
+  },
+  {
+    id: 'errors',
+    icon: '📄',
+    label: '오류 기록',
+    hint: '이 세션에서 생긴 오류',
+    lead: '앱이 도는 동안 생긴 오류를 모아 둡니다. 새로고침하면 사라져요.',
+    probe: errorProbe,
+  },
+];
+
+export const SUMMARY_TOOL: DiagTool = {
+  id: 'summary',
+  icon: '📋',
+  label: '진단 요약 복사',
+  hint: '다섯 결과를 한 번에 전달',
+  lead: '위 다섯 도구의 결과를 한 덩어리 텍스트로 만듭니다.',
+  probe: summaryProbe,
+};
+
+export const DIAG_TOOLS: DiagTool[] = [...CORE_TOOLS, SUMMARY_TOOL];
+
+/** 도구 하나를 그린다 — **모든 도구가 같은 렌더러를 통과한다**. */
+export function renderDiagTool(t: DiagTool): HTMLElement {
+  return renderTool({ title: t.label, lead: t.lead, probe: t.probe });
+}
+
+function toolById(id: string): DiagTool {
+  const t = DIAG_TOOLS.find((x) => x.id === id);
+  if (!t) throw new Error(`진단 도구 없음: ${id}`);
+  return t;
+}
+
+// ── 다른 화면에서 직접 여는 진입점(데이터 관리·가이드) — 같은 렌더러를 쓴다 ──
+export function syncDiagnosticsPanel(): HTMLElement {
+  return renderDiagTool(toolById('sync'));
+}
+export function integrityPanel(): HTMLElement {
+  return renderDiagTool(toolById('integrity'));
 }

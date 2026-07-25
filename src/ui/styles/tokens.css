@@ -16,6 +16,12 @@
   --sem-teal: #2fa79a;
   --sem-sky:  #3e90dc;
   --sem-pink: #e86f97;
+  /* 시맨틱 **채움 위 텍스트**용 — 원색을 12~15% 틴트 배경 위에 그대로 쓰면 라이트 테마에서
+     대비가 2.5~3.0:1로 무너진다(2026-07-26 적대적 리뷰 측정). 다크에서만 확인하면 통과처럼
+     보이는 전형(LESSONS §5). 라이트는 어두운 변형, 다크는 원색 — 두 테마 모두 4.5:1 이상. */
+  --sem-teal-ink: #1d6f66;
+  --sem-sky-ink:  #245f95;
+  --sem-pink-ink: #a63356;
   --color-success: #3f9d6b;
   --color-warning: #c98a3a;
   --color-danger:  #d15b5b;
@@ -58,16 +64,19 @@
     --shadow-card: 0 14px 30px -24px rgba(0, 0, 0, .55);
     --shadow-float: 0 18px 44px -24px rgba(0, 0, 0, .6);
     --color-on-accent: #0d1120;
+    --sem-teal-ink: #6fd8cb; --sem-sky-ink: #86bdf0; --sem-pink-ink: #f39ab8;
   }
 }
 :root[data-theme="light"] {
   --bg: #fdf8f4; --bg-2: #f6efe8; --surface: #fff; --ink: #232538; --ink-soft: #5c6178; --line: #efe7e0;
+  --sem-teal-ink: #1d6f66; --sem-sky-ink: #245f95; --sem-pink-ink: #a63356;
   --shadow-card: 0 14px 30px -24px rgba(35, 37, 56, .45);
   --shadow-float: 0 18px 44px -24px rgba(60, 50, 70, .40);
   --color-on-accent: #ffffff;
 }
 :root[data-theme="dark"] {
   --bg: #111220; --bg-2: #181a2b; --surface: #1a1c2d; --ink: #eef0ff; --ink-soft: #a9adc6; --line: #2b2940;
+  --sem-teal-ink: #6fd8cb; --sem-sky-ink: #86bdf0; --sem-pink-ink: #f39ab8;
   --shadow-card: 0 14px 30px -24px rgba(0, 0, 0, .55);
   --shadow-float: 0 18px 44px -24px rgba(0, 0, 0, .6);
   --color-on-accent: #0d1120;

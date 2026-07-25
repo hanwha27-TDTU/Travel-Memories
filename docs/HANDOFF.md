@@ -120,7 +120,7 @@
 4. 도메인 계약: `DATA_MODEL` · `SYNC_PROTOCOL` · `SECURITY` · `MEDIA_PIPELINE` · `PRIVACY` · `DEPLOYMENT` · `ARCHITECTURE` · **`DISASTER_RECOVERY`(백업·복원·복구 우선순위)**
 5. `docs/AGENT_REGISTRY.md` → `docs/DECISIONS.md` + `docs/ASSUMPTIONS.md`
 6. `docs/ROADMAP.md`(Phase 계획) → `docs/ACTIVE_TASKS.md`
-7. **작업 전 필수 스킬**(해당 영역 수정 시 **반드시 로드** — 현재 <!--reg:skillCount-->8<!--/reg-->개):
+7. **작업 전 필수 스킬**(해당 영역 수정 시 **반드시 로드** — 현재 <!--reg:skillCount-->9<!--/reg-->개):
 
 | 만지는 것 | 로드할 스킬 |
 |---|---|
@@ -141,7 +141,7 @@
 ```
 npm ci
 git config core.hooksPath .githooks   # commit-msg hook 활성
-npm run harness                        # Required 게이트 전체 (현재 <!--reg:gateCount-->15<!--/reg-->개 — 목록은 scripts/harness.mjs, 손편집 나열 금지 M-0001; 이 숫자는 gen-registry가 자동 갱신·check-doc-counts가 대조)
+npm run harness                        # Required 게이트 전체 (현재 <!--reg:gateCount-->16<!--/reg-->개 — 목록은 scripts/harness.mjs, 손편집 나열 금지 M-0001; 이 숫자는 gen-registry가 자동 갱신·check-doc-counts가 대조)
 npm run build                          # base=/Travel-Memories/ 정적 빌드
 npm run dev                            # 홈 화면 확인 (선택)
 ```
