@@ -193,9 +193,7 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
 }
 import { openPhotoEditor, type EditorResult } from '../photoEditor';
 import { groupMomentsByDay, type DayGroup } from '../../domain/moment/timeline';
-import { supabase } from '../../services/supabase/client';
-import { currentUser } from '../../services/auth';
-import { runSync } from '../../services/sync';
+import { requestSync } from '../../services/autoSync';
 import type { Route } from '../../app/router';
 import type { LocalMoment, LocalTrip, LocalMedia, LocalExpense } from '../../offline/db';
 
@@ -231,16 +229,14 @@ const STATUS_LABELS: Record<LocalTrip['status'], string> = {
 const STATUS_ORDER: LocalTrip['status'][] = ['planned', 'active', 'completed', 'archived'];
 
 /** 로그인·설정된 경우 백그라운드 동기화(순간 push/pull 포함). 실패는 다음 트리거에서 재시도. */
+/**
+ * 동기화 요청 — 규칙은 `services/autoSync.ts` **한 곳**에 있다.
+ *
+ * 예전엔 이 함수가 여기와 home.ts에 **손으로 두 벌** 있었고, 둘 다 오류를 조용히 삼켰으며
+ * 겹쳐 호출되면 runSync가 중복 실행됐다(§7 — 같은 규율을 두 곳에 구현하면 갈라진다).
+ */
 async function trySync(): Promise<void> {
-  const c = supabase();
-  if (!c) return;
-  const u = await currentUser();
-  if (!u) return;
-  try {
-    await runSync(c, u.id);
-  } catch {
-    /* 다음 트리거에서 재시도 */
-  }
+  await requestSync('저장/변경');
 }
 
 const EMOTIONS = ['😍', '😌', '🥹', '😆', '🤔'] as const;

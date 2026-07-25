@@ -46,7 +46,7 @@ export const SKILL_ROUTES = [
   { match: /^src\/services\/(diagnostics|envReport)/, skill: 'diagnostics-dev' },
   { match: /^src\/app\/errorLog/, skill: 'diagnostics-dev' },
   { match: /^src\/domain\/integrity/, skill: 'diagnostics-dev' },
-  { match: /^src\/services\/(sync|purge|trips|moments|media|expenses)\.ts/, skill: 'sync-offline-dev' },
+  { match: /^src\/services\/(sync|autoSync|purge|trips|moments|media|expenses)\.ts/, skill: 'sync-offline-dev' },
   { match: /^src\/(sync|offline)\//, skill: 'sync-offline-dev' },
   { match: /^src\/domain\/\w+\/rowmap/, skill: 'sync-offline-dev' },
   { match: /^src\/services\/(backup|zip)/, skill: 'backup-restore-dev' },

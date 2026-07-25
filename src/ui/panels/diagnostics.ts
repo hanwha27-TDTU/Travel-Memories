@@ -20,13 +20,12 @@
 import { el } from '../dom';
 import { db } from '../../offline/db';
 import { diagnoseSync } from '../../services/diagnostics';
-import { forceRepairCascadeOps, retryFailedOps, runSync } from '../../services/sync';
+import { forceRepairCascadeOps, retryFailedOps } from '../../services/sync';
 import { checkIntegrity, CHECK_COUNT } from '../../domain/integrity';
 import { collectEnv, evictionRisk, requestPersist } from '../../services/envReport';
 import { recentErrors, clearErrors } from '../../app/errorLog';
 import { CHANGELOG } from '../../app/changelog';
-import { supabase } from '../../services/supabase/client';
-import { currentUser } from '../../services/auth';
+import { syncStatus, requestSync } from '../../services/autoSync';
 import { renderTool, levelFromMetrics, worst, type Verdict, type Metric, type Level } from './verdict';
 
 /** 화면에 표시할 앱 버전 — changelog가 SSOT(손으로 적지 않는다). */
@@ -172,6 +171,29 @@ export async function syncProbe(): Promise<Verdict> {
     },
   ];
 
+  // 자동 동기화가 **조용히 실패하고 있지 않은지** — 자동화의 가장 큰 위험이 여기다(M-0008 부류).
+  const st = syncStatus();
+  metrics.push({
+    label: '자동 동기화',
+    actual:
+      st.phase === 'failed'
+        ? `실패 — ${st.lastError ?? '사유 불명'}`
+        : st.phase === 'offline'
+          ? '오프라인이라 대기 중'
+          : st.phase === 'signed-out'
+            ? '로그인하지 않아 대기 중'
+            : st.lastOkAt
+              ? `마지막 성공 ${st.lastOkAt.slice(11, 19)}`
+              : '이 세션에서 아직 실행 안 됨',
+    expected: '최근에 성공',
+    level: st.phase === 'failed' ? 'problem' : st.phase === 'ok' ? 'ok' : 'unknown',
+    ...(st.phase === 'failed'
+      ? { meaning: '자동으로 보내려다 실패했어요. 저장한 기록은 이 기기에 안전합니다 — 연결을 확인하고 [지금 동기화]를 눌러 주세요.' }
+      : st.phase === 'signed-out'
+        ? { meaning: '로그인하면 저장·삭제할 때마다 자동으로 서버에 올라갑니다.' }
+        : {}),
+  });
+
   const level = levelFromMetrics(metrics);
   const v: Verdict = {
     level,
@@ -231,11 +253,14 @@ export async function syncProbe(): Promise<Verdict> {
     primary: stuck === 0 && (waiting > 0 || opless > 0),
     hook: 'data-sync-now',
     run: async () => {
-      const c = supabase();
-      const u = await currentUser();
-      if (!c || !u) return '로그인 상태가 아니에요. 홈 화면에서 로그인한 뒤 다시 시도해 주세요.';
-      const r = await runSync(c, u.id);
-      return `동기화했어요 — 올림 ${r.pushed}건 · 내림 ${r.pulled}건.`;
+      // 수동 버튼도 **같은 경로**를 쓴다 — 단일 실행·상태 보고가 거기 있다(§7).
+      await requestSync('수동');
+      const after = syncStatus();
+      if (after.phase === 'failed') return `동기화 실패: ${after.lastError ?? '사유 불명'}`;
+      if (after.phase === 'signed-out') return '로그인 상태가 아니에요. 홈 화면에서 로그인한 뒤 다시 시도해 주세요.';
+      if (after.phase === 'offline') return '오프라인이에요. 연결되면 자동으로 다시 시도합니다.';
+      const r = after.lastResult;
+      return r ? `동기화했어요 — 올림 ${r.pushed}건 · 내림 ${r.pulled}건.` : '동기화했어요.';
     },
   });
   if (opless > 0) {

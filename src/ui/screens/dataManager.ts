@@ -8,6 +8,7 @@ import { openGuide } from './guide';
 import { exportBackup, exportBackupZip, importBackupAuto } from '../../services/backup';
 import { recordBackupNow, getLastBackupAt, backupFreshness } from '../../services/backupMeta';
 import { listDeletedTrips, restoreTripFromTrash, purgeTripPermanently } from '../../services/trips';
+import { requestSync } from '../../services/autoSync';
 import { computeStorageUsage, formatBytes } from '../../services/storage';
 import { fxBase, setFxBase } from '../../services/fx';
 import { openR2Setup } from './r2Setup';
@@ -233,6 +234,8 @@ function restorePanel(onChanged: () => void): HTMLElement {
         } else {
           status.textContent = `✅ 복원됨 · 여행 ${r.trips} · 순간 ${r.moments} · 사진 ${r.media} · 비용 ${r.expenses} 반영`;
           onChanged();
+          // 복원한 기억이 이 기기에만 갇히지 않게 곧바로 올린다(기기 분실 후 복구가 이 경로다).
+          void requestSync('백업 복원');
         }
       } catch (err) {
         status.textContent = `복원 실패: ${err instanceof Error ? err.message : String(err)}`;
@@ -281,6 +284,7 @@ function trashPanel(onChanged: () => void): HTMLElement {
           void (async () => {
             try {
               await restoreTripFromTrash(t.id);
+              void requestSync('휴지통 복원');
               onChanged();
               render();
             } catch {
@@ -303,6 +307,9 @@ function trashPanel(onChanged: () => void): HTMLElement {
           void (async () => {
             try {
               await purgeTripPermanently(t.id);
+              // 영구삭제 전파(ADR-0027)를 **즉시** 올린다. 이게 없으면 표식이 큐에 앉아만 있고
+              // 다른 기기는 영영 모른다 — 실제로 그 상태였다(2026-07-26).
+              void requestSync('영구삭제');
               setNote(purgeNote, '', 'ok');
               onChanged();
               render();
