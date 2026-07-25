@@ -547,7 +547,75 @@ export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; 
  * 로그인/온라인 시 전체 동기화. push 먼저(로컬 우선 전송) → pull 병합.
  * push 순서: 여행 → 순간 → 사진·비용(자식의 복합 FK가 서버의 부모 존재를 요구).
  */
+/**
+ * 일회성 정합 복구 — cascade op 누락 결함(2026-07-25, `trips.ts`)의 **이미 발생한 피해**를 되돌린다.
+ *
+ * 그 결함으로 여행을 지운 사용자는 로컬에 tombstone이 있는데 **대기열 op가 없는** 사진·비용을
+ * 갖게 됐다. op가 없으면 push가 영원히 일어나지 않으므로, 코드를 고치는 것만으로는 서버 행이
+ * 활성으로 남고 R2 객체도 잔류한다 — 그래서 재큐잉이 필요하다.
+ *
+ * 안전성: 데이터를 지우지 않는다(대기열에 op를 넣을 뿐). push는 멱등이라 이미 반영된 항목을
+ * 한 번 더 밀어도 결과가 같고, tombstone→tombstone은 좀비 트리거의 검사 대상이 아니다.
+ * 정상 상태에서 재실행되면 대상이 0이지만, 완료된 tombstone까지 다시 밀지 않도록 호출부에서
+ * 1회만 실행한다.
+ */
+export async function requeueOrphanTombstones(): Promise<{ media: number; expenses: number }> {
+  const d = db();
+  const queued = new Set((await d.syncQueue.toArray()).map((q) => `${q.entityType}:${q.entityId}`));
+  const now = new Date().toISOString();
+  let media = 0;
+  let expenses = 0;
+
+  for (const m of await d.localMedia.toArray()) {
+    if (m.deletedAt === null || queued.has(`media:${m.id}`)) continue;
+    await d.syncQueue.add({
+      operationId: crypto.randomUUID(),
+      entityType: 'media',
+      entityId: m.id,
+      operationType: 'delete',
+      state: 'local_only',
+      attempts: 0,
+      createdAt: now,
+    });
+    media++;
+  }
+  for (const e of await d.localExpenses.toArray()) {
+    if (e.deletedAt === null || queued.has(`expense:${e.id}`)) continue;
+    await d.syncQueue.add({
+      operationId: crypto.randomUUID(),
+      entityType: 'expense',
+      entityId: e.id,
+      operationType: 'delete',
+      state: 'local_only',
+      attempts: 0,
+      createdAt: now,
+    });
+    expenses++;
+  }
+  return { media, expenses };
+}
+
+/** 정합 복구 1회 실행 표식. 완료된 tombstone까지 매번 다시 밀지 않도록 잠근다. */
+const REPAIR_KEY = 'bj.repair.cascadeOps.v1';
+
+async function repairCascadeOpsOnce(): Promise<void> {
+  try {
+    if (localStorage.getItem(REPAIR_KEY)) return;
+  } catch {
+    return; // localStorage 불가(프라이빗 모드 등) — 복구를 건너뛴다. 동기화 자체엔 영향 없음.
+  }
+  const r = await requeueOrphanTombstones();
+  if (r.media || r.expenses) console.info(`정합 복구: 사진 ${r.media}건 · 비용 ${r.expenses}건 재큐잉`);
+  try {
+    localStorage.setItem(REPAIR_KEY, new Date().toISOString());
+  } catch {
+    /* 표식 저장 실패는 무해 — 다음 동기화에서 한 번 더 돌 뿐이고 push는 멱등이다. */
+  }
+}
+
 export async function runSync(client: JourneyClient, userId: string): Promise<SyncResult> {
+  // push보다 **먼저** 돈다 — 재큐잉된 op가 이번 동기화에서 바로 처리되도록.
+  await repairCascadeOpsOnce();
   const remote = tripsRemote(client);
   const mRemote = momentsRemote(client);
   const eRemote = expensesRemote(client);
