@@ -194,6 +194,48 @@ export function toRowNeverSendsPurgedAt(src) {
     : [];
 }
 
+// ── 검사 H: 오버레이/모달 계약 ───────────────────────────────────────────────
+/**
+ * 실제 사고(2026-07-26, 사용자 실기기 가로 태블릿): 사진 편집 모달의 **상하가 잘리고 여백이
+ * 없었다**. 세 오버레이가 같은 규칙을 각자 구현했고 셋이 서로 달랐다 — `.guide-overlay`만
+ * 배웠고 `.pe-overlay`는 못 배웠다(§7의 교과서적 사례).
+ *
+ * 두 가지가 원인이다:
+ *  ① `vh` — 모바일에서 `vh`는 주소창을 포함한 레이아웃 뷰포트라 **실제 보이는 높이보다 크다**.
+ *  ② `place-items: center` + 넘침 — 위아래로 똑같이 삐져나가 **스크롤로도 닿지 못한다**.
+ *
+ * 라이브 렌더는 이걸 재현하지 못한다(헤드리스엔 주소창이 없어 vh == 실제 높이). 그래서
+ * 기하가 아니라 **계약을 정적으로** 잠근다 — 이 게이트가 이 부류의 본 방어선이다.
+ */
+export function overlayContract(css) {
+  const bad = [];
+  const base = css.match(/\.overlay-base\s*\{([^}]*)\}/);
+  if (!base) return ['.overlay-base 가 없음 — 오버레이 공용 계약이 사라졌다'];
+  const body = base[1];
+  if (!/overflow-y:\s*auto/.test(body)) bad.push('.overlay-base 에 overflow-y:auto 없음 — 넘친 내용에 닿을 수 없다');
+  if (/place-items:\s*center/.test(body) || /align-items:\s*center/.test(body)) {
+    bad.push('.overlay-base 가 세로 중앙정렬 — 넘치면 위아래로 삐져나가 스크롤로도 닿지 못한다');
+  }
+  if (!/env\(safe-area-inset/.test(body)) bad.push('.overlay-base 에 safe-area 여백 없음');
+
+  const modal = css.match(/\.modal-base\s*\{([^}]*)\}/);
+  if (!modal) bad.push('.modal-base 가 없음');
+  else if (!/dvh/.test(modal[1])) bad.push('.modal-base 가 dvh를 쓰지 않음 — vh는 주소창을 포함해 실제보다 크다');
+
+  // 개별 오버레이/모달이 계약을 되돌려 자기 규칙을 갖지 않는지.
+  for (const m of css.matchAll(/\.([a-z-]*(?:overlay|modal|sheet))\s*\{([^}]*)\}/g)) {
+    const [name, decl] = [m[1], m[2]];
+    if (name === 'overlay-base' || name === 'modal-base') continue;
+    if (/(?:max-)?height:[^;]*\b\d+vh/.test(decl)) {
+      bad.push(`.${name} 가 높이에 vh 사용 — dvh를 쓰거나 .modal-base 에 맡길 것`);
+    }
+    if (/position:\s*fixed/.test(decl) && /place-items:\s*center/.test(decl)) {
+      bad.push(`.${name} 가 자기 중앙정렬 규칙을 가짐 — .overlay-base 를 쓸 것(규칙을 두 번 쓰지 않는다)`);
+    }
+  }
+  return bad;
+}
+
 // ── 셀프테스트: 알려진 실패가 RED로 잡히는지(게이트 비공허, CLAUDE.md §4) ──
 {
   const cases = [
@@ -296,6 +338,43 @@ export function toRowNeverSendsPurgedAt(src) {
       fn: () => toRowNeverSendsPurgedAt(`export function toRow(t, u) {\n  return { id: t.id, purged_at: null };\n}`),
       clean: false,
     },
+    {
+      name: '오버레이 계약 정상',
+      fn: () =>
+        overlayContract(
+          `.overlay-base { position: fixed; align-items: flex-start; overflow-y: auto; padding: max(12px, env(safe-area-inset-top,0)); }
+           .modal-base { max-height: calc(100dvh - 24px); }`,
+        ),
+      clean: true,
+    },
+    {
+      name: 'vh 사용 검출(실제 결함 — 상하 잘림)',
+      fn: () =>
+        overlayContract(
+          `.overlay-base { position: fixed; align-items: flex-start; overflow-y: auto; padding: max(12px, env(safe-area-inset-top,0)); }
+           .modal-base { max-height: calc(100dvh - 24px); }
+           .pe-sheet { max-height: 96vh; }`,
+        ),
+      clean: false,
+    },
+    {
+      name: '중앙정렬+넘침 검출(스크롤로도 못 닿는 형태)',
+      fn: () =>
+        overlayContract(
+          `.overlay-base { position: fixed; place-items: center; overflow-y: auto; padding: max(12px, env(safe-area-inset-top,0)); }
+           .modal-base { max-height: calc(100dvh - 24px); }`,
+        ),
+      clean: false,
+    },
+    {
+      name: '오버레이 스크롤 누락 검출',
+      fn: () =>
+        overlayContract(
+          `.overlay-base { position: fixed; align-items: flex-start; padding: max(12px, env(safe-area-inset-top,0)); }
+           .modal-base { max-height: calc(100dvh - 24px); }`,
+        ),
+      clean: false,
+    },
   ];
   const broken = cases.filter((c) => (c.fn().length === 0) !== c.clean);
   if (broken.length) {
@@ -312,6 +391,8 @@ for (const p of richTextRendererIntact(read(RICH_TEXT_RENDERER))) problems.push(
 for (const p of metricsMissingExpected(read('src/ui/panels/diagnostics.ts'))) problems.push(`src/ui/panels/diagnostics.ts: ${p}`);
 for (const p of toolRegistryComplete(read('src/ui/panels/diagnostics.ts'))) problems.push(`src/ui/panels/diagnostics.ts: ${p}`);
 for (const p of legacyRows(read(NO_LEGACY_ROWS.file), NO_LEGACY_ROWS.banned)) problems.push(`${NO_LEGACY_ROWS.file}: ${p}`);
+
+for (const p of overlayContract(read('src/ui/styles/app.css'))) problems.push(`src/ui/styles/app.css: ${p}`);
 
 for (const p of pullsApplyRemotePurge(read('src/services/sync.ts'), read('src/services/purge.ts'))) {
   problems.push(`src/services/sync.ts: ${p}`);
@@ -348,4 +429,4 @@ if (problems.length) {
   console.error('check-verdict-symmetry: 진단 판정 계약 위반 — 도구 간 대칭이 깨졌다.');
   process.exit(1);
 }
-console.log(`check-verdict-symmetry: OK (셀프테스트 23건 통과 · 강조 렌더러 온전 · src ${scanned}개 파일 우회 0 · guide-card 화면 ${cardFiles}곳 계약 준수 · 지표 기대값·도구 필드 정상)`);
+console.log(`check-verdict-symmetry: OK (셀프테스트 27건 통과 · 강조 렌더러 온전 · src ${scanned}개 파일 우회 0 · guide-card 화면 ${cardFiles}곳 계약 준수 · 지표 기대값·도구 필드 정상)`);

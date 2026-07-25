@@ -140,11 +140,11 @@ export async function openPhotoEditor(
   let fitMode: 'contain' | 'width' = 'contain'; // 표시 방식: 높이 맞춤(여백 최소) ↔ 폭 100%(세로 스크롤)
 
   return new Promise<EditorResult>((resolve) => {
-    const overlay = el('div', 'pe-overlay');
+    const overlay = el('div', 'overlay-base pe-overlay');
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-label', '사진 편집');
 
-    const sheet = el('div', 'pe-sheet');
+    const sheet = el('div', 'modal-base pe-sheet');
     overlay.appendChild(sheet);
 
     // ── 헤더 ──

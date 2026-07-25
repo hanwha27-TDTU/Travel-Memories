@@ -48,12 +48,12 @@ function dot(level: Level): HTMLElement {
 export function openDiagnosticsHub(): void {
   const prevFocus = document.activeElement as HTMLElement | null;
 
-  const overlay = el('div', 'guide-overlay');
+  const overlay = el('div', 'overlay-base guide-overlay');
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
   overlay.setAttribute('aria-label', '진단 도구');
 
-  const modal = el('div', 'guide-modal');
+  const modal = el('div', 'modal-base guide-modal');
   const header = el('div', 'guide-header');
   const titleWrap = el('div', 'guide-title-wrap');
   titleWrap.append(

@@ -69,12 +69,12 @@ export function openMapView(tripTitle: string, points: MapPoint[]): void {
   const prevFocus = document.activeElement as HTMLElement | null;
   const objectUrls: string[] = [];
 
-  const overlay = el('div', 'map-overlay');
+  const overlay = el('div', 'overlay-base map-overlay');
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
   overlay.setAttribute('aria-label', `${tripTitle} 지도`);
 
-  const modal = el('div', 'map-modal');
+  const modal = el('div', 'modal-base map-modal');
   const header = el('div', 'map-header');
   header.appendChild(el('h2', 'map-title', `🗺 ${tripTitle}`));
   const actions = el('div', 'map-header-actions');
@@ -223,11 +223,11 @@ export function openMapPicker(initial: { lat: number; lng: number } | null): Pro
     let picked: { lat: number; lng: number } | null = initial ? { ...initial } : null;
     let settled = false;
 
-    const overlay = el('div', 'map-overlay');
+    const overlay = el('div', 'overlay-base map-overlay');
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
     overlay.setAttribute('aria-label', '지도에서 위치 선택');
-    const modal = el('div', 'map-modal');
+    const modal = el('div', 'modal-base map-modal');
     const header = el('div', 'map-header');
     header.appendChild(el('h2', 'map-title', '🗺 지도에서 위치 선택'));
     const actions = el('div', 'map-header-actions');
