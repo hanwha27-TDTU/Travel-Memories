@@ -4,43 +4,46 @@
 // "내 데이터를 어떻게 한다"와도 성격이 다르다. **"지금 무슨 일이 벌어지고 있나"를 보는 축**이라
 // 자기 자리를 가져야 한다. 두 허브 모두에서 이 창으로 들어온다.
 //
-// 무엇을 담을지 **연역으로 골랐다** — "개발자가 볼 수 없는 것" 중 *기억을 잃거나 사용자를 막는 것*:
-//   ① 저장소 안전   : 브라우저 축출 = 앱 밖 원인의 유일한 기억 손실(원칙 #1의 예외). 최우선.
-//   ② 동기화 진단   : 서버와 얼마나 어긋나 있나(오늘 좀비 사건의 해결 열쇠였다).
-//   ③ ID 무결성     : 기록이 서로 앞뒤가 맞나 — 고아·부모 없는 자식은 조용히 사라진 기억이 된다.
-//   ④ 환경·기능     : 지원 안 되는 기능이 있으면 앱이 조용히 대체경로로 빠진다.
-//   ⑤ 오류 기록     : 사용자가 콘솔을 열 줄 몰라도 오류가 남는다.
-//   ⑥ 요약 복사     : 위 전부를 텍스트 한 덩어리로 — **캡처 왕복을 한 번으로 줄인다.**
+// 무엇을 담을지 **연역으로 골랐다** — "개발자가 볼 수 없는 것" 중 *기억을 잃거나 사용자를 막는 것*.
+// 목록과 그 근거는 `panels/diagnostics.ts`의 `CORE_TOOLS`에 있다(허브가 손으로 다시 적지 않는다).
 //
-// 규율: 전부 **읽기 전용 관측**이 기본. 상태를 바꾸는 것은 [저장소 보호 요청]·[정리 실행]·
-// [실패 재시도] 셋뿐이고, 셋 다 사용자의 기억을 지우지 않는다.
+// 2026-07-26 재설계 — **허브가 판정을 한다.**
+// 이전 허브는 여섯 카드를 전부 같은 정적 라벨로 그렸다. 진단 도구를 여는 사람은 이미 "뭔가
+// 이상하다"고 느낀 상태인데, 화면은 *어디를 볼지*조차 알려주지 않고 여섯 갈래 탐색을 시켰다.
+// 지금은 열자마자 다섯 도구를 실제로 돌려 **총괄 한 줄 + 카드별 배지**를 그린다. 정상이면
+// 다섯 개를 열 필요가 없다.
+//
+// 규율:
+//  - 계산 전에는 '확인 중…'이다. **정상을 먼저 칠하지 않는다** — 미검사를 통과로 적는 건 거짓말이다.
+//  - 정상 카드는 배지를 달지 않는다(침묵이 정상 신호). 이상일 때만 배지가 나타난다.
+//  - 전부 **읽기 전용 관측**이 기본. 상태를 바꾸는 것은 각 도구의 액션뿐이고, 어느 것도
+//    사용자의 기억을 지우지 않는다.
 
 import { el } from '../dom';
-import {
-  syncDiagnosticsPanel,
-  integrityPanel,
-  storagePanel,
-  environmentPanel,
-  errorPanel,
-  summaryPanel,
-} from '../panels/diagnostics';
-import { errorCount } from '../../app/errorLog';
+import { CORE_TOOLS, DIAG_TOOLS, renderDiagTool, rollup, type DiagTool } from '../panels/diagnostics';
+import { LEVELS, type Level } from '../panels/verdict';
 
-interface Tool {
-  icon: string;
-  label: string;
-  hint: string;
-  render: () => HTMLElement;
+/** 허브 카드 하나 — 구조는 [가이드]·[데이터 관리]와 **같은 계약**(ic / mid / 우측 슬롯)을 지킨다. */
+function card(t: DiagTool, onOpen: (t: DiagTool) => void): { btn: HTMLButtonElement; slot: HTMLElement } {
+  const btn = el('button', 'guide-card guide-card-diag') as HTMLButtonElement;
+  btn.type = 'button';
+  btn.setAttribute('data-tool', t.label);
+  const ic = el('span', 'guide-card-ic', t.icon);
+  ic.setAttribute('aria-hidden', 'true');
+  const mid = el('span', 'guide-card-mid');
+  mid.append(el('b', 'guide-card-label', t.label), el('small', 'guide-card-hint', t.hint));
+  const slot = el('span', 'guide-card-slot');
+  slot.append(el('span', 'vd-dot vd-dot-pending'), el('span', 'guide-card-chev', '›'));
+  btn.append(ic, mid, slot);
+  btn.addEventListener('click', () => onOpen(t));
+  return { btn, slot };
 }
 
-const TOOLS: Tool[] = [
-  { icon: '💾', label: '저장소 안전', hint: '브라우저가 데이터를 지울 위험', render: storagePanel },
-  { icon: '🔍', label: '동기화 진단', hint: '서버와 얼마나 어긋나 있나', render: syncDiagnosticsPanel },
-  { icon: '🔎', label: 'ID 무결성 점검', hint: '기록이 서로 앞뒤가 맞나', render: integrityPanel },
-  { icon: '🧩', label: '환경·기능 지원', hint: '이 기기가 갖춘 기능', render: environmentPanel },
-  { icon: '⚠️', label: '오류 기록', hint: '이 세션에서 생긴 오류', render: errorPanel },
-  { icon: '📋', label: '진단 요약 복사', hint: '한 번에 복사해 전달', render: summaryPanel },
-];
+function dot(level: Level): HTMLElement {
+  const d = el('span', `vd-dot vd-dot-${level}`, LEVELS[level].glyph);
+  d.setAttribute('aria-label', LEVELS[level].name);
+  return d;
+}
 
 export function openDiagnosticsHub(): void {
   const prevFocus = document.activeElement as HTMLElement | null;
@@ -54,7 +57,7 @@ export function openDiagnosticsHub(): void {
   const header = el('div', 'guide-header');
   const titleWrap = el('div', 'guide-title-wrap');
   titleWrap.append(
-    el('h2', 'guide-title', '🩺 진단 도구'),
+    el('h2', 'guide-title', '앱 상태 확인'),
     el('p', 'guide-sub', '지금 이 기기에서 무슨 일이 벌어지고 있는지 봅니다. 대부분 읽기 전용이에요.'),
   );
   const closeBtn = el('button', 'guide-close', '✕') as HTMLButtonElement;
@@ -65,19 +68,23 @@ export function openDiagnosticsHub(): void {
   const body = el('div', 'guide-body');
 
   const showHome = (): void => {
-    body.innerHTML = '';
+    body.replaceChildren();
+
+    // 총괄 판정 — 열자마자 보이는 한 줄. 계산 전에는 '확인 중…'.
+    const banner = el('div', 'vd-rollup vd-rollup-pending');
+    const bTop = el('div', 'vd-rollup-top');
+    const bDot = el('span', 'vd-dot vd-dot-pending');
+    const bLine = el('p', 'vd-rollup-line', '확인 중…');
+    bTop.append(bDot, bLine);
+    banner.append(bTop);
+    banner.setAttribute('data-rollup', '');
+    body.appendChild(banner);
+
     const grid = el('div', 'guide-card-grid');
-    for (const t of TOOLS) {
-      const btn = el('button', 'guide-card') as HTMLButtonElement;
-      btn.type = 'button';
-      btn.setAttribute('data-tool', t.label);
-      const n = t.label === '오류 기록' ? errorCount() : 0;
-      btn.append(
-        el('span', 'guide-card-icon', t.icon),
-        el('span', 'guide-card-label', n > 0 ? `${t.label} (${n})` : t.label),
-        el('span', 'guide-card-hint', t.hint),
-      );
-      btn.addEventListener('click', () => showDetail(t));
+    const slots = new Map<string, HTMLElement>();
+    for (const t of DIAG_TOOLS) {
+      const { btn, slot } = card(t, showDetail);
+      slots.set(t.id, slot);
       grid.appendChild(btn);
     }
     body.appendChild(grid);
@@ -89,16 +96,46 @@ export function openDiagnosticsHub(): void {
       ),
     );
     closeBtn.focus();
+
+    void rollup()
+      .then((r) => {
+        banner.className = `vd-rollup vd-rollup-${r.level}`;
+        bDot.replaceWith(dot(r.level));
+        const bad = r.per.filter((p) => p.level === 'problem');
+        const todo = r.per.filter((p) => p.level === 'todo');
+        bLine.textContent =
+          r.level === 'problem'
+            ? `지금 확인할 것 ${bad.length}가지 — ${bad.map((p) => p.label).join(' · ')}`
+            : r.level === 'todo'
+              ? `해두면 좋은 일 ${todo.length}가지 — ${todo.map((p) => p.label).join(' · ')}`
+              : r.level === 'unknown'
+                ? '확인하지 못한 항목이 있어요'
+                : '이상 없음 · 방금 확인했어요';
+
+        for (const p of r.per) {
+          const slot = slots.get(p.id);
+          if (!slot) continue;
+          // 정상은 배지 없이 셰브론만 — 침묵이 정상 신호다.
+          slot.replaceChildren(...(p.level === 'ok' ? [] : [dot(p.level)]), el('span', 'guide-card-chev', '›'));
+        }
+        // 요약 도구는 롤업 대상이 아니므로 총괄 판정을 그대로 물려받는다.
+        const s = slots.get('summary');
+        if (s) s.replaceChildren(...(r.level === 'ok' ? [] : [dot(r.level)]), el('span', 'guide-card-chev', '›'));
+      })
+      .catch(() => {
+        banner.className = 'vd-rollup vd-rollup-unknown';
+        bLine.textContent = '상태를 확인하지 못했어요. 카드를 열어 개별로 확인해 주세요.';
+      });
   };
 
-  const showDetail = (t: Tool): void => {
-    body.innerHTML = '';
+  const showDetail = (t: DiagTool): void => {
+    body.replaceChildren();
     const bar = el('div', 'guide-detail-bar');
-    const back = el('button', 'guide-back', '‹ 진단 도구') as HTMLButtonElement;
+    const back = el('button', 'guide-back', '‹ 앱 상태 확인') as HTMLButtonElement;
     back.type = 'button';
     back.addEventListener('click', showHome);
-    bar.append(back, el('span', 'guide-detail-title', `${t.icon} ${t.label}`));
-    body.append(bar, t.render());
+    bar.append(back, el('span', 'guide-detail-title', t.label));
+    body.append(bar, renderDiagTool(t));
     body.scrollTop = 0;
     back.focus();
   };
@@ -122,3 +159,7 @@ export function openDiagnosticsHub(): void {
   document.body.appendChild(overlay);
   showHome();
 }
+
+/** 허브가 아는 도구 수 — 다른 화면이 "N개"를 손으로 세지 않도록. */
+export const DIAG_TOOL_COUNT = DIAG_TOOLS.length;
+export const DIAG_CORE_COUNT = CORE_TOOLS.length;

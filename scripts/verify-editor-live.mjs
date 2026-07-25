@@ -556,6 +556,58 @@ const noteBox = await page.evaluate(() => {
 check('상태 줄: 전폭 배너가 아님(내용 폭만)', !noteBox || noteBox.w < noteBox.vw * 0.5,
   noteBox ? `${noteBox.w}px / ${noteBox.vw}px` : 'none');
 
+// ── v0.69: 진단 도구가 **판정**을 하는가(정적 게이트가 못 보는 층) ──
+// 계약(CLAUDE.md §8): ① 총괄 판정이 계산되어 '확인 중…'을 벗어난다 ② 정상 지표는 카드가 아니라
+// 접힌 한 줄이다 ③ 이상 지표만 카드로 남는다 ④ 지표에 기대값('정상')이 화면에 실제로 보인다.
+await page.setViewportSize({ width: 412, height: 915 });
+await page.goto(`http://localhost:4173${BASE}`);
+await page.waitForTimeout(400);
+// [데이터 관리] → [진단 도구] 경로로 실제 사용자처럼 진입한다(번들을 직접 import하지 않는다 —
+// 해시가 바뀌기도 하고, 무엇보다 사용자가 실제로 걷는 길을 걸어야 의미가 있다).
+await page.getByRole('button', { name: /데이터 관리/ }).first().click().catch(() => {});
+await page.waitForTimeout(400);
+await page.locator('[data-card="진단 도구"], .guide-card:has-text("진단 도구")').first().click().catch(() => {});
+await page.waitForTimeout(1200);
+
+const hub = await page.evaluate(() => {
+  const roll = document.querySelector('[data-rollup]');
+  if (!roll) return null;
+  const line = roll.querySelector('.vd-rollup-line')?.textContent ?? '';
+  return { line, cls: roll.className, cards: document.querySelectorAll('.guide-card-diag').length };
+});
+check('진단 허브: 총괄 판정이 계산됨(확인 중… 벗어남)',
+  Boolean(hub) && hub.line.length > 0 && !hub.line.includes('확인 중') && !hub.cls.includes('pending'),
+  hub ? `"${hub.line}" · 카드 ${hub.cards}` : 'hub 열기 실패');
+
+// 도구 하나를 열어 판정 레이아웃을 실제로 확인한다(동기화 상태 — 지표 3개 중 정상이 접히는가).
+await page.locator('[data-tool="동기화 상태"]').first().click().catch(() => {});
+await page.waitForTimeout(1200);
+const tool = await page.evaluate(() => {
+  const w = document.querySelector('[data-verdict-tool]');
+  if (!w) return null;
+  const head = w.querySelector('.vd-headline')?.textContent ?? '';
+  const quiet = w.querySelector('.vd-quiet');
+  const quietOpen = quiet ? quiet.open : null;
+  const compares = [...w.querySelectorAll('.vd-compare-k')].map((n) => n.textContent);
+  const body = document.body;
+  return {
+    head,
+    cards: w.querySelectorAll('.vd-metric').length,
+    quietTxt: quiet?.querySelector('.vd-quiet-txt')?.textContent ?? '',
+    quietOpen,
+    hasExpected: compares.includes('정상'),
+    recheck: Boolean(w.querySelector('[data-verdict-recheck]')),
+    overflow: body.scrollWidth - body.clientWidth,
+  };
+});
+check('진단 도구: 판정 한 문장이 먼저 온다', Boolean(tool) && tool.head.length > 0 && !tool.head.includes('확인 중'), tool ? `"${tool.head}"` : 'none');
+check('진단 도구: 정상 지표는 카드가 아니라 접힌 한 줄', Boolean(tool) && tool.quietOpen === false && tool.quietTxt.includes('정상'),
+  tool ? `"${tool.quietTxt}" open=${tool.quietOpen} · 이상카드 ${tool.cards}` : 'none');
+check('진단 도구: 지표에 기대값(정상)이 화면에 보인다', Boolean(tool) && (tool.hasExpected || tool.cards === 0),
+  tool ? `이상카드 ${tool.cards} · 기대값표시 ${tool.hasExpected}` : 'none');
+check('진단 도구: [다시 확인]이 항상 있다', Boolean(tool) && tool.recheck);
+check('진단 도구: 폰 세로 가로 넘침 0', Boolean(tool) && tool.overflow <= 0, tool ? `overflow=${tool.overflow}` : 'none');
+
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 
 await browser.close();

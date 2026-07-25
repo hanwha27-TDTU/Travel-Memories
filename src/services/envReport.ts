@@ -119,7 +119,10 @@ export function evictionRisk(r: EnvReport): { level: 'ok' | 'info' | 'error'; te
   if (pct >= 80) {
     return {
       level: 'error',
-      text: `사용 ${pct}% — 여유가 적어요. 브라우저가 공간이 부족하면 **앱 데이터를 지울 수 있습니다.** 지금 백업을 받고, 아래 [저장소 보호 요청]을 눌러 주세요.`,
+      // ⚠️ 여기에 마크다운 강조(**…**)를 쓰지 마라. 이 문자열은 textContent로 그려지므로
+      // 별표가 화면에 그대로 찍힌다(2026-07-26 적대적 리뷰가 잡은 실제 결함). 강조가 필요하면
+      // 문자열이 아니라 판정 level로 표현한다. 게이트: scripts/check-verdict-symmetry.mjs
+      text: `사용 ${pct}% — 여유가 적어요. 브라우저는 공간이 부족하면 앱 데이터를 지울 수 있습니다. 지금 백업을 받고, [저장소 보호 요청]을 눌러 주세요.`,
     };
   }
   return {
