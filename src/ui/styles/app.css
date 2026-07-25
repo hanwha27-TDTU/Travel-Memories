@@ -222,14 +222,33 @@
 .empty-state h2 { margin: 0; font-size: 1.3rem; font-family: var(--font-disp); }
 
 /* ===== 동기화 상태 ===== */
+/* 상태 줄 — 전폭 배너가 아니라 **내용만큼만 차지하는 알약**.
+   두 단어짜리 정상 상태가 화면 한 줄을 통째로 먹지 않게 한다.
+   위계는 ui/dom.ts setNote가 붙이는 클래스로: ok=거의 안 보이게 / info=옅은 알약 / error=눈에 띄게. */
 .sync-note {
-  font-size: 0.85rem;
-  margin: var(--space-2) 0 0;
+  align-self: flex-start;          /* 부모 flex에서 늘어나지 않고 내용 폭만 */
+  display: inline-flex; align-items: center; gap: 6px;
+  margin: 0;
+  padding: 5px 11px;
+  font-size: 0.76rem; font-weight: 600;
   color: var(--ink-soft);
-  padding: 10px 14px;
   background: var(--bg-2);
-  border-radius: var(--radius-medium);
-  text-align: center;
+  border-radius: var(--radius-pill);
+}
+/* 정상: 배경 없이 옅게 — "이상 없음"은 확인만 되면 되고 자리를 차지할 이유가 없다. */
+.sync-note.is-ok {
+  background: transparent; padding-left: 2px; opacity: 0.62; font-weight: 500;
+}
+/* 알아둘 것(대기·로컬 모드·로그인 안내): 옅은 색 알약. */
+.sync-note.is-info {
+  background: color-mix(in srgb, var(--sem-sky) 12%, transparent);
+  color: var(--sem-sky);
+}
+/* 실패: 놓치면 안 되는 것만 여기 온다. */
+.sync-note.is-error {
+  background: color-mix(in srgb, var(--sem-pink) 15%, transparent);
+  color: var(--sem-pink);
+  font-weight: 700;
 }
 
 /* ===== 접근성/모션 ===== */

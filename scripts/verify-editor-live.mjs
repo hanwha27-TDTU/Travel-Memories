@@ -512,6 +512,19 @@ const noOverlap = await page.evaluate(() => {
 });
 check('히어로: 상태 배지가 뒤로가기 버튼과 안 겹침', noOverlap);
 
+// ── v0.54: 상태 줄이 화면을 과하게 쓰지 않는지 ──
+// 계약: 정상 상태(동기화됨)는 내용 폭만 차지한다 — 전폭 배너 금지.
+await page.setViewportSize({ width: 1480, height: 920 });
+await page.waitForTimeout(200);
+const noteBox = await page.evaluate(() => {
+  const n = document.querySelector('.sync-note');
+  if (!n) return null;
+  const r = n.getBoundingClientRect();
+  return { w: Math.round(r.width), vw: window.innerWidth, cls: n.className };
+});
+check('상태 줄: 전폭 배너가 아님(내용 폭만)', !noteBox || noteBox.w < noteBox.vw * 0.5,
+  noteBox ? `${noteBox.w}px / ${noteBox.vw}px` : 'none');
+
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 
 await browser.close();
