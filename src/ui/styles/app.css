@@ -1196,3 +1196,48 @@
   .screen-home,
   .screen-detail { max-width: 1360px; }
 }
+
+/* ── R2 설정 가이드(r2Setup) ─────────────────────────────────────────────
+   외부 콘솔 절차 기록 — 단계 카드 + 위험도별 주의 박스 + (선택) 스크린샷. */
+.r2-step {
+  margin: var(--space-3) 0; padding: var(--space-3);
+  border: 1px solid var(--line); border-radius: var(--radius-medium); background: var(--bg);
+}
+.r2-step-head { display: flex; align-items: baseline; gap: 8px; }
+.r2-step-n {
+  flex: 0 0 auto; min-width: 24px; height: 24px; padding: 0 6px;
+  display: grid; place-items: center; border-radius: var(--radius-pill);
+  background: var(--a1); color: #fff; font-size: 0.74rem; font-weight: 800;
+}
+.r2-step-title { font-size: 0.92rem; color: var(--ink); }
+.r2-step-where {
+  margin-top: 4px; font-size: 0.72rem; color: var(--ink-soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: keep-all;
+}
+.r2-step-body { margin: var(--space-2) 0 0; font-size: 0.83rem; line-height: 1.6; color: var(--ink); }
+.r2-note {
+  display: flex; gap: 8px; align-items: flex-start;
+  margin-top: var(--space-2); padding: 8px 10px;
+  border-radius: var(--radius-medium); font-size: 0.78rem; line-height: 1.55;
+}
+.r2-note-tag { flex: 0 0 auto; font-size: 0.72rem; font-weight: 800; white-space: nowrap; }
+.r2-note-danger { background: color-mix(in srgb, var(--sem-pink) 13%, transparent); color: var(--sem-pink); }
+.r2-note-warn { background: color-mix(in srgb, var(--a3, var(--a1)) 14%, transparent); color: var(--ink); }
+.r2-note-tip { background: color-mix(in srgb, var(--sem-teal) 12%, transparent); color: var(--sem-teal); }
+.r2-shot { margin: var(--space-2) 0 0; }
+.r2-shot img {
+  width: 100%; max-width: 100%; height: auto; display: block;
+  border: 1px solid var(--line); border-radius: var(--radius-medium);
+}
+.r2-shot-cap { margin-top: 4px; font-size: 0.72rem; color: var(--ink-soft); font-style: italic; }
+.r2-table { display: flex; flex-direction: column; gap: 6px; margin: var(--space-2) 0; }
+.r2-row {
+  display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
+  padding: 6px 10px; border-radius: var(--radius-medium); background: var(--bg-2);
+}
+.r2-key {
+  flex: 0 0 auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.76rem; font-weight: 700; color: var(--ink);
+}
+.r2-key-wide { flex: 0 0 auto; max-width: 100%; font-family: inherit; }
+.r2-val { flex: 1 1 200px; font-size: 0.78rem; line-height: 1.5; min-width: 0; }

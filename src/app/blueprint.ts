@@ -69,6 +69,7 @@ export const SCREENS: readonly ScreenNode[] = [
   { key: 'dataManager', label: '데이터 관리 · 백업', file: 'dataManager.ts', feeds: ['trip', 'moment', 'media', 'expense'] },
   { key: 'aboutApp', label: '개발자 정보', file: 'aboutApp.ts', feeds: [] },
   { key: 'designOverview', label: '설계 개요도', file: 'designOverview.ts', feeds: [] },
+  { key: 'r2Setup', label: 'R2 저장소 설정 가이드', file: 'r2Setup.ts', feeds: [] },
   { key: 'guide', label: '가이드', file: 'guide.ts', feeds: [] },
   { key: 'researchNote', label: '연구노트', file: 'researchNote.ts', feeds: [] },
 ];

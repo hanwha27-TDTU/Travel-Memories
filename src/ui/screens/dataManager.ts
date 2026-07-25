@@ -9,6 +9,7 @@ import { recordBackupNow, getLastBackupAt, backupFreshness } from '../../service
 import { listDeletedTrips, restoreTripFromTrash, purgeTripPermanently } from '../../services/trips';
 import { computeStorageUsage, formatBytes } from '../../services/storage';
 import { fxBase, setFxBase } from '../../services/fx';
+import { openR2Setup } from './r2Setup';
 import { CURRENCIES, currencyLabel } from '../../domain/expense/format';
 
 interface DataManagerOpts {
@@ -370,6 +371,7 @@ function currencyPanel(): HTMLElement {
 function cards(onChanged: () => void): HubCard[] {
   return [
     { icon: '💱', label: '환율 기준통화', hint: '비용 옆에 환산값 표시', open: (h) => h.detail('💱 환율 기준통화', currencyPanel()) },
+    { icon: '☁️', label: 'R2 저장소 설정', hint: '사진 저장소 설정 절차·함정 기록', open: (h) => { h.close(); openR2Setup(); } },
     { icon: '💾', label: '백업 (내보내기)', hint: '기억을 파일로 저장', open: (h) => h.detail('💾 백업 (내보내기)', backupPanel()) },
     { icon: '📥', label: '복원 (가져오기)', hint: '백업 파일에서 병합 복원', open: (h) => h.detail('📥 복원 (가져오기)', restorePanel(onChanged)) },
     { icon: '🗑', label: '휴지통', hint: '삭제한 여행 복원·영구삭제', open: (h) => h.detail('🗑 휴지통', trashPanel(onChanged)) },
