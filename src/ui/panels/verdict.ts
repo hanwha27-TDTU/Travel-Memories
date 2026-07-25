@@ -22,7 +22,7 @@
 // 만들고 **그리는 일은 여기 한 곳**에서 한다. 새 도구는 렌더러를 안 쓰는 선택지가 없다.
 // (게이트: scripts/check-verdict-symmetry.mjs 가 이 계약의 이탈을 정적으로 막는다.)
 
-import { el } from '../dom';
+import { el, applyText } from '../dom';
 
 /**
  * 판정 4단.
@@ -206,9 +206,9 @@ export function renderTool(v: ToolView): HTMLElement {
       .probe()
       .then((r) => {
         card.className = `vd-card vd-card-${r.level}`;
-        line.textContent = r.headline;
+        applyText(line, r.headline);
         head.replaceChildren(badge(r.level), line);
-        because.textContent = r.because ?? '';
+        applyText(because, r.because ?? '');
         because.hidden = !r.because;
 
         // 본문: 이상만 카드, 정상은 한 줄
@@ -242,7 +242,7 @@ export function renderTool(v: ToolView): HTMLElement {
             void a
               .run()
               .then((t) => {
-                msg.textContent = t;
+                applyText(msg, t);
                 msg.hidden = false;
                 run(); // read-back: 고쳤다고 말만 하지 않는다
               })
@@ -267,9 +267,9 @@ export function renderTool(v: ToolView): HTMLElement {
       })
       .catch((e: Error) => {
         card.className = 'vd-card vd-card-problem';
-        line.textContent = '확인하지 못했어요';
+        applyText(line, '확인하지 못했어요');
         head.replaceChildren(badge('problem'), line);
-        because.textContent = e.message;
+        applyText(because, e.message);
         because.hidden = false;
       })
       .finally(() => {
