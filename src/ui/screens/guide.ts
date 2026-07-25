@@ -7,10 +7,8 @@
 // 모든 자유 텍스트는 textContent로만 넣는다(innerHTML 금지 — dom.ts 규칙·CSP 게이트).
 
 import { el } from '../dom';
-import { db } from '../../offline/db';
-import { setNote } from '../dom';
 import { EVAL_ITEMS, summarize, gradeOf, CRITICAL_CAP } from '../../app/selfEval';
-import { checkIntegrity, CHECK_COUNT } from '../../domain/integrity';
+import { syncDiagnosticsPanel, integrityPanel } from '../panels/diagnostics';
 import { REGISTRY } from '../../app/registry.gen';
 import { GATE_DESC } from '../../app/gates';
 import { openMechChecks } from './mechChecks';
@@ -260,9 +258,15 @@ const DEV_GROUP: GuideGroup = {
       render: () => selfEvalPanel(),
     },
     {
+      icon: '🔍',
+      label: '동기화 진단',
+      hint: '서버와 얼마나 어긋나 있나',
+      render: () => syncDiagnosticsPanel(),
+    },
+    {
       icon: '🔎',
       label: 'ID 무결성 점검',
-      hint: '읽기 전용 · 아무것도 바꾸지 않음',
+      hint: '기록이 서로 앞뒤가 맞나 (읽기 전용)',
       render: () => integrityPanel(),
     },
     {
@@ -364,65 +368,6 @@ function selfEvalPanel(): HTMLElement {
       '이 점수의 한계(정직): 자동 검증층(harness·유닛·라이브 렌더)이 통과한 것만 "검증됨"으로 칩니다. 실기기 터치·명암비 실측·다기기 네트워크 왕복·대량 사진 성능은 코딩 밖 전제이며 증거수준에 반영돼 있습니다. 가중치·점수·증거수준의 구조는 check-self-eval 게이트가 잠급니다 — 근거 없이 점수만 올릴 수 없습니다.',
     ),
   );
-  return wrap;
-}
-
-/**
- * ID 무결성 점검 — 저장된 기억이 서로 앞뒤가 맞는지 본다.
- * **읽기 전용**: 자동 수리는 잘못 판단하면 기억을 지우므로 하지 않는다.
- */
-function integrityPanel(): HTMLElement {
-  const wrap = panel([h('ID 무결성 점검'), p('읽기 전용입니다 — 아무것도 바꾸지 않아요. 저장된 기록이 서로 앞뒤가 맞는지만 확인합니다.')]);
-  const summary = el('p', 'r2-probe-note');
-  summary.hidden = true;
-  const list = el('div', 'se-findings');
-  wrap.append(summary, list);
-
-  const run = (): void => {
-    void (async () => {
-      const d = db();
-      const [trips, moments, media, expenses] = await Promise.all([
-        d.localTrips.toArray(),
-        d.localMoments.toArray(),
-        d.localMedia.toArray(),
-        d.localExpenses.toArray(),
-      ]);
-      const r = checkIntegrity({ trips, moments, media, expenses });
-      list.textContent = '';
-      setNote(
-        summary,
-        r.ok
-          ? '지금 사용에는 문제 없어요. 아래는 예방·참고 항목입니다.'
-          : `지금 확인이 필요한 항목이 ${r.bySeverity.now}건 있어요.`,
-        r.ok ? 'ok' : 'error',
-      );
-      list.appendChild(
-        el('p', 'se-legend', `점검 ${CHECK_COUNT}개 분류 · 기록 ${r.checked}건 검사 · 지금 확인 ${r.bySeverity.now} · 예방 주의 ${r.bySeverity.prevent} · 참고 ${r.bySeverity.info}`),
-      );
-      for (const f of r.findings) {
-        const card = el('div', 'se-item');
-        const top = el('div', 'se-item-top');
-        const tone = f.severity === 'now' ? 'weak' : f.severity === 'prevent' ? 'ok' : 'good';
-        top.append(
-          el('span', `se-badge se-${tone}`, f.severity === 'now' ? '지금 확인' : f.severity === 'prevent' ? '예방 주의' : '참고'),
-          el('span', 'se-item-title', `${f.title} ${f.count}건`),
-        );
-        card.append(top, el('p', 'se-basis', f.detail), el('p', 'se-gap', `기술: ${f.code} · 예: ${f.samples.join(', ')}`));
-        list.appendChild(card);
-      }
-      if (!r.findings.length) list.appendChild(el('p', 'se-basis', '발견된 항목이 없습니다.'));
-    })();
-  };
-  run();
-
-  const actions = el('div', 'r2-probe');
-  const again = el('button', 'btn-ghost', '다시 점검') as HTMLButtonElement;
-  again.type = 'button';
-  again.setAttribute('data-recheck-integrity', '');
-  again.addEventListener('click', run);
-  actions.appendChild(again);
-  wrap.appendChild(actions);
-  wrap.appendChild(note('무결성 점검은 이 기기에 저장된 기록만 봅니다. 서버·사진 저장소 상태는 [데이터 관리 › 동기화 진단]에서 확인하세요.'));
   return wrap;
 }
 
