@@ -7,6 +7,10 @@
 // 확정값이라 한 번 받아두면 영원히 안 변한다 → 캐시가 곧 안정적 표시를 보장한다(값이 나중에 흔들리지 않음).
 // 기준통화 하나로 표를 받아두면 임의의 두 통화 사이를 이 표 하나로 왕복 환산할 수 있다(§rateOf).
 
+import { localDate } from '../time';
+
+export { localDate }; // 날짜 파생 SSOT는 domain/time.ts (결함군 M-utc-slice)
+
 /** 특정 날짜·기준통화의 환율 표. rates[X] = 1 base 당 X의 수량. */
 export interface FxRateTable {
   /** 실제 적용된 환율 날짜 'YYYY-MM-DD'. 주말·공휴일이면 요청일보다 이를 수 있다(정직하게 표시). */
@@ -26,15 +30,6 @@ export function fxKey(date: string, base: string): string {
   return `${date}|${base.toUpperCase()}`;
 }
 
-/** ISO 일시 → 로컬 달력 날짜 'YYYY-MM-DD'. (UTC 절단이 아니라 사용자가 겪은 날짜) */
-export function localDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
 
 /** 표 안에서 통화 하나의 비율. 기준통화 자신은 1. 없으면 null(위조하지 않는다). */
 export function rateOf(table: FxRateTable, currency: string): number | null {

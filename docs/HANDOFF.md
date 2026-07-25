@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v0.51 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(현재 v0.51), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq 1–37).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v0.52 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(현재 v0.52), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq 1–38).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 0001–0010 적용.
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -26,7 +26,9 @@
 | 비상 복구 체계(하네스 게이트·복원 드릴·좀비 트리거·DR 감사관) | ✅ | `scripts/harness.mjs`, `docs/DISASTER_RECOVERY.md`, `.claude/agents/disaster-recovery-guardian.md` |
 | 개발자정보·버전·연구노트(해시체인)·가이드 화면 | ✅ | `app/{changelog,researchLog,hashchain}.ts`, `ui/screens/guide.ts` |
 
-**하네스 게이트**: SSOT=`scripts/harness.mjs`. **개수·목록은 손으로 세지 않는다** — `src/app/registry.gen.ts`(자동 생성, `check-registry-gen`이 드리프트 차단)에서 파생하고 개발자 정보→설계 개요도/가이드가 그 목록을 그대로 표시한다. 현재 게이트 계열: typecheck · check-secret-leak · check-domain-wiring · check-csp · check-base-consistency · check-schema-parity · check-backup-coverage · check-blueprint · check-registry-gen · check-doc-counts · unit-tests. 선택 라이브 게이트: `node scripts/verify-editor-live.mjs`(편집기·뷰어·개요도·기계화 검증 흐름도).
+**하네스 게이트**: SSOT=`scripts/harness.mjs`. **개수·목록은 손으로 세지 않는다** — `src/app/registry.gen.ts`(자동 생성, `check-registry-gen`이 드리프트 차단)에서 파생하고 개발자 정보→설계 개요도/가이드가 그 목록을 그대로 표시한다. 현재 게이트 계열: typecheck · check-secret-leak · check-domain-wiring · check-csp · check-base-consistency · check-schema-parity · check-backup-coverage · check-blueprint · check-registry-gen · check-doc-counts · check-timezone · unit-tests. 선택 라이브 게이트: `node scripts/verify-editor-live.mjs`(편집기·뷰어·개요도·기계화 검증 흐름도).
+
+**Phase 8d(2026-07-25)**: 타임라인 날짜 하루 밀림 — UTC 절단 결함군 M-utc-slice(v0.52). **신고(사용자)**: "7월 15일 사용금액인데 왜 7월 16일로 적용했어?"(헤더 7/15 · 시각 06:48 · 적용 환율일 7/16). **진단(실측)**: 환율이 아니라 **타임라인이 틀렸다** — `timeline.ts dayKey`가 `occurredAt.slice(0,10)`으로 **UTC 날짜**를 뽑는데, 시각 표시·발생 시각 입력·백업 파일명·환율은 전부 **로컬**이었다. KST에서 `2026-07-15T21:48Z` = 로컬 7/16 06:48 → 헤더만 전날로 밀림. 앱 전체 날짜 파생 지점을 훑어 UTC를 쓰는 곳이 이 한 곳뿐임을 확인. **결함군 승격(§6)**: ① 날짜 파생 SSOT `domain/time.ts localDate` 신설(fx.ts에서 이동·재수출), `dayKey`가 이를 사용 — "그 날 = 사용자의 로컬 달력 날짜" 계약 명문화. ② **`check-timezone` 게이트(12번째) 2층 방어** — (A) 정적: `src/`에서 ISO 절단 금지(`// not-a-date` 예외 + 주석 오탐 방지), (B) **동적: 유닛 스위트를 Asia/Seoul·Pacific/Honolulu(동/서 양방향)에서 재실행**. ③ 옛 timeline 테스트가 UTC 전제라 KST에서 깨짐 → 픽스처를 `at(y,mo,d,h)` 로컬 구성으로 전환 + 회귀 2건. **핵심 교훈(중요)**: 우리 CI·샌드박스가 UTC라 이 부류는 **유닛으로 구조적으로 안 보인다** — 게이트 (B)가 본 방어선이다. **검증**: 비공허 실증(`dayKey`를 옛 slice로 되돌리면 RED·복원하면 GREEN), 유닛 **182/182이 UTC·KST·하와이 3개 시간대 통과**, harness **12게이트**·build 그린. v0.52·연구노트 seq38.
 
 **Phase 8c(2026-07-25)**: 통화 선택 국기 — 손 테이블 대신 파생(v0.51). **동기(사용자)**: "화폐단위 앞에 국기가 함께 있음 좋을 거 같아요"(36개 드롭다운 스크린샷). **핵심 판단**: 국기 36개를 손으로 적지 않는다 — **ISO 4217 통화코드의 앞 두 글자 = ISO 3166-1 alpha-2 국가코드**라서 지역표시자 코드포인트 산술로 **파생**한다(KRW→KR→🇰🇷, EUR→EU→🇪🇺). 새 통화를 추가하면 국기가 자동으로 따라오고 손편집 중복이 0이다(§7). 예외는 ISO 4217 `X..` 초국가 코드(XAF·XDR) — 나라가 없으므로 빈 문자열(위조 금지). **구현**: `currencyFlag(code)` + `currencyLabel(c)`(국기·심볼·코드, 빈 값 자동 생략). `tripDetail.currencySelect`와 `dataManager` 기준통화 선택기가 **둘 다 `currencyLabel` 사용**으로 통일 — 라벨 규칙을 두 곳에 손으로 쓰던 중복도 함께 제거. 환산 칩(`formatMoney`)엔 넣지 않음(타임라인은 기억이 주인공 — 국기는 노이즈). **검증**: 유닛 **16/16**(파생 정확성·대소문자·X 접두 빈값·라벨 형식·**지원 통화 전부가 국기를 가진다** = 새 통화 추가 시 자동 회귀 방지), **verify-editor-live 59/59**(36개 옵션 전부 국기 접두·`🇰🇷 ₩ KRW` 형식·콘솔 0), harness 11게이트·build 그린. **정직**: Windows는 국기 이모지를 글자쌍(`KR`)으로 그리지만 정보는 남으므로 그대로 둔다. v0.51·연구노트 seq37.
 
@@ -108,7 +110,7 @@
 ```
 npm ci
 git config core.hooksPath .githooks   # commit-msg hook 활성
-npm run harness                        # Required 게이트 전체 (현재 <!--reg:gateCount-->11<!--/reg-->개 — 목록은 scripts/harness.mjs, 손편집 나열 금지 M-0001; 이 숫자는 gen-registry가 자동 갱신·check-doc-counts가 대조)
+npm run harness                        # Required 게이트 전체 (현재 <!--reg:gateCount-->12<!--/reg-->개 — 목록은 scripts/harness.mjs, 손편집 나열 금지 M-0001; 이 숫자는 gen-registry가 자동 갱신·check-doc-counts가 대조)
 npm run build                          # base=/Travel-Memories/ 정적 빌드
 npm run dev                            # 홈 화면 확인 (선택)
 ```
