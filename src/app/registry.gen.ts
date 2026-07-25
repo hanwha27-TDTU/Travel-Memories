@@ -1,5 +1,5 @@
 // GENERATED — 손으로 편집하지 마세요. 재생성: node scripts/gen-registry.mjs
-// SSOT: scripts/harness.mjs · .claude/agents/ · src/ui/screens/ · supabase/migrations/ · src/app/{changelog,researchLog}.ts
+// SSOT: scripts/harness.mjs · .claude/{agents,skills}/ · src/ui/screens/ · supabase/migrations/ · src/app/{changelog,researchLog}.ts
 // check-registry-gen 게이트가 이 파일이 SSOT와 일치하는지(커밋본==재생성본) 검사합니다.
 
 export const REGISTRY = {
@@ -20,6 +20,7 @@ export const REGISTRY = {
   ] as const,
   gateCount: 12,
   agentCount: 28,
+  skillCount: 8,
   screenCount: 9,
   migrationCount: 10,
   changelogCount: 54,

@@ -1,0 +1,63 @@
+---
+name: map-place-dev
+description: 지도·장소 개발 프롬프트 — ui/screens/mapView.ts·services/geocode.ts·domain/place/geojson.ts(지도 표시/장소 검색/좌표 지정/GeoJSON)를 만들거나 수정하기 전에 반드시 로드한다. 외부 데이터 신뢰 경계·좌표 소유 규칙·오프라인 대체·타일 제공자 계약과 과거 결함 사례를 담은 작업 헌장. 지도 화면, 마커, 지오코딩, 내보내기 작업 시 사용.
+---
+
+# 지도·장소 개발 프롬프트 (Map & Place Dev Charter)
+
+지도는 **장식이 아니라 공간적 기억을 되살리는 도구**다. 예뻐 보이려고 정보를 더하지 않는다.
+타일 제공자 결정의 정본은 `docs/DECISIONS.md` ADR-0023이다.
+
+## 0. 파일 지도
+
+| 파일 | 역할 | 성격 |
+|---|---|---|
+| `src/domain/place/geojson.ts` | `momentCoord`(사진 GPS→순간 좌표)·`toFeatureCollection` | **순수 → 유닛테스트 대상** |
+| `src/services/geocode.ts` | Nominatim URL 조립·응답 파싱(`buildNominatimUrl`·`parseNominatimResults`) | URL/파싱은 순수(테스트 대상), fetch만 부수효과 |
+| `src/ui/screens/mapView.ts` | MapLibre 지도 보기 + **좌표 지정(picker)** | DOM |
+| `src/ui/screens/tripDetail.ts` | 장소 입력 필드(`buildPlaceField`) | DOM |
+
+## 1. 불변 계약
+
+1. **외부 데이터는 신뢰 경계다**: Nominatim 결과는 남이 만든 문자열이다. **`textContent`로만** 렌더한다(`innerHTML` 절대 금지). 파싱은 형태를 검증하고 이상값은 버린다.
+2. **좌표의 출처에 따라 수명이 다르다**:
+   - **검색 좌표**는 이름과 묶여 있다 → 사용자가 이름을 손으로 고치면 **무효화**한다(다른 장소일 수 있으므로).
+   - **지도에서 찍은 좌표**는 이름과 독립이다 → 이름을 나중에 적어도 **유지**한다(`mapPicked` 플래그).
+   - 이 구분을 지우면 "지도로 찍고 이름 적었더니 위치가 사라짐" 결함이 돌아온다.
+3. **등록되지 않은 장소를 지원한다**: Nominatim에 없는 곳도 기록할 수 있어야 한다 — 이름은 자유 입력, 좌표는 지도 탭으로. 검색 결과에 의존하는 흐름을 만들지 않는다.
+4. **GPS는 민감 PII다**: 사진 EXIF GPS는 **서버에 동기화하지 않는다**(PRIVACY). 공유용 파생물에도 넣지 않는다. 지도 표시는 로컬 데이터로만.
+5. **오프라인·실패 시 대체 경로**: 타일 로드 실패·WebGL 미지원이면 **장소 목록**으로 대체해 기억 접근을 보장한다. 지도가 안 떠도 앱이 막히면 안 된다.
+6. **저트래픽 예의**: Nominatim은 공용 무료 서비스다 — 타이핑마다 자동 검색하지 않고 **버튼 제출 시에만** 호출한다. 귀속 표시를 유지한다.
+7. **CSP는 같은 커밋에서**: 타일·지오코딩 호스트를 바꾸면 `index.html`과 `scripts/check-csp.mjs`의 `REQUIRED`를 함께 갱신한다(ADR-0023 규율).
+
+## 2. 타일 제공자 (바꾸려면 이 조건 확인)
+
+- 기본값: **OpenStreetMap 래스터** — 키·계정 불필요, 정적 배포 호환, 귀속 표시 필수.
+- `VITE_MAP_STYLE_URL`로 교체 가능(사용자 자신의 MapTiler/Stadia 등). 교체 시 CSP 호스트도 함께.
+- **정직**: OSM 타일 사용정책은 대량 트래픽 앱을 권장하지 않는다 — 개인·저트래픽이라 수용하되, 규모가 커지면 전용 제공자로 옮긴다.
+- 인라인 래스터 스타일을 쓰므로 스타일 JSON 외부 fetch가 없다(글리프·스프라이트 없음). 벡터로 바꾸면 이 전제가 깨지니 CSP를 재점검.
+
+## 3. 과거 결함 등록부
+
+| 사례 | 근본형 | 재발 방지 |
+|---|---|---|
+| 장소 선택 후 결과창이 안 사라짐 | `display`를 가진 클래스가 `[hidden]` 속성을 이김 | 전역 `[hidden]{display:none!important}` — **결함군으로 박멸**(UI 헌장 §3과 공유) |
+| 지도로 좌표를 찍고 이름을 적으면 좌표가 사라짐 | 좌표 무효화 규칙을 출처 구분 없이 적용 | `mapPicked` 플래그로 지도 좌표는 이름과 독립 유지 |
+| (예방) 검색 결과를 `innerHTML`로 렌더할 뻔 | 외부 문자열을 신뢰 | `textContent` 전용 + CSP 게이트 |
+| (예방) 지도 팝업이 재렌더 때 엉뚱한 순간을 가리킴 | 팝업을 배열 인덱스로 식별 | **안정 id**로 식별(인덱스 금지) |
+
+## 4. 검증 레시피
+
+자동층:
+- `npm run harness` — **`check-csp`**(타일·지오코딩 호스트), `check-domain-wiring`
+- 순수 유닛: `geojson`(GPS→좌표 선택·FeatureCollection 형태), `geocode`(URL 조립·이상 응답 방어 파싱)
+
+**정직한 경계**: 이 샌드박스는 외부 타일·Nominatim 호스트를 차단한다 → **실 타일 렌더·검색 결과는 실기기 몫**이다. "지도 확인함"이라고 쓰지 말 것. 순수 로직(URL·파싱·좌표 선택)까지만 검증됐다고 적는다.
+
+수동(사용자 확인 권장): 실기기 지도 팬·핀치, 마커 밀집 시 겹침, 타일 로딩 체감, 오프라인 대체 화면.
+
+## 5. 변경 후 의무
+
+- `changelog.ts` +0.01 · `researchLog.ts` · `docs/HANDOFF.md` · 새 교훈은 **이 문서 §3에 행 추가**
+- 새 화면을 추가하면 `app/blueprint.ts` SCREENS 등록
+- 장소가 독립 도메인(`places` 테이블)으로 승격되면 `.claude/skills/sync-offline-dev` §2 절차를 따른다
