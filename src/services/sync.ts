@@ -11,6 +11,7 @@ import { toMediaRow, fromMediaRow, mediaStoragePath, type MediaRow } from '../do
 import { compressForStorage } from '../media/compress';
 import { mergeDecision, isEmptyCloudAnomaly, classifyError } from '../sync/merge';
 import type { JourneyClient } from './supabase/client';
+import { r2BlobStore, mediaStoreKind, type BlobStore } from './r2';
 
 export interface SyncResult {
   pushed: number;
@@ -140,6 +141,9 @@ export interface MediaRemote {
 
 export function mediaRemote(client: JourneyClient): MediaRemote {
   const bucket = client.storage.from('journey-media');
+  // 바이트 3종만 어댑터 교체 가능(ADR-0024). 메타·RLS·병합 규율은 어느 쪽이든 동일하다.
+  // 기본값은 Supabase Storage — R2는 VITE_MEDIA_STORE=r2로 **명시적으로만** 켜진다.
+  const blobs: BlobStore | null = mediaStoreKind() === 'r2' ? r2BlobStore(client) : null;
   return {
     async upsert(row) {
       try {
@@ -166,6 +170,7 @@ export function mediaRemote(client: JourneyClient): MediaRemote {
       }
     },
     async uploadDisplay(path, blob) {
+      if (blobs) return blobs.uploadDisplay(path, blob);
       try {
         const r = await bucket.upload(path, blob, { upsert: true, contentType: 'image/webp' });
         return { error: r.error?.message };
@@ -174,6 +179,7 @@ export function mediaRemote(client: JourneyClient): MediaRemote {
       }
     },
     async download(path) {
+      if (blobs) return blobs.download(path);
       try {
         const r = await bucket.download(path);
         return { data: r.data ?? null, error: r.error?.message };
@@ -182,6 +188,7 @@ export function mediaRemote(client: JourneyClient): MediaRemote {
       }
     },
     async remove(path) {
+      if (blobs) return blobs.remove(path);
       try {
         const r = await bucket.remove([path]);
         return { error: r.error?.message };

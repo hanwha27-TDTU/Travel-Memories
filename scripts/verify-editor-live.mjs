@@ -136,6 +136,17 @@ const r2Text = await page.$eval('.guide-body', (b) => b.textContent ?? '');
 check('R2 가이드: 버킷 잠금 경고 포함', r2Text.includes('버킷 잠금'), '');
 check('R2 가이드: 캡처 금지 경고 포함', r2Text.includes('캡처 금지'), '');
 check('R2 가이드: 검증 사다리 포함', r2Text.includes('검증 사다리'), '');
+// v0.56 읽기 정책 B — 공개 URL을 켜지 않는다는 지시가 화면에 실제로 떠야 한다.
+// (문서에만 있고 가이드가 옛 지시를 유지하면 사용자가 공개 URL을 켜 버린다 = 원칙 #3 위반)
+check('R2 가이드: 공개 URL 금지 지시 렌더', r2Text.includes('공개 URL은 켜지 않는다'), '');
+check('R2 가이드: 시크릿 4개로 안내', r2Text.includes('시크릿 4개'), '');
+check('R2 가이드: 값 목록에 R2_PUBLIC_BASE 행 없음', (await page.locator('.r2-key', { hasText: 'R2_PUBLIC_BASE' }).count()) === 0, '');
+check('R2 가이드: 연결 확인 버튼(사다리 2번) 존재', (await page.locator('[data-probe-r2]').count()) === 1, '');
+// 로컬 전용 모드에서 눌러도 앱이 죽지 않고 상태를 말해야 한다.
+await page.locator('[data-probe-r2]').click();
+await page.waitForSelector('.r2-probe-note:not([hidden])', { timeout: 3000 });
+const probeText = await page.$eval('.r2-probe-note', (n) => n.textContent ?? '');
+check('R2 가이드: 연결 확인이 상태를 알려줌', probeText.length > 0, probeText);
 await page.keyboard.press('Escape');
 await page.waitForTimeout(250);
 while ((await page.locator('.guide-overlay').count()) > 0) {

@@ -5,6 +5,15 @@
 
 ---
 
+## ADR-0024 · 사진 바이트를 Cloudflare R2로 — 읽기도 서명(정책 B), 공개 URL 없음
+- 유형: `[AI-proposed→user-approved]`(사용자 "B로 가자") · AI: Claude Code · 날짜: 2026-07-25
+- `docs/STORAGE_R2_PROPOSAL.md` §8의 **단 하나 남은 결정**을 확정. 사진 표시본 바이트를 Supabase Storage → **Cloudflare R2**로 옮기되, 버킷은 **비공개**로 두고 **읽기도 5분 presigned GET**으로 준다(A=공개 URL 기각, C=커스텀 도메인+Access 보류). `R2_PUBLIC_BASE`를 쓰지 않으므로 시크릿은 5개가 아니라 **4개**.
+- 근거: 비타협 원칙 #3(개인자료 기본 비공개). "URL을 모르면 안전"은 보안이 아니라 은닉이며 백업·기기 공유·브라우저 이력으로 URL은 잘 샌다. **B의 대가가 우리 앱에선 작다** — 화면은 언제나 로컬 blob(`tripDetail.ts`의 `thumbBlob`/`displayBlob`)으로 그리므로 읽기 서명은 *새 기기가 그 사진을 처음 받을 때 사진당 1회*뿐이다. (Medical-Note는 URL로 직접 표시해 A가 합리적이었다 — 같은 구조가 아니라서 같은 결론이 되지 않는다.)
+- 구조(Medical-Note 실증 채택): Edge Function `media-sign`이 SigV4로 presigned PUT/GET/DELETE를 발급, 바이트는 브라우저↔R2 직행. **객체 키를 서버가 만든다** — 클라이언트는 `mediaId`만 보내고 사용자 폴더는 검증된 `sub`에서 나온다. 덕분에 기존 경로 규약 `{uid}/{id}.webp`가 **그대로 유지**되어 이미 저장된 행의 마이그레이션이 없다(원본 경로를 건드리지 않는 쪽이 원칙 #1에 안전). 인증은 플랫폼 `verify_jwt`에 의존하지 않고 매 요청 `/auth/v1/user`로 실제 확인한다. 삭제는 함수가 서명·실행(브라우저에 삭제 권한 없음).
+- 어댑터 경계: 포트 `MediaRemote`의 **바이트 3종만** 교체(`src/services/r2.ts`). 메타 테이블·RLS·좀비 트리거·동기화 병합 규율·백업 형식은 무변경. 기본값은 여전히 Supabase Storage이고 **`VITE_MEDIA_STORE=r2`로만 켜진다** → 되돌리기는 환경변수 하나(옛 객체 스윕 전까지 무손실).
+- 검증: `tests/unit/mediaSign.test.ts` 13개 — 경로 규약 파리티(함수 `objectKey` ↔ 앱 `mediaStoragePath`), 클라이언트가 보낸 폴더/키 무시, 미인증 401, 서명에 정규 URI·메서드가 참여, 비밀키가 URL·probe 응답에 미포함. **비공허 확인**: (a) 클라이언트 키 신뢰 (b) 확장자 어긋남 두 결함을 주입해 각각 RED 확인 후 복원. CSP `connect-src`에 `https://*.r2.cloudflarestorage.com` 추가(`check-csp` REQUIRED 동시 갱신) — `img-src`는 **열지 않는다**(로컬 blob 표시라 필요 없다).
+- **정직**: 서명값이 R2에 실제로 받아들여지는지는 이 환경에서 증명 불가(샌드박스가 R2에 못 붙는다). 검증 사다리 3번(실기기 업로드)이 유일한 결정적 증명이며 릴리스 체크리스트에 사람 단계로 남는다. 외부 콘솔 설정(버킷·CORS·토큰)은 사용자 몫이며 코드가 볼 수 없다.
+
 ## ADR-0023 · A-006 지도 타일 제공자 = OSM 래스터 기본값(교체 가능)
 - 유형: `[AI-proposed→user-approved]`(사용자 "지도 진행하자") · AI: Claude Code · 날짜: 2026-07-23
 - 오래 대기하던 A-006(지도 타일 제공자·예산)을 확정. 기본값 = **OpenStreetMap 래스터 타일**(키·계정 불필요, GitHub Pages 정적 배포·무료 티어 호환, 귀속표시 필수). `VITE_MAP_STYLE_URL` 설정 시 그 스타일로 교체(사용자 자신의 MapTiler/Stadia 등). CSP `img-src`·`connect-src`에 `https://tile.openstreetmap.org` 추가(index.html + `check-csp.mjs` REQUIRED, 같은 커밋).

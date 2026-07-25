@@ -102,6 +102,20 @@ EXIF 지오태그·자동 태그·자동 장소 후보는 `confidence`와 함께
 
 작은 앱용 파생본(2560px WebP 등)은 **standard upload**를 사용한다. 6MB를 넘거나 네트워크 안정성이 중요한 **원본·영상은 TUS resumable upload**를 사용한다(원본보관 모드는 후속, 별도 bucket).
 
+## 바이트 저장소 어댑터 (ADR-0024 — Supabase Storage | Cloudflare R2)
+
+포트 `MediaRemote`의 **바이트 3종**(`uploadDisplay`/`download`/`remove`)만 갈아끼운다. 메타 테이블·RLS·좀비 트리거·동기화 병합 규율·백업 형식은 **어느 쪽이든 동일**하다.
+
+```text
+기본값(설정 없음)  : Supabase Storage 버킷 journey-media
+VITE_MEDIA_STORE=r2: Edge Function media-sign이 presign → 브라우저↔R2 직행
+경로 규약          : {user_id}/{media_id}.webp  (양쪽 동일 — 이관에 경로 마이그레이션 없음)
+```
+
+- **읽기 정책 B**: 버킷 비공개 + presigned GET. 화면 표시는 **로컬 blob**이 담당하므로(`thumbBlob`/`displayBlob`) 읽기 서명은 *새 기기가 그 사진을 처음 받을 때 사진당 1회*.
+- **되돌리기**: 환경변수 제거 → 즉시 Supabase 경로 복귀. 옛 객체 스윕 전까지 무손실.
+- **검증**: `tests/unit/mediaSign.test.ts`(경로 파리티·키 위조 차단·비밀 미유출). 서명값의 실제 수용은 실기기 업로드로만 증명된다.
+
 ## 개인정보 · EXIF whitelist (H-09)
 
 EXIF GPS/시각은 민감 PII. 원본 EXIF 전체 JSON을 저장하지 않고 **whitelist된 필드만** `media_assets.exif_whitelist`에 담는다 — **MakerNote·기기 일련번호·얼굴영역·불필요한 전체 EXIF 제외**. 공유용 파생 파일에는 GPS·불필요한 EXIF를 넣지 않는다. 게이트 후보 `check-exif-whitelist`. 상세 `docs/PRIVACY.md`.
