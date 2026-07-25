@@ -236,6 +236,34 @@ export function overlayContract(css) {
   return bad;
 }
 
+// ── 검사 I: 시맨틱 틴트 위 원색 텍스트 금지 ─────────────────────────────────
+/**
+ * 실제 사고(2026-07-26): 시맨틱색 12~15% 틴트 배경 위에 **같은 색 원색 텍스트**를 쓰면
+ * 라이트 테마에서 대비가 2.5~3.0:1로 무너진다(필요 4.5:1). 다크에서는 통과라 **다크에서만
+ * 확인하면 안 보인다**(LESSONS §5 전형).
+ *
+ * v0.69에서 이 부류를 고쳤는데 **손으로 고른 규칙만 고쳤다.** 이번에 사용자 화면의 칩
+ * (`📍 김포국제공항`·`💰 50,000 so'm`)이 그대로 남아 있는 것을 정독 중에 발견했다 —
+ * M-0012와 정확히 같은 형태다. 그래서 규칙을 **기계가 전수 검사**하게 바꾼다.
+ *
+ * ⚠️ `border-left-color:`도 "color:"를 부분문자열로 포함한다 — 선언 경계를 봐야 오탐이 없다
+ * (M-0011과 같은 함정).
+ */
+export function semanticTintContrast(css) {
+  const bad = [];
+  for (const m of css.matchAll(/([^{}]*)\{([^}]*)\}/g)) {
+    const [sel, decl] = [m[1].trim().split('\n').pop().trim(), m[2]];
+    for (const hue of ['teal', 'sky', 'pink']) {
+      const tinted = new RegExp(`background[^;]*--sem-${hue}\\)`).test(decl);
+      const rawInk = new RegExp(`(?:^|[;{])\\s*color:\\s*var\\(--sem-${hue}\\)`).test(decl);
+      if (tinted && rawInk) {
+        bad.push(`${sel}: --sem-${hue} 틴트 위에 원색 텍스트 — 라이트에서 대비 미달. --sem-${hue}-ink 를 쓸 것`);
+      }
+    }
+  }
+  return bad;
+}
+
 // ── 셀프테스트: 알려진 실패가 RED로 잡히는지(게이트 비공허, CLAUDE.md §4) ──
 {
   const cases = [
@@ -375,6 +403,18 @@ export function overlayContract(css) {
         ),
       clean: false,
     },
+    { name: '-ink 변형을 쓰면 정상', fn: () => semanticTintContrast(`.a { background: color-mix(in srgb, var(--sem-teal) 12%, transparent); color: var(--sem-teal-ink); }`), clean: true },
+    {
+      name: '틴트 위 원색 텍스트 검출(실제 결함 — 화면의 칩)',
+      fn: () => semanticTintContrast(`.chip.money { background: color-mix(in srgb, var(--sem-teal) 15%, transparent); color: var(--sem-teal); }`),
+      clean: false,
+    },
+    {
+      name: 'border-left-color를 color로 오인하지 않는다(오탐 방지)',
+      fn: () => semanticTintContrast(`.a { border-left-color: var(--sem-teal); background: color-mix(in srgb, var(--sem-teal) 7%, var(--bg-2)); }`),
+      clean: true,
+    },
+    { name: '틴트 없이 원색 텍스트만 쓰는 것은 무관', fn: () => semanticTintContrast(`.a { color: var(--sem-sky); }`), clean: true },
   ];
   const broken = cases.filter((c) => (c.fn().length === 0) !== c.clean);
   if (broken.length) {
@@ -393,6 +433,7 @@ for (const p of toolRegistryComplete(read('src/ui/panels/diagnostics.ts'))) prob
 for (const p of legacyRows(read(NO_LEGACY_ROWS.file), NO_LEGACY_ROWS.banned)) problems.push(`${NO_LEGACY_ROWS.file}: ${p}`);
 
 for (const p of overlayContract(read('src/ui/styles/app.css'))) problems.push(`src/ui/styles/app.css: ${p}`);
+for (const p of semanticTintContrast(read('src/ui/styles/app.css'))) problems.push(`src/ui/styles/app.css: ${p}`);
 
 for (const p of pullsApplyRemotePurge(read('src/services/sync.ts'), read('src/services/purge.ts'))) {
   problems.push(`src/services/sync.ts: ${p}`);
@@ -429,4 +470,4 @@ if (problems.length) {
   console.error('check-verdict-symmetry: 진단 판정 계약 위반 — 도구 간 대칭이 깨졌다.');
   process.exit(1);
 }
-console.log(`check-verdict-symmetry: OK (셀프테스트 27건 통과 · 강조 렌더러 온전 · src ${scanned}개 파일 우회 0 · guide-card 화면 ${cardFiles}곳 계약 준수 · 지표 기대값·도구 필드 정상)`);
+console.log(`check-verdict-symmetry: OK (셀프테스트 31건 통과 · 강조 렌더러 온전 · src ${scanned}개 파일 우회 0 · guide-card 화면 ${cardFiles}곳 계약 준수 · 지표 기대값·도구 필드 정상)`);

@@ -242,12 +242,12 @@
 /* 알아둘 것(대기·로컬 모드·로그인 안내): 옅은 색 알약. */
 .sync-note.is-info {
   background: color-mix(in srgb, var(--sem-sky) 12%, transparent);
-  color: var(--sem-sky);
+  color: var(--sem-sky-ink);
 }
 /* 실패: 놓치면 안 되는 것만 여기 온다. */
 .sync-note.is-error {
   background: color-mix(in srgb, var(--sem-pink) 15%, transparent);
-  color: var(--sem-pink);
+  color: var(--sem-pink-ink);
   font-weight: 700;
 }
 
@@ -394,8 +394,8 @@
   font-size: 0.72rem; font-weight: 700; padding: 5px 10px; border-radius: var(--radius-pill);
   background: var(--bg-2); color: var(--ink-soft);
 }
-.chip.gps { background: color-mix(in srgb, var(--sem-sky) 15%, transparent); color: var(--sem-sky); }
-.chip.money { background: color-mix(in srgb, var(--sem-teal) 15%, transparent); color: var(--sem-teal); }
+.chip.gps { background: color-mix(in srgb, var(--sem-sky) 15%, transparent); color: var(--sem-sky-ink); }
+.chip.money { background: color-mix(in srgb, var(--sem-teal) 15%, transparent); color: var(--sem-teal-ink); }
 /* 환산값(기계 파생 보조 표시) — 원금액보다 약하게. 사용자가 적은 값과 시각적으로 구분한다(원칙 #2). */
 .chip-approx {
   margin-left: 6px; padding-left: 6px;
@@ -500,11 +500,50 @@
 .place-result-full { font-size: 0.72rem; color: var(--ink-soft); line-height: 1.4; }
 .place-none { padding: 8px 10px; font-size: 0.82rem; }
 .place-picked {
-  font-size: 0.8rem; font-weight: 700; color: var(--sem-teal);
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: 0.8rem; font-weight: 700;
+  /* 틴트 배경 위 텍스트는 --sem-*-ink(테마별 변형). 원색은 라이트에서 2.6:1로 무너진다.
+     지난 대비 수정(v0.69) 때 이 형제를 놓쳤다 — 정독 중 발견해 함께 고친다(§7). */
+  color: var(--sem-teal-ink);
   background: color-mix(in srgb, var(--sem-teal) 12%, transparent);
   border-radius: var(--radius-small); padding: 6px 10px; line-height: 1.4;
 }
 .place-picked[hidden] { display: none; }
+.place-picked-text { flex: 1 1 auto; min-width: 0; }
+
+/* ===== 선택 해제 공용 어휘 (§7 사용자 대면 대칭) =====
+   실제 사고(2026-07-26 사용자 지적): 저장된 사진에는 ✕가 있는데 **저장 전 선택분에는 없어서**
+   같은 화면 안에서 어휘가 갈렸다. 잘못 고르면 폼을 떠나는 수밖에 없었다.
+   규칙: **선택할 수 있으면 해제할 수 있다.** 해제 어포던스는 늘 ✕, 늘 오른쪽 위. */
+.chip-clear {
+  flex: 0 0 auto; width: 24px; height: 24px; margin-left: auto;
+  display: grid; place-items: center; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-soft);
+  font-size: 0.7rem; line-height: 1; cursor: pointer;
+}
+.chip-clear:hover { color: var(--ink); border-color: var(--a1); }
+
+/* 선택한 사진 미리보기 — 저장된 사진 격자와 같은 어휘(썸네일 + 우상단 ✕). */
+.pick-preview { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-top: var(--space-2); }
+.pick-preview[hidden] { display: none; }
+.pick-cell { position: relative; width: 64px; height: 64px; }
+.pick-thumb {
+  width: 100%; height: 100%; object-fit: cover;
+  border-radius: var(--radius-small); border: 1px solid var(--line); display: block;
+}
+.pick-x {
+  position: absolute; top: -6px; right: -6px;
+  width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%;
+  border: none; background: rgba(8, 8, 18, .72); color: #fff;
+  font-size: 0.66rem; line-height: 1; cursor: pointer;
+}
+.pick-x:hover { background: rgba(8, 8, 18, .9); }
+.pick-clear-all {
+  min-height: 32px; padding: 0 var(--space-3); border-radius: var(--radius-pill);
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-soft);
+  font-size: 0.76rem; font-weight: 700; cursor: pointer;
+}
+.pick-clear-all:hover { color: var(--ink); border-color: var(--a1); }
 
 /* 비용 입력(금액 + 통화) */
 .moment-money { display: flex; gap: var(--space-2); align-items: stretch; }
@@ -1240,7 +1279,7 @@
   border-radius: var(--radius-medium); font-size: 0.78rem; line-height: 1.55;
 }
 .r2-note-tag { flex: 0 0 auto; font-size: 0.72rem; font-weight: 800; white-space: nowrap; }
-.r2-note-danger { background: color-mix(in srgb, var(--sem-pink) 13%, transparent); color: var(--sem-pink); }
+.r2-note-danger { background: color-mix(in srgb, var(--sem-pink) 13%, transparent); color: var(--sem-pink-ink); }
 .r2-note-warn { background: color-mix(in srgb, var(--a3, var(--a1)) 14%, transparent); color: var(--ink); }
 .r2-note-tip { background: color-mix(in srgb, var(--sem-teal) 12%, transparent); color: var(--sem-teal-ink); }
 .r2-shot { margin: var(--space-2) 0 0; }
