@@ -36,6 +36,9 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_MAP_STYLE_URL: ${{ vars.VITE_MAP_STYLE_URL }}
+          # 사진 바이트 저장소 선택(ADR-0024). 'r2'일 때만 R2 경로가 켜지고, 미설정이면
+          # 기존 Supabase Storage로 동작한다 → 되돌리기가 이 변수 하나를 지우는 일이 된다.
+          VITE_MEDIA_STORE: ${{ vars.VITE_MEDIA_STORE }}
       # SPA 딥링크 폴백: 404.html = index.html (history 라우팅, DEPLOYMENT.md)
       - run: cp dist/index.html dist/404.html
       - name: Secret leak scan on build artifact

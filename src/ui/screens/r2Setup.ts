@@ -79,7 +79,7 @@ const PLAIN: [string, string][] = [
   ],
   [
     '제가 할 일은 뭔가요?',
-    '아래 1~8단계를 순서대로 따라 하시면 됩니다. 대부분 홈페이지에서 버튼 몇 개 누르는 일이고, 마지막에 값 5개를 옮겨 적으면 끝나요. 위험한 곳은 빨간 표시로 미리 알려드립니다.',
+    '아래 단계를 순서대로 따라 하시면 됩니다. 대부분 홈페이지에서 버튼 몇 개 누르는 일이고, 마지막에 값 4개를 옮겨 적으면 끝나요. 위험한 곳은 빨간 표시로 미리 알려드립니다.',
   ],
 ];
 
@@ -316,7 +316,7 @@ export function openR2Setup(): void {
   }
 
   // 확보할 값
-  body.appendChild(el('h3', 'guide-h', '확보해야 할 값 5개'));
+  body.appendChild(el('h3', 'guide-h', `확보해야 할 값 ${VALUES.length}개`));
   const vals = el('div', 'r2-table');
   for (const [k, where] of VALUES) {
     const row = el('div', 'r2-row');
