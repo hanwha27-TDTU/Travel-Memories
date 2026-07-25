@@ -23,7 +23,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DB_FILE = join(ROOT, 'src/offline/db.ts');
 const BACKUP_FILE = join(ROOT, 'src/services/backup.ts');
 
-const EXCLUDE = new Set(['syncQueue', 'localFxRates']);
+// purgedIds — "이 기기에서 영구히 치움" 표식(A안). 기억이 아니라 **로컬 표시 상태**다.
+//   판단 기준("이걸 잃으면 사용자의 기억이 사라지나?"): 아니오 — 잃으면 휴지통에 다시 보일 뿐이다.
+//   백업에 담으면 오히려 해롭다: 복원은 기억을 **되살리는** 행위인데, 표식까지 복원되면 사용자가
+//   되살리려는 것을 다시 무시하게 된다(그래서 importMergeRows는 복원한 행의 표식을 지운다).
+const EXCLUDE = new Set(['syncQueue', 'localFxRates', 'purgedIds']);
 
 /** db.ts에서 Dexie 테이블 프로퍼티명을 뽑는다: `localTrips!: Table<...>`. */
 function parseTableNames(src) {

@@ -4,7 +4,7 @@
 // 서버 push는 인증(Google OAuth, Phase 1 후속)이 붙기 전까지 대기열에만 쌓인다 —
 // sync_queue가 그 대기열이며, 유실되지 않는다.
 
-import { db, type LocalTrip, type SyncQueueItem } from '../offline/db';
+import { db, type LocalTrip, type SyncQueueItem, type PurgedId } from '../offline/db';
 
 function uuid(): string {
   return crypto.randomUUID();
@@ -293,11 +293,29 @@ export async function restoreTripFromTrash(id: string): Promise<LocalTrip> {
   });
 }
 
+/** 대기 중인 동기화 작업이 남아 영구삭제를 진행할 수 없을 때. UI가 문구를 구분해 안내한다. */
+export class PendingSyncError extends Error {
+  constructor(public readonly count: number) {
+    super(`아직 서버에 반영되지 않은 변경이 ${count}건 있습니다. 먼저 동기화해 주세요.`);
+    this.name = 'PendingSyncError';
+  }
+}
+
 /**
- * 영구 삭제 — 휴지통에서 이 기기의 저장공간을 실제로 비운다(여행 + 순간 + 사진 로컬 하드 삭제).
- * 되돌릴 수 없다. 삭제된(tombstone) 행에만 적용한다(활성 여행은 먼저 tombstone돼야 함).
- * 주의(정직): 다른 기기와 동기화를 쓰면, 서버에 아직 남은 행이 다음 pull에서 되살아날 수 있다.
- * 진짜 영구 삭제(서버 포함)는 동기화 실연동 후속에서 tombstone 전파로 다룬다.
+ * 영구 삭제 — 이 기기의 저장공간을 실제로 비운다(여행+순간+사진+비용 로컬 하드 삭제).
+ *
+ * ⚠️ 결함 이력(2026-07-25, A안 채택): 예전에는 로컬 행만 지우고 서버에 아무것도 알리지 않았다.
+ * `mergeDecision`은 **로컬에 없으면 무조건 서버를 채택**하므로(`if (!local) take-server`)
+ * 다음 pull에서 그대로 되살아났다. 특히 *동기화 전에* 영구삭제하면 큐의 op가 고아가 되어
+ * 폐기되고(서버는 **활성** 그대로) **지운 여행이 통째로 부활**했다.
+ *
+ * 두 가지로 막는다:
+ *  1) **사전 조건** — 이 여행·자식에 대기 중인 op가 하나라도 있으면 거부한다(PendingSyncError).
+ *     op가 없다 = tombstone이 이미 서버에 반영됐다는 뜻이므로, 서버에 활성 행이 남는 갈래가 사라진다.
+ *  2) **영구삭제 표식** — 지운 id를 `purgedIds`에 남기고 pull이 그 id를 건너뛴다.
+ *     서버 행은 tombstone으로 **남겨 둔다**(다른 기기 전파용) — 하드 삭제하지 않는다(§0).
+ *
+ * 되돌릴 수 없다. tombstone된 여행에만 적용한다.
  */
 export async function purgeTripPermanently(id: string): Promise<void> {
   const d = db();
@@ -308,7 +326,24 @@ export async function purgeTripPermanently(id: string): Promise<void> {
   const moments = await d.localMoments.where('tripId').equals(id).toArray();
   const media = await d.localMedia.where('tripId').equals(id).toArray();
   const expenses = await d.localExpenses.where('tripId').equals(id).toArray();
-  await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, d.localExpenses, async () => {
+
+  // ① 사전 조건: 이 여행 가족에 대기 중인 동기화 작업이 있으면 진행하지 않는다.
+  //    (permanent_failed도 포함해 센다 — 실패한 채 남은 것도 "서버에 반영 안 됨"이다.)
+  const ids = new Set<string>([id, ...moments.map((m) => m.id), ...media.map((m) => m.id), ...expenses.map((e) => e.id)]);
+  const pending = (await d.syncQueue.toArray()).filter((q) => ids.has(q.entityId));
+  if (pending.length) throw new PendingSyncError(pending.length);
+
+  const now = new Date().toISOString();
+  const marks: PurgedId[] = [
+    { id, entityType: 'trip', purgedAt: now },
+    ...moments.map((m) => ({ id: m.id, entityType: 'moment' as const, purgedAt: now })),
+    ...media.map((m) => ({ id: m.id, entityType: 'media' as const, purgedAt: now })),
+    ...expenses.map((e) => ({ id: e.id, entityType: 'expense' as const, purgedAt: now })),
+  ];
+
+  await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.purgedIds, async () => {
+    // ② 표식을 **먼저** 넣는다. 중간에 실패해도 "지웠는데 표식이 없어 되살아나는" 창이 생기지 않는다.
+    await d.purgedIds.bulkPut(marks);
     if (media.length) await d.localMedia.bulkDelete(media.map((m) => m.id));
     if (expenses.length) await d.localExpenses.bulkDelete(expenses.map((e) => e.id));
     if (moments.length) await d.localMoments.bulkDelete(moments.map((m) => m.id));
@@ -317,6 +352,7 @@ export async function purgeTripPermanently(id: string): Promise<void> {
 
   const back = await d.localTrips.get(id);
   if (back) throw new Error('영구 삭제 확인 실패: 행이 남아 있음');
+  if (!(await d.purgedIds.get(id))) throw new Error('영구 삭제 확인 실패: 표식이 남지 않음');
 }
 
 /** 홈 목록 (tombstone·보관 제외 — deletedAt/status는 filter, M-0005). */

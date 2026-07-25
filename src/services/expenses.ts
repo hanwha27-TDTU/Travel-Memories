@@ -121,6 +121,33 @@ export async function softDeleteExpenseLocalFirst(id: string): Promise<void> {
   if (!back || back.deletedAt === null) throw new Error('내구성 커밋 확인 실패: 비용 삭제 read-back 불일치');
 }
 
+/**
+ * 비용 되살리기(실행취소) — 삭제와 **대칭**. version+1로 LWW에서 최신이 이긴다.
+ *
+ * 2026-07-25 감사 F4: trips·moments·media에는 restore가 있는데 비용만 없어, 개별 비용 삭제는
+ * 되돌릴 수 없었다. 도메인 간 생명주기 대칭이 깨져 있던 자리다.
+ */
+export async function restoreExpenseLocalFirst(id: string): Promise<void> {
+  const d = db();
+  const cur = await d.localExpenses.get(id);
+  if (!cur) throw new Error('비용을 찾을 수 없습니다.');
+  const now = new Date().toISOString();
+  const opId = uuid();
+  await d.transaction('rw', d.localExpenses, d.syncQueue, async () => {
+    await d.localExpenses.put({
+      ...cur,
+      deletedAt: null,
+      version: cur.version + 1,
+      updatedAt: now,
+      baseVersion: cur.version,
+      clientOperationId: opId,
+    });
+    await d.syncQueue.add(expenseOp(opId, id, 'update', now));
+  });
+  const back = await d.localExpenses.get(id);
+  if (!back || back.deletedAt !== null) throw new Error('내구성 커밋 확인 실패: 비용 복원 read-back 불일치');
+}
+
 /** 여행의 활성 비용(통계·합계용). tombstone 제외. */
 export async function listExpensesByTrip(tripId: string): Promise<LocalExpense[]> {
   const rows = await db().localExpenses.where('tripId').equals(tripId).toArray();

@@ -266,6 +266,7 @@ export async function pullTrips(remote: TripsRemote): Promise<{ pulled: number; 
   if (res.error) throw new Error(res.error);
   const serverRows = res.data;
 
+  const purged = await purgedIdSet();
   const localActive = (await d.localTrips.toArray()).filter((t) => t.deletedAt === null).length;
   if (isEmptyCloudAnomaly(serverRows.length, localActive)) {
     return { pulled: 0, skippedEmptyCloud: true }; // 로컬 보존
@@ -273,6 +274,7 @@ export async function pullTrips(remote: TripsRemote): Promise<{ pulled: number; 
 
   let pulled = 0;
   for (const r of serverRows) {
+    if (purged.has(r.id)) continue; // 이 기기에서 영구히 치운 것 — 되살리지 않는다
     const server = fromRow(r);
     const local = await d.localTrips.get(server.id);
     if (mergeDecision(local, server) === 'take-server') {
@@ -335,6 +337,7 @@ export async function pullMoments(remote: MomentsRemote): Promise<{ pulled: numb
   if (res.error) throw new Error(res.error);
   const serverRows = res.data;
 
+  const purged = await purgedIdSet();
   const localActive = (await d.localMoments.toArray()).filter((m) => m.deletedAt === null).length;
   if (isEmptyCloudAnomaly(serverRows.length, localActive)) {
     return { pulled: 0, skippedEmptyCloud: true };
@@ -342,6 +345,7 @@ export async function pullMoments(remote: MomentsRemote): Promise<{ pulled: numb
 
   let pulled = 0;
   for (const r of serverRows) {
+    if (purged.has(r.id)) continue; // 이 기기에서 영구히 치운 것 — 되살리지 않는다
     const server = fromMomentRow(r);
     const local = await d.localMoments.get(server.id);
     if (mergeDecision(local, server) === 'take-server') {
@@ -404,6 +408,7 @@ export async function pullExpenses(remote: ExpensesRemote): Promise<{ pulled: nu
   if (res.error) throw new Error(res.error);
   const serverRows = res.data;
 
+  const purged = await purgedIdSet();
   const localActive = (await d.localExpenses.toArray()).filter((e) => e.deletedAt === null).length;
   if (isEmptyCloudAnomaly(serverRows.length, localActive)) {
     return { pulled: 0, skippedEmptyCloud: true };
@@ -411,6 +416,7 @@ export async function pullExpenses(remote: ExpensesRemote): Promise<{ pulled: nu
 
   let pulled = 0;
   for (const r of serverRows) {
+    if (purged.has(r.id)) continue; // 이 기기에서 영구히 치운 것 — 되살리지 않는다
     const server = fromExpenseRow(r);
     const local = await d.localExpenses.get(server.id);
     if (mergeDecision(local, server) === 'take-server') {
@@ -486,6 +492,7 @@ export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; 
   if (res.error) throw new Error(res.error);
   const rows = res.data;
 
+  const purged = await purgedIdSet();
   const localActive = (await d.localMedia.toArray()).filter((m) => m.deletedAt === null).length;
   if (isEmptyCloudAnomaly(rows.length, localActive)) {
     return { pulled: 0, skippedEmptyCloud: true };
@@ -493,6 +500,7 @@ export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; 
 
   let pulled = 0;
   for (const r of rows) {
+    if (purged.has(r.id)) continue; // 이 기기에서 영구히 치운 것 — 되살리지 않는다
     const server = fromMediaRow(r);
     const local = await d.localMedia.get(server.id);
     if (mergeDecision(local, server) !== 'take-server') continue;
@@ -593,6 +601,16 @@ export async function requeueOrphanTombstones(): Promise<{ media: number; expens
     expenses++;
   }
   return { media, expenses };
+}
+
+/**
+ * 영구삭제 표식 조회 — pull이 이 id를 건너뛴다.
+ *
+ * 없으면 `purgeTripPermanently`가 만든 표식이 장식이 되고, 서버 tombstone을 다시 받아와
+ * **휴지통에 되살아난다**(A안의 핵심 절반이 여기다). 네 pull 함수가 **모두** 써야 한다.
+ */
+async function purgedIdSet(): Promise<Set<string>> {
+  return new Set((await db().purgedIds.toArray()).map((p) => p.id));
 }
 
 /** 정합 복구 1회 실행 표식. 완료된 tombstone까지 매번 다시 밀지 않도록 잠근다. */

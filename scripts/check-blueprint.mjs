@@ -20,8 +20,9 @@ const SCREENS_DIR = join(ROOT, 'src/ui/screens');
 const DOMAIN_DIR = join(ROOT, 'src/domain');
 
 // 파생 데이터 테이블(도메인 발전원이 아님) — 배선맵의 '발전원'은 사용자 기억 도메인만 센다.
-// syncQueue=동기화 큐, localFxRates=환율 표 캐시(재취득 가능한 공개 데이터).
-const EXCLUDE_TABLES = new Set(['syncQueue', 'localFxRates']);
+// syncQueue=동기화 큐, localFxRates=환율 표 캐시(재취득 가능한 공개 데이터),
+// purgedIds=영구삭제 표식(로컬 표시 상태 — 화면에 그릴 기억이 아니다).
+const EXCLUDE_TABLES = new Set(['syncQueue', 'localFxRates', 'purgedIds']);
 
 /** blueprint.ts에서 SOURCES 객체들을 뽑는다. */
 function parseSources(src) {
