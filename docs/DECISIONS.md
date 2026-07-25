@@ -5,6 +5,16 @@
 
 ---
 
+## ADR-0025 · 영구삭제 = "서버 tombstone 유지 + 이 기기 무시 표식"(A안)
+- 유형: `[AI-proposed→user-approved]`(사용자 "니 권고로 가자") · AI: Claude Code · 날짜: 2026-07-25
+- 정밀 감사에서 드러난 결함(F1): `purgeTripPermanently`가 **로컬 행만 하드 삭제**하고 서버에 알리지 않았다. `mergeDecision`은 로컬에 없으면 무조건 서버를 채택하므로(`if (!local) return 'take-server'`) 다음 pull에서 **되살아났다**. 특히 *동기화 전* 영구삭제는 큐 op를 고아로 만들어 폐기시켰고(`sync.ts` 4곳), 서버에 **활성 행**이 남아 **지운 여행이 통째로 부활**했다. 바이트(R2·Supabase 객체)도 영구 고아가 됐다.
+- **채택 A**: ①**사전 조건** — 그 여행 가족에 대기 중인 큐 op가 하나라도 있으면 거부(`PendingSyncError`, `permanent_failed`도 포함해 센다). op가 없다 = tombstone이 서버에 반영됐다는 뜻이므로 "서버에 활성 행이 남는" 갈래가 사라진다. ②**영구삭제 표식** — 지운 id를 `purgedIds`(Dexie v6)에 남기고 **네 pull 함수 모두** 그 id를 건너뛴다. 서버 행은 tombstone으로 **남겨 둔다**(다른 기기 전파용).
+- **기각 B(서버 행 하드 삭제)**: 그 사실을 모르는 다른 기기가 자기 사본을 다시 올려 **좀비**를 만들 수 있고, tombstone 전용 규율(§0)도 깨진다. **기각 C(문구만 정정)**: 안전하지만 기능이 이름값을 못 한다.
+- `purgedIds`는 **기억이 아니라 로컬 표시 상태**다 → 동기화·백업 제외(`check-backup-coverage`·`check-blueprint` EXCLUDE에 근거 명시). 백업에 담으면 오히려 해롭다: 복원은 기억을 되살리는 행위인데 표식까지 복원되면 되살리려는 것을 다시 무시한다 → 그래서 `importMergeRows`는 **복원한 행의 표식을 지운다**(사용자 의사 우선).
+- 함께 고친 것: **F2** 백업 복원이 sync op를 만들지 않아 복원한 기억이 이 기기에만 갇히던 문제, **F4** 비용에만 없던 개별 복원(실행취소), **F6** 휴지통 안내문 부정확·오류 은폐.
+- 검증: `tests/unit/cascadeOps.test.ts` 12개. **비공허 실증** — (a) 표식만 지우면 pull이 되살리는 것을 테스트로 재현(옛 결함 그대로), (b) 백업 op 생성을 제거하면 2건 RED. harness 13게이트·verify-editor-live 77/77·build 그린.
+- **정직**: 실제 2기기 시나리오(A에서 영구삭제 → B가 여전히 보유 → A가 다시 pull)는 이 환경에서 재현할 수 없다 — 유닛은 한 기기의 결정 로직만 증명한다.
+
 ## ADR-0024 · 사진 바이트를 Cloudflare R2로 — 읽기도 서명(정책 B), 공개 URL 없음
 - 유형: `[AI-proposed→user-approved]`(사용자 "B로 가자") · AI: Claude Code · 날짜: 2026-07-25
 - `docs/STORAGE_R2_PROPOSAL.md` §8의 **단 하나 남은 결정**을 확정. 사진 표시본 바이트를 Supabase Storage → **Cloudflare R2**로 옮기되, 버킷은 **비공개**로 두고 **읽기도 5분 presigned GET**으로 준다(A=공개 URL 기각, C=커스텀 도메인+Access 보류). `R2_PUBLIC_BASE`를 쓰지 않으므로 시크릿은 5개가 아니라 **4개**.

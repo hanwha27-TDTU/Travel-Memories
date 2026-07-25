@@ -90,12 +90,32 @@ export interface SyncQueueItem {
   createdAt: string;
 }
 
+// 영구삭제 표식(A안, ADR 예정) — "이 기기에서 영구히 치운 것"의 목록.
+//
+// 왜 필요한가(실제 결함): 휴지통 영구삭제는 로컬 행을 하드 삭제하는데, `mergeDecision`은
+// **로컬에 없으면 무조건 서버를 채택**한다(`if (!local) return 'take-server'`). 그래서 다음
+// pull에서 그대로 되살아났다 — 영구삭제가 이름값을 못 했다.
+//
+// 서버 행을 하드 삭제하는 길(B안)은 택하지 않았다: 그 사실을 모르는 다른 기기가 자기 사본을
+// 다시 올려 **좀비**를 만들 수 있고, tombstone 전용 규율(§0)도 깨진다. 대신 서버에는
+// tombstone을 남기고 **이 기기만 그 id를 무시**한다 — 하드 삭제 없이 목적을 이룬다.
+//
+// 성격: 기억이 아니라 **로컬 표시 상태**다. 잃어도 사용자의 기억은 그대로이고, 휴지통에 다시
+// 나타날 뿐이다 → 동기화·백업 대상이 아니다(localFxRates·syncQueue와 같은 분류).
+export interface PurgedId {
+  /** 영구삭제된 엔티티 id(여행·순간·사진·비용 모두 같은 목록에 담는다). */
+  id: string;
+  entityType: 'trip' | 'moment' | 'media' | 'expense';
+  purgedAt: string;
+}
+
 export class JourneyDB extends Dexie {
   localTrips!: Table<LocalTrip, string>;
   localMoments!: Table<LocalMoment, string>;
   localMedia!: Table<LocalMedia, string>;
   localExpenses!: Table<LocalExpense, string>;
   localFxRates!: Table<LocalFxRate, string>;
+  purgedIds!: Table<PurgedId, string>;
   syncQueue!: Table<SyncQueueItem, string>;
 
   constructor() {
@@ -124,6 +144,10 @@ export class JourneyDB extends Dexie {
     // v5: 환율 표 캐시. 파생 데이터라 동기화·백업 대상 아님(위 LocalFxRate 주석).
     this.version(5).stores({
       localFxRates: 'id, date, base',
+    });
+    // v6: 영구삭제 표식. pull이 이 id를 건너뛰어 "지운 것이 되살아나는" 부활을 막는다.
+    this.version(6).stores({
+      purgedIds: 'id, entityType, purgedAt',
     });
   }
 }

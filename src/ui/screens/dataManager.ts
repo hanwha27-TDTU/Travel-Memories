@@ -2,7 +2,7 @@
 // 비타협 원칙 #1(기억을 잃지 않는다)의 사용자 도구. 가이드 모달과 같은 시각 시스템(.guide-*) 재사용.
 // 모든 자유 텍스트는 textContent로만(innerHTML 금지 — CSP·XSS 게이트).
 
-import { el } from '../dom';
+import { el, setNote } from '../dom';
 import { openGuide } from './guide';
 import { exportBackup, exportBackupZip, importBackupAuto } from '../../services/backup';
 import { recordBackupNow, getLastBackupAt, backupFreshness } from '../../services/backupMeta';
@@ -253,6 +253,9 @@ function trashPanel(onChanged: () => void): HTMLElement {
   );
   const list = el('div', 'dm-trash-list');
   box.appendChild(list);
+  /** 영구삭제 결과 안내(특히 "먼저 동기화" 같은 행동 가능한 이유). setNote가 상태별 위계를 준다. */
+  const purgeNote = el('p', 'r2-probe-note');
+  purgeNote.hidden = true;
 
   const render = (): void => {
     void (async () => {
@@ -299,9 +302,12 @@ function trashPanel(onChanged: () => void): HTMLElement {
           void (async () => {
             try {
               await purgeTripPermanently(t.id);
+              setNote(purgeNote, '', 'ok');
               onChanged();
               render();
-            } catch {
+            } catch (e) {
+              // 조용히 삼키지 않는다 — 특히 "먼저 동기화" 같은 **행동 가능한** 이유는 반드시 보여준다.
+              setNote(purgeNote, (e as Error).message || '영구삭제에 실패했어요.', 'error');
               confirmBtn.disabled = false;
             }
           })();
@@ -313,7 +319,14 @@ function trashPanel(onChanged: () => void): HTMLElement {
     })();
   };
   render();
-  box.appendChild(el('p', 'guide-note', '영구삭제는 되돌릴 수 없어요. 동기화를 쓰면 다른 기기에 남은 기록이 되살아날 수 있습니다.'));
+  box.appendChild(purgeNote);
+  box.appendChild(
+    el(
+      'p',
+      'guide-note',
+      '영구삭제는 되돌릴 수 없어요. **이 기기의 저장공간**을 비우는 것이며, 다른 기기에는 그대로 남아 있을 수 있습니다. 이 기기에서는 다시 나타나지 않아요. 아직 서버에 반영되지 않은 삭제가 있으면 먼저 동기화를 요청합니다 — 그래야 지운 것이 되살아나지 않습니다.',
+    ),
+  );
   return box;
 }
 

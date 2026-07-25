@@ -28,6 +28,7 @@ import {
   createExpenseLocalFirst,
   updateExpenseLocalFirst,
   softDeleteExpenseLocalFirst,
+  restoreExpenseLocalFirst,
   listExpensesByTrip,
 } from '../../services/expenses';
 import { CURRENCIES, DEFAULT_CURRENCY, currencyLabel, formatMoney, sumByCurrency, formatTotals } from '../../domain/expense/format';
@@ -642,7 +643,14 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
               });
             }
           } else if (existingExpense) {
-            await softDeleteExpenseLocalFirst(existingExpense.id);
+            const removedId = existingExpense.id;
+            await softDeleteExpenseLocalFirst(removedId);
+            // 다른 도메인과 같은 복구 보장(§5) — 비용만 되돌릴 수 없던 자리를 메운다.
+            showUndoToast('비용을 삭제했어요', async () => {
+              await restoreExpenseLocalFirst(removedId);
+              await refresh();
+              void trySync();
+            });
           }
           await refresh();
           void trySync();

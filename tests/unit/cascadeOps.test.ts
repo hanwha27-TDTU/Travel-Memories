@@ -13,8 +13,15 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import 'fake-indexeddb/auto';
 import { db } from '../../src/offline/db';
-import { createTripLocalFirst, softDeleteTripLocalFirst, restoreTripLocalFirst } from '../../src/services/trips';
-import { requeueOrphanTombstones } from '../../src/services/sync';
+import {
+  createTripLocalFirst,
+  softDeleteTripLocalFirst,
+  restoreTripLocalFirst,
+  purgeTripPermanently,
+  PendingSyncError,
+} from '../../src/services/trips';
+import { requeueOrphanTombstones, pullTrips } from '../../src/services/sync';
+import { importMergeRows } from '../../src/services/backup';
 
 /** 큐에서 (종류 → id 집합) 맵을 만든다. */
 async function queued(): Promise<Map<string, Set<string>>> {
@@ -60,6 +67,7 @@ beforeEach(async () => {
   await d.localMedia.clear();
   await d.localExpenses.clear();
   await d.syncQueue.clear();
+  await d.purgedIds.clear();
   try {
     localStorage.clear();
   } catch {
@@ -145,5 +153,110 @@ describe('정합 복구 — 이미 발생한 고아를 되돌린다', () => {
     await seedTrip(); // 삭제하지 않음
     expect(await requeueOrphanTombstones()).toEqual({ media: 0, expenses: 0 });
     expect((await db().syncQueue.toArray()).length).toBe(0);
+  });
+});
+
+describe('영구삭제(A안) — 지운 것이 되살아나지 않는다', () => {
+  it('대기 중인 동기화 작업이 있으면 거부한다 — 서버에 활성 행이 남는 갈래를 원천 차단', async () => {
+    const { tripId } = await seedTrip();
+    await softDeleteTripLocalFirst(tripId); // op가 큐에 쌓인 상태(= 서버 미반영)
+    await expect(purgeTripPermanently(tripId)).rejects.toThrow(PendingSyncError);
+    // 거부됐으니 로컬 행도 그대로 살아 있어야 한다(중간 상태 금지).
+    expect(await db().localTrips.get(tripId)).toBeTruthy();
+  });
+
+  it('op가 비면 진행하고, 여행·자식 전부에 영구삭제 표식을 남긴다', async () => {
+    const { tripId, momentId, mediaId, expenseId } = await seedTrip();
+    await softDeleteTripLocalFirst(tripId);
+    await db().syncQueue.clear(); // push 완료 상황을 흉내
+
+    await purgeTripPermanently(tripId);
+    const d = db();
+    expect(await d.localTrips.get(tripId)).toBeUndefined();
+    for (const id of [tripId, momentId, mediaId, expenseId]) {
+      expect(await d.purgedIds.get(id), `표식 누락: ${id}`).toBeTruthy();
+    }
+  });
+
+  it('영구삭제한 여행은 pull이 되살리지 않는다', async () => {
+    const { tripId } = await seedTrip();
+    await softDeleteTripLocalFirst(tripId);
+    await db().syncQueue.clear();
+    await purgeTripPermanently(tripId);
+
+    // 서버에는 tombstone이 남아 있다(다른 기기 전파용) — 그걸 그대로 돌려주는 원격을 흉내낸다.
+    const serverRow = {
+      id: tripId, user_id: 'u', title: '테스트 여행', start_date: null, end_date: null,
+      status: 'planned', cover_media_id: null, created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(), deleted_at: new Date().toISOString(),
+      version: 9, base_version: 8, client_operation_id: null,
+    };
+    const remote = {
+      upsert: async () => ({}),
+      getById: async () => ({ data: null }),
+      listAll: async () => ({ data: [serverRow] as never }),
+    };
+    const r = await pullTrips(remote as never);
+    expect(r.pulled).toBe(0); // 건너뛴다
+    expect(await db().localTrips.get(tripId)).toBeUndefined(); // 되살아나지 않는다
+  });
+
+  it('표식이 없으면 pull이 되살린다 — 이 검사가 공허하지 않음을 증명', async () => {
+    const { tripId } = await seedTrip();
+    await softDeleteTripLocalFirst(tripId);
+    await db().syncQueue.clear();
+    await purgeTripPermanently(tripId);
+    await db().purgedIds.clear(); // 표식만 지운다(= 옛 결함 상태)
+
+    const serverRow = {
+      id: tripId, user_id: 'u', title: '테스트 여행', start_date: null, end_date: null,
+      status: 'planned', cover_media_id: null, created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(), deleted_at: new Date().toISOString(),
+      version: 9, base_version: 8, client_operation_id: null,
+    };
+    const remote = {
+      upsert: async () => ({}),
+      getById: async () => ({ data: null }),
+      listAll: async () => ({ data: [serverRow] as never }),
+    };
+    await pullTrips(remote as never);
+    expect(await db().localTrips.get(tripId)).toBeTruthy(); // 옛 결함이 그대로 재현된다
+  });
+});
+
+describe('백업 복원 — 되살린 기억이 서버로도 간다(F2)', () => {
+  it('병합된 행마다 sync op가 생긴다', async () => {
+    const now = new Date().toISOString();
+    const tripId = crypto.randomUUID();
+    const rows = {
+      trips: [{
+        id: tripId, title: '복원된 여행', startDate: null, endDate: null, status: 'planned',
+        coverMediaId: null, createdAt: now, updatedAt: now, deletedAt: null,
+        version: 3, baseVersion: 2, clientOperationId: null,
+      }],
+      moments: [], media: [], expenses: [],
+    };
+    await importMergeRows(rows as never);
+
+    const q = await queued();
+    expect(q.get('trip')?.has(tripId)).toBe(true); // op가 없으면 이 기기에만 갇힌다
+  });
+
+  it('복원한 행의 영구삭제 표식은 걷어낸다 — 사용자 의사가 우선', async () => {
+    const now = new Date().toISOString();
+    const tripId = crypto.randomUUID();
+    await db().purgedIds.put({ id: tripId, entityType: 'trip', purgedAt: now });
+
+    await importMergeRows({
+      trips: [{
+        id: tripId, title: '되살린 여행', startDate: null, endDate: null, status: 'planned',
+        coverMediaId: null, createdAt: now, updatedAt: now, deletedAt: null,
+        version: 3, baseVersion: 2, clientOperationId: null,
+      }],
+      moments: [], media: [], expenses: [],
+    } as never);
+
+    expect(await db().purgedIds.get(tripId)).toBeUndefined(); // 남으면 pull이 계속 무시한다
+    expect(await db().localTrips.get(tripId)).toBeTruthy();
   });
 });

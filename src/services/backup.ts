@@ -16,7 +16,7 @@
 //  - 빈-데이터 가드: 백업이 비었는데 로컬에 활성 데이터가 있으면 로컬을 지우지 않는다.
 //  - 사진 원본은 읽기만 하고 수정하지 않는다(§0). 고아 행(부모 없는 순간/사진/비용)도 유실 없이 담는다.
 
-import { db, type LocalTrip, type LocalMoment, type LocalMedia, type LocalExpense } from '../offline/db';
+import { db, type LocalTrip, type LocalMoment, type LocalMedia, type LocalExpense, type SyncMeta } from '../offline/db';
 import { mergeDecision, isEmptyCloudAnomaly } from '../sync/merge';
 import { zipStore, unzip, looksLikeZip, type ZipEntry } from './zip';
 import { encryptBytes, decryptBytes, isEncryptedEnvelope } from './backupCrypto';
@@ -87,28 +87,49 @@ export async function importMergeRows(rows: CollectedRows): Promise<ImportResult
   let mc = 0;
   let mdc = 0;
   let ec = 0;
-  await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, d.localExpenses, async () => {
+  // 복원한 행은 **서버로도 전파돼야** 한다. op를 만들지 않으면 그 기억은 이 기기에만 남고
+  // 다른 기기·서버에 영영 닿지 않는다(재해 복구의 절반이 빠진 상태). 2026-07-25 감사 F2.
+  const enqueue = async (entityType: 'trip' | 'moment' | 'media' | 'expense', row: SyncMeta & { id: string }): Promise<void> => {
+    await d.syncQueue.add({
+      operationId: crypto.randomUUID(),
+      entityType,
+      entityId: row.id,
+      operationType: row.deletedAt !== null ? 'delete' : 'update',
+      state: 'local_only',
+      attempts: 0,
+      createdAt: new Date().toISOString(),
+    });
+    // 사용자가 명시적으로 복원한 것은 "영구히 치움" 의사보다 우선한다 — 표식을 걷어낸다.
+    // (남겨두면 로컬에는 있는데 pull이 계속 무시하는 어긋난 상태가 된다.)
+    await d.purgedIds.delete(row.id);
+  };
+
+  await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.syncQueue, d.purgedIds], async () => {
     for (const t of rows.trips) {
       if (mergeDecision(await d.localTrips.get(t.id), t) === 'take-server') {
         await d.localTrips.put(t);
+        await enqueue('trip', t);
         tc += 1;
       }
     }
     for (const m of rows.moments) {
       if (mergeDecision(await d.localMoments.get(m.id), m) === 'take-server') {
         await d.localMoments.put(m);
+        await enqueue('moment', m);
         mc += 1;
       }
     }
     for (const me of rows.media) {
       if (mergeDecision(await d.localMedia.get(me.id), me) === 'take-server') {
         await d.localMedia.put(me);
+        await enqueue('media', me);
         mdc += 1;
       }
     }
     for (const ex of rows.expenses) {
       if (mergeDecision(await d.localExpenses.get(ex.id), ex) === 'take-server') {
         await d.localExpenses.put(ex);
+        await enqueue('expense', ex);
         ec += 1;
       }
     }
