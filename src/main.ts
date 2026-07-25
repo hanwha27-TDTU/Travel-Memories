@@ -7,6 +7,11 @@ import { renderHome } from './ui/screens/home';
 import { renderTripDetail } from './ui/screens/tripDetail';
 import { initTheme } from './ui/theme';
 import { db } from './offline/db';
+import { installErrorLog } from './app/errorLog';
+
+// 런타임 오류를 앱이 스스로 모은다 — 개발자가 볼 수 없는 영역에 낸 창(진단 도구).
+// 가장 먼저 설치해야 이후 초기화에서 나는 오류도 잡힌다.
+installErrorLog();
 
 // 저장된 테마·계절 선호를 문서에 반영(첫 페인트 전).
 initTheme();

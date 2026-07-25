@@ -3,7 +3,7 @@
 // 모든 자유 텍스트는 textContent로만(innerHTML 금지 — CSP·XSS 게이트).
 
 import { el, setNote } from '../dom';
-import { syncDiagnosticsPanel, integrityPanel } from '../panels/diagnostics';
+import { openDiagnosticsHub } from './diagnosticsHub';
 import { openGuide } from './guide';
 import { exportBackup, exportBackupZip, importBackupAuto } from '../../services/backup';
 import { recordBackupNow, getLastBackupAt, backupFreshness } from '../../services/backupMeta';
@@ -389,8 +389,7 @@ function cards(onChanged: () => void): HubCard[] {
     { icon: '☁️', label: 'R2 저장소 설정', hint: '사진 저장소 설정 절차·함정 기록', open: (h) => { h.close(); openR2Setup(); } },
     { icon: '💾', label: '백업 (내보내기)', hint: '기억을 파일로 저장', open: (h) => h.detail('💾 백업 (내보내기)', backupPanel()) },
     { icon: '📥', label: '복원 (가져오기)', hint: '백업 파일에서 병합 복원', open: (h) => h.detail('📥 복원 (가져오기)', restorePanel(onChanged)) },
-    { icon: '🔍', label: '동기화 진단', hint: '서버와 얼마나 어긋나 있나', open: (h) => h.detail('🔍 동기화 진단', syncDiagnosticsPanel()) },
-    { icon: '🔎', label: 'ID 무결성 점검', hint: '기록이 서로 앞뒤가 맞나 (읽기 전용)', open: (h) => h.detail('🔎 ID 무결성 점검', integrityPanel()) },
+    { icon: '🩺', label: '진단 도구', hint: '동기화·무결성·저장소·환경·오류 한 곳에', open: (h) => { h.close(); openDiagnosticsHub(); } },
     { icon: '🗑', label: '휴지통', hint: '삭제한 여행 복원·영구삭제', open: (h) => h.detail('🗑 휴지통', trashPanel(onChanged)) },
     { icon: '📖', label: '가이드', hint: '연결·설정과 개발·설계 안내', open: (h) => { h.close(); openGuide(); } },
   ];

@@ -1303,3 +1303,13 @@
 .se-w { margin-top: 8px; }
 .se-w-sum { cursor: pointer; font-size: 0.76rem; font-weight: 700; color: var(--a1); }
 .se-findings { margin-top: var(--space-2); }
+
+/* 진단 요약 복사 — 긴 텍스트는 가로 스크롤로 가두고 본문은 넘치지 않게. */
+.diag-pre {
+  margin: var(--space-2) 0; padding: 10px 12px;
+  max-height: 300px; overflow: auto;
+  border: 1px solid var(--line); border-radius: var(--radius-medium); background: var(--bg-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem; line-height: 1.55; color: var(--ink);
+  white-space: pre-wrap; word-break: break-word;
+}

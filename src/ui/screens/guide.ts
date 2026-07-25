@@ -8,7 +8,7 @@
 
 import { el } from '../dom';
 import { EVAL_ITEMS, summarize, gradeOf, CRITICAL_CAP } from '../../app/selfEval';
-import { syncDiagnosticsPanel, integrityPanel } from '../panels/diagnostics';
+import { openDiagnosticsHub } from './diagnosticsHub';
 import { REGISTRY } from '../../app/registry.gen';
 import { GATE_DESC } from '../../app/gates';
 import { openMechChecks } from './mechChecks';
@@ -62,7 +62,10 @@ interface GuideCard {
   icon: string;
   label: string;
   hint: string;
-  render: () => HTMLElement;
+  /** 이 모달 안에서 펼칠 내용. 별도 창을 여는 카드는 null. */
+  render: (() => HTMLElement) | null;
+  /** 별도 모달을 여는 카드(진단 도구 등) — 가이드를 닫고 그 창을 연다. */
+  open?: () => void;
 }
 interface GuideGroup {
   icon: string;
@@ -258,16 +261,11 @@ const DEV_GROUP: GuideGroup = {
       render: () => selfEvalPanel(),
     },
     {
-      icon: '🔍',
-      label: '동기화 진단',
-      hint: '서버와 얼마나 어긋나 있나',
-      render: () => syncDiagnosticsPanel(),
-    },
-    {
-      icon: '🔎',
-      label: 'ID 무결성 점검',
-      hint: '기록이 서로 앞뒤가 맞나 (읽기 전용)',
-      render: () => integrityPanel(),
+      icon: '🩺',
+      label: '진단 도구',
+      hint: '동기화·무결성·저장소·환경·오류',
+      render: null,
+      open: () => openDiagnosticsHub(),
     },
     {
       icon: '📜',
@@ -433,13 +431,19 @@ export function openGuide(): void {
     closeBtn.focus();
   };
   const showDetail = (card: GuideCard): void => {
+    // 별도 창을 여는 카드(진단 도구)는 가이드를 닫고 그쪽으로 넘긴다 — 모달 중첩을 만들지 않는다.
+    if (!card.render && card.open) {
+      close();
+      card.open();
+      return;
+    }
     bodyEl.innerHTML = '';
     const bar = el('div', 'guide-detail-bar');
     const back = el('button', 'guide-back', '‹ 가이드') as HTMLButtonElement;
     back.type = 'button';
     back.addEventListener('click', showHome);
     bar.append(back, el('span', 'guide-detail-title', `${card.icon} ${card.label}`));
-    bodyEl.append(bar, card.render());
+    bodyEl.append(bar, card.render!());
     bodyEl.scrollTop = 0;
     back.focus();
   };
