@@ -1,7 +1,7 @@
 // ui/screens/tripDetail.ts — 여행 상세 + 타임라인 + 순간 기록(로컬우선).
 // 자유 텍스트는 textContent만 사용. 서버 동기화(순간)는 후속 — 지금은 이 기기에 내구성 저장.
 
-import { el } from '../dom';
+import { el, setNote } from '../dom';
 import { showUndoToast } from '../toast';
 import {
   getTrip,
@@ -1046,7 +1046,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
             }
           }
           await processPhotosIntoMoment(files, moment.id, trip!.id, (msg) => {
-            note.textContent = msg;
+            setNote(note, msg, 'info'); // 사진 처리 진행 — 잠깐 보이는 정보
           });
           input.value = '';
           placeField.reset();
@@ -1056,12 +1056,12 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           photoInput.value = '';
           photoCount.textContent = '';
           for (const btn of emoButtons.values()) btn.setAttribute('aria-pressed', 'false');
-          note.textContent = '✅ 저장됨';
+          setNote(note, '✅ 저장됨', 'ok'); // 정상 — 조용하게
           await refresh();
           await trySync(); // 로그인 시 서버로 전송(순간). 사진은 후속(3b).
           await refresh();
         } catch (err) {
-          note.textContent = `저장 실패: ${err instanceof Error ? err.message : String(err)}`;
+          setNote(note, `저장 실패: ${err instanceof Error ? err.message : String(err)}`, 'error');
         } finally {
           save.disabled = false;
         }

@@ -22,7 +22,7 @@ import {
   type SessionUser,
 } from '../../services/auth';
 import { runSync } from '../../services/sync';
-import { el } from '../dom';
+import { el, setNote } from '../dom';
 import { openDataManager } from './dataManager';
 import { openAboutApp } from './aboutApp';
 import { APP_VERSION } from '../../app/changelog';
@@ -372,12 +372,14 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
     } else {
       items.forEach((t, i) => list.appendChild(tripCard(t, i, navigate, deleteTrip)));
     }
+    // 정상(동기화됨)은 조용하게, 알아둘 것·문제는 눈에 띄게(setNote 위계).
     if (!isConfigured()) {
-      status.textContent = `📴 로컬 저장 모드 · 대기 ${pending}건`;
+      setNote(status, `📴 로컬 저장 모드 · 대기 ${pending}건`, 'info');
     } else if (user) {
-      status.textContent = pending > 0 ? `☁️ 동기화 대기 ${pending}건` : '☁️ 동기화됨';
+      if (pending > 0) setNote(status, `☁️ 동기화 대기 ${pending}건`, 'info');
+      else setNote(status, '☁️ 동기화됨', 'ok');
     } else {
-      status.textContent = `🔒 로그인하면 기기 간 동기화 · 로컬 대기 ${pending}건`;
+      setNote(status, `🔒 로그인하면 기기 간 동기화 · 로컬 대기 ${pending}건`, 'info');
     }
   }
 
