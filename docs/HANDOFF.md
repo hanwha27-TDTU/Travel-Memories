@@ -141,7 +141,7 @@
 ```
 npm ci
 git config core.hooksPath .githooks   # commit-msg hook 활성
-npm run harness                        # Required 게이트 전체 (현재 <!--reg:gateCount-->16<!--/reg-->개 — 목록은 scripts/harness.mjs, 손편집 나열 금지 M-0001; 이 숫자는 gen-registry가 자동 갱신·check-doc-counts가 대조)
+npm run harness                        # Required 게이트 전체 (현재 <!--reg:gateCount-->17<!--/reg-->개 — 목록은 scripts/harness.mjs, 손편집 나열 금지 M-0001; 이 숫자는 gen-registry가 자동 갱신·check-doc-counts가 대조)
 npm run build                          # base=/Travel-Memories/ 정적 빌드
 npm run dev                            # 홈 화면 확인 (선택)
 ```

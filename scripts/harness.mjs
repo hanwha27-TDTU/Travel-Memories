@@ -11,6 +11,7 @@ const gates = [
   { name: 'check-env-wiring', cmd: 'node scripts/check-env-wiring.mjs' },
   { name: 'check-domain-symmetry', cmd: 'node scripts/check-domain-symmetry.mjs' },
   { name: 'check-verdict-symmetry', cmd: 'node scripts/check-verdict-symmetry.mjs' },
+  { name: 'check-skill-routing', cmd: 'node scripts/check-skill-routing.mjs' },
   { name: 'check-self-eval', cmd: 'node scripts/check-self-eval.mjs' },
   { name: 'check-schema-parity', cmd: 'node scripts/check-schema-parity.mjs' },
   { name: 'check-backup-coverage', cmd: 'node scripts/check-backup-coverage.mjs' },

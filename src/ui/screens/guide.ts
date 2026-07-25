@@ -399,12 +399,12 @@ function buildGroup(group: GuideGroup, onOpen: (card: GuideCard) => void): HTMLE
 export function openGuide(): void {
   const prevFocus = document.activeElement as HTMLElement | null;
 
-  const overlay = el('div', 'guide-overlay');
+  const overlay = el('div', 'overlay-base guide-overlay');
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
   overlay.setAttribute('aria-label', '가이드');
 
-  const modal = el('div', 'guide-modal');
+  const modal = el('div', 'modal-base guide-modal');
 
   // 헤더
   const header = el('div', 'guide-header');

@@ -199,6 +199,57 @@ await page.getByRole('button', { name: '순간 저장' }).click();
 await page.waitForSelector('.pe-overlay', { timeout: 10000 });
 check('편집기 모달 열림', true);
 
+// ── v0.72: 짧은 뷰포트(가로 태블릿)에서 모달이 잘리지 않는가 ──
+// 실제 사고(2026-07-26, 사용자 실기기 가로 태블릿): 편집기 상하가 잘리고 여백이 없었다.
+// 원인은 `.pe-overlay`가 `vh`(주소창 포함 높이)를 쓰고 오버레이가 스크롤하지 않은 것.
+// 계약: 내용이 넘치면 **오버레이가 스크롤**해 전부 닿을 수 있어야 하고, 맨 위로 스크롤했을 때
+// 모달 상단이 화면 밖(음수)이면 안 된다. 세 오버레이가 같은 규칙(.overlay-base)을 쓴다.
+for (const [w, h, label] of [
+  [1280, 620, '가로 태블릿(짧은 높이)'],
+  [1024, 500, '가로 폰(아주 짧음)'],
+  [412, 915, '세로 폰'],
+]) {
+  await page.setViewportSize({ width: w, height: h });
+  await page.waitForTimeout(250);
+  const box = await page.evaluate(() => {
+    const ov = document.querySelector('.pe-overlay');
+    const sheet = document.querySelector('.pe-sheet');
+    if (!ov || !sheet) return null;
+    ov.scrollTop = 0;
+    const s = sheet.getBoundingClientRect();
+    const cs = getComputedStyle(ov);
+    return {
+      top: Math.round(s.top),
+      scrollable: ov.scrollHeight > ov.clientHeight,
+      overflowY: cs.overflowY,
+      alignItems: cs.alignItems,
+      padTop: parseFloat(cs.paddingTop),
+      padBottom: parseFloat(cs.paddingBottom),
+      reachBottom: Math.round(ov.scrollHeight - ov.clientHeight),
+      overflowX: document.body.scrollWidth - document.body.clientWidth,
+    };
+  });
+  // 계약을 **무조건** 만족해야 한다.
+  //
+  // ⚠️ 이 검사의 첫 판이 결함을 놓쳤다: `(!box.scrollable || overflowY === 'auto')` 로 썼더니
+  // 헤드리스에서는 시트가 항상 들어맞아(scrollable=false) 조건이 단락되고 통과했다. 더 근본적으로
+  // **헤드리스는 원인을 재현할 수 없다** — 실기기의 `vh`는 주소창이 보일 때 실제 화면보다 크지만
+  // 헤드리스엔 그 차이가 없다. 그래서 기하가 아니라 **계약**(스크롤 가능·정렬·여백)을 본다.
+  // 중앙정렬(place-items:center) + 넘침은 위아래로 똑같이 삐져나가 **스크롤로도 닿지 못한다** —
+  // 사용자가 본 화면이 정확히 그것이다.
+  const ok =
+    box &&
+    box.top >= 0 &&
+    box.padTop >= 8 &&
+    box.padBottom >= 8 &&
+    box.overflowY === 'auto' &&
+    box.alignItems !== 'center' &&
+    box.overflowX <= 0;
+  check(`편집기 ${label}: 상하 안 잘림 + 여백 + 스크롤 도달`, Boolean(ok), box ? JSON.stringify(box) : 'none');
+}
+await page.setViewportSize({ width: 412, height: 915 });
+await page.waitForTimeout(200);
+
 // 슬라이더 값 표시
 const valTexts = await page.$$eval('.pe-slider-val', (els) => els.map((e) => e.textContent));
 check('슬라이더 값 표시(9개, 0/0.0°)', valTexts.length === 9 && valTexts.filter((t) => t === '0').length === 8 && valTexts.includes('0.0°'), JSON.stringify(valTexts));

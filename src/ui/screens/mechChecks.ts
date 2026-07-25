@@ -16,11 +16,11 @@ const FLOW: [string, string][] = [
 
 export function openMechChecks(): void {
   const prevFocus = document.activeElement as HTMLElement | null;
-  const overlay = el('div', 'guide-overlay');
+  const overlay = el('div', 'overlay-base guide-overlay');
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
   overlay.setAttribute('aria-label', '기계화 검증 흐름도');
-  const modal = el('div', 'guide-modal');
+  const modal = el('div', 'modal-base guide-modal');
 
   const header = el('div', 'guide-header');
   const tw = el('div', 'guide-title-wrap');
