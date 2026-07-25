@@ -1264,3 +1264,42 @@
 .r2-qa { margin-top: var(--space-3); }
 .r2-q { display: block; font-size: 0.83rem; color: var(--sem-sky); }
 .r2-a { margin: 4px 0 0; font-size: 0.82rem; line-height: 1.65; color: var(--ink); }
+
+/* ===== 자기점검평가 · 무결성 점검 ===== */
+.se-head { display: flex; align-items: center; gap: var(--space-3); margin: var(--space-3) 0; }
+.se-score {
+  flex: 0 0 auto; display: flex; align-items: baseline; gap: 3px;
+  padding: 10px 14px; border-radius: var(--radius-medium);
+  background: color-mix(in srgb, var(--a1) 14%, transparent);
+}
+.se-score-n { font-size: 1.9rem; font-weight: 800; color: var(--a1); line-height: 1; }
+.se-score-d { font-size: 0.78rem; color: var(--ink-soft); }
+.se-head-meta { min-width: 0; }
+.se-head-title { margin: 0; font-weight: 800; font-size: 0.95rem; color: var(--ink); }
+.se-head-sub { margin: 2px 0 0; font-size: 0.78rem; color: var(--ink-soft); }
+.se-legend { margin: 0 0 var(--space-3); font-size: 0.72rem; line-height: 1.6; color: var(--ink-soft); }
+.se-cap {
+  margin: 0 0 var(--space-3); padding: 8px 12px; border-radius: var(--radius-medium);
+  background: color-mix(in srgb, var(--sem-pink) 14%, transparent); color: var(--sem-pink);
+  font-size: 0.8rem; font-weight: 700;
+}
+.se-item {
+  padding: var(--space-3); margin-bottom: var(--space-2);
+  border: 1px solid var(--line); border-radius: var(--radius-medium); background: var(--bg-2);
+}
+.se-item-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.se-item-title { flex: 1 1 auto; min-width: 0; font-weight: 700; font-size: 0.88rem; color: var(--ink); }
+.se-item-score { font-size: 1.05rem; font-weight: 800; color: var(--ink); }
+.se-badge { flex: 0 0 auto; padding: 2px 8px; border-radius: var(--radius-pill); font-size: 0.7rem; font-weight: 800; }
+.se-world { background: color-mix(in srgb, var(--sem-teal) 16%, transparent); color: var(--sem-teal); }
+.se-good { background: color-mix(in srgb, var(--sem-sky) 14%, transparent); color: var(--sem-sky); }
+.se-ok { background: color-mix(in srgb, var(--a3, var(--a1)) 16%, transparent); color: var(--ink); }
+.se-weak { background: color-mix(in srgb, var(--sem-pink) 15%, transparent); color: var(--sem-pink); }
+.se-bar { height: 5px; margin: 8px 0 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.se-bar-fill { height: 100%; background: var(--a1); border-radius: 3px; }
+.se-item-sub { margin: 0; font-size: 0.74rem; color: var(--ink-soft); }
+.se-basis { margin: 6px 0 0; font-size: 0.8rem; line-height: 1.6; color: var(--ink); }
+.se-gap { margin: 4px 0 0; font-size: 0.76rem; line-height: 1.55; color: var(--ink-soft); font-style: italic; }
+.se-w { margin-top: 8px; }
+.se-w-sum { cursor: pointer; font-size: 0.76rem; font-weight: 700; color: var(--a1); }
+.se-findings { margin-top: var(--space-2); }
