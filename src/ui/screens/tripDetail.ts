@@ -320,6 +320,12 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const body = el('section', 'detail-body');
     wrap.appendChild(body);
 
+    // 넓은 화면에서 [기록 폼 | 타임라인] 2단으로 나누기 위한 좌측 묶음.
+    // 좁은 화면에서는 그냥 세로로 흐른다(CSS가 분기) — DOM 순서는 기록 → 타임라인 그대로라
+    // 화면읽기·키보드 탐색 순서도 자연스럽다.
+    const compose = el('div', 'detail-compose');
+    body.appendChild(compose);
+
     // 편집 패널(날짜·상태·삭제) — 토글.
     const editPanel = buildEditPanel(
       trip,
@@ -344,7 +350,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     editBtn.addEventListener('click', () => {
       editPanel.hidden = !editPanel.hidden;
     });
-    body.appendChild(editPanel);
+    compose.appendChild(editPanel);
 
     // 순간 기록 폼
     const form = el('form', 'moment-form');
@@ -403,11 +409,11 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     save.type = 'submit';
 
     form.append(input, emoRow, placeField.el, moneyRow, photoLabel, save);
-    body.appendChild(form);
+    compose.appendChild(form);
 
     const note = el('p', 'sync-note', '');
     note.setAttribute('role', 'status');
-    body.appendChild(note);
+    compose.appendChild(note);
 
     const timeline = el('div', 'timeline-wrap');
     body.appendChild(timeline);

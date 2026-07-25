@@ -268,7 +268,9 @@
 .detail-hero {
   position: relative;
   min-height: 230px;
-  padding: max(18px, env(safe-area-inset-top, 0)) 20px 20px;
+  /* 위쪽 여백은 절대배치 버튼줄(뒤로가기·지도·편집: top 16px + 높이 40px)만큼 **비워둔다**.
+     안 그러면 여행이 짧아 히어로 내용이 위로 올라올 때 상태 배지가 뒤로가기 버튼과 겹친다. */
+  padding: calc(max(16px, env(safe-area-inset-top, 0px)) + 50px) 20px 20px;
   color: #fff;
   overflow: hidden;
   border-radius: 0 0 var(--radius-large) var(--radius-large);
@@ -306,6 +308,8 @@
 .detail-stat span { font-size: 0.7rem; opacity: 0.9; font-weight: 600; }
 
 .detail-body { padding: var(--space-4) 18px; display: flex; flex-direction: column; gap: var(--space-4); }
+/* 좁은 화면에서는 그냥 세로 흐름(기록 → 타임라인). 넓은 화면에서만 2단으로 갈린다(아래 미디어쿼리). */
+.detail-compose { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
 
 /* 순간 기록 폼 */
 .moment-form {
@@ -1143,3 +1147,33 @@
 }
 .pe-heal-cursor { cursor: crosshair; }
 .pe-hint { flex-basis: 100%; }
+
+/* ── 넓은 화면(태블릿 가로·데스크톱) ─────────────────────────────────────
+   문제: 본문이 780px로 고정돼 있어 2000px대 태블릿에서 가운데만 쓰고 양옆이 텅 비었다.
+   해법: 폭을 늘리되 **한 줄을 무한정 늘이지 않는다**(긴 줄은 읽기 어렵다). 대신 남는 폭을
+   의미 있게 쓴다 — 상세는 [기록 폼 | 타임라인] 2단으로, 홈 목록은 카드 3열로.
+   기록 폼은 sticky라 타임라인을 내려봐도 손 닿는 곳에 남는다.
+   DOM 순서는 기록 → 타임라인 그대로라 화면읽기·키보드 탐색 순서는 바뀌지 않는다. */
+@media (min-width: 1100px) {
+  .screen-home,
+  .screen-detail { max-width: 1200px; }
+
+  .detail-body {
+    display: grid;
+    grid-template-columns: minmax(340px, 30%) minmax(0, 1fr);
+    align-items: start;
+    gap: var(--space-4) var(--space-5, 28px);
+  }
+  /* 타임라인이 길어도 기록 폼은 화면에 남는다(여행 중 빠른 기록 흐름 유지). */
+  .detail-compose { position: sticky; top: var(--space-3); }
+  .timeline-wrap { min-width: 0; } /* 그리드 칸에서 사진·긴 제목이 넘치지 않게 */
+
+  /* 홈: 카드 3열 — 620px 분기의 2열을 넓은 화면에서 덮어쓴다. */
+  .trip-list { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* 아주 넓은 화면(초대형 태블릿·모니터)에서도 한 줄이 지나치게 길어지지 않도록 상한. */
+@media (min-width: 1600px) {
+  .screen-home,
+  .screen-detail { max-width: 1360px; }
+}
