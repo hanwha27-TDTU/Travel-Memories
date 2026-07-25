@@ -9,7 +9,7 @@ import { recordBackupNow, getLastBackupAt, backupFreshness } from '../../service
 import { listDeletedTrips, restoreTripFromTrash, purgeTripPermanently } from '../../services/trips';
 import { computeStorageUsage, formatBytes } from '../../services/storage';
 import { fxBase, setFxBase } from '../../services/fx';
-import { CURRENCIES } from '../../domain/expense/format';
+import { CURRENCIES, currencyLabel } from '../../domain/expense/format';
 
 interface DataManagerOpts {
   /** 데이터가 바뀌면 호출(홈 목록·통계 갱신). */
@@ -344,7 +344,7 @@ function currencyPanel(): HTMLElement {
   sel.setAttribute('aria-label', '환율 기준통화');
   const cur = fxBase();
   for (const c of CURRENCIES) {
-    const opt = el('option', undefined, c.symbol ? `${c.symbol} ${c.code}` : c.code) as HTMLOptionElement;
+    const opt = el('option', undefined, currencyLabel(c)) as HTMLOptionElement;
     opt.value = c.code;
     if (c.code === cur) opt.selected = true;
     sel.appendChild(opt);

@@ -30,7 +30,7 @@ import {
   softDeleteExpenseLocalFirst,
   listExpensesByTrip,
 } from '../../services/expenses';
-import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, sumByCurrency, formatTotals } from '../../domain/expense/format';
+import { CURRENCIES, DEFAULT_CURRENCY, currencyLabel, formatMoney, sumByCurrency, formatTotals } from '../../domain/expense/format';
 import { convertAmount, formatRate, fxDateFor, fxKey, unitRate, type FxRateTable } from '../../domain/expense/fx';
 import { ensureTable, fxBase, todayDate } from '../../services/fx';
 import { momentCoord } from '../../domain/place/geojson';
@@ -197,8 +197,7 @@ function currencySelect(current: string): HTMLSelectElement {
   const sel = el('select', 'edit-input moment-currency') as HTMLSelectElement;
   sel.setAttribute('aria-label', '통화');
   for (const c of CURRENCIES) {
-    const label = c.symbol ? `${c.symbol} ${c.code}` : c.code;
-    const opt = el('option', undefined, label) as HTMLOptionElement;
+    const opt = el('option', undefined, currencyLabel(c)) as HTMLOptionElement;
     opt.value = c.code;
     if (c.code === current) opt.selected = true;
     sel.appendChild(opt);

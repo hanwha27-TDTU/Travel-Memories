@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { formatMoney, sumByCurrency, formatTotals, DEFAULT_CURRENCY, CURRENCIES } from '../../src/domain/expense/format';
+import {
+  formatMoney,
+  sumByCurrency,
+  formatTotals,
+  DEFAULT_CURRENCY,
+  CURRENCIES,
+  currencyFlag,
+  currencyLabel,
+} from '../../src/domain/expense/format';
 
 describe('formatMoney', () => {
   it('KRW: 소수 없음 + 천단위 구분', () => {
@@ -29,6 +37,26 @@ describe('formatMoney', () => {
   });
   it('기본 통화는 KRW', () => {
     expect(DEFAULT_CURRENCY).toBe('KRW');
+  });
+  it('국기는 코드에서 파생(손 테이블 없음) — 앞 두 글자 = 국가코드', () => {
+    expect(currencyFlag('KRW')).toBe('🇰🇷');
+    expect(currencyFlag('UZS')).toBe('🇺🇿');
+    expect(currencyFlag('USD')).toBe('🇺🇸');
+    expect(currencyFlag('EUR')).toBe('🇪🇺'); // EU도 유효한 지역 표시자쌍
+    expect(currencyFlag('krw')).toBe('🇰🇷'); // 대소문자 무관
+  });
+  it('나라 없는 통화(X 접두 초국가 코드)는 빈 문자열 — 위조하지 않음', () => {
+    expect(currencyFlag('XAF')).toBe('');
+    expect(currencyFlag('XDR')).toBe('');
+    expect(currencyFlag('')).toBe('');
+  });
+  it('currencyLabel: 국기 + 심볼 + 코드, 심볼 없으면 건너뜀', () => {
+    expect(currencyLabel({ code: 'KRW', symbol: '₩', decimals: 0 })).toBe('🇰🇷 ₩ KRW');
+    expect(currencyLabel({ code: 'AED', symbol: '', decimals: 2 })).toBe('🇦🇪 AED');
+  });
+  it('지원 통화 전부가 국기를 가진다(새 통화 추가 시 자동 검증)', () => {
+    const missing = CURRENCIES.filter((c) => currencyFlag(c.code) === '').map((c) => c.code);
+    expect(missing).toEqual([]);
   });
   it('통화 목록: 코드 유일 + 자주 쓰는 통화가 위(순서 KRW·USD·UZS·JPY·EUR)', () => {
     const codes = CURRENCIES.map((c) => c.code);
