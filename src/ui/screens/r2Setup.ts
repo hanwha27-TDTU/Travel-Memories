@@ -210,7 +210,20 @@ const LADDER: [string, string, string][] = [
   ['1', '대시보드 함수 Test {"op":"probe"} → 200', '시크릿이 함수에 도달함 — 앱 경로는 증명 못 함(Test는 다른 권한으로 호출)'],
   ['2', '앱의 연결 확인 버튼', 'anon 경로로 함수 호출 성공 — R2로의 실제 업로드(CORS)는 증명 못 함'],
   ['3', '앱에서 사진 업로드', 'presign → 브라우저→R2 직접 전송 → 표시까지 전 경로 (결정적 검증)'],
-  ['4', '저장 후 재열기', 'DB 왕복 + 재파싱까지'],
+  ['4', '새 기기(또는 시크릿 창)에서 그 사진 보기', '읽기 presign(op:get) + 키 파리티까지 — 정책 B에서만 필요한 단계'],
+];
+
+/**
+ * 실측 기록 — 이 절차를 따라 실제로 성공한 날의 증거(추정이 아니라 관측).
+ * 다음 사람(또는 6개월 뒤의 나)이 "이 문서가 실제로 통하는가"를 의심할 때 이 줄이 답이다.
+ */
+const PROVEN: [string, string][] = [
+  ['적용일', '2026-07-25 (Bugeon Journey v0.57)'],
+  ['사다리 3번', '통과 — 앱 저장 → R2에 image/webp 53.99 kB 객체 생성 확인'],
+  ['키 파리티', '통과 — DB storage_path와 R2 객체 키가 완전히 일치({uid}/{mediaId}.webp)'],
+  ['저장 클래스', '표준 확인(과금 함정 회피)'],
+  ['삭제 경로', '함수 서명 삭제 200 확인'],
+  ['사다리 4번', '미확인 — 새 기기에서 받아볼 때 증명된다'],
 ];
 
 /**
@@ -337,6 +350,15 @@ export function openR2Setup(): void {
   body.appendChild(
     el('p', 'guide-note', '1번이 200이어도 앱에서는 실패할 수 있다(호출 주체가 다르다). CORS 문제는 3번에서만 드러난다 — Medical-Note가 정확히 여기서 걸렸다. 그래서 3번은 자동화로 대체할 수 없고 릴리스 체크리스트에 사람 단계로 남긴다.'),
   );
+
+  body.appendChild(el('h3', 'guide-h', '실측 기록 — 이 절차는 실제로 통했다'));
+  const pv = el('div', 'r2-table');
+  for (const [k, v] of PROVEN) {
+    const row = el('div', 'r2-row');
+    row.append(el('code', 'r2-key r2-key-wide', k), el('span', 'r2-val', v));
+    pv.appendChild(row);
+  }
+  body.appendChild(pv);
 
   // 실패 진단
   body.appendChild(el('h3', 'guide-h', '증상 → 1순위 원인'));
