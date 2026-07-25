@@ -18,6 +18,7 @@ import {
   purgedIdSet,
   purgeDomainOf,
   DOMAIN_PURGE,
+  PURGE_DOMAINS,
   type PurgeDomain,
 } from './purge';
 
@@ -713,6 +714,20 @@ const REPAIR_KEY = 'bj.repair.cascadeOps.v1';
  */
 export interface PurgeRemote {
   mark(domain: PurgeDomain, id: string): Promise<{ error?: string | undefined; status?: number | undefined }>;
+  /**
+   * 그 여행에 딸린 **서버의 자식 전부**에 표식을 찍는다(`trip_id = X`).
+   *
+   * 왜 필요한가(실제 결함 2026-07-26, 사용자 신고에서 발견): `purgeTripPermanently`는 자식을
+   * **로컬 Dexie에서만** 찾는다. 그런데 tombstone된 사진은 그 기기에 로컬 행이 없을 수 있다 —
+   * `pullMedia`가 "로컬에 없는 tombstone은 만들지 않는다"(비파괴 규율)로 건너뛰기 때문이다.
+   * 그래서 여행 "R2 테스트"를 영구삭제했을 때 **여행·순간엔 표식이 찍혔는데 사진만 안 찍혔다.**
+   * 그 사진은 어느 기기에서도 영구삭제되지 않고 서버에 영영 남는다.
+   *
+   * 로컬이 못 보는 자식은 **서버가 안다.** 그러니 서버에 직접 묻는다.
+   */
+  markFamily(tripId: string): Promise<{ error?: string | undefined }>;
+  /** read-back — 그 가족 중 표식이 안 찍힌 행이 남았는가(0이어야 완료). */
+  unmarkedInFamily(tripId: string): Promise<{ count: number; error?: string | undefined }>;
   /** read-back — 성공 응답이 아니라 **되읽어** 확인한다(데이터 안전 불변식). */
   readBack(domain: PurgeDomain, id: string): Promise<{ found: boolean; purgedAt: string | null; error?: string | undefined }>;
 }
@@ -741,6 +756,43 @@ export function purgeRemote(client: JourneyClient): PurgeRemote {
         return { found: row !== null, purgedAt: row?.purged_at ?? null, error: r.error?.message };
       } catch (e) {
         return { found: false, purgedAt: null, error: (e as Error).message };
+      }
+    },
+    async markFamily(tripId) {
+      const at = new Date().toISOString();
+      try {
+        // 자식 도메인만 — 여행 자신은 mark('trip', id)가 이미 처리한다.
+        // 등록부를 돌므로 **새 도메인이 생기면 자동으로 따라온다**(손으로 세 곳을 고치지 않는다).
+        for (const d of PURGE_DOMAINS) {
+          if (d === 'trip') continue;
+          const r = await client
+            .from(DOMAIN_PURGE[d].remoteTable)
+            .update({ purged_at: at })
+            .eq('trip_id', tripId)
+            .is('purged_at', null); // 이미 찍힌 것은 시각을 덮지 않는다(최초 영구삭제 시각 보존)
+          if (r.error) return { error: `${DOMAIN_PURGE[d].remoteTable}: ${r.error.message}` };
+        }
+        return {};
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+    },
+    async unmarkedInFamily(tripId) {
+      try {
+        let count = 0;
+        for (const d of PURGE_DOMAINS) {
+          if (d === 'trip') continue;
+          const r = await client
+            .from(DOMAIN_PURGE[d].remoteTable)
+            .select('id', { count: 'exact', head: true })
+            .eq('trip_id', tripId)
+            .is('purged_at', null);
+          if (r.error) return { count: -1, error: `${DOMAIN_PURGE[d].remoteTable}: ${r.error.message}` };
+          count += r.count ?? 0;
+        }
+        return { count };
+      } catch (e) {
+        return { count: -1, error: (e as Error).message };
       }
     },
   };
@@ -782,6 +834,23 @@ export async function pushPurges(remote: PurgeRemote): Promise<{ pushed: number;
     // 서버에 행이 아예 없으면(한 번도 동기화되지 않은 기록) 알릴 대상이 없다 — 완료로 본다.
     // 이걸 실패로 두면 그 작업이 영원히 큐에 남아 다음 영구삭제의 사전조건까지 막는다.
     if (!back.found || back.purgedAt) {
+      // 여행이면 **서버 기준으로 자식까지** 쓸어 담는다. 로컬에 없던 자식(tombstone된 사진 등)은
+      // 여기서만 잡힌다 — 실제로 그 자리에서 사진 하나가 표식을 못 받고 서버에 남았다(2026-07-26).
+      if (domain === 'trip') {
+        const fam = await remote.markFamily(op.entityId);
+        if (fam.error) {
+          await markFail(op, undefined);
+          failed++;
+          continue;
+        }
+        // read-back — 성공 응답이 아니라 **되읽어** 확인한다(데이터 안전 불변식).
+        const left = await remote.unmarkedInFamily(op.entityId);
+        if (left.error || left.count > 0) {
+          await markFail(op, undefined);
+          failed++;
+          continue;
+        }
+      }
       await d.syncQueue.delete(op.operationId);
       pushed++;
       continue;

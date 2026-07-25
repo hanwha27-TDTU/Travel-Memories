@@ -93,15 +93,22 @@ describe('② 전파 op를 도메인 push 루프가 삼키지 않는다 (가장 
 });
 
 describe('② 전파 push — 서버에 표식을 찍고 read-back으로 확인한다', () => {
-  const okRemote = (): PurgeRemote & { marked: string[] } => {
+  const okRemote = (): PurgeRemote & { marked: string[]; families: string[] } => {
     const marked: string[] = [];
+    const families: string[] = [];
     return {
       marked,
+      families,
       mark: (domain, id) => {
         marked.push(`${domain}:${id}`);
         return Promise.resolve({});
       },
       readBack: () => Promise.resolve({ found: true, purgedAt: '2026-07-26T00:00:00.000Z' }),
+      markFamily: (tripId) => {
+        families.push(tripId);
+        return Promise.resolve({});
+      },
+      unmarkedInFamily: () => Promise.resolve({ count: 0 }),
     };
   };
 
@@ -125,6 +132,8 @@ describe('② 전파 push — 서버에 표식을 찍고 read-back으로 확인�
     const r = await pushPurges({
       mark: () => Promise.resolve({}),
       readBack: () => Promise.resolve({ found: false, purgedAt: null }),
+      markFamily: () => Promise.resolve({}),
+      unmarkedInFamily: () => Promise.resolve({ count: 0 }),
     });
     expect(r.pushed).toBe(2);
     expect((await db().syncQueue.toArray()).filter((o) => o.operationType === 'purge')).toEqual([]);
@@ -137,9 +146,66 @@ describe('② 전파 push — 서버에 표식을 찍고 read-back으로 확인�
     const r = await pushPurges({
       mark: () => Promise.resolve({ error: '네트워크 실패' }),
       readBack: () => Promise.resolve({ found: false, purgedAt: null }),
+      markFamily: () => Promise.resolve({}),
+      unmarkedInFamily: () => Promise.resolve({ count: 0 }),
     });
     expect(r.failed).toBe(2);
     expect((await db().syncQueue.toArray()).filter((o) => o.operationType === 'purge').length).toBe(2);
+  });
+});
+
+
+describe('② 서버 기준 가족 쓸기 — 로컬에 없는 자식도 표식을 받는다 (실제 결함)', () => {
+  // 실제 사고(2026-07-26): 여행 "R2 테스트"를 영구삭제했더니 여행·순간엔 purged_at이 찍혔는데
+  // **사진만 안 찍혔다.** purgeTripPermanently가 자식을 로컬 Dexie에서만 찾는데, tombstone된
+  // 사진은 그 기기에 로컬 행이 없을 수 있다(pullMedia가 비파괴 규율로 건너뛴다).
+  // 그 사진은 어느 기기에서도 영구삭제되지 않고 서버에 영영 남는다.
+  it('여행 purge는 markFamily로 서버 자식까지 쓸어 담는다', async () => {
+    const { tripId } = await deletedTripWithChild();
+    await purgeTripPermanently(tripId);
+    const families: string[] = [];
+    const r = await pushPurges({
+      mark: () => Promise.resolve({}),
+      readBack: () => Promise.resolve({ found: true, purgedAt: '2026-07-26T00:00:00.000Z' }),
+      markFamily: (t) => {
+        families.push(t);
+        return Promise.resolve({});
+      },
+      unmarkedInFamily: () => Promise.resolve({ count: 0 }),
+    });
+    expect(r.failed).toBe(0);
+    expect(families).toEqual([tripId]); // 여행에 대해 **한 번** 호출
+  });
+
+  it('가족에 표식 못 받은 행이 남으면 완료로 치지 않는다(read-back)', async () => {
+    const { tripId } = await deletedTripWithChild();
+    await purgeTripPermanently(tripId);
+    const r = await pushPurges({
+      mark: () => Promise.resolve({}),
+      readBack: () => Promise.resolve({ found: true, purgedAt: '2026-07-26T00:00:00.000Z' }),
+      markFamily: () => Promise.resolve({}),
+      unmarkedInFamily: () => Promise.resolve({ count: 1 }), // 사진 하나가 안 찍힘
+      // → 실패로 남겨 다음 동기화에서 다시 시도한다. 조용히 완료 처리하면 그 사진은 영영 남는다.
+    });
+    expect(r.failed).toBeGreaterThan(0);
+    const left = (await db().syncQueue.toArray()).filter((o) => o.entityType === purgeOpType('trip'));
+    expect(left.length).toBe(1);
+  });
+
+  it('자식(순간·사진) purge는 가족 쓸기를 하지 않는다 — 여행 단위로 한 번만', async () => {
+    const { tripId } = await deletedTripWithChild();
+    await purgeTripPermanently(tripId);
+    const families: string[] = [];
+    await pushPurges({
+      mark: () => Promise.resolve({}),
+      readBack: () => Promise.resolve({ found: true, purgedAt: '2026-07-26T00:00:00.000Z' }),
+      markFamily: (t) => {
+        families.push(t);
+        return Promise.resolve({});
+      },
+      unmarkedInFamily: () => Promise.resolve({ count: 0 }),
+    });
+    expect(families.length).toBe(1); // 순간 op가 있어도 가족 쓸기는 여행에서만
   });
 });
 
