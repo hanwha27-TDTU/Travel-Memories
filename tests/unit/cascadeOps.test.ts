@@ -20,7 +20,7 @@ import {
   purgeTripPermanently,
   PendingSyncError,
 } from '../../src/services/trips';
-import { requeueOrphanTombstones, pullTrips, retryFailedOps } from '../../src/services/sync';
+import { requeueOrphanTombstones, pullTrips, pullMedia, retryFailedOps } from '../../src/services/sync';
 import { importMergeRows } from '../../src/services/backup';
 
 /** 큐에서 (종류 → id 집합) 맵을 만든다. */
@@ -310,5 +310,60 @@ describe('실패로 박힌 작업 재시도', () => {
     });
     expect(await retryFailedOps()).toBe(1);
     expect((await d.syncQueue.toArray())[0]!.state).toBe('local_only');
+  });
+});
+
+describe('서버 기준 고아 스윕 — 재큐잉이 원리적으로 닿지 못하는 사각지대', () => {
+  const mediaRow = (id: string, tripId: string, deleted: string | null): unknown => ({
+    id, user_id: 'u', trip_id: tripId, moment_id: crypto.randomUUID(), storage_path: `u/${id}.webp`,
+    mime: 'image/webp', width: 10, height: 10, taken_at: null, created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(), deleted_at: deleted, version: 1, base_version: 0, client_operation_id: null,
+  });
+
+  it('로컬에 없고 서버는 활성인데 그 여행이 영구삭제됐다면, 되살리지 않고 서버·바이트를 정리한다', async () => {
+    const tripId = crypto.randomUUID();
+    const mediaId = crypto.randomUUID();
+    await db().purgedIds.put({ id: tripId, entityType: 'trip', purgedAt: new Date().toISOString() });
+
+    const upserted: unknown[] = [];
+    const removed: string[] = [];
+    const remote = {
+      listAll: async () => ({ data: [mediaRow(mediaId, tripId, null)] }),
+      upsert: async (row: { deleted_at: string | null }) => {
+        upserted.push(row);
+        return {};
+      },
+      getById: async () => ({ data: null }),
+      download: async () => ({ data: null }),
+      remove: async (p: string) => {
+        removed.push(p);
+        return {};
+      },
+      uploadDisplay: async () => ({}),
+    };
+    await pullMedia(remote as never);
+
+    expect(upserted.length).toBe(1);
+    expect((upserted[0] as { deleted_at: string | null }).deleted_at).not.toBeNull(); // tombstone을 밀었다
+    expect(removed).toEqual([`u/${mediaId}.webp`]); // 바이트도 지웠다
+    expect(await db().localMedia.get(mediaId)).toBeUndefined(); // 되살리지 않았다
+  });
+
+  it('영구삭제되지 않은 여행의 사진은 스윕하지 않는다 — 살아 있는 기억을 지우지 않는다', async () => {
+    const tripId = crypto.randomUUID();
+    const upserted: unknown[] = [];
+    const remote = {
+      listAll: async () => ({ data: [mediaRow(crypto.randomUUID(), tripId, null)] }),
+      upsert: async (row: unknown) => {
+        upserted.push(row);
+        return {};
+      },
+      getById: async () => ({ data: null }),
+      download: async () => ({ data: null, error: 'no network' }),
+      remove: async () => ({}),
+      uploadDisplay: async () => ({}),
+    };
+    await pullMedia(remote as never);
+    expect(upserted.length).toBe(0);
   });
 });

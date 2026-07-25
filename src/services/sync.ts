@@ -505,6 +505,7 @@ export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; 
   }
 
   let pulled = 0;
+  let swept = 0; // 로컬에 없는 서버 고아를 정리한 수(진단·로그용)
   for (const r of rows) {
     if (purged.has(r.id)) continue; // 이 기기에서 영구히 치운 것 — 되살리지 않는다
     const server = fromMediaRow(r);
@@ -512,6 +513,20 @@ export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; 
     if (mergeDecision(local, server) !== 'take-server') {
       await requeueIfServerStillActive('media', local, server);
       continue;
+    }
+
+    // ── 서버 기준 고아 스윕 ──────────────────────────────────────────────
+    // **로컬에 행 자체가 없는데** 서버는 활성이고, 그 여행이 이 기기에서 영구삭제된 경우.
+    // 로컬 행이 없으므로 대기열 op를 만들 수도, `pushPendingMedia`가 처리할 수도 없다 —
+    // 재큐잉으로는 **원리적으로 닿지 않는 사각지대**다(사용자가 겪은 바로 그 상태).
+    // 여기서만 직접 tombstone을 밀고 바이트를 지운다. 되살려 로컬에 만들지 않는다.
+    if (!local && server.deletedAt === null && purged.has(r.trip_id)) {
+      const res = await remote.upsert({ ...r, deleted_at: new Date().toISOString(), version: r.version + 1 });
+      if (!res.error) {
+        if (server.storagePath) await remote.remove(server.storagePath);
+        swept++;
+      }
+      continue; // 되살리지 않는다
     }
 
     if (server.deletedAt !== null) {
@@ -557,6 +572,7 @@ export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; 
     await d.localMedia.put(next);
     pulled++;
   }
+  if (swept) console.info(`서버 고아 정리: 사진 ${swept}건(로컬에 없어 재큐잉이 닿지 못하던 것)`);
   return { pulled, skippedEmptyCloud: false };
 }
 
