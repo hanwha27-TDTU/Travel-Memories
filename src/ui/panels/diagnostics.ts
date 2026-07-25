@@ -14,6 +14,12 @@ import { db } from '../../offline/db';
 import { diagnoseSync } from '../../services/diagnostics';
 import { forceRepairCascadeOps, retryFailedOps } from '../../services/sync';
 import { checkIntegrity, CHECK_COUNT } from '../../domain/integrity';
+import { collectEnv, evictionRisk, requestPersist } from '../../services/envReport';
+import { recentErrors, clearErrors } from '../../app/errorLog';
+import { CHANGELOG } from '../../app/changelog';
+
+/** 화면에 표시할 앱 버전 — changelog가 SSOT(손으로 적지 않는다). */
+const APP_VERSION = `v${CHANGELOG[0]?.version ?? '0.00'}`;
 
 function h(text: string): HTMLElement {
   return el('h3', 'guide-h', text);
@@ -186,3 +192,198 @@ export function integrityPanel(): HTMLElement {
   return wrap;
 }
 
+
+/** 사람이 읽는 바이트. envReport와 storage 양쪽에서 쓰므로 여기 한 번만 정의한다. */
+function bytes(n: number | null): string {
+  if (n === null) return '알 수 없음';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function row(k: string, v: string): HTMLElement {
+  const r = el('div', 'r2-row');
+  r.append(el('code', 'r2-key r2-key-wide', k), el('span', 'r2-val', v));
+  return r;
+}
+
+/**
+ * 저장소 안전 — **앱 밖 원인의 유일한 기억 손실 경로**를 관측한다.
+ *
+ * 비타협 원칙 #1은 "앱 원인 유실 0"이지만 브라우저 축출·사이트데이터 삭제는 앱 통제 밖이다.
+ * 그 위험을 숫자로 보여주고, 브라우저에 보호를 요청할 수단을 준다.
+ */
+export function storagePanel(): HTMLElement {
+  const wrap = panel([h('저장소 안전'), p('브라우저가 공간이 부족하면 앱 데이터를 지울 수 있어요. 이 화면은 그 위험을 보여줍니다.')]);
+  const table = el('div', 'r2-table');
+  const note1 = el('p', 'r2-probe-note');
+  note1.hidden = true;
+  wrap.append(table, note1);
+
+  const render = (): void => {
+    void (async () => {
+      const env = await collectEnv(APP_VERSION);
+      const risk = evictionRisk(env);
+      table.textContent = '';
+      table.append(
+        row('사용 중', bytes(env.storage.usage)),
+        row('허용 한도', bytes(env.storage.quota)),
+        row('저장소 보호(persist)', env.storage.persisted === null ? '알 수 없음' : env.storage.persisted ? '적용됨' : '미적용'),
+      );
+      setNote(note1, risk.text, risk.level);
+    })();
+  };
+  render();
+
+  const actions = el('div', 'r2-probe');
+  const ask = el('button', 'btn-ghost', '저장소 보호 요청') as HTMLButtonElement;
+  ask.type = 'button';
+  ask.setAttribute('data-ask-persist', '');
+  ask.addEventListener('click', () => {
+    ask.disabled = true;
+    void requestPersist()
+      .then((ok) => {
+        setNote(note1, ok ? '보호가 적용됐어요. 브라우저가 임의로 지우지 않습니다.' : '브라우저가 요청을 받아들이지 않았어요. 백업을 주기적으로 받아두시면 안전합니다.', ok ? 'ok' : 'info');
+        if (ok) render();
+      })
+      .finally(() => {
+        ask.disabled = false;
+      });
+  });
+  actions.appendChild(ask);
+  wrap.appendChild(actions);
+  wrap.appendChild(note('저장소 보호는 브라우저가 결정합니다 — 요청해도 거절될 수 있어요. 가장 확실한 보호는 [데이터 관리 › 백업]입니다.'));
+  return wrap;
+}
+
+/** 환경·기능 지원 — "왜 안 되지/왜 느리지"의 답이 대개 여기 있다. */
+export function environmentPanel(): HTMLElement {
+  const wrap = panel([h('환경·기능 지원'), p('이 기기·브라우저가 앱에 필요한 기능을 갖췄는지 봅니다. 없으면 앱은 대체 방식으로 도는데, 느리거나 화질이 달라질 수 있어요.')]);
+  const table = el('div', 'r2-table');
+  wrap.appendChild(table);
+  void (async () => {
+    const env = await collectEnv(APP_VERSION);
+    table.append(
+      row('앱 버전', env.app.version),
+      row('사진 저장소', env.app.mediaStore),
+      row('화면', `${env.screen.w}×${env.screen.h} · ${env.screen.orientation} · 배율 ${env.screen.dpr}`),
+      row('시간대', `${env.clock.tz} (UTC${env.clock.tzOffsetMin >= 0 ? '+' : ''}${env.clock.tzOffsetMin / 60})`),
+      row('네트워크', env.device.online ? '온라인' : '오프라인'),
+      row('서비스워커', env.sw.supported ? (env.sw.controlled ? '동작 중(캐시 사용)' : '지원하나 미제어') : '미지원'),
+    );
+    for (const [k, ok] of Object.entries(env.features)) table.appendChild(row(k, ok ? '✅ 지원' : '⚠️ 미지원'));
+  })();
+  wrap.appendChild(note('“새로고침했는데 화면이 그대로”라면 서비스워커가 옛 화면을 붙잡고 있을 수 있어요. 탭을 완전히 닫았다 다시 열면 해결됩니다.'));
+  return wrap;
+}
+
+/** 오류 기록 — 사용자가 캡처 대신 텍스트로 줄 수 있게. */
+export function errorPanel(): HTMLElement {
+  const wrap = panel([h('오류 기록'), p('앱이 도는 동안 생긴 오류를 모아 둡니다. 새로고침하면 사라져요(이 세션만).')]);
+  const list = el('div', 'se-findings');
+  wrap.appendChild(list);
+
+  const render = (): void => {
+    list.textContent = '';
+    const errs = recentErrors();
+    if (!errs.length) {
+      list.appendChild(el('p', 'se-basis', '기록된 오류가 없습니다.'));
+      return;
+    }
+    for (const e of errs) {
+      const card = el('div', 'se-item');
+      const top = el('div', 'se-item-top');
+      top.append(el('span', 'se-badge se-weak', e.kind), el('span', 'se-item-title', e.message));
+      card.append(top);
+      if (e.where) card.appendChild(el('p', 'se-gap', e.where));
+      card.appendChild(el('p', 'se-item-sub', e.at));
+      list.appendChild(card);
+    }
+  };
+  render();
+
+  const actions = el('div', 'r2-probe');
+  const again = el('button', 'btn-ghost', '다시 보기') as HTMLButtonElement;
+  again.type = 'button';
+  again.addEventListener('click', render);
+  const clear = el('button', 'btn-ghost', '기록 지우기') as HTMLButtonElement;
+  clear.type = 'button';
+  clear.addEventListener('click', () => {
+    clearErrors();
+    render();
+  });
+  actions.append(again, clear);
+  wrap.appendChild(actions);
+  return wrap;
+}
+
+/**
+ * 진단 요약 복사 — **개발자와 사용자 사이의 왕복을 한 번으로 줄인다.**
+ *
+ * 오늘(2026-07-25~26) 같은 문제를 네 번 진단하며 캡처를 여러 장 주고받았다. 텍스트 한 덩어리면
+ * 한 번에 끝난다. 개인정보는 담지 않는다 — **개수·상태·환경만**, 기록 내용과 id 전체는 제외.
+ */
+export function summaryPanel(): HTMLElement {
+  const wrap = panel([h('진단 요약 복사'), p('아래 내용을 한 번에 복사해 개발자에게 전달할 수 있어요. 여행 제목·사진·메모 같은 기록 내용은 담기지 않습니다.')]);
+  const pre = el('pre', 'diag-pre');
+  const note2 = el('p', 'r2-probe-note');
+  note2.hidden = true;
+  wrap.append(pre, note2);
+
+  let text = '';
+  const build = (): void => {
+    void (async () => {
+      const d = db();
+      const [trips, moments, media, expenses] = await Promise.all([
+        d.localTrips.toArray(),
+        d.localMoments.toArray(),
+        d.localMedia.toArray(),
+        d.localExpenses.toArray(),
+      ]);
+      const [env, sync] = await Promise.all([collectEnv(APP_VERSION), diagnoseSync()]);
+      const integ = checkIntegrity({ trips, moments, media, expenses });
+      const errs = recentErrors();
+      const fmt = (o: Record<string, number>): string =>
+        Object.entries(o).filter(([, n]) => n > 0).map(([k, n]) => `${k}=${n}`).join(' ') || '없음';
+
+      text = [
+        `[Bugeon Journey 진단 요약] ${env.clock.nowIso}`,
+        `앱 ${env.app.version} · base ${env.app.base} · 사진저장소 ${env.app.mediaStore}`,
+        `화면 ${env.screen.w}x${env.screen.h}@${env.screen.dpr} ${env.screen.orientation} · ${env.clock.tz}(UTC${env.clock.tzOffsetMin >= 0 ? '+' : ''}${env.clock.tzOffsetMin / 60}) · ${env.device.online ? '온라인' : '오프라인'}`,
+        `UA ${env.device.ua}`,
+        `저장 ${bytes(env.storage.usage)}/${bytes(env.storage.quota)} · persist=${String(env.storage.persisted)}`,
+        `미지원 기능: ${Object.entries(env.features).filter(([, v]) => !v).map(([k]) => k).join(', ') || '없음'}`,
+        `SW ${env.sw.supported ? (env.sw.controlled ? '제어중' : '미제어') : '미지원'}`,
+        `--- 동기화 ---`,
+        `대기 ${sync.queue.total} (${fmt(sync.queue.byState)} / ${fmt(sync.queue.byType)})`,
+        `tombstone ${fmt(sync.tombstones)} · op없는tombstone ${fmt(sync.opLessTombstones)} · 영구삭제표식 ${sync.purgedMarks}`,
+        `--- 무결성 (${integ.checked}건 검사) ---`,
+        `지금확인 ${integ.bySeverity.now} · 예방 ${integ.bySeverity.prevent} · 참고 ${integ.bySeverity.info}`,
+        ...integ.findings.map((f) => `  ${f.severity} ${f.code} x${f.count} [${f.samples.join(' ')}]`),
+        `--- 오류 ${errs.length}건 ---`,
+        ...errs.slice(0, 5).map((e) => `  ${e.kind}: ${e.message}`),
+      ].join('\n');
+      pre.textContent = text;
+    })();
+  };
+  build();
+
+  const actions = el('div', 'r2-probe');
+  const copy = el('button', 'btn-ghost', '복사하기') as HTMLButtonElement;
+  copy.type = 'button';
+  copy.setAttribute('data-copy-diag', '');
+  copy.addEventListener('click', () => {
+    void navigator.clipboard
+      ?.writeText(text)
+      .then(() => setNote(note2, '복사했어요. 대화창에 붙여넣으시면 됩니다.', 'ok'))
+      .catch(() => setNote(note2, '복사가 막혔어요. 위 내용을 길게 눌러 직접 선택·복사해 주세요.', 'info'));
+  });
+  const again2 = el('button', 'btn-ghost', '다시 만들기') as HTMLButtonElement;
+  again2.type = 'button';
+  again2.addEventListener('click', build);
+  actions.append(copy, again2);
+  wrap.appendChild(actions);
+  wrap.appendChild(note('담기는 것: 앱·기기·화면·시간대·저장용량·기능지원·동기화 개수·무결성 결과·오류 메시지. 담기지 않는 것: 여행 제목·메모·사진·위치·이메일. 식별번호는 앞 8자리만.'));
+  return wrap;
+}
