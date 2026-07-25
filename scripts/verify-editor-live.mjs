@@ -123,6 +123,26 @@ while ((await page.locator('.guide-overlay').count()) > 0) {
   await page.waitForTimeout(200);
 }
 
+// ── v0.55: R2 설정 가이드 — 데이터 관리 → 카드 → 단계·위험 경고 렌더 ──
+await page.locator('.data-open').click();
+await page.waitForSelector('.guide-overlay');
+await page.getByText('R2 저장소 설정', { exact: false }).first().click();
+await page.waitForSelector('.r2-step');
+const r2Steps = await page.locator('.r2-step').count();
+check('R2 가이드: 단계 카드 렌더', r2Steps >= 8, `steps=${r2Steps}`);
+const r2Danger = await page.locator('.r2-note-danger').count();
+check('R2 가이드: 위험 경고 표시(버킷 잠금·토큰 오입력 등)', r2Danger >= 5, `danger=${r2Danger}`);
+const r2Text = await page.$eval('.guide-body', (b) => b.textContent ?? '');
+check('R2 가이드: 버킷 잠금 경고 포함', r2Text.includes('버킷 잠금'), '');
+check('R2 가이드: 캡처 금지 경고 포함', r2Text.includes('캡처 금지'), '');
+check('R2 가이드: 검증 사다리 포함', r2Text.includes('검증 사다리'), '');
+await page.keyboard.press('Escape');
+await page.waitForTimeout(250);
+while ((await page.locator('.guide-overlay').count()) > 0) {
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+}
+
 // v0.46: 기계화 검증 흐름도 — 개발자 정보 → 열기 → 4단계 + 게이트 카드가 실제 harness 개수와 일치
 await page.locator('.app-version').click();
 await page.getByRole('button', { name: /기계화 검증 흐름도 열기/ }).click();
