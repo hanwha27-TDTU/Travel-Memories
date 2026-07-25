@@ -7,7 +7,9 @@
 // 스크린샷: 각 단계의 `shot`에 `public/setup/r2/<파일>`을 지정하면 그림이 함께 뜬다(없으면 글만).
 // 🔴 토큰 발급 결과 화면은 **캡처 금지**(Secret이 한 번만 평문으로 보인다) — 그 단계엔 shot을 두지 않는다.
 
-import { el } from '../dom';
+import { el, setNote } from '../dom';
+import { supabase } from '../../services/supabase/client';
+import { r2Probe } from '../../services/r2';
 
 type Tone = 'danger' | 'warn' | 'tip';
 
@@ -60,6 +62,14 @@ const PLAIN: [string, string][] = [
     '네. 우리 열쇠는 **우리 방 하나만** 열도록 만들어집니다. 프로그램에 실수가 있어도 옆집 방은 열 수 없어요 — "안 열도록 코드를 짰다"가 아니라 **열쇠 자체가 안 맞습니다.**',
   ],
   [
+    '내 사진을 남이 볼 수 있나요?',
+    '아니요. 창고를 **잠긴 상태로** 둡니다. 사진을 볼 때도 관리인에게 5분짜리 출입증을 받아야 해요. 주소만 알면 누구나 열리는 "공개 주소"는 **켜지 않습니다**. 이 앱은 개인 사진이 주인공이라 그 편법을 쓰지 않기로 했어요(2026-07-25 결정).',
+  ],
+  [
+    '그러면 사진 보는 게 느려지지 않나요?',
+    '거의 그대로예요. 이 앱은 화면에 그릴 때 **기기 안 사본**을 쓰기 때문입니다. 출입증이 필요한 순간은 "새 기기에서 그 사진을 처음 받아올 때" 딱 한 번뿐이에요.',
+  ],
+  [
     '사진 저장·삭제가 지금처럼 잘 되나요?',
     '네. 올리는 것도 지우는 것도 지금처럼 됩니다. 지우는 것은 앱이 직접 하지 않고 **관리인에게 부탁**하는 방식이라 오히려 더 안전해요. 그리고 화면에 사진을 그릴 때는 **원래부터 기기 안 사본**을 쓰기 때문에, 창고가 바뀌어도 보는 속도는 그대로입니다.',
   ],
@@ -106,11 +116,12 @@ const STEPS: Step[] = [
   {
     n: '4',
     where: '버킷 › 설정 › 공개 개발 URL',
-    title: '공개 URL 활성 → R2_PUBLIC_BASE',
-    body: '얻은 https://pub-xxxxxxxx.r2.dev 가 R2_PUBLIC_BASE다. 끝의 / 는 빼고 저장한다.',
+    title: '🔒 공개 URL은 켜지 않는다 (읽기 정책 B)',
+    body: '여기서는 아무것도 하지 않는다. "공개 액세스: 사용 안 함" 상태를 눈으로 확인만 하고 지나간다. 읽기도 함수가 5분 서명 URL을 발급하므로 공개 개발 URL이 필요 없다.',
     notes: [
-      { tone: 'warn', text: '오역 주의: 꺼진 상태 문구가 "공개 개발 URL을 비활성화할 수 없습니다"로 나오는데, 실제 의미는 "아직 켜지지 않았다"이다.' },
-      { tone: 'danger', text: '이 URL을 아는 사람은 인증 없이 사진을 열람할 수 있다. 우리 앱은 개인 사진이 주인공이라 이 절충을 그대로 받을지 별도 결정이 필요하다(docs/STORAGE_R2_PROPOSAL.md §8).' },
+      { tone: 'danger', text: '켜면 URL을 아는 사람은 인증 없이 사진을 열람할 수 있다 — 비타협 원칙 #3(개인자료 기본 비공개) 위반이다. 메디컬 앱은 A(공개 URL)를 쓰지만 우리는 개인 사진이 주인공이라 같은 절충을 받지 않는다(사용자 결정 2026-07-25, ADR-0024).' },
+      { tone: 'warn', text: '따라서 R2_PUBLIC_BASE 시크릿도 등록하지 않는다 — 확보할 값은 5개가 아니라 4개다.' },
+      { tone: 'tip', text: '오역 주의: 꺼진 상태 문구가 "공개 개발 URL을 비활성화할 수 없습니다"로 나오는데 실제 의미는 "아직 켜지지 않았다"이다 — 우리에겐 이게 정상 상태다.' },
     ],
   },
   {
@@ -119,6 +130,7 @@ const STEPS: Step[] = [
     title: 'CORS 정책 — 빠뜨리면 마지막에만 실패한다',
     body: 'AllowedOrigins에 앱 origin, AllowedMethods에 PUT/GET/HEAD, AllowedHeaders에 content-type, ExposeHeaders에 ETag.',
     notes: [
+      { tone: 'warn', text: '읽기 정책 B에서는 GET도 브라우저가 R2에 직접 보낸다 — PUT만 넣고 GET을 빼면 업로드는 되는데 새 기기에서 사진을 못 받는다(증상이 나중에, 다른 기기에서 나타난다).' },
       { tone: 'danger', text: 'Medical-Note가 실제로 겪은 사고: 이 단계가 빠져 있어 버킷·주소·토큰·시크릿·배포가 전부 맞는데도 마지막 업로드에서만 실패했다. 실패 지점과 원인 지점이 멀어 진단이 매우 어렵다.' },
       { tone: 'warn', text: 'origin은 추정하지 말고 앱 주소창에서 직접 복사한다 — GitHub Pages는 대문자를 소문자로 바꾼다. 경로는 빼고 도메인까지만, 끝 슬래시 없이.' },
       { tone: 'warn', text: 'content-type 허용이 필요한 이유: 업로드가 Content-Type 헤더를 보내 프리플라이트가 발생한다. 이 한 줄이 없으면 다른 게 다 맞아도 업로드만 실패한다.' },
@@ -151,8 +163,8 @@ const STEPS: Step[] = [
   {
     n: '7',
     where: 'Supabase › 프로젝트 › Edge Functions › MANAGE › Secrets',
-    title: '시크릿 5개 등록',
-    body: 'R2_ACCOUNT_ID · R2_BUCKET · R2_ACCESS_KEY_ID · R2_SECRET_ACCESS_KEY · R2_PUBLIC_BASE',
+    title: '시크릿 4개 등록',
+    body: 'R2_ACCOUNT_ID · R2_BUCKET · R2_ACCESS_KEY_ID · R2_SECRET_ACCESS_KEY (R2_PUBLIC_BASE는 등록하지 않는다 — 읽기 정책 B)',
     notes: [
       { tone: 'warn', text: 'Edge Functions 목록 화면에는 Secrets 탭이 없다. 좌측 MANAGE › Secrets이며 URL 직행이 가장 확실하다(/functions/secrets).' },
       { tone: 'danger', text: '실패 원인 1위는 앞뒤 공백·줄바꿈 혼입이다. 모바일에서 길게 눌러 복사하면 섞이기 쉽다. 증상은 SignatureDoesNotMatch.' },
@@ -164,20 +176,20 @@ const STEPS: Step[] = [
     n: '8',
     where: 'Supabase › Edge Functions › Deploy a new function › Via Editor',
     title: 'media-sign 함수 배포',
-    body: '함수 이름은 media-sign. 소스는 앱 독립적이라 수정 없이 그대로 붙여넣는다.',
+    body: '함수 이름은 media-sign. 소스는 우리 저장소의 supabase/functions/media-sign/index.ts 한 파일을 통째로 붙여넣는다.',
     notes: [
+      { tone: 'warn', text: '메디컬 앱의 소스를 그대로 쓰지 않는다 — 우리 것은 읽기 서명(op:"get")이 있고 공개 URL을 쓰지 않으며, 객체 키를 검증된 로그인 정보에서 만든다.' },
       { tone: 'tip', text: '이름 입력칸은 편집기 하단(Deploy function 버튼 옆)에 있다 — 상단이 아니다.' },
       { tone: 'warn', text: '편집기가 Deno 전역을 몰라 빨간 타입 경고가 뜨지만 배포·실행에 무해하다. 여기서 멈추지 말 것.' },
-      { tone: 'tip', text: '붙여넣기 무결성 확인: 마지막 줄 번호가 326이면 온전히 들어간 것이다(모바일 붙여넣기 잘림은 눈으로 못 잡는다).' },
+      { tone: 'tip', text: '붙여넣기 무결성 확인: 마지막 줄이 "if (DENO) DENO.serve(handler);"로 끝나야 온전히 들어간 것이다(모바일 붙여넣기 잘림은 눈으로 못 잡는다).' },
     ],
   },
 ];
 
-// ── 확보할 값 체크리스트 ──
+// ── 확보할 값 체크리스트 (읽기 정책 B — R2_PUBLIC_BASE 없음) ──
 const VALUES: [string, string][] = [
   ['R2_ACCOUNT_ID', '대시보드 주소창 32자리 (1단계)'],
   ['R2_BUCKET', '버킷 이름 travel-log-media (3단계)'],
-  ['R2_PUBLIC_BASE', '공개 개발 URL, 끝 / 제외 (4단계)'],
   ['R2_ACCESS_KEY_ID', '토큰 발급 결과 — "토큰 값" 아님 (6단계)'],
   ['R2_SECRET_ACCESS_KEY', '토큰 발급 결과 — 한 번만 보임 (6단계)'],
 ];
@@ -187,8 +199,8 @@ const TROUBLE: [string, string][] = [
   ['CORS / Failed to fetch', 'origin 불일치 — 앱 주소창 값과 AllowedOrigins를 글자 대조(끝 슬래시·경로)'],
   ['SignatureDoesNotMatch', '시크릿 앞뒤 공백, 또는 "토큰 값"을 Access Key ID로 오입력'],
   ['403 AccessDenied', '토큰 권한이 읽기 전용이거나 버킷 범위 밖'],
-  ['서명 URL 만료(403)', '5분 초과 — 재시도하거나 기기 시계 확인'],
-  ['주소는 생기는데 사진이 안 보임', '공개 개발 URL 미활성 또는 R2_PUBLIC_BASE 불일치'],
+  ['서명 URL 만료(403)', '5분 초과 — 재시도하거나 기기 시계 확인(서명은 기기 시각이 아니라 함수 시각 기준이지만 재시도가 가장 빠른 해법)'],
+  ['업로드는 되는데 새 기기에서 사진이 안 옴', 'CORS AllowedMethods에 GET/HEAD 누락 — 읽기 정책 B는 GET도 브라우저→R2 직접 (5단계)'],
   ['R2 environment variables are missing', '시크릿 이름 오타/누락 — 어떤 값이 비었는지는 응답에 안 담기니 함수 로그 확인'],
   ['삭제가 전부 실패', '버킷 잠금 규칙이 켜졌을 가능성 (5b단계)'],
 ];
@@ -200,6 +212,36 @@ const LADDER: [string, string, string][] = [
   ['3', '앱에서 사진 업로드', 'presign → 브라우저→R2 직접 전송 → 표시까지 전 경로 (결정적 검증)'],
   ['4', '저장 후 재열기', 'DB 왕복 + 재파싱까지'],
 ];
+
+/**
+ * 검증 사다리 2번 — 앱의 로그인 경로로 함수·시크릿까지 닿는지 확인.
+ * **증명하지 못하는 것**: R2로의 실제 업로드(CORS). 그건 3번(사진 저장)에서만 드러난다.
+ */
+function probePanel(): HTMLElement {
+  const wrap = el('div', 'r2-probe');
+  const btn = el('button', 'btn-ghost', '연결 확인 (사다리 2번)') as HTMLButtonElement;
+  btn.type = 'button';
+  btn.setAttribute('data-probe-r2', '');
+  const note = el('p', 'r2-probe-note');
+  note.hidden = true;
+  btn.addEventListener('click', () => {
+    const client = supabase();
+    if (!client) {
+      setNote(note, '아직 Supabase 연결이 설정되지 않았습니다(로컬 전용 모드).', 'info');
+      return;
+    }
+    btn.disabled = true;
+    setNote(note, '확인 중…', 'info');
+    void r2Probe(client)
+      .then((r) => setNote(note, r.detail, r.ok ? 'ok' : 'error'))
+      .catch((e: Error) => setNote(note, `확인 실패: ${e.message}`, 'error'))
+      .finally(() => {
+        btn.disabled = false;
+      });
+  });
+  wrap.append(btn, note);
+  return wrap;
+}
 
 export function openR2Setup(): void {
   const prevFocus = document.activeElement as HTMLElement | null;
@@ -242,6 +284,8 @@ export function openR2Setup(): void {
     plainBox.appendChild(qa);
   }
   body.appendChild(plainBox);
+
+  body.appendChild(probePanel());
 
   body.appendChild(el('h3', 'guide-h', '설정 절차'));
 

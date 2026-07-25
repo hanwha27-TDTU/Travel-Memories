@@ -1241,6 +1241,19 @@
 }
 .r2-key-wide { flex: 0 0 auto; max-width: 100%; font-family: inherit; }
 .r2-val { flex: 1 1 200px; font-size: 0.78rem; line-height: 1.5; min-width: 0; }
+/* R2 가이드 — 연결 확인(검증 사다리 2번). 상태별 시각 위계는 sync-note와 같은 어휘. */
+.r2-probe { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: var(--space-3) 0; }
+.r2-probe-note {
+  margin: 0; flex: 1 1 240px; min-width: 0;
+  padding: 5px 11px; border-radius: var(--radius-pill);
+  font-size: 0.76rem; font-weight: 600; line-height: 1.5;
+}
+.r2-probe-note.is-ok { background: color-mix(in srgb, var(--sem-teal) 12%, transparent); color: var(--sem-teal); }
+.r2-probe-note.is-info { background: color-mix(in srgb, var(--sem-sky) 12%, transparent); color: var(--sem-sky); }
+.r2-probe-note.is-error {
+  background: color-mix(in srgb, var(--sem-pink) 15%, transparent);
+  color: var(--sem-pink); font-weight: 700;
+}
 /* R2 가이드 — 쉬운 설명(질문/답) */
 .r2-plain {
   margin: var(--space-3) 0; padding: var(--space-3);

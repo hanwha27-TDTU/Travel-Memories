@@ -1,6 +1,7 @@
 # 기술변경 제안서 · 사진 바이트 저장소를 Cloudflare R2로 이관 (개정 2판)
 
-> 상태: **제안(설계) — 승인 전. 코드·인프라 미착수.**
+> 상태: **승인됨(읽기 정책 B, ADR-0024) — 앱 코드 착수 완료. 외부 인프라(버킷·토큰·함수 배포)는 사용자 몫으로 대기.**
+> 켜는 방법: 시크릿 4개 + `media-sign` 배포 후 `VITE_MEDIA_STORE=r2`. 설정 전까지 앱은 기존 Supabase Storage 경로 그대로 동작한다.
 > **개정 이유**: Medical-Note 앱이 2026-07-25에 동일 이관을 **처음부터 끝까지 실제로 수행**하고 인수인계 문서
 > (`R2 이미지 저장소 — 여행앱 인수인계`)와 검증된 함수 소스(`media-sign-index.ts`)를 넘겨줬다.
 > **1판(Cloudflare Worker + 바인딩)은 폐기하고, 실증된 구조(Supabase Edge Function presign)를 채택한다.**
@@ -143,9 +144,16 @@ Cloudflare 계정 (한 지붕)
 
 ---
 
-## 8. 최대 미결 쟁점 — 공개 URL과 우리 원칙의 충돌 🔴
+## 8. ~~최대 미결 쟁점~~ → **결정됨: B(읽기도 서명)** ✅
 
-**이것이 승인 전에 반드시 결정해야 할 단 하나의 문제다.**
+> **2026-07-25 사용자 결정 "B로 가자" → ADR-0024.** 버킷은 비공개로 두고 읽기도 5분 presigned GET.
+> 따라서 **공개 개발 URL을 켜지 않고 `R2_PUBLIC_BASE`도 등록하지 않는다**(시크릿 4개).
+> B의 대가가 우리 앱에서 작은 이유: 화면은 언제나 **로컬 blob**으로 그린다(`tripDetail.ts`의
+> `thumbBlob`/`displayBlob`) → 읽기 서명은 *새 기기가 그 사진을 처음 받을 때 사진당 1회*뿐이다.
+> Medical-Note는 URL로 직접 표시하는 구조라 A가 합리적이었다 — 구조가 다르니 결론도 달라진다.
+> 아래는 결정 근거로서 원문을 보존한다.
+
+**~~이것이 승인 전에 반드시 결정해야 할 단 하나의 문제다.~~**
 
 - 인수인계 구조는 R2 **공개 개발 URL**(`https://pub-xxxx.r2.dev/<key>`)을 쓴다 → **URL을 아는 사람은 인증 없이 열람**할 수 있다(키가 UUID라 추측은 사실상 불가능하지만, 유출되면 열린다).
 - 그런데 우리 앱의 **비타협 원칙 #3**은 *"개인자료는 기본 비공개 — 여행·사진·GPS·동행인·비용·회고 모두 비공개가 기본"*이다. 현재 Supabase `journey-media` 버킷은 **비공개 + 소유자 RLS**다.
@@ -168,13 +176,14 @@ Cloudflare 계정 (한 지붕)
 
 **A. 사용자가 해야 할 것(외부 콘솔 — 제가 못 함)**
 1. R2 버킷 `travel-log-media` 생성 — **위치 자동 · 저장 클래스 표준**(Infrequent Access 금지)
-2. 그 버킷의 **공개 개발 URL** 활성(§8에서 A안 채택 시) → `R2_PUBLIC_BASE`
-3. **CORS 정책** — `AllowedOrigins`에 앱 origin을 **주소창에서 직접 복사**(GitHub Pages는 대문자→소문자 변환), `AllowedMethods: PUT/GET/HEAD`, `AllowedHeaders: content-type`
+2. 🔒 **공개 개발 URL은 켜지 않는다**(정책 B). "공개 액세스: 사용 안 함" 상태 확인만 하고 지나간다 → `R2_PUBLIC_BASE` 없음
+3. **CORS 정책** — `AllowedOrigins`에 앱 origin을 **주소창에서 직접 복사**(GitHub Pages는 대문자→소문자 변환), `AllowedMethods: PUT/GET/HEAD`(**정책 B는 GET도 브라우저→R2 직행이라 GET 누락 시 "업로드는 되는데 새 기기에서 안 보임"이 된다**), `AllowedHeaders: content-type`
 4. 🚨 **「버킷 잠금 규칙」 절대 켜지 말 것** — 기본값이 ON·무기한이라 저장하면 객체 영구 삭제 불가
 5. **계정 API 토큰**(사용자 토큰 아님) — 권한 `개체 읽기 및 쓰기`, **특정 버킷 하나만**, IP 필터링 **비움**
 6. 🔴 발급 결과에서 **"토큰 값"이 아니라 `Access Key ID`/`Secret Access Key`**를 쓴다. **이 화면은 캡처 금지**
-7. Supabase Secrets 5개 등록(`/functions/secrets` URL 직행)
-8. `media-sign` 함수 배포(동봉 소스 그대로)
+7. Supabase Secrets **4개** 등록(`/functions/secrets` URL 직행) — `R2_PUBLIC_BASE` 제외
+8. `media-sign` 함수 배포 — **우리 저장소의 `supabase/functions/media-sign/index.ts`**(메디컬 소스가 아니다: 읽기 서명 `op:"get"` 추가, 공개 URL 미사용, 객체 키를 검증된 `sub`로 생성)
+9. 앱 빌드 환경변수 `VITE_MEDIA_STORE=r2` (이걸 켜기 전까지 기존 경로 그대로)
 
 **B. 완료의 정의(DoD)**
 구현 → 유닛 → `harness` 12게이트 → security-privacy 감사 → **§6 사다리 1~4 전부**(특히 3번 실기기 업로드) → DR 감사관 재판정 → 문서 갱신 → 옛 객체 스윕.

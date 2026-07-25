@@ -19,6 +19,9 @@ const REQUIRED = {
     'https://cdn.jsdelivr.net',
     'https://*.currency-api.pages.dev',
     'https://api.frankfurter.dev',
+    // 사진 표시본 바이트를 브라우저가 R2로 **직접** 보내고 받는다(presigned PUT/GET, ADR-0024).
+    // 읽기 정책 B라 img-src는 열지 않는다 — 화면은 로컬 blob으로 그리기 때문이다.
+    'https://*.r2.cloudflarestorage.com',
   ],
   'worker-src': ['blob:'],           // MapLibre GL blob: 워커
   'img-src': ['data:', 'blob:', 'https://*.supabase.co', 'https://tile.openstreetmap.org'],
@@ -59,11 +62,13 @@ function checkHtml(html) {
 }
 
 // ── 셀프테스트: 알려진 실패 주입이 RED로 잡히는지 확인(게이트 비공허, CLAUDE.md §4) ──
-const GOOD = `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: https://*.supabase.co https://tile.openstreetmap.org; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://tile.openstreetmap.org https://nominatim.openstreetmap.org https://cdn.jsdelivr.net https://*.currency-api.pages.dev https://api.frankfurter.dev; worker-src 'self' blob:; script-src 'self'; object-src 'none'; base-uri 'self'" />`;
+const GOOD = `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: https://*.supabase.co https://tile.openstreetmap.org; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://tile.openstreetmap.org https://nominatim.openstreetmap.org https://cdn.jsdelivr.net https://*.currency-api.pages.dev https://api.frankfurter.dev https://*.r2.cloudflarestorage.com; worker-src 'self' blob:; script-src 'self'; object-src 'none'; base-uri 'self'" />`;
 const selfCases = [
   { name: '정상 CSP 통과', html: GOOD, expectClean: true },
   { name: 'wss 누락 검출', html: GOOD.replace(' wss://*.supabase.co', ''), expectClean: false },
   { name: 'worker-src 누락 검출', html: GOOD.replace(" worker-src 'self' blob:;", ''), expectClean: false },
+  // R2 누락은 "사진 업로드·내려받기만" 조용히 죽는 부류라 별도 케이스로 잠근다(ADR-0024).
+  { name: 'R2 connect-src 누락 검출', html: GOOD.replace(' https://*.r2.cloudflarestorage.com', ''), expectClean: false },
   { name: 'unsafe-eval 검출', html: GOOD.replace("script-src 'self'", "script-src 'self' 'unsafe-eval'"), expectClean: false },
   { name: 'CSP 부재 검출', html: '<meta charset="UTF-8" />', expectClean: false },
 ];

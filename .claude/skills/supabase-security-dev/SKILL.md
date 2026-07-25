@@ -16,6 +16,8 @@ description: Supabase·보안·RLS 개발 프롬프트 — supabase/migrations/*
 | `supabase/tests/*.sql` | RLS 공격검사(격리·초대제·H-02 위조·좀비 차단) — `BEGIN … ROLLBACK` |
 | `src/services/supabase/client.ts` | 클라이언트 — **`db.schema='journey'` 고정** |
 | `src/services/auth.ts` | Google OAuth(PKCE) + 초대제 앱 게이트 |
+| `supabase/functions/media-sign/index.ts` | **R2 바이트의 유일한 출입구**(SigV4 presign). R2 자격증명이 존재하는 유일한 장소 |
+| `src/services/r2.ts` | 그 함수를 부르는 브라우저 어댑터 — **자격증명 없음**, 5분 URL만 받는다 |
 
 ## 1. 절대 금지 (§0 비타협)
 
@@ -32,6 +34,7 @@ description: Supabase·보안·RLS 개발 프롬프트 — supabase/migrations/*
 4. **좀비 방지 트리거**: `prevent_zombie_resurrection` BEFORE UPDATE — tombstone은 **더 높은 version**으로만 부활한다(낮거나 같은 version의 활성 upsert는 거부). 클라이언트 병합 규율(`mergeDecision`)의 서버측 쌍둥이다.
 5. **`SECURITY DEFINER` 함수는 `search_path=''` 고정**(권한 상승 경로 차단).
 6. **GPS는 동기화하지 않는다**(PRIVACY). 원본 사진도 서버에 올리지 않는다(절약 모드).
+7. **R2에는 RLS가 없다(ADR-0024)**: 벽이 넷으로 바뀐다 — ①토큰이 **버킷 하나**만 열도록 스코프 ②자격증명은 함수 시크릿에만 ③**객체 키를 서버가 생성**(폴더=검증된 `sub`, 클라이언트가 보낸 key/path는 무시) ④인증은 `verify_jwt` 설정에 기대지 않고 매 요청 `/auth/v1/user`로 실제 확인. 읽기도 서명(정책 B) — **공개 개발 URL·`R2_PUBLIC_BASE`를 쓰지 않는다.**
 
 ## 3. 마이그레이션 적용 레시피 (되돌릴 수 있게)
 
