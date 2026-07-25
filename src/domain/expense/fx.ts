@@ -90,6 +90,24 @@ export function fxDateFor(occurredAtIso: string, todayDate: string): string {
   return d > todayDate ? todayDate : d;
 }
 
+/** 1 from = ? to (단위 환율). 환산 상세를 사용자가 검산할 수 있게 노출하는 값. */
+export function unitRate(from: string, to: string, table: FxRateTable): number | null {
+  return convertAmount(1, from, to, table);
+}
+
+/**
+ * 환율 숫자 표시 — 통화 소수자릿수(KRW=0)를 쓰면 0.1233이 "₩0"으로 뭉개지므로 별도 규칙.
+ * 1 이상은 소수 2~4자리, 1 미만은 유효숫자 4자리(작은 환율도 의미 있는 자리까지 보인다).
+ */
+export function formatRate(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  if (n >= 1000) return n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  if (n >= 1) return n.toLocaleString('en-US', { maximumFractionDigits: 4 });
+  const s = n.toPrecision(4);
+  if (!s.includes('.') || s.includes('e')) return s; // 지수표기는 그대로(극단값)
+  return s.replace(/0+$/, '').replace(/\.$/, '');
+}
+
 /** 통화별 합계를 기준통화 하나로 환산해 더한다. 환산 불가 통화는 skipped에 남긴다(숨기지 않음). */
 export function convertTotals(
   totals: Record<string, number>,

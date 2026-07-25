@@ -381,6 +381,20 @@
 }
 .dm-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin: var(--space-2) 0; }
 
+/* 환율 상세(배지 탭 → 펼침) — 사용자가 직접 검산할 수 있게 적용일·환율·계산식·출처를 보인다. */
+.chip-approx { border: 0; background: none; cursor: pointer; font: inherit; color: inherit; }
+.chip-approx:hover { opacity: 1; text-decoration: underline dotted; }
+.chip-approx[aria-expanded='true'] { opacity: 1; font-weight: 700; }
+.fx-detail {
+  margin-top: var(--space-2); padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line); border-left: 3px solid var(--sem-teal);
+  border-radius: var(--radius-medium); background: var(--bg);
+}
+.fx-row { display: flex; gap: var(--space-2); align-items: baseline; padding: 2px 0; flex-wrap: wrap; }
+.fx-row-k { flex: 0 0 72px; font-size: 0.74rem; color: var(--ink-soft); font-weight: 700; }
+.fx-row-v { flex: 1 1 auto; font-size: 0.8rem; color: var(--ink); font-variant-numeric: tabular-nums; }
+.fx-note { margin: var(--space-2) 0 0; font-size: 0.72rem; color: var(--ink-soft); line-height: 1.5; font-style: italic; }
+
 /* 여행 없음 */
 .detail-notfound {
   text-align: center; padding: 72px 24px; display: flex; flex-direction: column;

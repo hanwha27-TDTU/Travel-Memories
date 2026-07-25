@@ -7,6 +7,8 @@ import {
   isFxFresh,
   localDate,
   rateOf,
+  unitRate,
+  formatRate,
   type FxRateTable,
 } from '../../src/domain/expense/fx';
 
@@ -96,6 +98,37 @@ describe('날짜 처리', () => {
       localDate('2026-07-10T00:00:00.000Z'),
     );
     expect(fxDateFor('2027-01-01T00:00:00.000Z', '2026-07-16')).toBe('2026-07-16');
+  });
+});
+
+describe('unitRate / formatRate — 사용자가 검산할 수 있는 표시', () => {
+  it('unitRate: 1 UZS = ? KRW (양방향 역수 관계)', () => {
+    const a = unitRate('UZS', 'KRW', T)!;
+    const b = unitRate('KRW', 'UZS', T)!;
+    expect(a).toBeCloseTo(1 / 9.2, 10);
+    expect(b).toBeCloseTo(9.2, 10);
+    expect(a * b).toBeCloseTo(1, 10); // 서로 역수
+  });
+  it('unitRate: 모르는 통화는 null', () => {
+    expect(unitRate('XXX', 'KRW', T)).toBeNull();
+  });
+  it('formatRate: 1 미만은 유효숫자 4자리(0으로 뭉개지지 않음)', () => {
+    expect(formatRate(0.1233)).toBe('0.1233');
+    expect(formatRate(0.00072)).toBe('0.00072');
+  });
+  it('formatRate: 1 이상은 소수 4자리까지', () => {
+    expect(formatRate(9.2)).toBe('9.2');
+    expect(formatRate(1388.888888)).toBe('1,388.89');
+  });
+  it('formatRate: 비정상 값은 —', () => {
+    expect(formatRate(0)).toBe('—');
+    expect(formatRate(NaN)).toBe('—');
+  });
+  it('환산값과 단위환율이 일치(검산 가능)', () => {
+    const amount = 50000;
+    const conv = convertAmount(amount, 'UZS', 'KRW', T)!;
+    const r = unitRate('UZS', 'KRW', T)!;
+    expect(amount * r).toBeCloseTo(conv, 6);
   });
 });
 
