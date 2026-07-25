@@ -23,8 +23,12 @@ const ENV: Record<string, string> = {
   R2_ACCESS_KEY_ID: 'AKIDEXAMPLE',
   R2_SECRET_ACCESS_KEY: SECRET,
   SUPABASE_URL: 'https://example.supabase.co',
-  SUPABASE_ANON_KEY: 'anon-publishable',
+  // SUPABASE_ANON_KEY는 **일부러 넣지 않는다** — 새 키 체계 프로젝트에서는 주입되지 않는다.
+  // 요청의 apikey 헤더로 폴백하는 경로가 실제로 동작해야 인증이 성립한다.
 };
+
+/** auth 확인 호출이 실제로 받은 apikey(테스트에서 폴백 경로를 확인하기 위해 기록). */
+let lastApiKey: string | null = null;
 
 type Fn = typeof import('../../supabase/functions/media-sign/index');
 let fn: Fn;
@@ -38,7 +42,12 @@ beforeAll(async () => {
   // 인증 확인(/auth/v1/user)만 가로챈다 — R2로는 실제로 나가지 않는다.
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    if (url.endsWith('/auth/v1/user')) return new Response(JSON.stringify({ id: UID_A }), { status: 200 });
+    if (url.endsWith('/auth/v1/user')) {
+      lastApiKey = new Headers(init?.headers).get('apikey');
+      // apikey 없이 오면 실제 Supabase도 401을 준다 — 그 현실을 그대로 흉내낸다.
+      if (!lastApiKey) return new Response('{"message":"No API key found"}', { status: 401 });
+      return new Response(JSON.stringify({ id: UID_A }), { status: 200 });
+    }
     if (init?.method === 'DELETE') return new Response('', { status: 204 });
     throw new Error(`예상치 못한 외부 호출: ${url}`);
   }) as typeof fetch;
@@ -48,7 +57,7 @@ beforeAll(async () => {
 function post(body: unknown): Request {
   return new Request('https://example.functions.supabase.co/media-sign', {
     method: 'POST',
-    headers: { Authorization: 'Bearer fake-jwt', 'Content-Type': 'application/json' },
+    headers: { Authorization: 'Bearer fake-jwt', apikey: 'publishable-from-client', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
 }
@@ -90,6 +99,22 @@ describe('접근 통제 — 서버가 키를 만든다', () => {
     const res = await fn.handler(req);
     expect(res.status).toBe(401);
     expect(await res.text()).not.toContain('X-Amz-Signature');
+  });
+
+  it('SUPABASE_ANON_KEY가 없어도 요청의 apikey로 인증이 성립한다(새 키 체계 프로젝트)', async () => {
+    lastApiKey = null;
+    const res = await fn.handler(post({ op: 'get', mediaId: MID }));
+    expect(res.status).toBe(200);
+    expect(lastApiKey).toBe('publishable-from-client'); // 환경변수가 아니라 헤더에서 왔다
+  });
+
+  it('apikey도 Authorization도 없으면 401 — 폴백이 구멍이 되지 않는다', async () => {
+    const req = new Request('https://x/media-sign', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer fake-jwt' }, // apikey 없음
+      body: JSON.stringify({ op: 'get', mediaId: MID }),
+    });
+    expect((await fn.handler(req)).status).toBe(401);
   });
 
   it('알 수 없는 op은 거부한다', async () => {

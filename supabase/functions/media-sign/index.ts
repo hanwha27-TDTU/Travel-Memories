@@ -153,11 +153,23 @@ export function objectKey(userId: string, mediaId: string): string {
 }
 
 // ── 인증 — 플랫폼 설정에 의존하지 않는 실제 확인 ──────────────────
+/**
+ * auth API 호출에 쓸 publishable(anon) 키.
+ * 프로젝트가 새 키 체계(`SUPABASE_PUBLISHABLE_KEYS`)를 쓰면 `SUPABASE_ANON_KEY`가
+ * 주입되지 않을 수 있다 → 그때는 **요청에 실려온 apikey 헤더**를 쓴다.
+ * 안전한 이유: 신원은 apikey가 아니라 **JWT**에서 나오고 그 검증은 Supabase auth 서버가 한다.
+ * 위조 apikey를 보내면 호출이 실패해 null이 되므로(=401) 우회로가 생기지 않는다.
+ * anon 키는 애초에 브라우저에 공개된 값이라 여기서 비밀이 새는 것도 아니다.
+ */
+function publishableKey(req: Request): string | null {
+  return envGet('SUPABASE_ANON_KEY') ?? req.headers.get('apikey') ?? null;
+}
+
 async function verifiedUserId(req: Request): Promise<string | null> {
   const auth = req.headers.get('Authorization');
   if (!auth || !auth.startsWith('Bearer ')) return null;
   const base = envGet('SUPABASE_URL');
-  const anon = envGet('SUPABASE_ANON_KEY');
+  const anon = publishableKey(req);
   if (!base || !anon) return null;
   try {
     const r = await fetch(`${base}/auth/v1/user`, { headers: { Authorization: auth, apikey: anon } });

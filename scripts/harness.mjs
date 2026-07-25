@@ -8,6 +8,7 @@ const gates = [
   { name: 'check-domain-wiring', cmd: 'node scripts/check-domain-wiring.mjs' },
   { name: 'check-csp', cmd: 'node scripts/check-csp.mjs' },
   { name: 'check-base-consistency', cmd: 'node scripts/check-base-consistency.mjs' },
+  { name: 'check-env-wiring', cmd: 'node scripts/check-env-wiring.mjs' },
   { name: 'check-schema-parity', cmd: 'node scripts/check-schema-parity.mjs' },
   { name: 'check-backup-coverage', cmd: 'node scripts/check-backup-coverage.mjs' },
   { name: 'check-blueprint', cmd: 'node scripts/check-blueprint.mjs' },
