@@ -280,6 +280,8 @@ export async function pullTrips(remote: TripsRemote): Promise<{ pulled: number; 
     if (mergeDecision(local, server) === 'take-server') {
       await d.localTrips.put(server);
       pulled++;
+    } else {
+      await requeueIfServerStillActive('trip', local, server);
     }
   }
   return { pulled, skippedEmptyCloud: false };
@@ -351,6 +353,8 @@ export async function pullMoments(remote: MomentsRemote): Promise<{ pulled: numb
     if (mergeDecision(local, server) === 'take-server') {
       await d.localMoments.put(server);
       pulled++;
+    } else {
+      await requeueIfServerStillActive('moment', local, server);
     }
   }
   return { pulled, skippedEmptyCloud: false };
@@ -422,6 +426,8 @@ export async function pullExpenses(remote: ExpensesRemote): Promise<{ pulled: nu
     if (mergeDecision(local, server) === 'take-server') {
       await d.localExpenses.put(server);
       pulled++;
+    } else {
+      await requeueIfServerStillActive('expense', local, server);
     }
   }
   return { pulled, skippedEmptyCloud: false };
@@ -503,7 +509,10 @@ export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; 
     if (purged.has(r.id)) continue; // 이 기기에서 영구히 치운 것 — 되살리지 않는다
     const server = fromMediaRow(r);
     const local = await d.localMedia.get(server.id);
-    if (mergeDecision(local, server) !== 'take-server') continue;
+    if (mergeDecision(local, server) !== 'take-server') {
+      await requeueIfServerStillActive('media', local, server);
+      continue;
+    }
 
     if (server.deletedAt !== null) {
       // tombstone — blob 파괴 없이 삭제 표시만. 로컬에 없으면 만들 blob이 없고 필요도 없어 skip.
@@ -604,6 +613,39 @@ export async function requeueOrphanTombstones(): Promise<{ media: number; expens
 }
 
 /**
+ * **서버가 아직 살아 있는데 로컬은 지운 상태**면 삭제를 다시 대기열에 올린다.
+ *
+ * 왜 pull에 두나: pull은 이미 서버 상태를 받아왔으므로 **추가 비용 0으로 정확히** 판정할 수
+ * 있다. "로컬 tombstone + 서버 활성" = 그 삭제가 서버에 도달하지 못했다는 **직접 증거**다.
+ *
+ * ⚠️ 설계 이력(2026-07-25): 처음에는 `requeueOrphanTombstones`를 **1회만** 실행했다("완료된
+ * tombstone까지 매번 다시 밀지 않도록"). 그 대가로 **표식이 찍힌 뒤에 생긴 고아는 영영 잡히지
+ * 않았고**, 사용자는 지운 사진이 R2에 남는 것을 계속 봤다. 로컬만 보면 "이미 서버에 갔는지"를
+ * 알 수 없다는 게 뿌리였다 — 서버와 대조하면 그 모호함이 사라진다.
+ */
+async function requeueIfServerStillActive(
+  entityType: 'trip' | 'moment' | 'media' | 'expense',
+  local: { id: string; deletedAt: string | null } | undefined,
+  server: { deletedAt: string | null },
+): Promise<void> {
+  if (!local || local.deletedAt === null || server.deletedAt !== null) return;
+  const d = db();
+  const already = (await d.syncQueue.where('entityId').equals(local.id).toArray()).some(
+    (q) => q.entityType === entityType,
+  );
+  if (already) return;
+  await d.syncQueue.add({
+    operationId: crypto.randomUUID(),
+    entityType,
+    entityId: local.id,
+    operationType: 'delete',
+    state: 'local_only',
+    attempts: 0,
+    createdAt: new Date().toISOString(),
+  });
+}
+
+/**
  * 영구삭제 표식 조회 — pull이 이 id를 건너뛴다.
  *
  * 없으면 `purgeTripPermanently`가 만든 표식이 장식이 되고, 서버 tombstone을 다시 받아와
@@ -615,6 +657,20 @@ async function purgedIdSet(): Promise<Set<string>> {
 
 /** 정합 복구 1회 실행 표식. 완료된 tombstone까지 매번 다시 밀지 않도록 잠근다. */
 const REPAIR_KEY = 'bj.repair.cascadeOps.v1';
+
+/**
+ * 실패로 박힌 작업을 다시 시도 가능한 상태로 되돌린다(진단 화면의 [실패 재시도]).
+ *
+ * ⚠️ push는 `local_only`·`retryable_failed`만 처리하므로 `permanent_failed`는 **영원히 큐에
+ * 남아 아무 일도 하지 않으면서**, 영구삭제 사전 조건까지 막는다(대기 작업으로 세어진다).
+ * 사용자가 스스로 풀 수단이 없던 자리다. 데이터를 바꾸지 않고 상태만 되돌린다.
+ */
+export async function retryFailedOps(): Promise<number> {
+  const d = db();
+  const stuck = (await d.syncQueue.toArray()).filter((q) => q.state === 'permanent_failed');
+  for (const q of stuck) await d.syncQueue.update(q.operationId, { state: 'local_only', attempts: 0 });
+  return stuck.length;
+}
 
 /**
  * 정합 복구를 **강제로** 다시 실행한다(진단 화면의 [정리 실행] 버튼용).
