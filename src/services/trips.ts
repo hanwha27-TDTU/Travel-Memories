@@ -370,7 +370,13 @@ export async function listArchivedTrips(): Promise<LocalTrip[]> {
 }
 
 /** 동기화 대기 중인 작업 수 (UI 상태 표시용 — false/null 과적재 금지, 숫자로 반환). */
+/**
+ * 아직 서버에 못 간 작업 수.
+ *
+ * ⚠️ 결함 이력(2026-07-25): 예전에는 `local_only`만 셌다 → **실패한 작업(`retryable_failed`·
+ * `permanent_failed`)이 숨어서**, 화면은 "동기화됨"인데 실제로는 서버에 못 간 변경이 쌓여
+ * 있을 수 있었다. 미완료는 상태와 무관하게 전부 센다 — 사용자가 모르는 채로 잃는 것이 없게.
+ */
 export async function pendingSyncCount(): Promise<number> {
-  const d = db();
-  return d.syncQueue.where('state').equals('local_only').count();
+  return db().syncQueue.count();
 }

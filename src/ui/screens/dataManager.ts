@@ -3,6 +3,8 @@
 // 모든 자유 텍스트는 textContent로만(innerHTML 금지 — CSP·XSS 게이트).
 
 import { el, setNote } from '../dom';
+import { diagnoseSync } from '../../services/diagnostics';
+import { forceRepairCascadeOps } from '../../services/sync';
 import { openGuide } from './guide';
 import { exportBackup, exportBackupZip, importBackupAuto } from '../../services/backup';
 import { recordBackupNow, getLastBackupAt, backupFreshness } from '../../services/backupMeta';
@@ -381,12 +383,90 @@ function currencyPanel(): HTMLElement {
   return wrap;
 }
 
+
+/**
+ * 동기화 진단 — **로컬 상태를 보이게 만든다**(읽기 전용 + 수동 정리).
+ *
+ * 2026-07-25: "지운 것이 되살아난다"를 여러 번 진단하면서, 서버는 보이는데 기기 안이 안 보여
+ * 매번 추측하게 되는 것이 진짜 병목임이 드러났다. 이 패널이 그 창이다.
+ */
+function diagnosticsPanel(): HTMLElement {
+  const box = el('div', 'guide-detail-body');
+  box.append(
+    el('h3', 'guide-h', '동기화 진단'),
+    el('p', 'guide-p', '이 기기의 동기화 상태를 그대로 보여줍니다. 문제를 추측하지 않고 확인하기 위한 화면이에요.'),
+  );
+  const table = el('div', 'r2-table');
+  box.appendChild(table);
+  const note = el('p', 'r2-probe-note');
+  note.hidden = true;
+  box.appendChild(note);
+
+  const row = (k: string, v: string): HTMLElement => {
+    const r = el('div', 'r2-row');
+    r.append(el('code', 'r2-key r2-key-wide', k), el('span', 'r2-val', v));
+    return r;
+  };
+
+  const render = (): void => {
+    void (async () => {
+      const d = await diagnoseSync();
+      table.textContent = '';
+      const fmt = (o: Record<string, number>): string =>
+        Object.entries(o).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(' · ') || '없음';
+      table.append(
+        row('사진 저장소', d.mediaStore === 'r2' ? 'Cloudflare R2' : 'Supabase Storage'),
+        row('대기 중인 작업', d.queue.total === 0 ? '없음' : `${d.queue.total}건 — ${fmt(d.queue.byState)} / ${fmt(d.queue.byType)}`),
+        row('지운 항목(이 기기)', fmt(d.tombstones)),
+        row('⚠️ 서버로 못 간 삭제', fmt(d.orphanTombstones)),
+        row('영구삭제 표식', String(d.purgedMarks)),
+      );
+      const orphans = Object.values(d.orphanTombstones).reduce((a, b) => a + b, 0);
+      if (orphans > 0) {
+        setNote(note, `서버에 반영되지 못한 삭제가 ${orphans}건 있어요. 아래 [정리 실행] 후 동기화하면 해결됩니다.`, 'error');
+      } else if (d.queue.total > 0) {
+        setNote(note, '대기 중인 작업이 있어요. 동기화를 한 번 눌러 주세요.', 'info');
+      } else {
+        setNote(note, '이 기기에서 서버로 보낼 것이 남아 있지 않습니다.', 'ok');
+      }
+    })();
+  };
+  render();
+
+  const actions = el('div', 'r2-probe');
+  const repair = el('button', 'btn-ghost', '정리 실행') as HTMLButtonElement;
+  repair.type = 'button';
+  repair.setAttribute('data-repair-sync', '');
+  repair.addEventListener('click', () => {
+    repair.disabled = true;
+    void forceRepairCascadeOps()
+      .then((r) => {
+        setNote(note, `사진 ${r.media}건 · 비용 ${r.expenses}건을 다시 보낼 목록에 넣었어요. 이제 동기화를 눌러 주세요.`, 'ok');
+        render();
+      })
+      .catch((e: Error) => setNote(note, `정리 실패: ${e.message}`, 'error'))
+      .finally(() => {
+        repair.disabled = false;
+      });
+  });
+  const again = el('button', 'btn-ghost', '다시 확인') as HTMLButtonElement;
+  again.type = 'button';
+  again.addEventListener('click', render);
+  actions.append(repair, again);
+  box.appendChild(actions);
+  box.appendChild(
+    el('p', 'guide-note', '[정리 실행]은 데이터를 지우지 않아요 — 서버로 보내지 못한 삭제를 다시 보낼 목록에 넣을 뿐입니다.'),
+  );
+  return box;
+}
+
 function cards(onChanged: () => void): HubCard[] {
   return [
     { icon: '💱', label: '환율 기준통화', hint: '비용 옆에 환산값 표시', open: (h) => h.detail('💱 환율 기준통화', currencyPanel()) },
     { icon: '☁️', label: 'R2 저장소 설정', hint: '사진 저장소 설정 절차·함정 기록', open: (h) => { h.close(); openR2Setup(); } },
     { icon: '💾', label: '백업 (내보내기)', hint: '기억을 파일로 저장', open: (h) => h.detail('💾 백업 (내보내기)', backupPanel()) },
     { icon: '📥', label: '복원 (가져오기)', hint: '백업 파일에서 병합 복원', open: (h) => h.detail('📥 복원 (가져오기)', restorePanel(onChanged)) },
+    { icon: '🔍', label: '동기화 진단', hint: '이 기기의 상태를 그대로 확인', open: (h) => h.detail('🔍 동기화 진단', diagnosticsPanel()) },
     { icon: '🗑', label: '휴지통', hint: '삭제한 여행 복원·영구삭제', open: (h) => h.detail('🗑 휴지통', trashPanel(onChanged)) },
     { icon: '📖', label: '가이드', hint: '연결·설정과 개발·설계 안내', open: (h) => { h.close(); openGuide(); } },
   ];
