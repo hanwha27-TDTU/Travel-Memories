@@ -24,7 +24,7 @@ import {
   DOMAIN_PURGE,
   PURGE_DOMAINS,
 } from '../../src/services/purge';
-import { pushPending, pushPendingMoments, pushPurges, type PurgeRemote } from '../../src/services/sync';
+import { pushPending, pushPendingMoments, pushPendingMedia, pushPurges, type PurgeRemote } from '../../src/services/sync';
 
 beforeEach(async () => {
   const d = db();
@@ -109,6 +109,7 @@ describe('② 전파 push — 서버에 표식을 찍고 read-back으로 확인�
         return Promise.resolve({});
       },
       unmarkedInFamily: () => Promise.resolve({ count: 0 }),
+      familyMediaPaths: () => Promise.resolve({ paths: [] }),
     };
   };
 
@@ -134,6 +135,7 @@ describe('② 전파 push — 서버에 표식을 찍고 read-back으로 확인�
       readBack: () => Promise.resolve({ found: false, purgedAt: null }),
       markFamily: () => Promise.resolve({}),
       unmarkedInFamily: () => Promise.resolve({ count: 0 }),
+      familyMediaPaths: () => Promise.resolve({ paths: [] }),
     });
     expect(r.pushed).toBe(2);
     expect((await db().syncQueue.toArray()).filter((o) => o.operationType === 'purge')).toEqual([]);
@@ -148,6 +150,7 @@ describe('② 전파 push — 서버에 표식을 찍고 read-back으로 확인�
       readBack: () => Promise.resolve({ found: false, purgedAt: null }),
       markFamily: () => Promise.resolve({}),
       unmarkedInFamily: () => Promise.resolve({ count: 0 }),
+      familyMediaPaths: () => Promise.resolve({ paths: [] }),
     });
     expect(r.failed).toBe(2);
     expect((await db().syncQueue.toArray()).filter((o) => o.operationType === 'purge').length).toBe(2);
@@ -172,6 +175,7 @@ describe('② 서버 기준 가족 쓸기 — 로컬에 없는 자식도 표식�
         return Promise.resolve({});
       },
       unmarkedInFamily: () => Promise.resolve({ count: 0 }),
+      familyMediaPaths: () => Promise.resolve({ paths: [] }),
     });
     expect(r.failed).toBe(0);
     expect(families).toEqual([tripId]); // 여행에 대해 **한 번** 호출
@@ -184,6 +188,7 @@ describe('② 서버 기준 가족 쓸기 — 로컬에 없는 자식도 표식�
       mark: () => Promise.resolve({}),
       readBack: () => Promise.resolve({ found: true, purgedAt: '2026-07-26T00:00:00.000Z' }),
       markFamily: () => Promise.resolve({}),
+      familyMediaPaths: () => Promise.resolve({ paths: [] }),
       unmarkedInFamily: () => Promise.resolve({ count: 1 }), // 사진 하나가 안 찍힘
       // → 실패로 남겨 다음 동기화에서 다시 시도한다. 조용히 완료 처리하면 그 사진은 영영 남는다.
     });
@@ -204,8 +209,104 @@ describe('② 서버 기준 가족 쓸기 — 로컬에 없는 자식도 표식�
         return Promise.resolve({});
       },
       unmarkedInFamily: () => Promise.resolve({ count: 0 }),
+      familyMediaPaths: () => Promise.resolve({ paths: [] }),
     });
     expect(families.length).toBe(1); // 순간 op가 있어도 가족 쓸기는 여행에서만
+  });
+});
+
+
+describe('② 사진 바이트는 **영구삭제 때만** 지운다 (정책 2026-07-26)', () => {
+  // 사용자 결정: "휴지통에 있는 동안은 서버에 남겨둔다."
+  // 예전에는 삭제(휴지통행) 즉시 서버 사진을 지워서, 휴지통에 있는 동안 이미 사진이 없었다.
+  // 복원은 "사본을 가진 기기가 다시 올리는" 방식이라 그 기기가 없으면 사진이 영영 안 돌아왔다 —
+  // 휴지통이 사진에 대해서는 휴지통이 아니었다(비타협 원칙 #1과 어긋남).
+  const purgeRemoteOk = (paths: string[]): PurgeRemote => ({
+    mark: () => Promise.resolve({}),
+    readBack: () => Promise.resolve({ found: true, purgedAt: '2026-07-26T00:00:00.000Z' }),
+    markFamily: () => Promise.resolve({}),
+    unmarkedInFamily: () => Promise.resolve({ count: 0 }),
+    familyMediaPaths: () => Promise.resolve({ paths }),
+  });
+
+  it('영구삭제 push가 서버에서 받은 경로의 바이트를 지운다', async () => {
+    const { tripId } = await deletedTripWithChild();
+    await purgeTripPermanently(tripId);
+    const removed: string[] = [];
+    const r = await pushPurges(purgeRemoteOk(['u/a.webp', 'u/b.webp']), {
+      remove: (p) => {
+        removed.push(p);
+        return Promise.resolve({});
+      },
+    });
+    expect(r.failed).toBe(0);
+    expect(removed.sort()).toEqual(['u/a.webp', 'u/b.webp']);
+  });
+
+  it('바이트 삭제가 실패해도 표식 작업을 되돌리지 않는다 — 잉여 파일은 기억 손실이 아니다', async () => {
+    const { tripId } = await deletedTripWithChild();
+    await purgeTripPermanently(tripId);
+    const r = await pushPurges(purgeRemoteOk(['u/a.webp']), {
+      remove: () => Promise.resolve({ error: '네트워크 실패' }),
+    });
+    expect(r.failed).toBe(0); // 행 표식은 이미 durable
+    expect((await db().syncQueue.toArray()).filter((o) => o.operationType === 'purge')).toEqual([]);
+  });
+
+  it('바이트 포트를 안 주면 파일은 건드리지 않는다(행 표식만)', async () => {
+    const { tripId } = await deletedTripWithChild();
+    await purgeTripPermanently(tripId);
+    const r = await pushPurges(purgeRemoteOk(['u/a.webp'])); // bytes 생략
+    expect(r.failed).toBe(0);
+  });
+});
+
+describe('② 삭제(휴지통행)는 서버 사진을 지우지 않는다', () => {
+  it('tombstone push에서 remove가 호출되지 않는다 — 휴지통이 진짜 휴지통이어야 한다', async () => {
+    const trip = await createTripLocalFirst({ title: '사진 보존 확인' });
+    const moment = await createMomentLocalFirst({ tripId: trip.id, title: 'x', occurredAt: '2026-07-01T00:00:00.000Z' });
+    const blob = new Blob(['x'], { type: 'image/webp' });
+    await db().localMedia.put({
+      id: '11111111-1111-4111-8111-111111111111',
+      tripId: trip.id,
+      momentId: moment.id,
+      displayBlob: blob,
+      thumbBlob: blob,
+      width: 1,
+      height: 1,
+      takenAt: '',
+      bytesDisplay: 1,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-01T00:00:00.000Z',
+      deletedAt: null,
+      version: 1,
+    } as never);
+    await softDeleteTripLocalFirst(trip.id);
+
+    const removed: string[] = [];
+    await pushPendingMedia(
+      {
+        upsert: () => Promise.resolve({}),
+        getById: () =>
+          Promise.resolve({
+            data: {
+              id: '11111111-1111-4111-8111-111111111111',
+              updated_at: '2026-07-01T00:00:00.000Z',
+              version: 2,
+              deleted_at: '2026-07-01T00:00:00.000Z',
+            } as never,
+          }),
+        listAll: () => Promise.resolve({ data: [] }),
+        uploadDisplay: () => Promise.resolve({}),
+        download: () => Promise.resolve({ data: null }),
+        remove: (p: string) => {
+          removed.push(p);
+          return Promise.resolve({});
+        },
+      } as never,
+      'u1',
+    );
+    expect(removed).toEqual([]); // **한 번도 지우지 않아야 한다**
   });
 });
 

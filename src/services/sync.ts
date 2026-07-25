@@ -506,9 +506,16 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
       if (cur) await d.localMedia.put({ ...cur, updatedAt: server.updatedAt, version: server.version });
       await d.syncQueue.delete(op.operationId);
     });
-    // 고아 스윕(DEL-CONTRACT): tombstone이 서버에 반영됐으면 표시본 Storage 객체를 정리한다.
-    // 최선노력 — 실패해도 tombstone은 이미 durable하므로 op는 이미 제거됐고 유실 위험 없음(잉여만 남음).
-    if (media.deletedAt !== null) await remote.remove(path);
+    // ⚠️ 여기서 바이트를 지우지 않는다(정책 변경 2026-07-26, 사용자 결정).
+    //
+    // 예전에는 tombstone을 밀면서 곧바로 `remote.remove(path)`로 서버 사진을 지웠다. 그러면
+    // **휴지통에 있는 동안 사진이 이미 서버에 없다.** 복원은 "사본을 아직 가진 기기가 다시
+    // 올리는" 방식이라, 그 기기에서 사이트데이터를 지웠거나 애초에 그 사진을 안 받은 기기에서만
+    // 복원하면 **사진이 영영 안 돌아왔다.** 휴지통이 사진에 대해서는 휴지통이 아니었다
+    // (비타협 원칙 #1과 정면으로 어긋난다).
+    //
+    // 이제 바이트는 **영구삭제(휴지통 비우기) 시점에만** 지운다 — `pushPurges`가 담당한다.
+    // 대가는 휴지통에 머무는 동안의 저장 공간뿐이고, R2 무료 한도 10GB에서 무시할 수준이다.
     pushed++;
   }
   return { pushed, failed };
@@ -728,6 +735,11 @@ export interface PurgeRemote {
   markFamily(tripId: string): Promise<{ error?: string | undefined }>;
   /** read-back — 그 가족 중 표식이 안 찍힌 행이 남았는가(0이어야 완료). */
   unmarkedInFamily(tripId: string): Promise<{ count: number; error?: string | undefined }>;
+  /**
+   * 그 여행에 딸린 사진의 **서버 경로 목록**. 영구삭제 때 바이트를 지우려면 경로가 필요하고,
+   * 로컬에 없는 사진도 있으므로 **서버에 묻는다**(M-0016과 같은 이유).
+   */
+  familyMediaPaths(tripId: string): Promise<{ paths: string[]; error?: string | undefined }>;
   /** read-back — 성공 응답이 아니라 **되읽어** 확인한다(데이터 안전 불변식). */
   readBack(domain: PurgeDomain, id: string): Promise<{ found: boolean; purgedAt: string | null; error?: string | undefined }>;
 }
@@ -777,6 +789,18 @@ export function purgeRemote(client: JourneyClient): PurgeRemote {
         return { error: (e as Error).message };
       }
     },
+    async familyMediaPaths(tripId) {
+      try {
+        const r = await client.from('media').select('storage_path').eq('trip_id', tripId).not('storage_path', 'is', null);
+        if (r.error) return { paths: [], error: r.error.message };
+        const paths = ((r.data ?? []) as { storage_path: string | null }[])
+          .map((x) => x.storage_path)
+          .filter((p): p is string => Boolean(p));
+        return { paths };
+      } catch (e) {
+        return { paths: [], error: (e as Error).message };
+      }
+    },
     async unmarkedInFamily(tripId) {
       try {
         let count = 0;
@@ -806,7 +830,12 @@ export function purgeRemote(client: JourneyClient): PurgeRemote {
  * entityType을 `purge:*`로 두어 기존 루프(`if (op.entityType !== 'trip') continue`)가
  * 구조적으로 건너뛰게 했다 — 네 곳에 "purge는 빼라"를 손으로 적지 않는다.
  */
-export async function pushPurges(remote: PurgeRemote): Promise<{ pushed: number; failed: number }> {
+/** 사진 바이트를 지우는 최소 포트 — 영구삭제가 쓰는 유일한 파괴 경로. */
+export interface BytesRemote {
+  remove(path: string): Promise<{ error?: string | undefined }>;
+}
+
+export async function pushPurges(remote: PurgeRemote, bytes?: BytesRemote): Promise<{ pushed: number; failed: number }> {
   const d = db();
   const items = (await d.syncQueue.orderBy('createdAt').toArray()).filter(
     (q) => (q.state === 'local_only' || q.state === 'retryable_failed') && purgeDomainOf(q.entityType) !== null,
@@ -849,6 +878,25 @@ export async function pushPurges(remote: PurgeRemote): Promise<{ pushed: number;
           await markFail(op, undefined);
           failed++;
           continue;
+        }
+
+        // **여기가 사진 바이트를 지우는 유일한 자리다**(정책 2026-07-26).
+        // 휴지통에 있는 동안은 서버에 남겨 두었다가, 휴지통을 비울 때 지운다 —
+        // 그래야 휴지통이 진짜 휴지통이고, 어느 기기에서 복원해도 사진이 돌아온다.
+        // 경로는 **서버에 묻는다** — 로컬에 없는 사진도 지워야 하기 때문이다(M-0016과 같은 이유).
+        if (bytes) {
+          const fam = await remote.familyMediaPaths(op.entityId);
+          if (fam.error) {
+            await markFail(op, undefined);
+            failed++;
+            continue;
+          }
+          // 최선노력: 바이트 삭제 실패는 op를 되돌리지 않는다. 행 표식은 이미 durable하고,
+          // 남는 것은 **잉여 파일**일 뿐 기억 손실이 아니다. 대신 조용히 넘기지 않고 로그를 남긴다.
+          for (const p of fam.paths) {
+            const rm = await bytes.remove(p);
+            if (rm.error) console.error(`영구삭제: 사진 파일 삭제 실패 ${p} — ${rm.error}`);
+          }
         }
       }
       await d.syncQueue.delete(op.operationId);
@@ -908,7 +956,7 @@ export async function runSync(client: JourneyClient, userId: string): Promise<Sy
   const pd = await pushPendingMedia(dRemote, userId);
   const pe = await pushPendingExpenses(eRemote, userId);
   // 영구삭제 전파는 **pull보다 먼저** — 이번 동기화에서 다른 기기가 바로 알 수 있게.
-  const pp = await pushPurges(purgeRemote(client));
+  const pp = await pushPurges(purgeRemote(client), dRemote);
   const q = await pullTrips(remote);
   const qm = await pullMoments(mRemote);
   const qd = await pullMedia(dRemote);
