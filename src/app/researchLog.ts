@@ -304,4 +304,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '국기 36개를 손으로 적는 대신 파생 가능함을 발견: ISO 4217 통화코드의 앞 두 글자가 곧 ISO 3166-1 alpha-2 국가코드다(KRW→KR, UZS→UZ, EUR→EU도 유효한 지역표시자쌍). 지역표시자 코드포인트 산술로 생성하면 손편집 중복이 아예 없고(§7), 새 통화를 추가해도 국기가 자동으로 따라온다. 예외는 ISO 4217의 X.. 초국가 코드(XAF·XDR 등)뿐 — 나라가 없으므로 빈 문자열(위조 금지).',
     decision: 'domain/expense/format.ts: currencyFlag(code)=코드 앞 2글자→지역표시자 이모지(X 접두는 빈 문자열) + currencyLabel(c)=국기·심볼·코드 조합(빈 값 자동 생략). tripDetail.currencySelect와 dataManager 기준통화 선택기가 둘 다 currencyLabel을 쓰도록 통일(라벨 규칙을 두 곳에 손으로 쓰던 중복도 함께 제거). 환산 칩(formatMoney)에는 넣지 않음 — 타임라인은 기억이 주인공이라 국기가 노이즈. 검증: 유닛 16/16(파생 정확성·대소문자·X 접두 빈값·라벨 형식·지원 통화 전부가 국기를 가진다=새 통화 추가 시 자동 회귀 방지), verify-editor-live 59/59(36개 옵션 전부 국기 접두·"🇰🇷 ₩ KRW" 형식·콘솔 0). harness 11게이트·build 그린. 정직: Windows는 국기 이모지를 글자쌍(KR)으로 그리지만 정보는 남으므로 그대로 둔다.',
   },
+  {
+    seq: 38,
+    date: '2026-07-25',
+    topic: '타임라인 날짜가 하루 밀림 — UTC 절단 결함군(M-utc-slice)',
+    human: '7월 15일 사용금액인데 왜 7월 16일로 적용했어? (스크린샷: 타임라인 헤더 7월 15일 · 시각 06:48 · 적용 환율일 2026-07-16)',
+    ai: '실측 결과 환율이 아니라 **타임라인이 틀렸다**. timeline.ts dayKey가 occurredAt.slice(0,10)으로 UTC 날짜를 뽑는데, 시각 표시(timeLabel)·발생 시각 입력(toLocalInputValue)·백업 파일명(stampFromISO)·환율(localDate)은 전부 로컬이다. KST에서 2026-07-15T21:48Z = 로컬 7/16 06:48 → 헤더만 7/15로 밀렸다. 사용자가 입력한 발생 시각도 7/16 06:48이었으므로 환율 7/16이 정답. 앱 전체 날짜 파생 지점을 훑어 UTC를 쓰는 곳이 이 한 곳뿐임을 확인.',
+    decision: '결함군 승격(§6): ① 날짜 파생 SSOT를 domain/time.ts localDate로 신설(fx.ts에서 이동·재수출), timeline.ts dayKey가 이를 사용 → "그 날 = 사용자의 로컬 달력 날짜" 계약 명문화. ② **check-timezone 게이트(12번째)** 2층 방어 — (A) 정적: src/에서 ISO 절단(.slice(0,10)) 금지, 날짜 아니면 // not-a-date 예외(주석 오탐 방지 codePart 포함), (B) 동적: 유닛 스위트를 Asia/Seoul·Pacific/Honolulu(동/서 양방향)에서도 재실행. ③ 옛 timeline 테스트가 UTC 전제라 KST에서 깨짐 → 픽스처를 at(y,mo,d,h) 로컬 구성으로 전환(어느 시간대에서도 성립) + 회귀 테스트 2건(로컬 새벽 06:48이 전날로 안 밀림·하루 전체 시각대 훑기). **핵심 교훈**: 우리 CI·샌드박스가 UTC라 이 부류는 유닛으로 구조적으로 안 보인다 — 게이트 (B)가 본 방어선이다. 검증: 비공허 실증(dayKey를 옛 slice로 되돌리면 RED, 복원하면 GREEN), 유닛 182/182이 UTC·KST·하와이 3개 시간대 통과, harness 12게이트·build 그린.',
+  },
 ];

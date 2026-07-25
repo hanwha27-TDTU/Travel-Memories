@@ -8,7 +8,7 @@ import { el } from '../dom';
 import { RESEARCH_LOG } from '../../app/researchLog';
 import { buildChain, verifyChain, anchorHash, hashchainSupported, type ChainLink } from '../../app/hashchain';
 
-const short = (hex: string): string => `${hex.slice(0, 10)}…${hex.slice(-6)}`;
+const short = (hex: string): string => `${hex.slice(0, 10)}…${hex.slice(-6)}`; // not-a-date: 해시 축약
 
 /** '연구노트' 모달을 연다. 현재 화면은 유지하고 위에 오버레이로 뜬다. */
 export function openResearchNote(): void {

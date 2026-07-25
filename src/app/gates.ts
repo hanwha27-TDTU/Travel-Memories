@@ -21,6 +21,7 @@ export const GATE_DESC: Record<string, string> = {
   'check-blueprint': '설계 개요도(배선맵) 선언 ↔ 실제 구조 일치',
   'check-registry-gen': '자동 집계 카운트·목록이 SSOT와 일치(손 스냅샷 드리프트 차단)',
   'check-doc-counts': '문서에 표시한 live 카운트가 실제와 일치(마커 대조)',
+  'check-timezone': '날짜를 UTC가 아닌 사용자 로컬로 계산(+ 다른 시간대에서도 유닛 통과)',
   'unit-tests': '순수 로직 유닛(비공허 확인)',
 };
 
@@ -36,6 +37,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-blueprint': 'generated',
   'check-registry-gen': 'generated',
   'check-doc-counts': 'generated',
+  'check-timezone': 'static',
   'unit-tests': 'unit',
 };
 

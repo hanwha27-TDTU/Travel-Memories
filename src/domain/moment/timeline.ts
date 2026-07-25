@@ -2,6 +2,7 @@
 // UI가 아니라 여기서 날짜 그룹핑·정렬·Day 번호를 결정한다(tests/unit에서 직접 검증).
 
 import type { LocalMoment } from '../../offline/db';
+import { localDate } from '../time';
 
 export interface DayGroup {
   /** YYYY-MM-DD */
@@ -14,8 +15,12 @@ export interface DayGroup {
 
 const MS_PER_DAY = 86_400_000;
 
+/**
+ * 순간이 속한 "그 날" = **사용자의 로컬 달력 날짜**(domain/time.ts 계약).
+ * ISO 문자열을 자르면 UTC 날짜가 나와, 한국 새벽 기록이 전날 그룹에 묶인다(결함군 M-utc-slice).
+ */
 function dayKey(m: LocalMoment): string {
-  return (m.occurredAt || m.createdAt).slice(0, 10);
+  return localDate(m.occurredAt || m.createdAt);
 }
 
 /**
