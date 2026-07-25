@@ -626,6 +626,10 @@ const hub = await page.evaluate(() => {
   const line = roll.querySelector('.vd-rollup-line')?.textContent ?? '';
   return { line, cls: roll.className, cards: document.querySelectorAll('.guide-card-diag').length };
 });
+// v0.75: 새 도구가 허브·롤업에 자동으로 따라왔는가(등록부 하나만 고치면 되는 구조인지 확인)
+const toolIds = await page.evaluate(() => [...document.querySelectorAll('[data-tool]')].map((n) => n.getAttribute('data-tool')));
+check('진단 허브: 저장 상태 도구가 등록부에서 자동으로 따라옴', toolIds.some((t) => t && t.includes('저장 상태')), toolIds.join(' | '));
+
 check('진단 허브: 총괄 판정이 계산됨(확인 중… 벗어남)',
   Boolean(hub) && hub.line.length > 0 && !hub.line.includes('확인 중') && !hub.cls.includes('pending'),
   hub ? `"${hub.line}" · 카드 ${hub.cards}` : 'hub 열기 실패');
@@ -658,6 +662,19 @@ check('진단 도구: 지표에 기대값(정상)이 화면에 보인다', Boole
   tool ? `이상카드 ${tool.cards} · 기대값표시 ${tool.hasExpected}` : 'none');
 check('진단 도구: [다시 확인]이 항상 있다', Boolean(tool) && tool.recheck);
 check('진단 도구: 폰 세로 가로 넘침 0', Boolean(tool) && tool.overflow <= 0, tool ? `overflow=${tool.overflow}` : 'none');
+
+// v0.75: 저장 상태 도구 — 로그인 전에는 '확인 불가'로 정직하게 말하는가(실패로 겁주지 않는다)
+// 앞 검사가 상세 화면을 열어 둔 상태다 — 허브로 돌아가야 카드가 존재한다.
+await page.locator('.guide-back').first().click().catch(() => {});
+await page.waitForTimeout(500);
+await page.locator('[data-tool="저장 상태 · 기기별 현황"]').first().click();
+await page.waitForTimeout(900);
+const store = await page.evaluate(() => {
+  const w = document.querySelector('[data-verdict-tool]');
+  return w ? { head: w.querySelector('.vd-headline')?.textContent ?? '', badge: w.querySelector('.vd-badge-txt')?.textContent ?? '' } : null;
+});
+check('저장 상태: 로그인 전엔 확인 불가로 정직하게(오류 아님)',
+  Boolean(store) && store.badge === '확인 불가' && store.head.includes('로그인'), store ? JSON.stringify(store) : 'none');
 
 // ── v0.70: 화면 어디에도 마크다운 별표가 보이지 않는가(M-0012) ──
 // 이 검사가 결함의 **최종 판정층**이다. 정적 게이트는 "우회 경로가 없다"까지만 보고,

@@ -42,6 +42,8 @@ description: 진단 도구 개발 프롬프트 — src/ui/panels/verdict.ts·dia
 | `src/services/envReport.ts` | 기기·브라우저·저장소 실측 |
 | `src/domain/integrity.ts` | ID·참조 무결성 순수 함수 |
 | `src/app/errorLog.ts` | 런타임 오류 링버퍼(메모리 전용) |
+| `src/services/storeState.ts` | 클라우드↔이 기기 대조 + 기기별 현황(읽기 전용) |
+| `src/app/deviceId.ts` | 기기 이름표(무작위 id + 종류 문자열). push가 서버 행에 찍는다 |
 | `scripts/check-verdict-symmetry.mjs` | 아래 계약의 이탈을 정적으로 차단 |
 | `tests/unit/verdict.test.ts`, `diagnoseItems.test.ts` | 정적 게이트가 못 보는 층 |
 
@@ -143,6 +145,11 @@ export async function xxxProbe(): Promise<Verdict> {
 7. **화면 문자열에 마크다운을 쓰지 마라.** `textContent`로 그리므로 `**`가 그대로 찍힌다(실제 발생).
    강조가 필요하면 문자열이 아니라 `level`로 표현한다.
 8. **hex·기술코드·UA는 출처 층에만.** 개인 여행 기억 앱에서 사용자가 자기 사진을 hex로 만나면 안 된다.
+9. **라벨이 말할 수 있는 것만 말하게 한다.** 「저장 상태」의 기기 목록은 `updated_by_device`에서
+   나오므로 **올린 기록만** 있다 — 받아만 간 기기는 흔적이 없다. 그래서 "마지막 동기화"가 아니라
+   **"마지막으로 올림"**이라고 쓴다. 한 글자 차이가 거짓말과 사실을 가른다(2026-07-26).
+10. **차이 ≠ 결함.** 클라우드와 개수가 다른 건 대개 "아직 안 올렸다/안 받았다"이고 동기화로 풀린다.
+   → `todo`(할 일)이지 `problem`이 아니다. 진짜 실패는 동기화 도구가 따로 말한다. 겁주지 않는다.
 
 ---
 

@@ -43,7 +43,9 @@ export const SKILL_ROUTES = [
   { match: /^src\/ui\/(photoEditor|editor)/, skill: 'photo-editor-dev' },
   { match: /^src\/media\//, skill: 'photo-editor-dev' },
   { match: /^src\/ui\/panels\/(verdict|diagnostics)/, skill: 'diagnostics-dev' },
-  { match: /^src\/services\/(diagnostics|envReport)/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/(diagnostics|envReport|storeState)/, skill: 'diagnostics-dev' },
+  // deviceId는 진단이 읽지만 **동기화 push 경로에 값을 찍는다** — 규율은 그쪽이 더 무겁다.
+  { match: /^src\/app\/deviceId/, skill: 'sync-offline-dev' },
   { match: /^src\/app\/errorLog/, skill: 'diagnostics-dev' },
   { match: /^src\/domain\/integrity/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/(sync|autoSync|purge|trips|moments|media|expenses)\.ts/, skill: 'sync-offline-dev' },

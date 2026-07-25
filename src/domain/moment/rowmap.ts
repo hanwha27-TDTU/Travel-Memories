@@ -27,12 +27,15 @@ export interface MomentRow {
    * 영구삭제를 `null`로 덮어써 지운 것이 되살아난다. 읽기 전용으로만 쓴다(pull이 본다).
    */
   purged_at?: string | null;
+  /** 마지막으로 이 행을 올린 기기(`라벨#짧은id`) — 진단의 "기기별 현황"이 읽는다. 값은 인자로 받는다. */
+  updated_by_device?: string | null;
 }
 
-export function toMomentRow(m: LocalMoment, userId: string): MomentRow {
+export function toMomentRow(m: LocalMoment, userId: string, device?: string): MomentRow {
   return {
     id: m.id,
     user_id: userId,
+    updated_by_device: device ?? null,
     trip_id: m.tripId,
     occurred_at: m.occurredAt || null,
     title: m.title,
