@@ -312,4 +312,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '실측 결과 환율이 아니라 **타임라인이 틀렸다**. timeline.ts dayKey가 occurredAt.slice(0,10)으로 UTC 날짜를 뽑는데, 시각 표시(timeLabel)·발생 시각 입력(toLocalInputValue)·백업 파일명(stampFromISO)·환율(localDate)은 전부 로컬이다. KST에서 2026-07-15T21:48Z = 로컬 7/16 06:48 → 헤더만 7/15로 밀렸다. 사용자가 입력한 발생 시각도 7/16 06:48이었으므로 환율 7/16이 정답. 앱 전체 날짜 파생 지점을 훑어 UTC를 쓰는 곳이 이 한 곳뿐임을 확인.',
     decision: '결함군 승격(§6): ① 날짜 파생 SSOT를 domain/time.ts localDate로 신설(fx.ts에서 이동·재수출), timeline.ts dayKey가 이를 사용 → "그 날 = 사용자의 로컬 달력 날짜" 계약 명문화. ② **check-timezone 게이트(12번째)** 2층 방어 — (A) 정적: src/에서 ISO 절단(.slice(0,10)) 금지, 날짜 아니면 // not-a-date 예외(주석 오탐 방지 codePart 포함), (B) 동적: 유닛 스위트를 Asia/Seoul·Pacific/Honolulu(동/서 양방향)에서도 재실행. ③ 옛 timeline 테스트가 UTC 전제라 KST에서 깨짐 → 픽스처를 at(y,mo,d,h) 로컬 구성으로 전환(어느 시간대에서도 성립) + 회귀 테스트 2건(로컬 새벽 06:48이 전날로 안 밀림·하루 전체 시각대 훑기). **핵심 교훈**: 우리 CI·샌드박스가 UTC라 이 부류는 유닛으로 구조적으로 안 보인다 — 게이트 (B)가 본 방어선이다. 검증: 비공허 실증(dayKey를 옛 slice로 되돌리면 RED, 복원하면 GREEN), 유닛 182/182이 UTC·KST·하와이 3개 시간대 통과, harness 12게이트·build 그린.',
   },
+  {
+    seq: 39,
+    date: '2026-07-25',
+    topic: '넓은 화면 레이아웃 — 780px 기둥 → 2단 배치',
+    human: '태블릿 울트라 화면에서는 가운데 몰려 있는걸로 나오네요. 이거 보기좋게 바꿀 수 없을까요? (스크린샷: 2960px 가로, 본문 780px, 양옆 각 350px 공백)',
+    ai: '.screen-home/.screen-detail이 max-width 780px 고정이라 넓은 화면에서 양옆이 비었다. 단순히 폭만 늘리면 한 줄이 길어져 읽기 나빠지므로(입력 필드가 1400px로 늘어남) 남는 폭을 **의미 있게** 쓰자고 제안: 상세는 [기록 폼 | 타임라인] 2단, 홈은 카드 3열. 폼을 sticky로 두면 타임라인을 내려봐도 기록이 손 닿는 곳에 남아 "10초 기록" 흐름이 유지된다.',
+    decision: 'DOM: 좌측 묶음 .detail-compose 신설(편집패널·폼·안내) — DOM 순서는 기록→타임라인 그대로라 화면읽기·키보드 순서 불변. CSS: @media(min-width:1100px)에서 .detail-body를 grid[minmax(340px,30%) 1fr]로, .detail-compose sticky, .trip-list 3열, max-width 1200px(≥1600px는 1360px 상한 — 한 줄이 지나치게 길어지지 않게). 덤으로 기존 결함 수정: .detail-hero 위쪽 패딩이 절대배치 버튼줄(top16+높이40)을 안 비워둬서 짧은 여행에서 상태 배지가 뒤로가기 버튼과 겹치던 것 → padding-top으로 버튼줄 공간 예약. 검증(현실로): 12개 폭(412~1920, 경계 1099/1100/1101 포함) 실측 — **가로 넘침 전부 0**, 2단 전환이 정확히 1100px에서, 탭 울트라(1480)에서 본문 780→1200px. 스크린샷으로 시각 확인(2단 배치·배지 겹침 해소·홈 3열). verify-editor-live에 영구 회귀 검사 7건 추가(넘침 0·2단·경계 1099 세로 유지·경계 1100 전환·폰 세로·배지 비겹침) → 66/66. harness 12게이트·build 그린.',
+  },
 ];

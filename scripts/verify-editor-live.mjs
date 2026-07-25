@@ -476,6 +476,42 @@ await page.waitForTimeout(200);
 const hiddenAgain = await page.$eval('.fx-detail', (d) => d.hidden);
 check('환율 배지: 다시 탭하면 접힘', hiddenAgain === true, String(hiddenAgain));
 
+// ── v0.53: 넓은 화면(태블릿 가로·데스크톱) 레이아웃 ──
+// 문제였던 것: 본문이 780px 고정이라 2000px대 태블릿에서 가운데만 쓰고 양옆이 비었다.
+// 계약: ①어느 폭에서도 가로 넘침 0 ②1100px 이상에서 [기록 폼 | 타임라인] 2단 ③그 미만은 세로.
+async function layoutAt(w, h) {
+  await page.setViewportSize({ width: w, height: h });
+  await page.waitForTimeout(220);
+  return page.evaluate(() => {
+    const de = document.documentElement;
+    const c = document.querySelector('.detail-compose')?.getBoundingClientRect();
+    const t = document.querySelector('.timeline-wrap')?.getBoundingClientRect();
+    return {
+      overflow: de.scrollWidth - de.clientWidth,
+      sideBySide: !!(c && t) && c.right <= t.left + 1 && Math.abs(c.top - t.top) < 80,
+      bodyW: Math.round(document.querySelector('.screen-detail').getBoundingClientRect().width),
+    };
+  });
+}
+const wide = await layoutAt(1480, 920); // 사용자 기기(태블릿 울트라 가로)
+check('넓은 화면: 가로 넘침 0', wide.overflow <= 0, `overflow=${wide.overflow}`);
+check('넓은 화면: 기록 폼 | 타임라인 2단', wide.sideBySide, `bodyW=${wide.bodyW}`);
+check('넓은 화면: 본문이 780px 기둥에 갇히지 않음', wide.bodyW > 1000, `bodyW=${wide.bodyW}`);
+const edge = await layoutAt(1099, 900); // 분기 직전 — 세로로 유지되어야
+check('경계 1099: 세로 배치 유지', !edge.sideBySide && edge.overflow <= 0, `sbs=${edge.sideBySide}`);
+const on = await layoutAt(1100, 900); // 분기 시작
+check('경계 1100: 2단 전환', on.sideBySide && on.overflow <= 0, `sbs=${on.sideBySide}`);
+const narrow = await layoutAt(412, 915); // 폰 — 세로 + 넘침 0
+check('폰 세로: 세로 배치 + 가로 넘침 0', !narrow.sideBySide && narrow.overflow <= 0, `overflow=${narrow.overflow}`);
+// 히어로 상태 배지가 뒤로가기 버튼과 겹치지 않는지(짧은 여행에서 드러나던 결함)
+const noOverlap = await page.evaluate(() => {
+  const b = document.querySelector('.hero-back')?.getBoundingClientRect();
+  const g = document.querySelector('.detail-badge')?.getBoundingClientRect();
+  if (!b || !g) return true;
+  return b.bottom <= g.top + 1 || b.right <= g.left + 1;
+});
+check('히어로: 상태 배지가 뒤로가기 버튼과 안 겹침', noOverlap);
+
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 
 await browser.close();
