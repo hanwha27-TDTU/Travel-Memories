@@ -158,6 +158,42 @@ export function legacyRows(src, banned) {
   return banned.filter((c) => src.includes(`'${c}`) || src.includes(` ${c}'`)).map((c) => `옛 나열형 클래스 '${c}' 사용 — 판정 렌더러(renderTool)를 우회하고 있다`);
 }
 
+// ── 검사 F: 네 pull이 **전부** 원격 영구삭제를 적용하는가 ────────────────────
+/**
+ * 삭제 결함의 최빈 형태는 "형제 넷 중 하나만 조용히 빠짐"이다(M-0006·M-0007·M-0012).
+ * 영구삭제 전파(ADR-0027)도 같은 함정을 갖는다 — pull 하나가 `purged_at`을 안 보면 그 도메인만
+ * 다른 기기에 남는다. 도메인 목록을 손으로 적지 않고 **purge.ts의 등록부에서 뽑아** 대조한다.
+ */
+export function pullsApplyRemotePurge(syncSrc, purgeSrc) {
+  const bad = [];
+  const m = purgeSrc.match(/export const PURGE_DOMAINS = \[([^\]]+)\]/);
+  if (!m) return ['purge.ts에서 PURGE_DOMAINS를 찾지 못함 — 등록부가 사라졌다'];
+  const domains = [...m[1].matchAll(/'([a-z]+)'/g)].map((x) => x[1]);
+  if (domains.length === 0) return ['PURGE_DOMAINS가 비어 있음'];
+  for (const d of domains) {
+    if (!new RegExp(`applyRemotePurge\\(\\s*'${d}'`).test(syncSrc)) {
+      bad.push(`pull이 '${d}' 도메인의 원격 영구삭제를 적용하지 않음 — 그 종류만 다른 기기에 남는다`);
+    }
+  }
+  // purged_at 검사가 purged.has() 보다 **앞**에 와야 한다(표식이 없는 기기가 여기서 처음 알게 되므로).
+  const firstPurgedAt = syncSrc.indexOf('r.purged_at');
+  const firstHas = syncSrc.indexOf('purged.has(r.id)');
+  if (firstPurgedAt === -1) bad.push('pull에 purged_at 검사가 없음');
+  else if (firstHas !== -1 && firstPurgedAt > firstHas) {
+    bad.push('purged_at 검사가 purged.has() 뒤에 있음 — 표식이 없는 기기가 영구삭제를 못 배운다');
+  }
+  return bad;
+}
+
+/** toRow가 purged_at을 담으면 평범한 upsert가 다른 기기의 영구삭제를 null로 덮어쓴다. */
+export function toRowNeverSendsPurgedAt(src) {
+  const m = src.match(/export function to\w*Row\([\s\S]*?\n\}/);
+  if (!m) return [];
+  return /purged_at/.test(m[0])
+    ? ['toRow()가 purged_at을 담음 — 평범한 upsert가 다른 기기의 영구삭제를 되살린다']
+    : [];
+}
+
 // ── 셀프테스트: 알려진 실패가 RED로 잡히는지(게이트 비공허, CLAUDE.md §4) ──
 {
   const cases = [
@@ -224,6 +260,42 @@ export function legacyRows(src, banned) {
     },
     { name: '옛 나열형 클래스 없음', fn: () => legacyRows(`el('div', 'vd-metric')`, ['r2-row', 'se-item']), clean: true },
     { name: '옛 나열형 클래스 검출(렌더러 우회)', fn: () => legacyRows(`el('div', 'r2-row')`, ['r2-row', 'se-item']), clean: false },
+    {
+      name: '네 pull이 모두 원격 영구삭제 적용',
+      fn: () =>
+        pullsApplyRemotePurge(
+          `if (r.purged_at) applyRemotePurge('trip', x); purged.has(r.id);
+           applyRemotePurge('moment', x); applyRemotePurge('media', x); applyRemotePurge('expense', x);`,
+          `export const PURGE_DOMAINS = ['trip', 'moment', 'media', 'expense'] as const;`,
+        ),
+      clean: true,
+    },
+    {
+      name: '한 도메인만 빠진 것을 검출(최빈 결함군)',
+      fn: () =>
+        pullsApplyRemotePurge(
+          `if (r.purged_at) applyRemotePurge('trip', x); purged.has(r.id);
+           applyRemotePurge('moment', x); applyRemotePurge('media', x);`,
+          `export const PURGE_DOMAINS = ['trip', 'moment', 'media', 'expense'] as const;`,
+        ),
+      clean: false,
+    },
+    {
+      name: '순서 역전 검출(표식 없는 기기가 영구삭제를 못 배움)',
+      fn: () =>
+        pullsApplyRemotePurge(
+          `purged.has(r.id); if (r.purged_at) applyRemotePurge('trip', x);
+           applyRemotePurge('moment', x); applyRemotePurge('media', x); applyRemotePurge('expense', x);`,
+          `export const PURGE_DOMAINS = ['trip'] as const;`,
+        ),
+      clean: false,
+    },
+    { name: 'toRow가 purged_at을 안 담으면 정상', fn: () => toRowNeverSendsPurgedAt(`export function toRow(t, u) {\n  return { id: t.id, deleted_at: t.deletedAt };\n}`), clean: true },
+    {
+      name: 'toRow가 purged_at을 담으면 검출(영구삭제를 덮어쓰는 경로)',
+      fn: () => toRowNeverSendsPurgedAt(`export function toRow(t, u) {\n  return { id: t.id, purged_at: null };\n}`),
+      clean: false,
+    },
   ];
   const broken = cases.filter((c) => (c.fn().length === 0) !== c.clean);
   if (broken.length) {
@@ -240,6 +312,13 @@ for (const p of richTextRendererIntact(read(RICH_TEXT_RENDERER))) problems.push(
 for (const p of metricsMissingExpected(read('src/ui/panels/diagnostics.ts'))) problems.push(`src/ui/panels/diagnostics.ts: ${p}`);
 for (const p of toolRegistryComplete(read('src/ui/panels/diagnostics.ts'))) problems.push(`src/ui/panels/diagnostics.ts: ${p}`);
 for (const p of legacyRows(read(NO_LEGACY_ROWS.file), NO_LEGACY_ROWS.banned)) problems.push(`${NO_LEGACY_ROWS.file}: ${p}`);
+
+for (const p of pullsApplyRemotePurge(read('src/services/sync.ts'), read('src/services/purge.ts'))) {
+  problems.push(`src/services/sync.ts: ${p}`);
+}
+for (const rel of ['src/domain/trip/rowmap.ts', 'src/domain/moment/rowmap.ts', 'src/domain/media/rowmap.ts', 'src/domain/expense/rowmap.ts']) {
+  for (const p of toRowNeverSendsPurgedAt(read(rel))) problems.push(`${rel}: ${p}`);
+}
 
 // guide-card 계약은 그것을 만드는 **모든** 화면에 건다(수평전개 — 한 곳만 고치고 끝내지 않는다).
 function walk(dir, out = []) {
@@ -269,4 +348,4 @@ if (problems.length) {
   console.error('check-verdict-symmetry: 진단 판정 계약 위반 — 도구 간 대칭이 깨졌다.');
   process.exit(1);
 }
-console.log(`check-verdict-symmetry: OK (셀프테스트 18건 통과 · 강조 렌더러 온전 · src ${scanned}개 파일 우회 0 · guide-card 화면 ${cardFiles}곳 계약 준수 · 지표 기대값·도구 필드 정상)`);
+console.log(`check-verdict-symmetry: OK (셀프테스트 23건 통과 · 강조 렌더러 온전 · src ${scanned}개 파일 우회 0 · guide-card 화면 ${cardFiles}곳 계약 준수 · 지표 기대값·도구 필드 정상)`);

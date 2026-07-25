@@ -12,6 +12,13 @@ import { compressForStorage } from '../media/compress';
 import { mergeDecision, isEmptyCloudAnomaly, classifyError } from '../sync/merge';
 import type { JourneyClient } from './supabase/client';
 import { r2BlobStore, mediaStoreKind, type BlobStore } from './r2';
+import {
+  applyRemotePurge,
+  purgedIdSet,
+  purgeDomainOf,
+  DOMAIN_PURGE,
+  type PurgeDomain,
+} from './purge';
 
 export interface SyncResult {
   pushed: number;
@@ -274,6 +281,12 @@ export async function pullTrips(remote: TripsRemote): Promise<{ pulled: number; 
 
   let pulled = 0;
   for (const r of serverRows) {
+    // 다른 기기에서 휴지통을 비웠다(ADR-0027) — 이 기기에서도 치운다. **purged 검사보다 먼저**
+    // 와야 한다: 아직 표식이 없는 기기가 여기서 처음 알게 되기 때문이다.
+    if (r.purged_at) {
+      await applyRemotePurge('trip', r.id);
+      continue;
+    }
     if (purged.has(r.id)) continue; // 이 기기에서 영구히 치운 것 — 되살리지 않는다
     const server = fromRow(r);
     const local = await d.localTrips.get(server.id);
@@ -347,6 +360,12 @@ export async function pullMoments(remote: MomentsRemote): Promise<{ pulled: numb
 
   let pulled = 0;
   for (const r of serverRows) {
+    // 다른 기기에서 휴지통을 비웠다(ADR-0027) — 이 기기에서도 치운다. **purged 검사보다 먼저**
+    // 와야 한다: 아직 표식이 없는 기기가 여기서 처음 알게 되기 때문이다.
+    if (r.purged_at) {
+      await applyRemotePurge('moment', r.id);
+      continue;
+    }
     if (purged.has(r.id)) continue; // 이 기기에서 영구히 치운 것 — 되살리지 않는다
     const server = fromMomentRow(r);
     const local = await d.localMoments.get(server.id);
@@ -420,6 +439,12 @@ export async function pullExpenses(remote: ExpensesRemote): Promise<{ pulled: nu
 
   let pulled = 0;
   for (const r of serverRows) {
+    // 다른 기기에서 휴지통을 비웠다(ADR-0027) — 이 기기에서도 치운다. **purged 검사보다 먼저**
+    // 와야 한다: 아직 표식이 없는 기기가 여기서 처음 알게 되기 때문이다.
+    if (r.purged_at) {
+      await applyRemotePurge('expense', r.id);
+      continue;
+    }
     if (purged.has(r.id)) continue; // 이 기기에서 영구히 치운 것 — 되살리지 않는다
     const server = fromExpenseRow(r);
     const local = await d.localExpenses.get(server.id);
@@ -507,6 +532,12 @@ export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; 
   let pulled = 0;
   let swept = 0; // 로컬에 없는 서버 고아를 정리한 수(진단·로그용)
   for (const r of rows) {
+    // 다른 기기에서 휴지통을 비웠다(ADR-0027) — 이 기기에서도 치운다. **purged 검사보다 먼저**
+    // 와야 한다: 아직 표식이 없는 기기가 여기서 처음 알게 되기 때문이다.
+    if (r.purged_at) {
+      await applyRemotePurge('media', r.id);
+      continue;
+    }
     if (purged.has(r.id)) continue; // 이 기기에서 영구히 치운 것 — 되살리지 않는다
     const server = fromMediaRow(r);
     const local = await d.localMedia.get(server.id);
@@ -661,15 +692,6 @@ async function requeueIfServerStillActive(
   });
 }
 
-/**
- * 영구삭제 표식 조회 — pull이 이 id를 건너뛴다.
- *
- * 없으면 `purgeTripPermanently`가 만든 표식이 장식이 되고, 서버 tombstone을 다시 받아와
- * **휴지통에 되살아난다**(A안의 핵심 절반이 여기다). 네 pull 함수가 **모두** 써야 한다.
- */
-async function purgedIdSet(): Promise<Set<string>> {
-  return new Set((await db().purgedIds.toArray()).map((p) => p.id));
-}
 
 /** 정합 복구 1회 실행 표식. 완료된 tombstone까지 매번 다시 밀지 않도록 잠근다. */
 const REPAIR_KEY = 'bj.repair.cascadeOps.v1';
@@ -681,6 +703,94 @@ const REPAIR_KEY = 'bj.repair.cascadeOps.v1';
  * 남아 아무 일도 하지 않으면서**, 영구삭제 사전 조건까지 막는다(대기 작업으로 세어진다).
  * 사용자가 스스로 풀 수단이 없던 자리다. 데이터를 바꾸지 않고 상태만 되돌린다.
  */
+/**
+ * 영구삭제 전파 포트 — 서버 행에 `purged_at`을 찍는다(행은 지우지 않는다, §0).
+ *
+ * 도메인별 함수를 네 벌 만들지 않는다. 영구삭제는 어느 도메인이든 "그 id의 purged_at을 찍는다"로
+ * **완전히 같은 연산**이라, 등록부(DOMAIN_PURGE)의 테이블 이름만 갈아끼우면 된다.
+ * 이게 CLAUDE.md §7이 말하는 "규칙을 한 곳에만 구현한다"의 실제 모습이다.
+ */
+export interface PurgeRemote {
+  mark(domain: PurgeDomain, id: string): Promise<{ error?: string | undefined; status?: number | undefined }>;
+  /** read-back — 성공 응답이 아니라 **되읽어** 확인한다(데이터 안전 불변식). */
+  readBack(domain: PurgeDomain, id: string): Promise<{ found: boolean; purgedAt: string | null; error?: string | undefined }>;
+}
+
+export function purgeRemote(client: JourneyClient): PurgeRemote {
+  return {
+    async mark(domain, id) {
+      try {
+        const r = await client
+          .from(DOMAIN_PURGE[domain].remoteTable)
+          .update({ purged_at: new Date().toISOString() })
+          .eq('id', id);
+        return { error: r.error?.message, status: r.status };
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+    },
+    async readBack(domain, id) {
+      try {
+        const r = await client
+          .from(DOMAIN_PURGE[domain].remoteTable)
+          .select('purged_at')
+          .eq('id', id)
+          .maybeSingle();
+        const row = r.data as { purged_at: string | null } | null;
+        return { found: row !== null, purgedAt: row?.purged_at ?? null, error: r.error?.message };
+      } catch (e) {
+        return { found: false, purgedAt: null, error: (e as Error).message };
+      }
+    },
+  };
+}
+
+/**
+ * 영구삭제 작업을 서버로 밀어 **다른 기기가 알게 한다**.
+ *
+ * 기존 도메인 push 루프가 이걸 처리하면 안 된다 — 영구삭제는 로컬 행을 이미 지웠으므로
+ * 그 루프들은 "로컬에 없는 고아 작업"으로 보고 **조용히 폐기**한다(그러면 전파가 영영 안 된다).
+ * entityType을 `purge:*`로 두어 기존 루프(`if (op.entityType !== 'trip') continue`)가
+ * 구조적으로 건너뛰게 했다 — 네 곳에 "purge는 빼라"를 손으로 적지 않는다.
+ */
+export async function pushPurges(remote: PurgeRemote): Promise<{ pushed: number; failed: number }> {
+  const d = db();
+  const items = (await d.syncQueue.orderBy('createdAt').toArray()).filter(
+    (q) => (q.state === 'local_only' || q.state === 'retryable_failed') && purgeDomainOf(q.entityType) !== null,
+  );
+  let pushed = 0;
+  let failed = 0;
+
+  for (const op of items) {
+    const domain = purgeDomainOf(op.entityType);
+    if (!domain) continue;
+
+    const up = await remote.mark(domain, op.entityId);
+    if (up.error) {
+      await markFail(op, up.status);
+      failed++;
+      continue;
+    }
+
+    const back = await remote.readBack(domain, op.entityId);
+    if (back.error) {
+      await markFail(op, undefined);
+      failed++;
+      continue;
+    }
+    // 서버에 행이 아예 없으면(한 번도 동기화되지 않은 기록) 알릴 대상이 없다 — 완료로 본다.
+    // 이걸 실패로 두면 그 작업이 영원히 큐에 남아 다음 영구삭제의 사전조건까지 막는다.
+    if (!back.found || back.purgedAt) {
+      await d.syncQueue.delete(op.operationId);
+      pushed++;
+      continue;
+    }
+    await markFail(op, undefined);
+    failed++;
+  }
+  return { pushed, failed };
+}
+
 export async function retryFailedOps(): Promise<number> {
   const d = db();
   const stuck = (await d.syncQueue.toArray()).filter((q) => q.state === 'permanent_failed');
@@ -727,13 +837,15 @@ export async function runSync(client: JourneyClient, userId: string): Promise<Sy
   const pm = await pushPendingMoments(mRemote, userId);
   const pd = await pushPendingMedia(dRemote, userId);
   const pe = await pushPendingExpenses(eRemote, userId);
+  // 영구삭제 전파는 **pull보다 먼저** — 이번 동기화에서 다른 기기가 바로 알 수 있게.
+  const pp = await pushPurges(purgeRemote(client));
   const q = await pullTrips(remote);
   const qm = await pullMoments(mRemote);
   const qd = await pullMedia(dRemote);
   const qe = await pullExpenses(eRemote);
   return {
-    pushed: p.pushed + pm.pushed + pd.pushed + pe.pushed,
-    failed: p.failed + pm.failed + pd.failed + pe.failed,
+    pushed: p.pushed + pm.pushed + pd.pushed + pe.pushed + pp.pushed,
+    failed: p.failed + pm.failed + pd.failed + pe.failed + pp.failed,
     pulled: q.pulled + qm.pulled + qd.pulled + qe.pulled,
     skippedEmptyCloud: q.skippedEmptyCloud || qm.skippedEmptyCloud || qd.skippedEmptyCloud || qe.skippedEmptyCloud,
   };
