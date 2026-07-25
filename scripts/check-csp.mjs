@@ -14,6 +14,11 @@ const REQUIRED = {
     'wss://*.supabase.co',
     'https://tile.openstreetmap.org',
     'https://nominatim.openstreetmap.org',
+    // 환율(기준환율) 조회 — 주 제공자 fawazahmed0/currency-api(jsDelivr + pages.dev 예비),
+    // 보조 제공자 Frankfurter. 키 불필요·공개 데이터. 실패해도 앱은 정상 동작(보조 정보).
+    'https://cdn.jsdelivr.net',
+    'https://*.currency-api.pages.dev',
+    'https://api.frankfurter.dev',
   ],
   'worker-src': ['blob:'],           // MapLibre GL blob: 워커
   'img-src': ['data:', 'blob:', 'https://*.supabase.co', 'https://tile.openstreetmap.org'],
@@ -54,7 +59,7 @@ function checkHtml(html) {
 }
 
 // ── 셀프테스트: 알려진 실패 주입이 RED로 잡히는지 확인(게이트 비공허, CLAUDE.md §4) ──
-const GOOD = `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: https://*.supabase.co https://tile.openstreetmap.org; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://tile.openstreetmap.org https://nominatim.openstreetmap.org; worker-src 'self' blob:; script-src 'self'; object-src 'none'; base-uri 'self'" />`;
+const GOOD = `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: https://*.supabase.co https://tile.openstreetmap.org; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://tile.openstreetmap.org https://nominatim.openstreetmap.org https://cdn.jsdelivr.net https://*.currency-api.pages.dev https://api.frankfurter.dev; worker-src 'self' blob:; script-src 'self'; object-src 'none'; base-uri 'self'" />`;
 const selfCases = [
   { name: '정상 CSP 통과', html: GOOD, expectClean: true },
   { name: 'wss 누락 검출', html: GOOD.replace(' wss://*.supabase.co', ''), expectClean: false },

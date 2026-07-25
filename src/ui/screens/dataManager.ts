@@ -8,6 +8,8 @@ import { exportBackup, exportBackupZip, importBackupAuto } from '../../services/
 import { recordBackupNow, getLastBackupAt, backupFreshness } from '../../services/backupMeta';
 import { listDeletedTrips, restoreTripFromTrash, purgeTripPermanently } from '../../services/trips';
 import { computeStorageUsage, formatBytes } from '../../services/storage';
+import { fxBase, setFxBase } from '../../services/fx';
+import { CURRENCIES } from '../../domain/expense/format';
 
 interface DataManagerOpts {
   /** 데이터가 바뀌면 호출(홈 목록·통계 갱신). */
@@ -325,8 +327,49 @@ interface HubCard {
   }) => void;
 }
 
+/** 환율 기준통화 설정 — 비용 옆에 "≈ 얼마"로 보여줄 통화를 고른다. */
+function currencyPanel(): HTMLElement {
+  const wrap = el('div', 'dm-panel');
+  wrap.append(
+    el('h3', 'guide-h', '환율 기준통화'),
+    el(
+      'p',
+      'guide-p',
+      '비용을 적은 통화가 이 통화와 다르면, 옆에 "≈ 환산값"을 함께 보여줍니다. 환산은 **비용이 발생한 날짜의 기준환율**로 계산해요.',
+    ),
+  );
+
+  const row = el('div', 'dm-row');
+  const sel = el('select', 'edit-input') as HTMLSelectElement;
+  sel.setAttribute('aria-label', '환율 기준통화');
+  const cur = fxBase();
+  for (const c of CURRENCIES) {
+    const opt = el('option', undefined, c.symbol ? `${c.symbol} ${c.code}` : c.code) as HTMLOptionElement;
+    opt.value = c.code;
+    if (c.code === cur) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  const saved = el('span', 'muted small', '');
+  sel.addEventListener('change', () => {
+    setFxBase(sel.value);
+    saved.textContent = `✓ ${sel.value}(으)로 저장됨 — 여행 화면을 다시 열면 반영돼요.`;
+  });
+  row.append(sel, saved);
+  wrap.appendChild(row);
+
+  wrap.appendChild(
+    el(
+      'p',
+      'guide-note',
+      '정직한 표기: 여기 쓰는 값은 공개된 **기준환율**이지 실시간 시장가나 은행 매매기준율이 아닙니다. 카드 결제·현찰 환전 시 실제 금액은 수수료 때문에 다를 수 있어요. 원래 적은 금액과 통화는 절대 바뀌지 않고 그대로 보존됩니다.',
+    ),
+  );
+  return wrap;
+}
+
 function cards(onChanged: () => void): HubCard[] {
   return [
+    { icon: '💱', label: '환율 기준통화', hint: '비용 옆에 환산값 표시', open: (h) => h.detail('💱 환율 기준통화', currencyPanel()) },
     { icon: '💾', label: '백업 (내보내기)', hint: '기억을 파일로 저장', open: (h) => h.detail('💾 백업 (내보내기)', backupPanel()) },
     { icon: '📥', label: '복원 (가져오기)', hint: '백업 파일에서 병합 복원', open: (h) => h.detail('📥 복원 (가져오기)', restorePanel(onChanged)) },
     { icon: '🗑', label: '휴지통', hint: '삭제한 여행 복원·영구삭제', open: (h) => h.detail('🗑 휴지통', trashPanel(onChanged)) },

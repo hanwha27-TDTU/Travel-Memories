@@ -280,4 +280,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '통화 선택은 이미 네이티브 select. "확장"=더 많은 세계 통화. 커스텀 검색 콤보박스는 접근성·모바일 위험·무게 증가 → 네이티브 select는 이미 타입어헤드(코드 첫 글자 입력 시 이동) 제공하므로 목록만 늘리면 검색성도 확보(10초 기록 흐름·모바일 OS 피커 유지). 심볼 없는 통화를 위조하지 않도록 포맷 계층 보강 필요.',
     decision: 'domain/expense/format.ts: CURRENCIES를 5→36(자주 쓰는 KRW·USD·UZS·JPY·EUR 상단 유지 + 세계 통화 코드 알파벳순). CurrencyMeta.symbol 빈 문자열 허용 → formatMoney가 심볼 없으면 "num code"(정직, decimals는 유지), 있으면 suffix/prefix. 관례 반영: 북유럽 kr·PLN zł·CZK Kč·UZS soʻm·VND ₫는 suffix. tripDetail.currencySelect 라벨은 symbol 있으면 "symbol code", 없으면 code만(빈 심볼 중복 방지). DB 영향 0(originalCurrency 자유 문자열). 테스트 잠금(12): £ 앞·AED/CHF 코드 뒤·NOK/SEK/PLN suffix·XXX 폴백·코드 유일성·상단 5개 순서. 검증: typecheck·유닛 12/12·harness 11게이트·build·verify-editor-live 45/45 그린. 정직: 여러 통화가 $·¥·kr 심볼을 공유하나 드롭다운은 코드로 구분·포맷은 심볼 그대로(위조 아님).',
   },
+  {
+    seq: 35,
+    date: '2026-07-25',
+    topic: '환율 자동 환산(사용일 기준) — 제공자 선택을 실측 제약 속에서',
+    human: '환율 자동계산 추가(외화↔원화, 비용 사용일 환율 기준). 무료 조회 가능한 걸로. 더 좋은 방안 있으면 변경 가능. 목적은 사용자 편의. (참고자료: Frankfurter 권장·Fawaz 보조)',
+    ai: '참고자료의 "Frankfurter가 UZS 지원" 주장을 검증하려 했으나 **샌드박스 네트워크 정책이 api.frankfurter.dev·cdn.jsdelivr.net을 모두 차단**(curl 403·WebFetch 403)해 실측 불가. 훈련 지식 기준으로 Frankfurter는 ECB 기준환율 기반이라 지원 통화가 ~30개고 **UZS는 없을 가능성이 크다**(ECB가 솜을 고시하지 않음) — 사용자가 우즈베키스탄 거주라 UZS는 필수 조건. 그래서 참고자료의 우선순위를 뒤집어 Fawaz(200+ 통화·UZS 포함·날짜 고정 URL로 과거 환율·CC0·무제한)를 주 제공자로, Frankfurter를 보조로 제안. 미검증 사실이므로 어댑터 분리 + 실패 시 무해 degrade + 순수 계산 픽스처 검증으로 설계.',
+    decision: 'domain/expense/fx.ts(순수): FxRateTable(date·base·rates·source·fetchedAt) · rateOf(기준통화=1·없으면 null) · convertAmount(**표 하나로 양방향** — from→base→to) · isFxFresh(**과거 날짜는 영구 유효**, 오늘만 TTL 6h) · fxDateFor(미래는 오늘로 당김) · convertTotals(환산 못 한 통화를 skipped로 노출). services/fx.ts: 제공자 2단(fawaz jsDelivr→pages.dev 예비, frankfurter) + Dexie v5 localFxRates 캐시 + 전부 실패 시 오래된 캐시 반환·예외 없음. UI: 비용 칩에 "≈ 환산값"을 .chip-approx(옅게·구분선)로 덧붙이고 title에 날짜·출처 표기, 여행 통계에 "환산 합계"(각 비용을 **자기 사용일** 환율로 환산·못 한 통화는 라벨에 명시), 데이터 관리에 기준통화 카드. **원금액 불변(H-04)**: 사용자 입력을 절대 덮지 않고 파생 표시만 추가(원칙 #2). 게이트 의무 이행: CSP 3호스트를 index.html+check-csp REQUIRED에 **같은 커밋**으로 추가(ADR-0023 규율), localFxRates를 check-backup-coverage·check-blueprint EXCLUDE에 근거 주석과 함께 등록(파생·재취득 가능=기억 아님). **게이트 비공허 실증**: 새 테이블 추가 시 두 게이트가 실제로 RED를 냈고(백업 누락·끊긴 발전원) 분류 후 통과. 검증: 유닛 fx 20/20(양방향·왕복·null 정직·TTL·미래날짜·skipped), harness 11게이트, verify-editor-live **48/48**(환율 설정 렌더·기본 KRW·선택 read-back·**콘솔 에러 0**=네트워크 차단 환경에서도 무해 degrade 실증), build 그린. 정직한 미검증: 실제 환율 응답·UZS 지원 여부는 실기기 확인 몫.',
+  },
 ];

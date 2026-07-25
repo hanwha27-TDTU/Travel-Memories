@@ -373,6 +373,13 @@
 }
 .chip.gps { background: color-mix(in srgb, var(--sem-sky) 15%, transparent); color: var(--sem-sky); }
 .chip.money { background: color-mix(in srgb, var(--sem-teal) 15%, transparent); color: var(--sem-teal); }
+/* 환산값(기계 파생 보조 표시) — 원금액보다 약하게. 사용자가 적은 값과 시각적으로 구분한다(원칙 #2). */
+.chip-approx {
+  margin-left: 6px; padding-left: 6px;
+  border-left: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  opacity: 0.75; font-weight: 500; font-variant-numeric: tabular-nums;
+}
+.dm-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin: var(--space-2) 0; }
 
 /* 여행 없음 */
 .detail-notfound {
