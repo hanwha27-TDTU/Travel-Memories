@@ -336,11 +336,11 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       },
       async () => {
         // 여행 삭제(cascade tombstone) → 홈으로. 실행취소 토스트는 body 부착이라 화면 전환에도 유지.
-        const { momentIds, mediaIds } = await softDeleteTripLocalFirst(trip!.id);
+        const children = await softDeleteTripLocalFirst(trip!.id);
         void trySync();
         navigate('home');
         showUndoToast('여행을 삭제했어요', async () => {
-          await restoreTripLocalFirst(trip!.id, momentIds, mediaIds);
+          await restoreTripLocalFirst(trip!.id, children);
           void trySync();
           navigate('home'); // 홈 목록에서 카드가 되살아나는 걸 바로 보여줌(실행취소를 누른 자리)
         });
