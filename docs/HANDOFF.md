@@ -18,6 +18,7 @@
 | 영역 | 상태 | 핵심 파일 |
 |---|---|---|
 | 여행·순간·장소·비용·사진 CRUD(로컬 우선, tombstone·실행취소·cascade) | ✅ | `services/{trips,moments,media,expenses}.ts`, `offline/db.ts`(Dexie) |
+| 비용 통화(36종·국기 파생) + **환율 자동 환산**(사용일 기준·근거 펼침·환산 합계) | ✅ | `domain/expense/{format,fx}.ts`, `domain/time.ts`, `services/fx.ts` (스킬: expense-fx-dev) |
 | 다기기 동기화(4엔티티, 좀비 차단) | ✅ 코드완성·실기기 몫 | `services/sync.ts`, `domain/*/rowmap.ts`, `supabase/migrations/*` |
 | 사진 편집기(크롭·자유크롭·잡티·색·프리셋·회전·반전·**원근 펴기**·**수평 보정**·재편집) | ✅ | `ui/photoEditor.ts`, `media/{editor-core,pixelops}.ts` (스킬: photo-editor-dev) |
 | 전체보기 뷰어(넘기기·회전·재편집·**확대/이동**·반응형) | ✅ | `ui/screens/tripDetail.ts` openViewer |
@@ -107,7 +108,7 @@
 4. 도메인 계약: `DATA_MODEL` · `SYNC_PROTOCOL` · `SECURITY` · `MEDIA_PIPELINE` · `PRIVACY` · `DEPLOYMENT` · `ARCHITECTURE` · **`DISASTER_RECOVERY`(백업·복원·복구 우선순위)**
 5. `docs/AGENT_REGISTRY.md` → `docs/DECISIONS.md` + `docs/ASSUMPTIONS.md`
 6. `docs/ROADMAP.md`(Phase 계획) → `docs/ACTIVE_TASKS.md`
-7. **작업 전 필수 스킬**(해당 영역 수정 시): 사진 편집기/뷰어 → `.claude/skills/photo-editor-dev/SKILL.md` **반드시 로드**. 데이터 안전(백업·동기화) 변경 → `.claude/agents/disaster-recovery-guardian`로 사전·사후 감사.
+7. **작업 전 필수 스킬**(해당 영역 수정 시): 사진 편집기/뷰어 → `.claude/skills/photo-editor-dev/SKILL.md` · 비용/통화/환율 → `.claude/skills/expense-fx-dev/SKILL.md` **반드시 로드**. 데이터 안전(백업·동기화) 변경 → `.claude/agents/disaster-recovery-guardian`로 사전·사후 감사.
 8. v0.2 원본 참조: `docs/reference/v0.2/`
 
 **클론 후 검증**(그대로 실행):
