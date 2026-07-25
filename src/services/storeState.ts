@@ -35,6 +35,15 @@ export interface StoreComparison {
   devices: DeviceSeen[];
   /** 서버에서 본 가장 최근 올림 시각. */
   lastCloudWriteAt: string | null;
+  /**
+   * 서버에 **표식만 남은** 행 수 — 지운 것(tombstone)과 영구삭제한 것(purged).
+   *
+   * 왜 이걸 보여주는가(2026-07-26 사용자 혼란): 영구삭제해도 서버 행은 **일부러 남긴다**
+   * (ADR-0027 — 행을 지우면 그 사실을 모르는 기기가 사본을 다시 올려 좀비가 된다).
+   * 그런데 앱이 그 사실을 한 번도 말하지 않아, 사용자가 Supabase를 직접 열어 보고
+   * "안 지워졌다"고 판단할 수밖에 없었다. **앱이 스스로 설명하게 한다.**
+   */
+  remnants: { tombstoned: number; purged: number };
 }
 
 /** 원격 포트 — 네트워크 격리(테스트에서 fake 주입). */
@@ -43,6 +52,8 @@ export interface StoreStatePort {
   activeCounts(): Promise<Record<PurgeDomain, number>>;
   /** `updated_by_device`가 찍힌 행들의 (기기, 올린 시각). */
   deviceStamps(): Promise<{ stamp: string; at: string }[]>;
+  /** 서버에 표식만 남은 행 — 지움(tombstone) / 영구삭제(purged). 둘은 성격이 다르므로 나눠 센다. */
+  remnantCounts(): Promise<{ tombstoned: number; purged: number }>;
 }
 
 export function storeStateRemote(client: JourneyClient): StoreStatePort {
@@ -76,6 +87,27 @@ export function storeStateRemote(client: JourneyClient): StoreStatePort {
       }
       return rows;
     },
+    async remnantCounts() {
+      let tombstoned = 0;
+      let purged = 0;
+      for (const d of PURGE_DOMAINS) {
+        const t = await client
+          .from(DOMAIN_PURGE[d].remoteTable)
+          .select('id', { count: 'exact', head: true })
+          .not('deleted_at', 'is', null)
+          .is('purged_at', null);
+        if (t.error) throw new Error(`${DOMAIN_PURGE[d].remoteTable} 지움 개수 조회 실패: ${t.error.message}`);
+        tombstoned += t.count ?? 0;
+
+        const p = await client
+          .from(DOMAIN_PURGE[d].remoteTable)
+          .select('id', { count: 'exact', head: true })
+          .not('purged_at', 'is', null);
+        if (p.error) throw new Error(`${DOMAIN_PURGE[d].remoteTable} 영구삭제 개수 조회 실패: ${p.error.message}`);
+        purged += p.count ?? 0;
+      }
+      return { tombstoned, purged };
+    },
   };
 }
 
@@ -108,12 +140,17 @@ export async function localActiveCounts(): Promise<Record<PurgeDomain, number>> 
 }
 
 export async function compareStore(port: StoreStatePort): Promise<StoreComparison> {
-  const [cloud, local, stamps] = await Promise.all([port.activeCounts(), localActiveCounts(), port.deviceStamps()]);
+  const [cloud, local, stamps, remnants] = await Promise.all([
+    port.activeCounts(),
+    localActiveCounts(),
+    port.deviceStamps(),
+    port.remnantCounts(),
+  ]);
   const counts = {} as StoreComparison['counts'];
   for (const d of PURGE_DOMAINS) counts[d] = { cloud: cloud[d], local: local[d] };
   const devices = foldDevices(stamps, shortDeviceId(deviceId()));
   const lastCloudWriteAt = stamps.reduce<string | null>((m, r) => (m === null || r.at > m ? r.at : m), null);
-  return { counts, devices, lastCloudWriteAt };
+  return { counts, devices, lastCloudWriteAt, remnants };
 }
 
 /** 사람이 읽는 도메인 이름 — 화면이 손으로 다시 적지 않게 여기 한 곳. */
