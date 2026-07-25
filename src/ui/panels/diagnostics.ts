@@ -26,6 +26,10 @@ import { collectEnv, evictionRisk, requestPersist } from '../../services/envRepo
 import { recentErrors, clearErrors } from '../../app/errorLog';
 import { CHANGELOG } from '../../app/changelog';
 import { syncStatus, requestSync } from '../../services/autoSync';
+import { compareStore, storeStateRemote, DOMAIN_LABEL } from '../../services/storeState';
+import { PURGE_DOMAINS } from '../../services/purge';
+import { supabase } from '../../services/supabase/client';
+import { deviceLabel, shortDeviceId } from '../../app/deviceId';
 import { renderTool, levelFromMetrics, worst, type Verdict, type Metric, type Level } from './verdict';
 
 /** 화면에 표시할 앱 버전 — changelog가 SSOT(손으로 적지 않는다). */
@@ -449,7 +453,117 @@ export function errorProbe(): Promise<Verdict> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// ⑥ 전체 요약 — 다섯 도구의 롤업 + 텍스트 복사
+// ⑥ 저장 상태 · 기기별 현황 — 클라우드와 이 기기를 나란히 놓는다
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 사용자 제안(2026-07-26): "진단도구 안에 '저장상태 확인 및 기기별 현황'을 추가하면 좋을 거 같아요."
+ *
+ * 2기기 문제를 지금까지 **추측으로** 좇았다. 서버와 이 기기의 개수를 나란히 놓고, 각 기기가
+ * 마지막으로 올린 시각을 보이면 **어느 쪽이 뒤처졌는지가 즉시 보인다.**
+ *
+ * 정직함: 개수가 다르다고 결함이 아니다 — 대개 "아직 안 올렸다/안 받았다"이고 동기화로 풀린다.
+ * 그래서 판정은 '문제'가 아니라 **'할 일'**이다. 진짜 실패는 [동기화 상태] 도구가 따로 말한다.
+ */
+export async function storeStateProbe(): Promise<Verdict> {
+  const c = supabase();
+  const u = c ? await currentUserSafe() : null;
+  const me = `${deviceLabel()} · ${shortDeviceId()}`;
+
+  if (!c || !u) {
+    // 로그인 전은 **실패가 아니다.** 대조할 상대가 없을 뿐이다(원칙 #4).
+    return {
+      level: 'unknown',
+      headline: '로그인하면 클라우드와 대조할 수 있어요',
+      because: '지금은 이 기기의 기록만 볼 수 있습니다. 기록은 이 기기에 안전하게 저장돼 있어요.',
+      metrics: [],
+      actions: [],
+      evidence: [],
+      context: [{ label: '이 기기', value: me }],
+    };
+  }
+
+  const cmp = await compareStore(storeStateRemote(c));
+
+  const metrics: Metric[] = PURGE_DOMAINS.map((d) => {
+    const { cloud, local } = cmp.counts[d];
+    const same = cloud === local;
+    return {
+      label: DOMAIN_LABEL[d],
+      actual: `클라우드 ${cloud} · 이 기기 ${local}`,
+      expected: '같음',
+      level: same ? ('ok' as const) : ('todo' as const),
+      ...(same
+        ? {}
+        : {
+            meaning:
+              local > cloud
+                ? `이 기기에 아직 안 올린 것이 ${local - cloud}건 있어요. 동기화하면 올라갑니다.`
+                : `클라우드에 있는데 이 기기가 아직 안 받은 것이 ${cloud - local}건 있어요. 동기화하면 받아옵니다.`,
+          }),
+    };
+  });
+
+  const level = levelFromMetrics(metrics);
+  const behind = cmp.devices.filter((d) => !d.isThis && cmp.lastCloudWriteAt && d.lastPushAt < cmp.lastCloudWriteAt);
+
+  return {
+    level,
+    headline:
+      level === 'ok'
+        ? '이 기기는 클라우드와 같습니다'
+        : `클라우드와 다른 항목이 ${metrics.filter((m) => m.level !== 'ok').length}가지 있어요`,
+    because:
+      cmp.devices.length > 1
+        ? `기기 ${cmp.devices.length}대가 이 계정에 기록을 올렸어요.${behind.length ? ` 그중 ${behind.length}대는 최신본보다 오래됐습니다.` : ''}`
+        : '아직 이 기기에서만 올렸어요.',
+    metrics,
+    actions: [
+      {
+        label: '지금 동기화',
+        primary: level !== 'ok',
+        hook: 'data-store-sync',
+        run: async () => {
+          await requestSync('저장 상태 확인');
+          const s = syncStatus();
+          return s.phase === 'failed' ? `동기화 실패: ${s.lastError ?? '사유 불명'}` : '동기화했어요. 다시 대조합니다.';
+        },
+      },
+    ],
+    evidence: [
+      {
+        label: `내 기기들 ${cmp.devices.length}대`,
+        build: () =>
+          table(
+            cmp.devices.length
+              ? cmp.devices.map((d): [string, string] => [
+                  `${d.label}${d.isThis ? ' (이 기기)' : ''}`,
+                  `마지막으로 올림 ${d.lastPushAt.replace('T', ' ').slice(0, 19)}`,
+                ])
+              : [['(없음)', '아직 이 계정으로 올린 기록이 없어요']],
+          ),
+      },
+    ],
+    context: [
+      { label: '이 기기', value: me },
+      // 이 화면이 말할 수 없는 것을 적는다 — 라벨 한 글자가 거짓말과 사실을 가른다.
+      { label: '읽는 법', value: '받아가기(pull)는 서버에 흔적을 남기지 않아 여기 안 보입니다' },
+    ],
+  };
+}
+
+/** 로그인 조회 실패를 오류로 만들지 않는다(로그아웃과 구분이 안 되는 상황은 '없음'으로). */
+async function currentUserSafe(): Promise<{ id: string } | null> {
+  try {
+    const { currentUser } = await import('../../services/auth');
+    return await currentUser();
+  } catch {
+    return null;
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ⑦ 전체 요약 — 도구 롤업 + 텍스트 복사
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -618,6 +732,14 @@ export const CORE_TOOLS: DiagTool[] = [
     hint: '이 기기가 갖춘 기능',
     lead: '이 기기·브라우저가 앱에 필요한 기능을 갖췄는지 봅니다.',
     probe: environmentProbe,
+  },
+  {
+    id: 'store',
+    icon: '☁️',
+    label: '저장 상태 · 기기별 현황',
+    hint: '클라우드와 같은가 · 어느 기기가 뒤처졌나',
+    lead: '클라우드와 이 기기의 기록 수를 나란히 놓고, 각 기기가 마지막으로 올린 시각을 봅니다.',
+    probe: storeStateProbe,
   },
   {
     id: 'errors',

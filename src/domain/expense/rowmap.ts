@@ -26,12 +26,15 @@ export interface ExpenseRow {
    * 영구삭제를 `null`로 덮어써 지운 것이 되살아난다. 읽기 전용으로만 쓴다(pull이 본다).
    */
   purged_at?: string | null;
+  /** 마지막으로 이 행을 올린 기기(`라벨#짧은id`) — 진단의 "기기별 현황"이 읽는다. 값은 인자로 받는다. */
+  updated_by_device?: string | null;
 }
 
-export function toExpenseRow(e: LocalExpense, userId: string): ExpenseRow {
+export function toExpenseRow(e: LocalExpense, userId: string, device?: string): ExpenseRow {
   return {
     id: e.id,
     user_id: userId,
+    updated_by_device: device ?? null,
     moment_id: e.momentId,
     trip_id: e.tripId,
     original_amount: e.originalAmount,

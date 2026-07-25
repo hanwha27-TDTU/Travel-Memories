@@ -12,6 +12,7 @@ import { compressForStorage } from '../media/compress';
 import { mergeDecision, isEmptyCloudAnomaly, classifyError } from '../sync/merge';
 import type { JourneyClient } from './supabase/client';
 import { r2BlobStore, mediaStoreKind, type BlobStore } from './r2';
+import { deviceStamp } from '../app/deviceId';
 import {
   applyRemotePurge,
   purgedIdSet,
@@ -235,7 +236,7 @@ export async function pushPending(remote: TripsRemote, userId: string): Promise<
       continue;
     }
 
-    const up = await remote.upsert(toRow(trip, userId));
+    const up = await remote.upsert(toRow(trip, userId, deviceStamp()));
     if (up.error) {
       await markFail(op, up.status);
       failed++;
@@ -320,7 +321,7 @@ export async function pushPendingMoments(
       continue;
     }
 
-    const up = await remote.upsert(toMomentRow(moment, userId));
+    const up = await remote.upsert(toMomentRow(moment, userId, deviceStamp()));
     if (up.error) {
       await markFail(op, up.status);
       failed++;
@@ -399,7 +400,7 @@ export async function pushPendingExpenses(
       continue;
     }
 
-    const up = await remote.upsert(toExpenseRow(expense, userId));
+    const up = await remote.upsert(toExpenseRow(expense, userId, deviceStamp()));
     if (up.error) {
       await markFail(op, up.status);
       failed++;
@@ -486,7 +487,7 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
         continue;
       }
     }
-    const res = await remote.upsert(toMediaRow(media, userId, path));
+    const res = await remote.upsert(toMediaRow(media, userId, path, deviceStamp()));
     if (res.error) {
       await markFail(op, res.status);
       failed++;

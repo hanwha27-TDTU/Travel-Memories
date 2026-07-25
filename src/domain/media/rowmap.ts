@@ -28,6 +28,8 @@ export interface MediaRow {
    * 영구삭제를 `null`로 덮어써 지운 것이 되살아난다. 읽기 전용으로만 쓴다(pull이 본다).
    */
   purged_at?: string | null;
+  /** 마지막으로 이 행을 올린 기기(`라벨#짧은id`) — 진단의 "기기별 현황"이 읽는다. 값은 인자로 받는다. */
+  updated_by_device?: string | null;
 }
 
 /** 행에서 복원되는 메타(블롭 제외). pull이 여기에 다운로드한 blob을 붙여 LocalMedia를 만든다. */
@@ -47,10 +49,11 @@ export interface MediaMeta {
   clientOperationId?: string;
 }
 
-export function toMediaRow(m: LocalMedia, userId: string, storagePath: string | null): MediaRow {
+export function toMediaRow(m: LocalMedia, userId: string, storagePath: string | null, device?: string): MediaRow {
   return {
     id: m.id,
     user_id: userId,
+    updated_by_device: device ?? null,
     moment_id: m.momentId,
     trip_id: m.tripId,
     storage_path: storagePath,
