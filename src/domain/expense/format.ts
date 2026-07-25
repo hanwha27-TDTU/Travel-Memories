@@ -56,6 +56,29 @@ export const CURRENCIES: readonly CurrencyMeta[] = [
 
 export const DEFAULT_CURRENCY = 'KRW';
 
+/** 국기를 못 만드는 통화 접두어 — ISO 4217의 'X..'는 초국가·특수코드(XAF·XOF·XDR 등)라 나라가 없다. */
+const NO_FLAG_PREFIX = /^X/;
+
+/**
+ * 통화코드 → 국기 이모지. **손으로 36개를 적지 않는다**(§7): ISO 4217 통화코드의 앞 두 글자가
+ * 곧 ISO 3166-1 alpha-2 국가코드라서 코드에서 파생한다(KRW→KR→🇰🇷, EUR→EU→🇪🇺).
+ * 새 통화를 CURRENCIES에 넣으면 국기도 자동으로 따라온다.
+ * 만들 수 없으면 빈 문자열(위조하지 않는다).
+ *
+ * 정직: Windows는 국기 이모지를 그리지 않고 글자쌍('KR')로 표시한다 — 정보는 남으므로 그대로 둔다.
+ */
+export function currencyFlag(code: string): string {
+  const cc = code.slice(0, 2).toUpperCase();
+  if (!/^[A-Z]{2}$/.test(cc) || NO_FLAG_PREFIX.test(cc)) return '';
+  return String.fromCodePoint(...[...cc].map((ch) => 0x1f1e6 + ch.charCodeAt(0) - 65));
+}
+
+/** 선택 UI용 한 줄 라벨: '🇰🇷 ₩ KRW' / 심볼 없으면 '🇦🇪 AED'. */
+export function currencyLabel(c: CurrencyMeta): string {
+  const flag = currencyFlag(c.code);
+  return [flag, c.symbol, c.code].filter(Boolean).join(' ');
+}
+
 function meta(code: string): CurrencyMeta | undefined {
   return CURRENCIES.find((c) => c.code === code);
 }

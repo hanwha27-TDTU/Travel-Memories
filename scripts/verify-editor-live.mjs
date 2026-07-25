@@ -102,6 +102,11 @@ await page.getByText('환율 기준통화', { exact: false }).first().click();
 await page.waitForSelector('.dm-row select');
 const fxOpts = await page.$$eval('.dm-row select option', (els) => els.map((e) => e.value));
 check('환율 설정: 통화 선택기 렌더(UZS·KRW 포함)', fxOpts.includes('UZS') && fxOpts.includes('KRW'), `n=${fxOpts.length}`);
+// v0.51: 국기가 코드에서 파생되어 모든 옵션에 붙는지(손 테이블 없음)
+const fxLabels = await page.$$eval('.dm-row select option', (els) => els.map((e) => e.textContent ?? ''));
+const noFlag = fxLabels.filter((t) => !/^[\u{1F1E6}-\u{1F1FF}]{2}/u.test(t));
+check('환율 설정: 모든 통화에 국기 표시', noFlag.length === 0, noFlag.slice(0, 3).join(' | '));
+check('환율 설정: 국기+심볼+코드 형식(KRW)', fxLabels.some((t) => t === '\u{1F1F0}\u{1F1F7} \u20A9 KRW'), fxLabels[0] ?? '');
 const fxDefault = await page.$eval('.dm-row select', (s) => s.value);
 check('환율 설정: 기본 기준통화 KRW', fxDefault === 'KRW', fxDefault);
 // 선택 변경 → localStorage 저장 read-back(성공 토스트가 아니라 실제 저장값을 되읽어 확인)
