@@ -4,7 +4,7 @@
 
 import { el, setNote } from '../dom';
 import { diagnoseSync } from '../../services/diagnostics';
-import { forceRepairCascadeOps } from '../../services/sync';
+import { forceRepairCascadeOps, retryFailedOps } from '../../services/sync';
 import { openGuide } from './guide';
 import { exportBackup, exportBackupZip, importBackupAuto } from '../../services/backup';
 import { recordBackupNow, getLastBackupAt, backupFreshness } from '../../services/backupMeta';
@@ -449,10 +449,25 @@ function diagnosticsPanel(): HTMLElement {
         repair.disabled = false;
       });
   });
+  const retry = el('button', 'btn-ghost', '실패 재시도') as HTMLButtonElement;
+  retry.type = 'button';
+  retry.setAttribute('data-retry-failed', '');
+  retry.addEventListener('click', () => {
+    retry.disabled = true;
+    void retryFailedOps()
+      .then((n) => {
+        setNote(note, n ? `실패로 박혀 있던 작업 ${n}건을 다시 시도하도록 되돌렸어요. 동기화를 눌러 주세요.` : '실패로 박힌 작업이 없어요.', n ? 'ok' : 'info');
+        render();
+      })
+      .catch((e: Error) => setNote(note, `재시도 실패: ${e.message}`, 'error'))
+      .finally(() => {
+        retry.disabled = false;
+      });
+  });
   const again = el('button', 'btn-ghost', '다시 확인') as HTMLButtonElement;
   again.type = 'button';
   again.addEventListener('click', render);
-  actions.append(repair, again);
+  actions.append(repair, retry, again);
   box.appendChild(actions);
   box.appendChild(
     el('p', 'guide-note', '[정리 실행]은 데이터를 지우지 않아요 — 서버로 보내지 못한 삭제를 다시 보낼 목록에 넣을 뿐입니다.'),

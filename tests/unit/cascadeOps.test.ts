@@ -20,7 +20,7 @@ import {
   purgeTripPermanently,
   PendingSyncError,
 } from '../../src/services/trips';
-import { requeueOrphanTombstones, pullTrips } from '../../src/services/sync';
+import { requeueOrphanTombstones, pullTrips, retryFailedOps } from '../../src/services/sync';
 import { importMergeRows } from '../../src/services/backup';
 
 /** 큐에서 (종류 → id 집합) 맵을 만든다. */
@@ -258,5 +258,57 @@ describe('백업 복원 — 되살린 기억이 서버로도 간다(F2)', () => 
 
     expect(await db().purgedIds.get(tripId)).toBeUndefined(); // 남으면 pull이 계속 무시한다
     expect(await db().localTrips.get(tripId)).toBeTruthy();
+  });
+});
+
+describe('pull 대조 재큐잉 — "1회 표식" 설계의 구멍을 막는다', () => {
+  const serverTripRow = (id: string, deleted: string | null, version: number): unknown => ({
+    id, user_id: 'u', title: '테스트 여행', start_date: null, end_date: null, status: 'planned',
+    cover_media_id: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    deleted_at: deleted, version, base_version: version - 1, client_operation_id: null,
+  });
+  const remoteOf = (rows: unknown[]): unknown => ({
+    upsert: async () => ({}),
+    getById: async () => ({ data: null }),
+    listAll: async () => ({ data: rows }),
+  });
+
+  it('로컬은 지웠는데 서버가 살아 있으면 삭제를 다시 대기열에 올린다', async () => {
+    const { tripId } = await seedTrip();
+    await softDeleteTripLocalFirst(tripId);
+    await db().syncQueue.clear(); // 삭제 op가 유실된 상태(= 실제로 겪은 고아)
+
+    // 서버는 아직 **활성**(version 1) — 삭제가 도달하지 못했다는 직접 증거
+    await pullTrips(remoteOf([serverTripRow(tripId, null, 1)]) as never);
+
+    expect((await queued()).get('trip')?.has(tripId)).toBe(true);
+  });
+
+  it('서버도 이미 tombstone이면 다시 올리지 않는다 — 완료된 것을 헛되이 밀지 않는다', async () => {
+    const { tripId } = await seedTrip();
+    await softDeleteTripLocalFirst(tripId);
+    await db().syncQueue.clear();
+
+    await pullTrips(remoteOf([serverTripRow(tripId, new Date().toISOString(), 2)]) as never);
+
+    expect((await db().syncQueue.toArray()).length).toBe(0);
+  });
+
+  it('활성 항목은 건드리지 않는다', async () => {
+    const { tripId } = await seedTrip(); // 삭제하지 않음
+    await pullTrips(remoteOf([serverTripRow(tripId, null, 1)]) as never);
+    expect((await db().syncQueue.toArray()).filter((q) => q.operationType === 'delete').length).toBe(0);
+  });
+});
+
+describe('실패로 박힌 작업 재시도', () => {
+  it('permanent_failed를 다시 시도 가능한 상태로 되돌린다', async () => {
+    const d = db();
+    await d.syncQueue.add({
+      operationId: crypto.randomUUID(), entityType: 'moment', entityId: crypto.randomUUID(),
+      operationType: 'delete', state: 'permanent_failed', attempts: 3, createdAt: new Date().toISOString(),
+    });
+    expect(await retryFailedOps()).toBe(1);
+    expect((await d.syncQueue.toArray())[0]!.state).toBe('local_only');
   });
 });
