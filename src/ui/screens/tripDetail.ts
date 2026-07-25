@@ -31,6 +31,8 @@ import {
   listExpensesByTrip,
 } from '../../services/expenses';
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, sumByCurrency, formatTotals } from '../../domain/expense/format';
+import { convertAmount, fxDateFor, fxKey, type FxRateTable } from '../../domain/expense/fx';
+import { ensureTable, fxBase, todayDate } from '../../services/fx';
 import { momentCoord } from '../../domain/place/geojson';
 import { openMapView, openMapPicker, type MapPoint } from './mapView';
 import { searchPlaces } from '../../services/geocode';
@@ -418,6 +420,39 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       objectUrls = [];
     }
 
+    // ── 환율 환산(보조 표시) ──
+    // 렌더는 동기라 캐시에 있는 표로만 그리고, 없는 날짜는 비동기로 받아온 뒤 한 번 다시 그린다.
+    // 원금액(사용자 기록)은 절대 바꾸지 않는다 — 환산은 옆에 붙는 파생 표시값이다(H-04·원칙 #2).
+    const fxCache = new Map<string, FxRateTable | null>();
+
+    /** 사용일(순간의 발생 시각) 기준 표를 캐시에서만 찾는다. */
+    function fxTableFor(occurredAt: string): FxRateTable | null {
+      const key = fxKey(fxDateFor(occurredAt, todayDate()), fxBase());
+      return fxCache.get(key) ?? null;
+    }
+
+    /** 화면에 필요한 날짜의 표를 받아 캐시에 채운다. 새로 채워졌으면 true(→ 한 번 재렌더). */
+    async function hydrateFx(moments: LocalMoment[], expenses: LocalExpense[]): Promise<boolean> {
+      const base = fxBase();
+      const today = todayDate();
+      const dates = new Set<string>();
+      const byId = new Map(moments.map((m) => [m.id, m]));
+      for (const ex of expenses) {
+        if (ex.originalCurrency.toUpperCase() === base) continue; // 환산 불필요
+        const m = byId.get(ex.momentId);
+        if (m) dates.add(fxDateFor(m.occurredAt, today));
+      }
+      let added = false;
+      for (const d of dates) {
+        const key = fxKey(d, base);
+        if (fxCache.has(key)) continue;
+        const t = await ensureTable(d, base);
+        fxCache.set(key, t); // null도 기록 — 실패한 날짜를 매 렌더마다 다시 때리지 않는다
+        if (t) added = true;
+      }
+      return added;
+    }
+
 
     async function refresh(): Promise<void> {
       const [moments, media, expenses] = await Promise.all([
@@ -467,6 +502,42 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       );
       const totals = formatTotals(sumByCurrency(expenses));
       if (totals.length) statRow.append(stat(totals.join(' · '), '비용'));
+
+      // 환산 합계(보조): 각 비용을 **자기 사용일** 환율로 환산해 더한다(한 날 환율로 뭉뚱그리지 않음).
+      // 환산 못 한 통화가 있으면 숨기지 않고 라벨에 남긴다(정직).
+      const base = fxBase();
+      const mixed = totals.length > 1 || !Object.keys(sumByCurrency(expenses)).includes(base);
+      if (expenses.length && mixed) {
+        const byId = new Map(moments.map((m) => [m.id, m]));
+        let sum = 0;
+        let converted = 0;
+        const missing = new Set<string>();
+        for (const ex of expenses) {
+          const cur = ex.originalCurrency.toUpperCase();
+          if (cur === base) {
+            sum += ex.originalAmount;
+            converted++;
+            continue;
+          }
+          const mo = byId.get(ex.momentId);
+          const t = mo ? fxTableFor(mo.occurredAt) : null;
+          const v = t ? convertAmount(ex.originalAmount, cur, base, t) : null;
+          if (v === null) missing.add(cur);
+          else {
+            sum += v;
+            converted++;
+          }
+        }
+        if (converted > 0) {
+          const label = missing.size ? `환산 합계 (${[...missing].join('·')} 제외)` : '환산 합계';
+          statRow.append(stat(`≈ ${formatMoney(sum, base)}`, label));
+        }
+      }
+
+      // 캐시에 없던 날짜의 환율을 받아오고, 새로 채워졌으면 한 번만 다시 그린다(무한루프 없음).
+      void hydrateFx(moments, expenses).then((added) => {
+        if (added) void refresh();
+      });
     }
 
     function renderTimeline(
@@ -608,7 +679,19 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         const chips = el('div', 'chips');
         if (m.placeName) chips.appendChild(el('span', 'chip gps', `📍 ${m.placeName}`));
         for (const ex of expenseList) {
-          chips.appendChild(el('span', 'chip money', `💰 ${formatMoney(ex.originalAmount, ex.originalCurrency)}`));
+          const chip = el('span', 'chip money', `💰 ${formatMoney(ex.originalAmount, ex.originalCurrency)}`);
+          // 환산(보조): 사용일 기준환율로 기준통화 환산값을 덧붙인다. 원금액이 주(主), 환산이 부(副).
+          const base = fxBase();
+          if (ex.originalCurrency.toUpperCase() !== base) {
+            const t = fxTableFor(m.occurredAt);
+            const conv = t ? convertAmount(ex.originalAmount, ex.originalCurrency, base, t) : null;
+            if (t && conv !== null) {
+              const approx = el('span', 'chip-approx', `≈ ${formatMoney(conv, base)}`);
+              approx.title = `${t.date} 기준환율(${t.source}) · 실제 결제액은 카드·현찰 환율에 따라 다를 수 있어요`;
+              chip.appendChild(approx);
+            }
+          }
+          chips.appendChild(chip);
         }
         card.appendChild(chips);
       }

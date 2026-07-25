@@ -9,7 +9,11 @@
 // 거치므로, 이 게이트가 코어의 완전성을 저장소만으로(네트워크 없이) 강제한다. 하나라도 없으면 RED.
 //
 // 역할 분류는 함수명으로: 이름에 'export'가 있으면 export-role, 'import'가 있으면 import-role.
-// 제외: syncQueue는 파생 큐(사용자 기억이 아님) — 백업 대상이 아니다. 명시적으로 제외한다.
+// 제외(파생 데이터 — 사용자 기억이 아니므로 백업 대상이 아니다. 명시적으로만 제외한다):
+//   syncQueue    — 파생 큐(동기화 진행상태)
+//   localFxRates — 환율 표 캐시. 공개 데이터이고 언제든 다시 받을 수 있으며, 과거 날짜 환율은
+//                  확정값이라 재취득해도 같은 값이다. 백업에 넣으면 용량만 늘고 복원 가치가 없다.
+// ⚠ 새 테이블을 여기 넣기 전에 자문: "이걸 잃으면 사용자의 기억이 사라지나?" 그렇다면 제외 금지.
 
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -19,7 +23,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DB_FILE = join(ROOT, 'src/offline/db.ts');
 const BACKUP_FILE = join(ROOT, 'src/services/backup.ts');
 
-const EXCLUDE = new Set(['syncQueue']);
+const EXCLUDE = new Set(['syncQueue', 'localFxRates']);
 
 /** db.ts에서 Dexie 테이블 프로퍼티명을 뽑는다: `localTrips!: Table<...>`. */
 function parseTableNames(src) {

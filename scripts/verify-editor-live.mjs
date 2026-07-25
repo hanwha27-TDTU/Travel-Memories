@@ -95,6 +95,29 @@ while ((await page.locator('.guide-overlay').count()) > 0) {
   await page.waitForTimeout(200);
 }
 
+// v0.49: 환율 기준통화 설정 — 데이터 관리 → 카드 → 통화 선택기(UZS 포함) 렌더·저장
+await page.locator('.data-open').click();
+await page.waitForSelector('.guide-overlay');
+await page.getByText('환율 기준통화', { exact: false }).first().click();
+await page.waitForSelector('.dm-row select');
+const fxOpts = await page.$$eval('.dm-row select option', (els) => els.map((e) => e.value));
+check('환율 설정: 통화 선택기 렌더(UZS·KRW 포함)', fxOpts.includes('UZS') && fxOpts.includes('KRW'), `n=${fxOpts.length}`);
+const fxDefault = await page.$eval('.dm-row select', (s) => s.value);
+check('환율 설정: 기본 기준통화 KRW', fxDefault === 'KRW', fxDefault);
+// 선택 변경 → localStorage 저장 read-back(성공 토스트가 아니라 실제 저장값을 되읽어 확인)
+await page.selectOption('.dm-row select', 'USD');
+await page.waitForTimeout(150);
+const fxSaved = await page.evaluate(() => localStorage.getItem('bj.fxBase'));
+check('환율 설정: 선택이 실제로 저장됨(read-back)', fxSaved === 'USD', String(fxSaved));
+await page.selectOption('.dm-row select', 'KRW'); // 이후 테스트 영향 없도록 원복
+await page.waitForTimeout(150);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(250);
+while ((await page.locator('.guide-overlay').count()) > 0) {
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+}
+
 // v0.46: 기계화 검증 흐름도 — 개발자 정보 → 열기 → 4단계 + 게이트 카드가 실제 harness 개수와 일치
 await page.locator('.app-version').click();
 await page.getByRole('button', { name: /기계화 검증 흐름도 열기/ }).click();

@@ -68,6 +68,18 @@ export interface LocalExpense extends SyncMeta {
   note: string; // 메모(선택)
 }
 
+// 환율 표(FxRateTable) 로컬 캐시 — **파생·재취득 가능한 공개 데이터**이지 사용자의 기억이 아니다.
+// 그래서 동기화하지 않고 백업에도 담지 않는다(syncQueue와 같은 성격 — check-backup-coverage 제외 목록).
+// 과거 날짜의 기준환율은 확정값이라 한 번 받으면 안 바뀐다 → 캐시가 표시 안정성을 보장한다.
+export interface LocalFxRate {
+  id: string; // `${date}|${BASE}` (domain/expense/fx.ts fxKey)
+  date: string; // 실제 적용 환율 날짜 'YYYY-MM-DD'
+  base: string; // 기준통화(대문자)
+  rates: Record<string, number>;
+  source: string;
+  fetchedAt: string;
+}
+
 export interface SyncQueueItem {
   operationId: string;
   entityType: string;
@@ -83,6 +95,7 @@ export class JourneyDB extends Dexie {
   localMoments!: Table<LocalMoment, string>;
   localMedia!: Table<LocalMedia, string>;
   localExpenses!: Table<LocalExpense, string>;
+  localFxRates!: Table<LocalFxRate, string>;
   syncQueue!: Table<SyncQueueItem, string>;
 
   constructor() {
@@ -107,6 +120,10 @@ export class JourneyDB extends Dexie {
     // v4: 비용(Expense) 로컬 store. 순간·여행 관계키로 조회.
     this.version(4).stores({
       localExpenses: 'id, momentId, tripId, updatedAt',
+    });
+    // v5: 환율 표 캐시. 파생 데이터라 동기화·백업 대상 아님(위 LocalFxRate 주석).
+    this.version(5).stores({
+      localFxRates: 'id, date, base',
     });
   }
 }
