@@ -616,6 +616,19 @@ async function purgedIdSet(): Promise<Set<string>> {
 /** 정합 복구 1회 실행 표식. 완료된 tombstone까지 매번 다시 밀지 않도록 잠근다. */
 const REPAIR_KEY = 'bj.repair.cascadeOps.v1';
 
+/**
+ * 정합 복구를 **강제로** 다시 실행한다(진단 화면의 [정리 실행] 버튼용).
+ * 1회 표식을 지우고 재큐잉하므로, 표식이 이미 찍힌 뒤에 생긴 고아도 잡을 수 있다.
+ */
+export async function forceRepairCascadeOps(): Promise<{ media: number; expenses: number }> {
+  try {
+    localStorage.removeItem(REPAIR_KEY);
+  } catch {
+    /* 표식을 못 지워도 아래 재큐잉 자체는 동작한다. */
+  }
+  return requeueOrphanTombstones();
+}
+
 async function repairCascadeOpsOnce(): Promise<void> {
   try {
     if (localStorage.getItem(REPAIR_KEY)) return;
