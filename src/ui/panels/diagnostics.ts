@@ -532,6 +532,21 @@ export async function storeStateProbe(): Promise<Verdict> {
     ],
     evidence: [
       {
+        // 사용자가 Supabase·R2를 직접 열어 "안 지워졌다"고 판단하던 자리(2026-07-26).
+        // 서버에 **무엇이 왜 남는지**를 앱이 스스로 설명한다.
+        label: `서버에 남는 표식 ${cmp.remnants.tombstoned + cmp.remnants.purged}건 — 왜 남나요?`,
+        build: () =>
+          table([
+            ['지운 항목(휴지통)', `${cmp.remnants.tombstoned}건 · 되살릴 수 있게 표식만 남습니다`],
+            ['영구삭제한 항목', `${cmp.remnants.purged}건 · 행은 남기고 "비웠음" 표식만 찍습니다`],
+            [
+              '왜 행을 안 지우나요',
+              '완전히 지우면 그 사실을 모르는 다른 기기가 자기 사본을 다시 올려 되살아납니다. 표식을 남겨야 모든 기기가 함께 치울 수 있어요.',
+            ],
+            ['사진 파일은?', '사진 원본·표시본은 표식과 별개로 실제로 삭제됩니다(위 개수에 안 잡힙니다).'],
+          ]),
+      },
+      {
         label: `내 기기들 ${cmp.devices.length}대`,
         build: () =>
           table(
