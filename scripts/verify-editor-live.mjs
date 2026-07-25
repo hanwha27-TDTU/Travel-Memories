@@ -414,6 +414,63 @@ check('가로 태블릿: 가로 사진 전체가 뷰포트에 들어옴(상하 �
 check('가로 태블릿: 높이 기준 맞춤(꽉 채움)', fit.rh >= fit.vh - 60, JSON.stringify(fit));
 await page.keyboard.press('Escape');
 
+// ── v0.50: 환율 배지 탭 → 적용 환율일·기준환율 상세 ──
+// 샌드박스가 환율 API를 차단하므로 **Dexie 캐시에 표를 직접 주입**해 UI 경로만 검증한다
+// (네트워크 검증이 아님을 명시 — 실 응답은 실기기 몫).
+const injected = await page.evaluate(async () => {
+  const d = new Date();
+  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const row = {
+    id: `${today}|KRW`,
+    date: today,
+    base: 'KRW',
+    rates: { UZS: 9.2 }, // 1 KRW = 9.2 UZS
+    source: 'test-injected',
+    fetchedAt: new Date().toISOString(),
+  };
+  await new Promise((resolve, reject) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction('localFxRates', 'readwrite');
+      tx.objectStore('localFxRates').put(row);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+  return today;
+});
+check('환율 캐시 주입(테스트 픽스처)', Boolean(injected), String(injected));
+
+await page.fill('input[placeholder^="이 순간을"]', '환율 배지 검증');
+await page.fill('input[placeholder^="💰 비용"]', '50000');
+await page.selectOption('.moment-currency', 'UZS');
+await page.getByRole('button', { name: '순간 저장' }).click();
+await page.waitForSelector('.chip-approx', { timeout: 10000 });
+const approxText = await page.$eval('.chip-approx', (b) => b.textContent);
+// 50,000 UZS ÷ 9.2 = 5,434.78 → KRW는 소수 없음 → ₩5,435
+check('환율 배지 렌더(≈ 환산값)', /≈\s*₩5,43\d/.test(approxText ?? ''), approxText ?? '');
+
+const expandedBefore = await page.$eval('.chip-approx', (b) => b.getAttribute('aria-expanded'));
+check('환율 배지: 초기 접힘(aria-expanded=false)', expandedBefore === 'false', String(expandedBefore));
+
+await page.locator('.chip-approx').first().click();
+await page.waitForSelector('.fx-detail:not([hidden])', { timeout: 5000 });
+const detail = await page.$eval('.fx-detail', (d) => d.textContent ?? '');
+check('환율 상세: 적용 환율일 표시', detail.includes('적용 환율일') && detail.includes(injected), detail.slice(0, 60));
+check('환율 상세: 단위 환율 양방향', /1 UZS = /.test(detail) && /1 KRW = 9\.2 UZS/.test(detail), detail.slice(0, 120));
+check('환율 상세: 계산식(검산 가능)', /계산/.test(detail) && /×/.test(detail), '');
+check('환율 상세: 출처 표기', detail.includes('test-injected'), '');
+const expandedAfter = await page.$eval('.chip-approx', (b) => b.getAttribute('aria-expanded'));
+check('환율 배지: 펼침 상태 반영(aria-expanded=true)', expandedAfter === 'true', String(expandedAfter));
+
+// 같은 배지 다시 탭 → 접힘
+await page.locator('.chip-approx').first().click();
+await page.waitForTimeout(200);
+const hiddenAgain = await page.$eval('.fx-detail', (d) => d.hidden);
+check('환율 배지: 다시 탭하면 접힘', hiddenAgain === true, String(hiddenAgain));
+
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 
 await browser.close();

@@ -31,7 +31,7 @@ import {
   listExpensesByTrip,
 } from '../../services/expenses';
 import { CURRENCIES, DEFAULT_CURRENCY, formatMoney, sumByCurrency, formatTotals } from '../../domain/expense/format';
-import { convertAmount, fxDateFor, fxKey, type FxRateTable } from '../../domain/expense/fx';
+import { convertAmount, formatRate, fxDateFor, fxKey, unitRate, type FxRateTable } from '../../domain/expense/fx';
 import { ensureTable, fxBase, todayDate } from '../../services/fx';
 import { momentCoord } from '../../domain/place/geojson';
 import { openMapView, openMapPicker, type MapPoint } from './mapView';
@@ -678,6 +678,10 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       if (m.placeName || expenseList.length) {
         const chips = el('div', 'chips');
         if (m.placeName) chips.appendChild(el('span', 'chip gps', `📍 ${m.placeName}`));
+        // 환율 상세(탭하면 펼쳐짐) — 툴팁(title)은 모바일에서 안 보이므로 실제 패널로 보여준다.
+        const fxDetail = el('div', 'fx-detail');
+        fxDetail.hidden = true;
+
         for (const ex of expenseList) {
           const chip = el('span', 'chip money', `💰 ${formatMoney(ex.originalAmount, ex.originalCurrency)}`);
           // 환산(보조): 사용일 기준환율로 기준통화 환산값을 덧붙인다. 원금액이 주(主), 환산이 부(副).
@@ -686,14 +690,33 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
             const t = fxTableFor(m.occurredAt);
             const conv = t ? convertAmount(ex.originalAmount, ex.originalCurrency, base, t) : null;
             if (t && conv !== null) {
-              const approx = el('span', 'chip-approx', `≈ ${formatMoney(conv, base)}`);
-              approx.title = `${t.date} 기준환율(${t.source}) · 실제 결제액은 카드·현찰 환율에 따라 다를 수 있어요`;
+              const approx = el('button', 'chip-approx', `≈ ${formatMoney(conv, base)}`) as HTMLButtonElement;
+              approx.type = 'button';
+              approx.setAttribute('aria-expanded', 'false');
+              approx.setAttribute('aria-label', `환산 ${formatMoney(conv, base)} — 적용 환율 자세히 보기`);
+              approx.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const mine = fxDetail.dataset['for'] === ex.id;
+                if (mine && !fxDetail.hidden) {
+                  fxDetail.hidden = true; // 같은 배지 다시 탭 → 접기
+                  approx.setAttribute('aria-expanded', 'false');
+                  return;
+                }
+                fxDetail.dataset['for'] = ex.id;
+                fxDetail.innerHTML = '';
+                fxDetail.append(...fxDetailRows(ex, m.occurredAt, base, t, conv));
+                fxDetail.hidden = false;
+                for (const b of chips.querySelectorAll('.chip-approx')) {
+                  b.setAttribute('aria-expanded', String(b === approx));
+                }
+              });
               chip.appendChild(approx);
             }
           }
           chips.appendChild(chip);
         }
         card.appendChild(chips);
+        card.appendChild(fxDetail);
       }
       if (mediaList.length) {
         const grid = el('div', 'photo-thumbs');
@@ -1315,6 +1338,57 @@ function buildMomentEditForm(
   });
 
   return panel;
+}
+
+/**
+ * 환율 상세 행 — 사용자가 **직접 검산할 수 있게** 적용일·단위환율·계산식·출처를 모두 보인다.
+ * 숫자를 그냥 믿으라고 하지 않는다(정직한 완료의 UI 판).
+ */
+function fxDetailRows(
+  ex: LocalExpense,
+  occurredAt: string,
+  base: string,
+  t: FxRateTable,
+  conv: number,
+): HTMLElement[] {
+  const cur = ex.originalCurrency.toUpperCase();
+  const asked = fxDateFor(occurredAt, todayDate()); // 요청한 날(= 비용 사용일)
+  const rows: HTMLElement[] = [];
+
+  const line = (label: string, value: string): HTMLElement => {
+    const r = el('div', 'fx-row');
+    r.append(el('span', 'fx-row-k', label), el('span', 'fx-row-v', value));
+    return r;
+  };
+
+  // 적용 환율일 — 요청일과 다르면(주말·공휴일) 이유를 밝힌다.
+  rows.push(line('적용 환율일', t.date === asked ? t.date : `${t.date} (사용일 ${asked}은 고시 없음 → 직전 고시일)`));
+
+  // 단위 환율 양방향 — 어느 쪽으로 보든 이해되게.
+  const rFwd = unitRate(cur, base, t);
+  const rBack = unitRate(base, cur, t);
+  if (rFwd !== null) rows.push(line('환율', `1 ${cur} = ${formatRate(rFwd)} ${base}`));
+  if (rBack !== null) rows.push(line('', `1 ${base} = ${formatRate(rBack)} ${cur}`));
+
+  // 계산식 — 원금액 × 단위환율 = 환산값. 사용자가 계산기로 확인 가능.
+  if (rFwd !== null) {
+    rows.push(
+      line(
+        '계산',
+        `${formatMoney(ex.originalAmount, cur)} × ${formatRate(rFwd)} = ${formatMoney(conv, base)}`,
+      ),
+    );
+  }
+
+  rows.push(line('출처', `${t.source} · 공개 기준환율`));
+
+  const note = el(
+    'p',
+    'fx-note',
+    '실시간 시장가·은행 매매기준율이 아닙니다. 카드 결제나 현찰 환전 시 수수료 때문에 실제 금액은 다를 수 있어요. 원래 적은 금액은 그대로 보존됩니다.',
+  );
+  rows.push(note);
+  return rows;
 }
 
 function stat(value: string, label: string): HTMLElement {
