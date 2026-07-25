@@ -5,6 +5,7 @@
 // sync_queue가 그 대기열이며, 유실되지 않는다.
 
 import { db, type LocalTrip, type SyncQueueItem, type PurgedId } from '../offline/db';
+import { purgeMarks, purgeOpType, type PurgeDomain } from './purge';
 
 function uuid(): string {
   return crypto.randomUUID();
@@ -334,16 +335,33 @@ export async function purgeTripPermanently(id: string): Promise<void> {
   if (pending.length) throw new PendingSyncError(pending.length);
 
   const now = new Date().toISOString();
-  const marks: PurgedId[] = [
-    { id, entityType: 'trip', purgedAt: now },
-    ...moments.map((m) => ({ id: m.id, entityType: 'moment' as const, purgedAt: now })),
-    ...media.map((m) => ({ id: m.id, entityType: 'media' as const, purgedAt: now })),
-    ...expenses.map((e) => ({ id: e.id, entityType: 'expense' as const, purgedAt: now })),
+  // 도메인 × id 목록을 **한 번만** 만든다 — 표식·전파 op·하드 삭제가 모두 같은 목록을 쓴다.
+  // 예전엔 이 셋이 각자 자기 목록을 갖고 있어서 한 곳만 빠지는 사고가 반복됐다(§7).
+  const targets: { id: string; domain: PurgeDomain }[] = [
+    { id, domain: 'trip' },
+    ...moments.map((m) => ({ id: m.id, domain: 'moment' as const })),
+    ...media.map((m) => ({ id: m.id, domain: 'media' as const })),
+    ...expenses.map((e) => ({ id: e.id, domain: 'expense' as const })),
   ];
+  const marks: PurgedId[] = purgeMarks(targets, now);
+  // ③ **다른 기기에도 알린다**(ADR-0027) — 서버 행에 purged_at을 찍는 작업을 큐에 넣는다.
+  //    이게 없으면 영구삭제가 이 기기에서만 일어나 다른 기기 휴지통엔 그대로 남는다
+  //    (사용자 지적 2026-07-26: "다른 기기에서 휴지통을 비웠으면 연동기기에서도 사라져야").
+  const purgeOps: SyncQueueItem[] = targets.map((t) => ({
+    operationId: uuid(),
+    entityType: purgeOpType(t.domain),
+    entityId: t.id,
+    operationType: 'purge',
+    state: 'local_only',
+    attempts: 0,
+    createdAt: now,
+  }));
 
-  await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.purgedIds, async () => {
+  // 표 6개는 Dexie의 가변인자 오버로드 한도를 넘어 배열 형태를 쓴다(동작은 같다).
+  await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.purgedIds, d.syncQueue], async () => {
     // ② 표식을 **먼저** 넣는다. 중간에 실패해도 "지웠는데 표식이 없어 되살아나는" 창이 생기지 않는다.
     await d.purgedIds.bulkPut(marks);
+    for (const op of purgeOps) await d.syncQueue.add(op);
     if (media.length) await d.localMedia.bulkDelete(media.map((m) => m.id));
     if (expenses.length) await d.localExpenses.bulkDelete(expenses.map((e) => e.id));
     if (moments.length) await d.localMoments.bulkDelete(moments.map((m) => m.id));
@@ -353,6 +371,10 @@ export async function purgeTripPermanently(id: string): Promise<void> {
   const back = await d.localTrips.get(id);
   if (back) throw new Error('영구 삭제 확인 실패: 행이 남아 있음');
   if (!(await d.purgedIds.get(id))) throw new Error('영구 삭제 확인 실패: 표식이 남지 않음');
+  const queuedPurges = (await d.syncQueue.toArray()).filter((q) => q.operationType === 'purge').length;
+  if (queuedPurges < targets.length) {
+    throw new Error('영구 삭제 확인 실패: 다른 기기에 알릴 작업이 큐에 남지 않음');
+  }
 }
 
 /** 홈 목록 (tombstone·보관 제외 — deletedAt/status는 filter, M-0005). */

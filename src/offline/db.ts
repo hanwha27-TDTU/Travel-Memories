@@ -84,7 +84,8 @@ export interface SyncQueueItem {
   operationId: string;
   entityType: string;
   entityId: string;
-  operationType: 'insert' | 'update' | 'delete' | 'finalize_upload';
+  /** `purge` = 영구삭제 전파(ADR-0027). 로컬 행이 이미 없으므로 도메인 push 루프가 처리하지 않는다. */
+  operationType: 'insert' | 'update' | 'delete' | 'finalize_upload' | 'purge';
   state: string;
   attempts: number;
   createdAt: string;
