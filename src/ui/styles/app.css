@@ -1241,3 +1241,13 @@
 }
 .r2-key-wide { flex: 0 0 auto; max-width: 100%; font-family: inherit; }
 .r2-val { flex: 1 1 200px; font-size: 0.78rem; line-height: 1.5; min-width: 0; }
+/* R2 가이드 — 쉬운 설명(질문/답) */
+.r2-plain {
+  margin: var(--space-3) 0; padding: var(--space-3);
+  border: 1px solid var(--line); border-left: 3px solid var(--sem-sky);
+  border-radius: var(--radius-medium); background: var(--bg-2);
+}
+.r2-plain-sum { cursor: pointer; font-weight: 800; font-size: 0.88rem; color: var(--ink); }
+.r2-qa { margin-top: var(--space-3); }
+.r2-q { display: block; font-size: 0.83rem; color: var(--sem-sky); }
+.r2-a { margin: 4px 0 0; font-size: 0.82rem; line-height: 1.65; color: var(--ink); }
