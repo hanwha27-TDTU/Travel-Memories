@@ -125,6 +125,21 @@ export async function updateTripLocalFirst(id: string, patch: UpdateTripPatch): 
 }
 
 /**
+ * 여행과 함께 tombstone된 자식 id 묶음. **복원은 이 묶음을 통째로 받는다.**
+ *
+ * ⚠️ 결함 이력(2026-07-25): 예전 시그니처는 `restoreTripLocalFirst(id, momentIds, mediaIds, expenseIds = [])`
+ * 였고, **기본값이 호출부의 누락을 조용히 삼켰다** — 두 화면 모두 expenseIds를 넘기지 않아
+ * 여행 삭제 후 실행취소를 눌러도 **비용이 복원되지 않았다**(여행이 활성으로 돌아오므로 휴지통에도
+ * 나타나지 않아 복구 경로가 사라졌다). 묶음 타입으로 바꿔 누락을 컴파일 오류로 만든다 —
+ * 새 자식 종류가 생겨도 컴파일러가 모든 호출부를 잡는다.
+ */
+export interface TripChildren {
+  momentIds: string[];
+  mediaIds: string[];
+  expenseIds: string[];
+}
+
+/**
  * 여행 삭제 — 하드 삭제 금지(§0): deletedAt tombstone. 순간·사진·비용까지 같은 트랜잭션에서
  * cascade tombstone하고, **네 종류 모두 sync 큐 op(delete)를 만든다.**
  *
@@ -137,9 +152,7 @@ export async function updateTripLocalFirst(id: string, patch: UpdateTripPatch): 
  * 되살리기가 정확히 이 자식들만 복원하도록 id 목록을 반환한다.
  * 되살리기·삭제 모두 version+1로 LWW에서 최신이 이긴다.
  */
-export async function softDeleteTripLocalFirst(
-  id: string,
-): Promise<{ momentIds: string[]; mediaIds: string[]; expenseIds: string[] }> {
+export async function softDeleteTripLocalFirst(id: string): Promise<TripChildren> {
   const d = db();
   const cur = await d.localTrips.get(id);
   if (!cur || cur.deletedAt !== null) throw new Error('여행을 찾을 수 없습니다.');
@@ -200,12 +213,8 @@ export async function softDeleteTripLocalFirst(
 }
 
 /** 여행 되살리기(실행취소) — 여행 + 삭제 시 함께 tombstone된 순간·사진·비용을 복원. version+1로 LWW 승리. */
-export async function restoreTripLocalFirst(
-  id: string,
-  momentIds: string[],
-  mediaIds: string[],
-  expenseIds: string[] = [],
-): Promise<LocalTrip> {
+export async function restoreTripLocalFirst(id: string, children: TripChildren): Promise<LocalTrip> {
+  const { momentIds, mediaIds, expenseIds } = children;
   const d = db();
   const cur = await d.localTrips.get(id);
   if (!cur) throw new Error('여행을 찾을 수 없습니다.');
@@ -277,7 +286,11 @@ export async function restoreTripFromTrash(id: string): Promise<LocalTrip> {
   const moments = (await d.localMoments.where('tripId').equals(id).toArray()).filter((m) => m.deletedAt !== null);
   const media = (await d.localMedia.where('tripId').equals(id).toArray()).filter((m) => m.deletedAt !== null);
   const expenses = (await d.localExpenses.where('tripId').equals(id).toArray()).filter((e) => e.deletedAt !== null);
-  return restoreTripLocalFirst(id, moments.map((m) => m.id), media.map((m) => m.id), expenses.map((e) => e.id));
+  return restoreTripLocalFirst(id, {
+    momentIds: moments.map((m) => m.id),
+    mediaIds: media.map((m) => m.id),
+    expenseIds: expenses.map((e) => e.id),
+  });
 }
 
 /**

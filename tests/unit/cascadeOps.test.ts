@@ -102,7 +102,7 @@ describe('여행 삭제 cascade — 자식 종류가 하나도 빠지지 않는�
     const { tripId, momentId, mediaId, expenseId } = await seedTrip();
     const ids = await softDeleteTripLocalFirst(tripId);
     await db().syncQueue.clear(); // 삭제 op를 걷어내고 복원만 관찰
-    await restoreTripLocalFirst(tripId, ids.momentIds, ids.mediaIds, ids.expenseIds);
+    await restoreTripLocalFirst(tripId, ids); // 묶음 통째로 — 누락이 구조적으로 불가능
 
     const q = await queued();
     expect(q.get('moment')?.has(momentId)).toBe(true);

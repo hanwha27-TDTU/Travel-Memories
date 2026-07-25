@@ -226,11 +226,11 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
     if (!ok) return;
     void (async () => {
       try {
-        const { momentIds, mediaIds } = await softDeleteTripLocalFirst(t.id);
+        const children = await softDeleteTripLocalFirst(t.id);
         void trySync(user);
         await refresh();
         showUndoToast('여행을 삭제했어요', async () => {
-          await restoreTripLocalFirst(t.id, momentIds, mediaIds);
+          await restoreTripLocalFirst(t.id, children);
           void trySync(user);
           await refresh();
         });
