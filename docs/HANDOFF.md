@@ -108,7 +108,21 @@
 4. 도메인 계약: `DATA_MODEL` · `SYNC_PROTOCOL` · `SECURITY` · `MEDIA_PIPELINE` · `PRIVACY` · `DEPLOYMENT` · `ARCHITECTURE` · **`DISASTER_RECOVERY`(백업·복원·복구 우선순위)**
 5. `docs/AGENT_REGISTRY.md` → `docs/DECISIONS.md` + `docs/ASSUMPTIONS.md`
 6. `docs/ROADMAP.md`(Phase 계획) → `docs/ACTIVE_TASKS.md`
-7. **작업 전 필수 스킬**(해당 영역 수정 시): 사진 편집기/뷰어 → `.claude/skills/photo-editor-dev/SKILL.md` · 비용/통화/환율 → `.claude/skills/expense-fx-dev/SKILL.md` **반드시 로드**. 데이터 안전(백업·동기화) 변경 → `.claude/agents/disaster-recovery-guardian`로 사전·사후 감사.
+7. **작업 전 필수 스킬**(해당 영역 수정 시 **반드시 로드** — 현재 <!--reg:skillCount-->8<!--/reg-->개):
+
+| 만지는 것 | 로드할 스킬 |
+|---|---|
+| 사진 편집기·뷰어·미디어 인테이크(`photoEditor`·`editor-core`·`pixelops`·`services/media`) | `photo-editor-dev` |
+| 비용·통화·환율(`domain/expense/*`·`services/fx`·`domain/time`) | `expense-fx-dev` |
+| 동기화·오프라인·병합(`services/sync`·`sync/merge`·`offline/db`·`domain/*/rowmap`) | `sync-offline-dev` |
+| 백업·복원·ZIP·암호화(`services/{backup,backupCrypto,zip,backupMeta}`) | `backup-restore-dev` |
+| UI 셸·반응형·토큰·상태 표시(`ui/styles/*`·`ui/theme`·`ui/dom`·화면 레이아웃) | `ui-responsive-dev` |
+| 지도·장소·지오코딩(`ui/screens/mapView`·`services/geocode`·`domain/place/geojson`) | `map-place-dev` |
+| Supabase·RLS·마이그레이션·인증(`supabase/**`·`services/auth`·`supabase/client`) | `supabase-security-dev` |
+| 게이트·자동 집계·배선맵(`scripts/*.mjs`·`registry.gen`·`blueprint`·`gates`) | `gates-mechanization-dev` |
+
+   각 스킬은 **작업 헌장**(파일 지도·불변 계약·과거 결함 등록부·검증 레시피)이고, 계약의 정본은 `docs/`다(스킬이 doc을 SSOT로 참조 — 중복 서술 금지).
+   데이터 안전(백업·동기화) 변경은 추가로 `.claude/agents/disaster-recovery-guardian`로 사전·사후 감사.
 8. v0.2 원본 참조: `docs/reference/v0.2/`
 
 **클론 후 검증**(그대로 실행):
