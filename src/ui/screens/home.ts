@@ -2,7 +2,7 @@
 // 오프라인 우선: 저장은 항상 로컬 먼저, 로그인 시 백그라운드로 서버 동기화.
 // 자유 텍스트(이메일 등)는 textContent만 사용(innerHTML 금지).
 
-import { isConfigured, supabase } from '../../services/supabase/client';
+import { isConfigured } from '../../services/supabase/client';
 import {
   createTripLocalFirst,
   listTrips,
@@ -21,7 +21,7 @@ import {
   isAllowedUser,
   type SessionUser,
 } from '../../services/auth';
-import { runSync } from '../../services/sync';
+import { requestSync } from '../../services/autoSync';
 import { el, setNote } from '../dom';
 import { openDataManager } from './dataManager';
 import { openAboutApp } from './aboutApp';
@@ -160,14 +160,9 @@ function buildControls(): HTMLElement {
 }
 
 /** 로그인 상태면 서버 동기화 시도(실패는 다음 트리거에서 재시도). */
-async function trySync(user: SessionUser | null): Promise<void> {
-  const c = supabase();
-  if (!user || !c) return;
-  try {
-    await runSync(c, user.id);
-  } catch {
-    /* 재시도는 다음 로그인/온라인/저장 트리거에서 */
-  }
+/** 동기화 요청 — 규칙은 `services/autoSync.ts` 한 곳에 있다(§7). */
+async function trySync(_user: SessionUser | null): Promise<void> {
+  await requestSync('홈 저장/변경');
 }
 
 export function renderHome(mount: HTMLElement, navigate: Navigate): void {

@@ -264,6 +264,48 @@ export function semanticTintContrast(css) {
   return bad;
 }
 
+// ── 검사 J: 상태를 바꾸는 화면은 동기화를 요청하는가 ────────────────────────
+/**
+ * 실제 사고(2026-07-26): `dataManager.ts`가 `runSync`를 **아예 import하지 않아** 휴지통 복원·
+ * 영구삭제·백업 복원 뒤에 동기화가 일어나지 않았다. 영구삭제 전파(ADR-0027)를 만들어 놓고도
+ * 그 op가 큐에 앉아만 있었다 — 사용자가 2기기 테스트를 했다면 실패했을 것이다.
+ *
+ * 근본형은 늘 같다: **로컬만 바꾸고 서버에 알리지 않음.** `check-domain-symmetry`가 서비스
+ * 계층에서 이걸 잡는데(모든 *LocalFirst는 큐 op를 만든다), **화면 계층엔 같은 방어가 없었다.**
+ * 큐에 op가 들어가도 아무도 push를 부르지 않으면 결과는 똑같다.
+ *
+ * 그래서 로컬 상태를 바꾸는 함수를 import하는 화면은 `requestSync`도 import해야 한다.
+ */
+const MUTATING_IMPORTS = /(LocalFirst|purgeTripPermanently|restoreTripFromTrash|importBackupAuto)/;
+
+export function screensRequestSync(files) {
+  const bad = [];
+  for (const [name, src] of files) {
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+    const imports = [...code.matchAll(/import\s*\{([^}]*)\}\s*from/g)].map((m) => m[1]).join(',');
+    if (!MUTATING_IMPORTS.test(imports)) continue;
+    // ⚠️ 본문에 이름이 보이는 것으로는 부족하다(이 게이트 자신의 결함, 주입시험에서 발견):
+    // import만 지워도 호출문이 남아 통과했다. **import 목록**에서 확인한다.
+    const hasImport = /(^|[,\s])requestSync(Soon)?([,\s]|$)/.test(imports);
+    const hasCall = /requestSync(Soon)?\s*\(/.test(code);
+    if (!hasImport || !hasCall) {
+      bad.push(`${name}: 로컬 상태를 바꾸면서 requestSync를 import·호출하지 않음 — 그 변경은 다른 기기에 영영 안 간다`);
+    }
+  }
+  return bad;
+}
+
+/** 동기화 실행 규칙은 autoSync 한 곳에만 — 화면이 runSync를 직접 부르면 중복·오류삼킴이 재발한다. */
+export function noDirectRunSync(files) {
+  const bad = [];
+  for (const [name, src] of files) {
+    if (/from '[^']*services\/sync'/.test(src) && /\brunSync\b/.test(src)) {
+      bad.push(`${name}: runSync를 직접 호출 — autoSync.requestSync를 쓸 것(단일 실행·상태 보고가 거기 있다)`);
+    }
+  }
+  return bad;
+}
+
 // ── 셀프테스트: 알려진 실패가 RED로 잡히는지(게이트 비공허, CLAUDE.md §4) ──
 {
   const cases = [
@@ -415,6 +457,25 @@ export function semanticTintContrast(css) {
       clean: true,
     },
     { name: '틴트 없이 원색 텍스트만 쓰는 것은 무관', fn: () => semanticTintContrast(`.a { color: var(--sem-sky); }`), clean: true },
+    {
+      name: '변경 화면이 동기화를 요청하면 정상',
+      fn: () => screensRequestSync([['a.ts', `import { purgeTripPermanently } from 'x';\nimport { requestSync } from 'y';\nrequestSync('z');`]]),
+      clean: true,
+    },
+    {
+      name: '동기화 누락 검출(실제 결함 — dataManager)',
+      fn: () => screensRequestSync([['a.ts', `import { purgeTripPermanently, restoreTripFromTrash } from 'x';\npurgeTripPermanently(id);`]]),
+      clean: false,
+    },
+    {
+      // 이 게이트 자신의 결함: 본문 등장만 보면 import를 지워도 통과했다.
+      name: 'import 없이 호출문만 남은 경우도 검출',
+      fn: () => screensRequestSync([['a.ts', `import { purgeTripPermanently } from 'x';\nrequestSync('z');`]]),
+      clean: false,
+    },
+    { name: '변경하지 않는 화면은 무관', fn: () => screensRequestSync([['a.ts', `import { listTrips } from 'x';`]]), clean: true },
+    { name: 'runSync 직접 호출 검출', fn: () => noDirectRunSync([['a.ts', `import { runSync } from '../../services/sync';\nrunSync(c,u);`]]), clean: false },
+    { name: 'autoSync 경유는 정상', fn: () => noDirectRunSync([['a.ts', `import { requestSync } from '../../services/autoSync';`]]), clean: true },
   ];
   const broken = cases.filter((c) => (c.fn().length === 0) !== c.clean);
   if (broken.length) {
@@ -440,6 +501,16 @@ for (const p of pullsApplyRemotePurge(read('src/services/sync.ts'), read('src/se
 }
 for (const rel of ['src/domain/trip/rowmap.ts', 'src/domain/moment/rowmap.ts', 'src/domain/media/rowmap.ts', 'src/domain/expense/rowmap.ts']) {
   for (const p of toRowNeverSendsPurgedAt(read(rel))) problems.push(`${rel}: ${p}`);
+}
+
+// 동기화 배선은 **모든 화면 파일**에 건다(손으로 고르지 않는다 — 그게 M-0012의 원인이었다).
+{
+  const screenFiles = walk(join(ROOT, 'src/ui')).map((abs) => [relative(ROOT, abs), readFileSync(abs, 'utf8')]);
+  for (const p of screensRequestSync(screenFiles)) problems.push(p);
+  // autoSync 자신과 진단 도구의 [지금 동기화]는 예외 — 전자는 규칙의 정의처이고,
+  // 후자는 사용자가 **직접 누르는** 수동 경로라 자동 배선 대상이 아니다.
+  const direct = screenFiles.filter(([n]) => !n.endsWith('panels/diagnostics.ts'));
+  for (const p of noDirectRunSync(direct)) problems.push(p);
 }
 
 // guide-card 계약은 그것을 만드는 **모든** 화면에 건다(수평전개 — 한 곳만 고치고 끝내지 않는다).
@@ -470,4 +541,4 @@ if (problems.length) {
   console.error('check-verdict-symmetry: 진단 판정 계약 위반 — 도구 간 대칭이 깨졌다.');
   process.exit(1);
 }
-console.log(`check-verdict-symmetry: OK (셀프테스트 31건 통과 · 강조 렌더러 온전 · src ${scanned}개 파일 우회 0 · guide-card 화면 ${cardFiles}곳 계약 준수 · 지표 기대값·도구 필드 정상)`);
+console.log(`check-verdict-symmetry: OK (셀프테스트 37건 통과 · 강조 렌더러 온전 · src ${scanned}개 파일 우회 0 · guide-card 화면 ${cardFiles}곳 계약 준수 · 지표 기대값·도구 필드 정상)`);
