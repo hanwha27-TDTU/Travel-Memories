@@ -14,6 +14,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { auditMediaFiles, unionListings } from '../../src/services/storeState';
+import { storeHeadline } from '../../src/ui/panels/diagnostics';
 import { parseListXml, mediaIdOfKey, xmlUnescape, presign, LIST_MAX_PAGES } from '../../supabase/functions/media-sign/index';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
@@ -188,5 +189,36 @@ describe('⑤ 저장소가 둘이다 — 합집합 규칙 (2026-07-26 실측에�
 
   it('형식 밖 키 개수는 더해진다', () => {
     expect(unionListings([{ ids: [], foreign: 2 }, { ids: [], foreign: 3 }]).foreign).toBe(5);
+  });
+});
+
+describe('⑥ 판정 문장이 **엉뚱한 곳을 가리키지 않는다** (2026-07-26 사용자 실기기)', () => {
+  // 실제로 이렇게 나왔다: 개수 대조는 전부 정상인데 문장이 `클라우드와 다른 항목이 1가지 있어요`.
+  // 진짜 문제는 사진 파일이었다. §8의 "판정한다"는 **맞는 것을 판정한다**는 뜻이다 —
+  // 엉뚱한 것을 가리키면 관측보다 나쁘다(사용자를 틀린 곳으로 보낸다).
+  it('사진 파일만 문제면 사진 파일이라고 말한다', () => {
+    const h = storeHeadline('problem', 0, 1);
+    expect(h).toContain('사진 파일');
+    expect(h).not.toContain('클라우드와 다른'); // ← 오늘 실제로 나온 틀린 문장
+  });
+
+  it('개수만 다르면 클라우드 대조라고 말한다', () => {
+    const h = storeHeadline('todo', 2, 0);
+    expect(h).toContain('클라우드와 다른 항목이 2가지');
+    expect(h).not.toContain('사진 파일');
+  });
+
+  it('둘 다면 둘 다 말한다 — 하나로 뭉뚱그리지 않는다', () => {
+    const h = storeHeadline('problem', 1, 2);
+    expect(h).toContain('1가지');
+    expect(h).toContain('2가지');
+  });
+
+  it('정상이면 정상이라고 말한다', () => {
+    expect(storeHeadline('ok', 0, 0)).toBe('이 기기는 클라우드와 같습니다');
+  });
+
+  it('정상도 아닌데 어느 무리도 안 잡히면 **확인 불가**라고 말한다(정상으로 반올림 금지)', () => {
+    expect(storeHeadline('unknown', 0, 0)).toContain('대조하지 못했');
   });
 });
