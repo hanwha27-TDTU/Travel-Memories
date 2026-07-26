@@ -15,6 +15,7 @@
 import { describe, it, expect } from 'vitest';
 import { auditMediaFiles, unionListings } from '../../src/services/storeState';
 import { storeHeadline } from '../../src/ui/panels/diagnostics';
+import type { Level } from '../../src/ui/panels/verdict';
 import { parseListXml, mediaIdOfKey, xmlUnescape, presign, LIST_MAX_PAGES } from '../../supabase/functions/media-sign/index';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
@@ -196,29 +197,62 @@ describe('⑥ 판정 문장이 **엉뚱한 곳을 가리키지 않는다** (2026
   // 실제로 이렇게 나왔다: 개수 대조는 전부 정상인데 문장이 `클라우드와 다른 항목이 1가지 있어요`.
   // 진짜 문제는 사진 파일이었다. §8의 "판정한다"는 **맞는 것을 판정한다**는 뜻이다 —
   // 엉뚱한 것을 가리키면 관측보다 나쁘다(사용자를 틀린 곳으로 보낸다).
+  const base = { level: 'ok' as Level, countBad: 0, fileBad: 0, stranded: 0, alive: 3, trashed: 0 };
+
   it('사진 파일만 문제면 사진 파일이라고 말한다', () => {
-    const h = storeHeadline('problem', 0, 1);
+    const h = storeHeadline({ ...base, level: 'problem', fileBad: 1 });
     expect(h).toContain('사진 파일');
-    expect(h).not.toContain('클라우드와 다른'); // ← 오늘 실제로 나온 틀린 문장
+    expect(h).not.toContain('클라우드와 다른'); // ← 그때 실제로 나온 틀린 문장
   });
 
   it('개수만 다르면 클라우드 대조라고 말한다', () => {
-    const h = storeHeadline('todo', 2, 0);
+    const h = storeHeadline({ ...base, level: 'todo', countBad: 2 });
     expect(h).toContain('클라우드와 다른 항목이 2가지');
     expect(h).not.toContain('사진 파일');
   });
 
   it('둘 다면 둘 다 말한다 — 하나로 뭉뚱그리지 않는다', () => {
-    const h = storeHeadline('problem', 1, 2);
+    const h = storeHeadline({ ...base, level: 'problem', countBad: 1, fileBad: 2 });
     expect(h).toContain('1가지');
     expect(h).toContain('2가지');
   });
 
-  it('정상이면 정상이라고 말한다', () => {
-    expect(storeHeadline('ok', 0, 0)).toBe('이 기기는 클라우드와 같습니다');
+  it('정상도 아닌데 어느 무리도 안 잡히면 **확인 불가**라고 말한다(정상으로 반올림 금지)', () => {
+    expect(storeHeadline({ ...base, level: 'unknown' })).toContain('대조하지 못했');
+  });
+});
+
+describe('⑦ 정상일 때 **무엇이 같은지** 말한다 (2026-07-26 사용자 지적)', () => {
+  // 사용자: *"클라우드와 동일한 게 아니잖아요? 이미 휴지통으로 자료가 이동했는데."*
+  // 옛 문장은 「이 기기는 클라우드와 같습니다」였다. 대조는 맞았지만 **비교한 것이 활성 개수뿐**
+  // 이라는 사실을 말하지 않았다. 특히 활성이 양쪽 0일 때가 최악이다 — 0 == 0을 초록 정상으로
+  // 칠하면, 자료를 전부 휴지통으로 옮긴 사용자는 자기 자료가 어디 있는지 모른 채 화면을 떠난다.
+  const ok = { level: 'ok' as Level, countBad: 0, fileBad: 0, stranded: 0 };
+
+  it('살아 있는 기록이 있으면 **그 개수와 함께** 같다고 말한다', () => {
+    const h = storeHeadline({ ...ok, alive: 12, trashed: 0 });
+    expect(h).toContain('12건');
+    expect(h).toContain('클라우드와 같');
   });
 
-  it('정상도 아닌데 어느 무리도 안 잡히면 **확인 불가**라고 말한다(정상으로 반올림 금지)', () => {
-    expect(storeHeadline('unknown', 0, 0)).toContain('대조하지 못했');
+  it('활성 0 + 휴지통 있음 → **자료가 어디 있는지** 말한다(그냥 "같습니다"라고 하지 않는다)', () => {
+    const h = storeHeadline({ ...ok, alive: 0, trashed: 13 });
+    expect(h).toContain('휴지통');
+    expect(h).toContain('13건');
+    expect(h).not.toBe('이 기기는 클라우드와 같습니다'); // ← 사용자가 지적한 그 문장
+  });
+
+  it('활성 0 + 휴지통 0 → 빈 앱이라고 말한다(같다고 자랑하지 않는다)', () => {
+    expect(storeHeadline({ ...ok, alive: 0, trashed: 0 })).toBe('아직 기록이 없어요');
+  });
+
+  it('휴지통이 있어도 살아 있는 기록이 있으면 그쪽을 먼저 말한다', () => {
+    const h = storeHeadline({ ...ok, alive: 5, trashed: 13 });
+    expect(h).toContain('5건');
+  });
+
+  it('정상이 아니면 활성/휴지통 문구가 끼어들지 않는다', () => {
+    const h = storeHeadline({ ...ok, level: 'todo', countBad: 1, alive: 0, trashed: 13 });
+    expect(h).not.toContain('휴지통');
   });
 });

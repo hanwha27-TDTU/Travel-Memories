@@ -48,6 +48,17 @@ export interface StoreComparison {
    * 사용자가 Supabase를 직접 열어 보고 판단할 수밖에 없었다. **앱이 스스로 설명하게 한다.**
    */
   remnants: { tombstoned: number; purged: number };
+  /**
+   * **휴지통 대조** — 클라우드 / 이 기기.
+   *
+   * 활성만 대조하던 시절에는 자료가 전부 휴지통에 있으면 양쪽 0이 되어 화면이 「같습니다」라고
+   * 말했다(2026-07-26 사용자 지적). 지운 것도 자료이므로 대조 대상이다.
+   *
+   * ⚠️ `local < cloud`는 **정상일 수 있다.** 비파괴 pull 규율(불변식 #8) 때문에 다른 기기에서
+   * 지운 항목의 tombstone은 이 기기에 사본이 없으면 만들지 않는다. 그래서 판정은 `local > cloud`
+   * (= 아직 안 올린 것이 있다)일 때만 '할 일'이다.
+   */
+  trashed: { cloud: number; local: number };
   /** 서버 사진 기록↔파일 대조. **조회할 수 없으면 null** — 정상이 아니라 '확인 불가'다. */
   fileAudit: MediaFileAudit | null;
   /** 대조를 못 한 이유(사람이 읽는 한 줄). 대조에 성공했으면 null. */
@@ -269,6 +280,25 @@ export async function localActiveCounts(): Promise<Record<PurgeDomain, number>> 
 }
 
 /**
+ * 로컬 **휴지통(tombstone)** 개수.
+ *
+ * 왜 필요한가(2026-07-26 사용자 지적): 지금까지 대조는 **활성만** 했다. 그래서 자료가 전부
+ * 휴지통으로 옮겨가면 활성이 양쪽 0이 되어 화면이 「같습니다」라고 말했다 — 정작 13건이
+ * 어디 있는지는 어느 지표도 말하지 않았다. **지운 것도 자료다.** 대조 대상이어야 한다.
+ */
+export async function localTombstoneCount(): Promise<number> {
+  const d = db();
+  const [trips, moments, media, expenses] = await Promise.all([
+    d.localTrips.toArray(),
+    d.localMoments.toArray(),
+    d.localMedia.toArray(),
+    d.localExpenses.toArray(),
+  ]);
+  const dead = (rows: { deletedAt: string | null }[]): number => rows.filter((r) => r.deletedAt !== null).length;
+  return dead(trips) + dead(moments) + dead(media) + dead(expenses);
+}
+
+/**
  * 파일 목록 포트 — R2 어댑터를 그대로 받지 않고 **필요한 모양만** 받는다.
  * storeState가 R2를 import하면 저장소 종류를 아는 게 되고, 그러면 Supabase Storage로
  * 되돌릴 때 이 파일도 고쳐야 한다(되돌리기가 환경변수 하나여야 한다는 계약이 깨진다).
@@ -278,13 +308,14 @@ export interface FilesPort {
 }
 
 export async function compareStore(port: StoreStatePort, files?: FilesPort): Promise<StoreComparison> {
-  const [cloud, local, stamps, remnants, serverTombstones, purged] = await Promise.all([
+  const [cloud, local, stamps, remnants, serverTombstones, purged, localTrash] = await Promise.all([
     port.activeCounts(),
     localActiveCounts(),
     port.deviceStamps(),
     port.remnantCounts(),
     port.tombstonedIds(),
     purgedIdSet(),
+    localTombstoneCount(),
   ]);
   // 내가 지웠다고 믿는데(로컬 표식) 서버엔 tombstone으로 남은 것 = 전파가 안 된 영구삭제.
   const unpropagatedPurges = serverTombstones.filter((id) => purged.has(id));
@@ -306,7 +337,17 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
       fileAuditNote = (e as Error).message;
     }
   }
-  return { counts, devices, lastCloudWriteAt, remnants, fileAudit, fileAuditNote, unpropagatedPurges, serverTombstoned: serverTombstones };
+  return {
+    counts,
+    devices,
+    lastCloudWriteAt,
+    remnants,
+    trashed: { cloud: remnants.tombstoned, local: localTrash },
+    fileAudit,
+    fileAuditNote,
+    unpropagatedPurges,
+    serverTombstoned: serverTombstones,
+  };
 }
 
 /** 사람이 읽는 도메인 이름 — 화면이 손으로 다시 적지 않게 여기 한 곳. */
