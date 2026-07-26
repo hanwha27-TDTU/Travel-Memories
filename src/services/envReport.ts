@@ -70,7 +70,7 @@ export async function collectEnv(appVersion: string): Promise<EnvReport> {
     app: {
       version: appVersion,
       base: import.meta.env.BASE_URL,
-      mediaStore: ((import.meta.env.VITE_MEDIA_STORE as string | undefined) ?? '(미설정 → Supabase Storage)').trim(),
+      mediaStore: 'Cloudflare R2',
     },
     device: {
       ua: navigator.userAgent.slice(0, 180),

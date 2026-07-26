@@ -11,8 +11,9 @@
 //    **객체 키는 서버가 검증된 JWT의 sub로 만든다** — 여기서 보내는 경로는 힌트가 아니라
 //    mediaId 하나뿐이다. 남의 폴더를 가리킬 방법이 구조적으로 없다.
 //
-// 되돌리기: `VITE_MEDIA_STORE`를 지우면(기본값) 즉시 Supabase Storage 경로로 복귀한다.
-//    옛 객체를 스윕하기 전까지 두 경로 모두 살아 있으므로 되돌리기가 무손실이다.
+// 2026-07-26: **R2가 유일한 바이트 저장소가 됐다.** 옛 Supabase Storage 경로는 이관을 마치고
+//    제거했다(v0.86) — 바이트가 R2에만 남는 순간 `VITE_MEDIA_STORE` 되돌리기는 **이미 죽은**
+//    탈출구였고, 살아 있지도 않은 탈출구를 코드에 남겨두면 다음 사람을 속인다.
 
 import type { JourneyClient } from './supabase/client';
 
@@ -24,12 +25,6 @@ export interface BlobStore {
   uploadDisplay(path: string, blob: Blob): Promise<{ error?: string | undefined; status?: number | undefined }>;
   download(path: string): Promise<{ data: Blob | null; error?: string | undefined; status?: number | undefined }>;
   remove(path: string): Promise<{ error?: string | undefined }>;
-}
-
-/** 'r2' | 'supabase'. 설정이 없으면 supabase(현행 유지) — 새 경로는 명시적으로만 켜진다. */
-export function mediaStoreKind(): 'r2' | 'supabase' {
-  const v = (import.meta.env.VITE_MEDIA_STORE as string | undefined)?.trim().toLowerCase();
-  return v === 'r2' ? 'r2' : 'supabase';
 }
 
 /**
