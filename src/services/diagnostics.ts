@@ -8,7 +8,6 @@
 // 이 모듈은 **읽기 전용 집계**다(수리는 sync.ts의 재큐잉이 담당). 어떤 데이터도 바꾸지 않는다.
 
 import { db } from '../offline/db';
-import { mediaStoreKind } from './r2';
 
 export interface SyncDiagnosis {
   /** 대기열 — 상태별/종류별. `local_only`만 세면 **실패가 조용히 숨는다**(옛 pendingSyncCount의 함정). */
@@ -103,7 +102,7 @@ export async function diagnoseSync(): Promise<SyncDiagnosis> {
     items,
     itemsOmitted: overflow,
     purgedMarks: purged,
-    mediaStore: mediaStoreKind(),
+    mediaStore: 'r2' as const,
   };
 }
 

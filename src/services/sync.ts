@@ -11,7 +11,7 @@ import { toMediaRow, fromMediaRow, mediaStoragePath, type MediaRow } from '../do
 import { compressForStorage } from '../media/compress';
 import { mergeDecision, isEmptyCloudAnomaly, classifyError } from '../sync/merge';
 import type { JourneyClient } from './supabase/client';
-import { r2BlobStore, mediaStoreKind, mediaIdFromPath, type BlobStore } from './r2';
+import { r2BlobStore } from './r2';
 import { deviceStamp } from '../app/deviceId';
 import {
   applyPurgedLedger,
@@ -148,78 +148,10 @@ export interface MediaRemote {
   remove(path: string): Promise<{ error?: string | undefined }>;
 }
 
-/** 사진 바이트가 사는 Supabase 버킷 이름 — 문자열을 두 곳에 손으로 적지 않는다. */
-export const MEDIA_BUCKET = 'journey-media';
-
-/**
- * **Supabase Storage에 실제로 있는 사진 id들**(진단의 파일 대조용).
- *
- * 왜 R2만 보면 안 되는가(2026-07-26 발견): 저장소는 지금 **혼재 상태**다. R2 전환(07-25)
- * 이전에 올린 사진의 바이트는 **여전히 Supabase Storage에 있고**, 그 사실은
- * `docs/HANDOFF.md` Phase 9c에 이미 적혀 있었다("옛 Supabase 객체 스윕은 4번 통과 전까지
- * 하지 않는다 — 혼재 상태"). R2만 훑고 "파일이 없다"고 판정하면 **멀쩡한 사진 여러 장을
- * 문제로 단정하는 거짓 경보**가 된다 — M-0008에서 이미 한 번 저지른 실수다.
- */
-export async function supabaseMediaIds(
-  client: JourneyClient,
-  userId: string,
-): Promise<{ ids: string[]; error?: string | undefined }> {
-  try {
-    const r = await client.storage.from(MEDIA_BUCKET).list(userId, { limit: 1000 });
-    if (r.error) return { ids: [], error: r.error.message };
-    const ids: string[] = [];
-    for (const f of r.data ?? []) {
-      const id = mediaIdFromPath(f.name);
-      if (id) ids.push(id);
-    }
-    return { ids };
-  } catch (e) {
-    return { ids: [], error: (e as Error).message };
-  }
-}
-
-/**
- * **옛 저장소(Supabase Storage) 전용** 바이트 어댑터.
- *
- * `mediaRemote`는 `VITE_MEDIA_STORE`에 따라 R2로 갈아끼워지므로, R2가 켜진 상태에서
- * *옛 저장소를* 읽을 방법이 없다. 이관(`mediaMigrate`)은 두 저장소를 **동시에** 만져야 하니
- * 여기 하나를 따로 둔다. 환경변수를 보지 않는 것이 이 함수의 요점이다.
- */
-export function supabaseBlobStore(client: JourneyClient): BlobStore {
-  const bucket = client.storage.from(MEDIA_BUCKET);
-  return {
-    async uploadDisplay(path, blob) {
-      try {
-        const r = await bucket.upload(path, blob, { upsert: true, contentType: 'image/webp' });
-        return { error: r.error?.message };
-      } catch (e) {
-        return { error: (e as Error).message };
-      }
-    },
-    async download(path) {
-      try {
-        const r = await bucket.download(path);
-        return { data: r.data ?? null, error: r.error?.message };
-      } catch (e) {
-        return { data: null, error: (e as Error).message };
-      }
-    },
-    async remove(path) {
-      try {
-        const r = await bucket.remove([path]);
-        return { error: r.error?.message };
-      } catch (e) {
-        return { error: (e as Error).message };
-      }
-    },
-  };
-}
-
 export function mediaRemote(client: JourneyClient): MediaRemote {
-  const bucket = client.storage.from(MEDIA_BUCKET);
-  // 바이트 3종만 어댑터 교체 가능(ADR-0024). 메타·RLS·병합 규율은 어느 쪽이든 동일하다.
-  // 기본값은 Supabase Storage — R2는 VITE_MEDIA_STORE=r2로 **명시적으로만** 켜진다.
-  const blobs: BlobStore | null = mediaStoreKind() === 'r2' ? r2BlobStore(client) : null;
+  // 바이트 3종은 **R2 하나뿐**이다(v0.86). 메타·RLS·병합 규율은 저장소와 무관하게 동일하다.
+  // 옛 Supabase Storage 경로는 이관을 마치고 제거했다 — 사진 8장을 옮기고 되읽어 확인한 뒤였다.
+  const blobs = r2BlobStore(client);
   return {
     async upsert(row) {
       try {
@@ -245,33 +177,9 @@ export function mediaRemote(client: JourneyClient): MediaRemote {
         return { data: [], error: (e as Error).message };
       }
     },
-    async uploadDisplay(path, blob) {
-      if (blobs) return blobs.uploadDisplay(path, blob);
-      try {
-        const r = await bucket.upload(path, blob, { upsert: true, contentType: 'image/webp' });
-        return { error: r.error?.message };
-      } catch (e) {
-        return { error: (e as Error).message };
-      }
-    },
-    async download(path) {
-      if (blobs) return blobs.download(path);
-      try {
-        const r = await bucket.download(path);
-        return { data: r.data ?? null, error: r.error?.message };
-      } catch (e) {
-        return { data: null, error: (e as Error).message };
-      }
-    },
-    async remove(path) {
-      if (blobs) return blobs.remove(path);
-      try {
-        const r = await bucket.remove([path]);
-        return { error: r.error?.message };
-      } catch (e) {
-        return { error: (e as Error).message };
-      }
-    },
+    uploadDisplay: (path, blob) => blobs.uploadDisplay(path, blob),
+    download: (path) => blobs.download(path),
+    remove: (path) => blobs.remove(path),
   };
 }
 
