@@ -30,6 +30,8 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 7. **파일명은 자유, 복원은 메타 경로로**: ZIP 안 사진 파일명(`날짜_시간_제목_용도__id8`)은 사람이 읽기 위한 것이고, 복원은 `trip.json`의 `displayFile`/`thumbFile`/`originalFile` 경로로 되읽는다. **파일명을 바꿔도 복원이 깨지지 않아야 한다**(이 성질을 유닛으로 잠가 뒀다).
 8. **복원의 의사는 서버에도 닿아야 한다**: 복원은 로컬만의 일이 아니다. 서버가 그 id를 **거부하도록 설계된 장치**(영구삭제 원장 + BEFORE INSERT 트리거)가 있으면, 복원은 그 장치에도 *"이건 사용자가 되살린 것"*이라고 말해야 한다. 안 말하면 push가 조용히 거부되고 다음 pull이 로컬 사본까지 지운다 — **오류 하나 없이 기억이 사라진다**(M-0032, v1.03에서 수정).
    - 구현: 복원이 `requestUnpurge(ids)`로 **큐에 의사를 남기고**(오프라인·실패에도 살아남는다), `pushUnpurges`가 `runSync` **맨 앞에서** 보낸 뒤 **원장을 되읽어** 확인한다. 성공 응답은 완료가 아니다.
+   - 🔴 **그 의사는 행과 같은 커밋이어야 한다**(M-0033 — v1.03이 여기서 반쪽이 났다). 트랜잭션 밖에 두면 `커밋(행 있음·의사 없음)` 창이 생기고, **파일 선택 창을 닫는 순간 `visibilitychange`가 동기화를 부르므로** 그 창은 실제로 밟힌다. 지금은 `d.transaction(...)` 콜백의 **반환값**으로 받아 밖으로 옮기면 반환 경로가 끊기게 해 뒀다 — 그 구조를 풀지 마라.
+   - 🔴 **거부로 죽은 op은 사유가 사라질 때 되살려야 한다**: 트리거 거부는 4xx → `permanent_failed` → push가 **영원히 건너뛴다.** `pushUnpurges`가 성공한 id의 op을 `local_only`로 되돌린다(`revivePushOps`).
    - ⚠ 자문: **"이 복원을 서버가 거부할 이유가 있는가? 있다면 어느 문으로 들어가나?"**
 9. **암호 키는 저장하지 않는다**: 사용자만 보유하며 분실 시 복원 불가임을 UI에 명시. 암호 없이 내보낼 때는 평문 PII 경고를 한 번 확인받는다.
 
@@ -51,6 +53,7 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 | 0.38 | 기본 평문 내보내기로 사진·GPS·메모가 그대로 노출 | 안전한 기본값 부재 | 선택적 AES-GCM 봉투 + 암호 없을 때 명시 확인 |
 | 0.53 | (게이트가 잡음) `localFxRates` 추가 시 커버리지 RED | 새 테이블의 성격(기억 vs 파생) 미분류 | EXCLUDE에 근거 주석 + "기억이 사라지나?" 자문 문구를 게이트에 박음 |
 | 1.03 | **복원이 서버 영구삭제 원장에 막혀 조용히 무효화**(M-0032). 앱엔 아무것도 없고 서버엔 원장 24건·R2에 고아 파일 10개만 남았다 | **규칙을 한쪽(로컬)에만 구현**(§7 비대칭). 차단 장치를 만들며 **정당한 예외의 문**을 안 만들었다 | migration `0017` 좁은 문(`journey.unpurge_ids` — 자기 행만·명시한 id만, **테이블 DELETE는 여전히 안 준다**) + `unpurge` 큐 op + 되읽기 확인 + `applyPurgedLedger` 가드 + **런타임 지표**「복원했는데 서버가 막은 항목」 |
+| 1.04 | **v1.03의 수정이 반쪽이었다**(M-0033). 「복원됨 · 13건 되살립니다」를 띄우고도 홈은 비어 있었다. 원장은 24→11로 줄었으니 되돌리기는 성공했고, **행은 그 전에 이미 지워져** 있었다 | 의사를 행과 **다른 커밋**에 넣어 창을 만들었다. 헌법이 이미 "entity+operation **atomic** commit"이라 못박은 그 규율을, **새로 만든 op에만** 적용하지 않았다(§7 비대칭) | `requestUnpurge`를 트랜잭션 콜백의 **반환값**으로(밖으로 옮기면 반환 경로가 끊긴다) + `revivePushOps` + `tests/unit/restoreAtomicity.test.ts`(*"의사를 못 남기면 행도 남지 않는다"* — 옛 배치 주입 시 2건 RED) |
 | 1.03 | 복원 중인 사진의 R2 파일 10개를 「치워도 되는 잔재」로 분류하고 **정리 버튼까지 내어 줬다** | 성격이 정반대인 것을 한 숫자에 섞음(근본형 C) — **기억 손실 직전까지** 갔다 | `classifyOrphanFiles(orphans, ledger, restorePending)`이 `restoring`을 따로 가른다. 분류 판단을 화면 코드의 `filter` 한 줄로 흩지 않는다 |
 
 ## 4. 검증 레시피 (정직한 완료)
@@ -60,8 +63,9 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 2. `tests/unit/backupRoundtrip`: JSON·ZIP 모두 export→import 파리티(전 행·**사진 바이트**·tombstone·고아·좌표·원본 폴백). 비공허: 행을 하나 빼면 실패해야 함
 3. `tests/unit/restoreDrill`: `fake-indexeddb`로 실 Dexie 왕복(빈가드·LWW·tombstone 우위 포함)
 4. `tests/unit/restoreUnpurge`: 복원이 **서버 원장 되돌리기 의사를 남기는지**(멱등·빈 목록), 그 의사가 있는 동안 `applyPurgedLedger`가 그 id를 **안 건드리는지**, 되돌리기가 실패하면 **큐에 남는지**(재시도 가능해야 한다), **되읽기로** 확인하는지
-5. `tests/unit/zip`: CRC 벡터(`0xCBF43926`)·왕복·한글 폴더·오프셋·손상 감지
-6. `tests/unit/backupNaming`: 파일명 형식·FS 금지문자·충돌 방지
+5. `tests/unit/restoreAtomicity`: **행과 되돌리기 의사가 같은 커밋인가.** 의사 쓰기를 실패시켰을 때 **행도 남지 않아야** 한다 — 반쪽 복원이 「성공」으로 보이면 안 된다
+6. `tests/unit/zip`: CRC 벡터(`0xCBF43926`)·왕복·한글 폴더·오프셋·손상 감지
+7. `tests/unit/backupNaming`: 파일명 형식·FS 금지문자·충돌 방지
 
 외부 도구 상호운용(권장):
 - 생성된 ZIP에 **표준 `unzip -l` / `unzip -t`** 를 돌려 `No errors detected` 확인 — 우리 구현만의 착각이 아님을 증명하고, 사용자가 탐색기에서 여행별 폴더로 사진을 바로 열 수 있음을 보증.

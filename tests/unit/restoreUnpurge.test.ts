@@ -158,3 +158,46 @@ describe('③ 성공하면 큐에서 사라지고 실패하면 남는다', () =>
     expect(r).toEqual({ pushed: 0, failed: 0 });
   });
 });
+
+describe('④ 원장에 막혀 죽은 전파 작업을 되살린다', () => {
+  // 트리거 거부는 4xx라 classifyError가 'permanent'로 본다 → op이 permanent_failed가 되고
+  // push는 그 상태를 **영원히 건너뛴다.** 원장을 풀어도 그 행은 두 번 다시 안 올라간다.
+  // 그 판정은 그 순간엔 옳았고, 틀린 것은 **영구로 굳힌 것**이다 — 사유가 방금 사라졌다.
+  const deadOp = async (id: string, state: 'permanent_failed' | 'retryable_failed' | 'local_only') => {
+    await db().syncQueue.add({
+      operationId: `op-${id}-${state}`, entityType: 'trip', entityId: id,
+      operationType: 'update', state, attempts: 3, createdAt: '2026-07-26T00:00:00.000Z',
+    } as never);
+  };
+
+  it('되돌리기가 성공한 id의 막힌 작업을 **다시 보낼 수 있게** 만든다', async () => {
+    await deadOp(A, 'permanent_failed');
+    await requestUnpurge([A]);
+
+    await pushUnpurges(remote({ after: [] }));
+
+    const op = (await db().syncQueue.toArray()).find((q) => q.operationType === 'update');
+    expect(op?.state).toBe('local_only');
+    expect(op?.attempts).toBe(0);
+  });
+
+  it('되돌리기가 **실패하면** 막힌 작업을 건드리지 않는다(사유가 아직 살아 있다)', async () => {
+    await deadOp(A, 'permanent_failed');
+    await requestUnpurge([A]);
+
+    await pushUnpurges(remote({ after: [A] })); // 원장에 아직 남아 있다
+
+    const op = (await db().syncQueue.toArray()).find((q) => q.operationType === 'update');
+    expect(op?.state).toBe('permanent_failed');
+  });
+
+  it('남의 id의 막힌 작업까지 되살리지 않는다', async () => {
+    await deadOp(B, 'permanent_failed');
+    await requestUnpurge([A]);
+
+    await pushUnpurges(remote({ after: [] }));
+
+    const op = (await db().syncQueue.toArray()).find((q) => q.entityId === B);
+    expect(op?.state).toBe('permanent_failed');
+  });
+});
