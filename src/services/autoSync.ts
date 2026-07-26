@@ -101,7 +101,20 @@ async function runOnce(reason: string): Promise<void> {
   setStatus({ phase: 'running', lastReason: reason });
   try {
     const r = await runSync(c, u.id);
-    setStatus({ phase: 'ok', lastOkAt: new Date().toISOString(), lastError: null, lastResult: r });
+    // **실패한 작업이 있으면 성공이 아니다.** `runSync`는 개별 작업 실패를 예외로 던지지 않고
+    // 개수로 돌려준다 — 그걸 안 보면 "3건이 안 갔는데 동기화 성공"이라고 말하게 된다.
+    // 실제로 그랬다(2026-07-26): 서버 DELETE 권한이 없어 영구삭제 3건이 막혔는데 화면은
+    // 성공처럼 읽혔다. 자동화의 가장 큰 위험이 "안 갔는데 갔다고 믿는 것"이라고 바로 위
+    // catch에 적어 놓고도, 예외가 아닌 실패는 세지 않고 있었다.
+    if (r.failed > 0) {
+      setStatus({
+        phase: 'failed',
+        lastError: `${r.failed}건이 서버에 반영되지 않았어요(나머지 ${r.pushed}건은 갔습니다)`,
+        lastResult: r,
+      });
+    } else {
+      setStatus({ phase: 'ok', lastOkAt: new Date().toISOString(), lastError: null, lastResult: r });
+    }
   } catch (e) {
     // **조용히 삼키지 않는다.** 자동 동기화의 가장 큰 위험이 "안 갔는데 갔다고 믿는 것"이다.
     setStatus({ phase: 'failed', lastError: e instanceof Error ? e.message : String(e) });
