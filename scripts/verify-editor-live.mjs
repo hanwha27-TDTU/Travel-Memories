@@ -676,6 +676,53 @@ const store = await page.evaluate(() => {
 check('저장 상태: 로그인 전엔 확인 불가로 정직하게(오류 아님)',
   Boolean(store) && store.badge === '확인 불가' && store.head.includes('로그인'), store ? JSON.stringify(store) : 'none');
 
+// ── v0.93: 「이 기기 이름 바꾸기」 ──────────────────────────────────────────
+// 왜 이 층인가(§10 ③ 전달 결함): 유닛은 정규화·구분자·되돌리기를 다 검사하지만
+// **입력칸이 실제로 화면에 그려지는지**는 못 본다. M-0022가 정확히 그 자리였다 —
+// 숫자는 다 맞았고 화면에 안 나갔다. 그래서 렌더된 DOM에 직접 묻는다.
+const rename = await page.evaluate(() => {
+  const input = document.querySelector('[data-rename-device-input]');
+  const btn = document.querySelector('[data-rename-device]');
+  return {
+    hasInput: input instanceof HTMLInputElement,
+    hasBtn: Boolean(btn),
+    placeholder: input?.getAttribute('placeholder') ?? '',
+    aria: input?.getAttribute('aria-label') ?? '',
+    // 값을 받는 행동이 primary를 뺏으면 안 된다(진단 §5.4 — 주행동은 하나).
+    primary: btn?.className.includes('vd-btn-primary') ?? false,
+  };
+});
+check('저장 상태: [이 기기 이름 바꾸기]에 입력칸이 실제로 그려진다',
+  rename.hasInput && rename.hasBtn, JSON.stringify(rename));
+check('저장 상태: 입력칸에 화면읽기 라벨이 있다(placeholder만으로는 안 된다)',
+  rename.aria.length > 0, `aria-label="${rename.aria}"`);
+check('저장 상태: 이름 바꾸기는 주행동이 아니다(§5.4)', rename.primary === false, `primary=${rename.primary}`);
+
+// 실제로 쳐 넣고 눌러서 **화면이 바뀌는지** 본다 — 저장했다는 말이 아니라 결과를 읽는다.
+await page.fill('[data-rename-device-input]', '갤럭시 탭');
+await page.click('[data-rename-device]');
+await page.waitForTimeout(700);
+const renamed = await page.evaluate(() => ({
+  msg: document.querySelector('.vd-msg')?.textContent ?? '',
+  ctx: document.querySelector('.vd-context')?.textContent ?? '',
+  kept: document.querySelector('[data-rename-device-input]')?.value ?? '',
+}));
+check('저장 상태: 이름을 바꾸면 맥락 줄의 「이 기기」가 바로 그 이름이 된다',
+  renamed.ctx.includes('갤럭시 탭'), JSON.stringify(renamed));
+check('저장 상태: 재판정 후에도 입력칸이 방금 지은 이름을 물고 있다',
+  renamed.kept === '갤럭시 탭', `값="${renamed.kept}"`);
+
+// 되돌릴 길이 있는가 — 비우고 누르면 자동 감지로 돌아가야 한다.
+await page.fill('[data-rename-device-input]', '');
+await page.click('[data-rename-device]');
+await page.waitForTimeout(700);
+const reverted = await page.evaluate(() => ({
+  ctx: document.querySelector('.vd-context')?.textContent ?? '',
+  msg: document.querySelector('.vd-msg')?.textContent ?? '',
+}));
+check('저장 상태: 이름을 비우면 자동 감지로 되돌아간다(되돌릴 길 없는 설정을 만들지 않는다)',
+  !reverted.ctx.includes('갤럭시 탭') && reverted.msg.includes('자동 감지'), JSON.stringify(reverted));
+
 // ── v0.70: 화면 어디에도 마크다운 별표가 보이지 않는가(M-0012) ──
 // 이 검사가 결함의 **최종 판정층**이다. 정적 게이트는 "우회 경로가 없다"까지만 보고,
 // 유닛은 파싱 규칙만 본다. "사용자 눈에 별표가 보이는가"는 실제 렌더만 답할 수 있다.

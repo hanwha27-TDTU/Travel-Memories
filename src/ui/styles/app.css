@@ -1455,6 +1455,15 @@
 .vd-btn:hover { border-color: var(--a1); }
 .vd-btn:disabled { opacity: .55; cursor: not-allowed; }
 .vd-btn-primary { background: var(--a1); border-color: var(--a1); color: var(--color-on-accent); }
+/* 값을 받는 행동의 입력칸. 버튼과 같은 높이·같은 모서리로 한 덩어리처럼 보이게 한다.
+   폭은 고정하지 않는다 — 좁은 화면에서 줄바꿈되어 버튼이 밀려나지 않아야 한다. */
+.vd-input {
+  min-height: var(--touch-target-min); padding: 0 var(--space-4);
+  flex: 1 1 11rem; min-width: 0; max-width: 20rem;
+  border: 1px solid var(--line); border-radius: var(--radius-pill);
+  background: var(--surface); color: var(--ink); font-size: 0.84rem;
+}
+.vd-input:focus-visible { outline: 2px solid var(--a1); outline-offset: 2px; }
 .vd-msg {
   margin: 0; padding: 9px 13px; border-radius: var(--radius-medium);
   background: color-mix(in srgb, var(--sem-sky) 10%, transparent); color: var(--ink);

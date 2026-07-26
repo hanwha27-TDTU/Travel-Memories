@@ -78,9 +78,24 @@ export interface Action {
   /** 판정을 바꾸는 행동은 화면당 **하나**만 primary. 나머지는 접힌 곳으로. */
   primary?: boolean;
   /** 실행 후 사용자에게 보일 한 줄. 끝나면 렌더러가 자동으로 다시 판정한다. */
-  run: () => Promise<string>;
+  run: (input: string) => Promise<string>;
   /** data-* 훅(라이브 검증·E2E가 셀렉터로 잡는다). */
   hook?: string;
+  /**
+   * 값을 받아야 하는 행동 — 렌더러가 버튼 **앞에** 입력칸 하나를 붙이고 그 값을 `run()`에 넘긴다.
+   *
+   * 왜 여기(렌더러)인가: 도구가 자기 입력 UI를 그리기 시작하면 도구마다 다른 모양이 생기고,
+   * 그게 이 저장소에서 세 번 반복된 결함군이다(§7). 입력을 쓰는 도구가 하나뿐일 때 만들어 둬야
+   * **다음 도구가 자동으로 따라온다.**
+   */
+  input?: {
+    /** 입력칸의 접근성 라벨(화면읽기). 화면에는 placeholder로 보인다. */
+    label: string;
+    placeholder?: string;
+    /** 열 때 채워 둘 값 — 매번 다시 계산한다(재판정 후 최신값을 물고 와야 하므로 함수다). */
+    initial?: () => string;
+    maxLength?: number;
+  };
 }
 
 /** 접힌 '출처' 층 — 목록·기술코드·원문 덤프는 전부 여기로 내려간다. */
@@ -233,14 +248,30 @@ export function renderTool(v: ToolView): HTMLElement {
         // 액션: primary 하나 + 나머지, 그리고 항상 [다시 확인]
         actionBar.replaceChildren();
         for (const a of r.actions) {
+          let field: HTMLInputElement | null = null;
+          if (a.input) {
+            field = el('input', 'vd-input') as HTMLInputElement;
+            field.type = 'text';
+            field.setAttribute('aria-label', a.input.label);
+            field.placeholder = a.input.placeholder ?? a.input.label;
+            if (a.input.maxLength) field.maxLength = a.input.maxLength;
+            field.value = a.input.initial?.() ?? '';
+            if (a.hook) field.setAttribute(`${a.hook}-input`, '');
+            actionBar.appendChild(field);
+          }
           const b = el('button', a.primary ? 'vd-btn vd-btn-primary' : 'vd-btn') as HTMLButtonElement;
           b.type = 'button';
           b.textContent = a.label;
           if (a.hook) b.setAttribute(a.hook, '');
+          // 입력칸에서 Enter를 치면 버튼을 누른 것과 같아야 한다 — 손가락으로 쓰는 기기에서
+          // 입력칸을 채우고 버튼을 다시 찾아 누르게 하면 그게 마찰이다.
+          field?.addEventListener('keydown', (e) => {
+            if ((e as KeyboardEvent).key === 'Enter') b.click();
+          });
           b.addEventListener('click', () => {
             b.disabled = true;
             void a
-              .run()
+              .run(field?.value ?? '')
               .then((t) => {
                 applyText(msg, t);
                 msg.hidden = false;
