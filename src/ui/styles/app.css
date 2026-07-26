@@ -714,6 +714,37 @@
 }
 .guide-def-k { font-size: 0.78rem; font-weight: 800; color: var(--ink); }
 .guide-def-v { font-size: 0.8rem; color: var(--ink-soft); line-height: 1.5; }
+/* ── 플랫폼 지도(무엇이 어디서 도나) ─────────────────────────────────────────
+   서비스별로 묶어, "Supabase가 이만큼을 한다"가 한눈에 들어오게 한다.
+   색은 시맨틱 토큰만 쓴다 — 계절 강조색(--a3)을 쓰면 테마에 따라 의미가 무너진다. */
+.guide-plat { display: flex; flex-direction: column; gap: var(--space-3); }
+.guide-plat-group {
+  border: 1px solid var(--line); border-radius: var(--radius-small); overflow: hidden; background: var(--bg);
+}
+.guide-plat-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2);
+  padding: 8px 12px; background: var(--bg-2); border-bottom: 1px solid var(--line);
+}
+.guide-plat-where { font-size: 0.82rem; font-weight: 800; color: var(--ink); letter-spacing: -0.01em; }
+.guide-plat-count { font-size: 0.72rem; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.guide-plat-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  padding: 9px 12px; border-top: 1px solid var(--line);
+}
+.guide-plat-row:first-of-type { border-top: 0; }
+.guide-plat-left { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.guide-plat-what { font-size: 0.82rem; font-weight: 700; color: var(--ink); }
+.guide-plat-detail { font-size: 0.72rem; color: var(--ink-soft); line-height: 1.45; }
+.guide-plat-part {
+  flex: 0 0 auto; font-size: 0.72rem; font-weight: 700; color: var(--ink-soft);
+  padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface);
+  white-space: nowrap;
+}
+/* 좁은 화면에선 위아래로 — 가로 넘침을 만들지 않는다(반응형 게이트 표면). */
+@media (max-width: 420px) {
+  .guide-plat-row { flex-direction: column; align-items: flex-start; gap: 6px; }
+}
+
 .guide-steps { display: flex; flex-direction: column; gap: var(--space-2); }
 .guide-step { display: flex; gap: var(--space-3); align-items: flex-start; }
 .guide-step-n {

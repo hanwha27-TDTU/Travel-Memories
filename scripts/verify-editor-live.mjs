@@ -751,6 +751,46 @@ const placeClear = await page.evaluate(() => {
 });
 check('장소: 지정 해제 버튼이 존재한다', placeClear.exists, JSON.stringify(placeClear));
 
+// ── v0.89: 플랫폼 지도(무엇이 어디서 도나) — **생성물이 실제로 그려지는가** ──────────
+// 정적 게이트는 platformMap.gen.ts가 코드와 맞는지만 본다. 그게 **화면에 실제로 나오는지**는
+// 렌더해야만 안다 — 생성은 됐는데 카드가 안 열리면 사용자에겐 없는 기능이다.
+await page.evaluate(() => {
+  document.querySelectorAll('.overlay-base').forEach((o) => o.remove());
+});
+await page.goto(`http://localhost:4173${BASE}`);
+await page.evaluate(() => document.querySelector('.data-open')?.click());
+await page.waitForTimeout(200);
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll('.guide-card')];
+  cards.find((c) => c.textContent?.includes('가이드'))?.click();
+});
+await page.waitForTimeout(300);
+await page.evaluate(() => {
+  const cards = [...document.querySelectorAll('.guide-card')];
+  cards.find((c) => c.textContent?.includes('무엇이 어디서 도나'))?.click();
+});
+await page.waitForTimeout(300);
+
+const plat = await page.evaluate(() => {
+  const rows = [...document.querySelectorAll('.guide-plat-row')];
+  const groups = [...document.querySelectorAll('.guide-plat-group')];
+  const body = document.querySelector('.guide-detail-body');
+  return {
+    rows: rows.length,
+    groups: groups.map((g) => g.querySelector('.guide-plat-where')?.textContent ?? ''),
+    parts: rows.map((r) => r.querySelector('.guide-plat-part')?.textContent ?? ''),
+    text: body?.textContent ?? '',
+    overflow: body ? body.scrollWidth - body.clientWidth : 0,
+  };
+});
+check('플랫폼 지도: 행이 그려진다', plat.rows >= 5, `rows=${plat.rows}`);
+check('플랫폼 지도: 서비스별로 묶인다', plat.groups.includes('Supabase') && plat.groups.includes('Cloudflare'), plat.groups.join('|'));
+// 오늘 옮긴 것이 화면에 반영됐는가 — 손으로 적었다면 여기서 옛말이 나왔을 자리다.
+check('플랫폼 지도: 사진 파일이 R2로 표시된다', plat.parts.includes('R2'), plat.parts.join('|'));
+check('플랫폼 지도: 옛 저장소(Storage)가 안 보인다', !plat.parts.includes('Storage'), plat.parts.join('|'));
+check('플랫폼 지도: 가로 넘침 0', plat.overflow <= 1, `overflow=${plat.overflow}`);
+check('플랫폼 지도: 화면에 마크다운 별표가 안 보인다', !plat.text.includes('**'), '');
+
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 
 await browser.close();
