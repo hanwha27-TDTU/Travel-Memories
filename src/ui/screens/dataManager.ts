@@ -239,7 +239,10 @@ function restorePanel(onChanged: () => void): HTMLElement {
         } else if (r.skippedEmptyGuard) {
           status.textContent = '⚠️ 백업이 비어 있어 건너뛰었어요(현재 데이터 보존).';
         } else {
-          status.textContent = `✅ 복원됨 · 여행 ${r.trips} · 순간 ${r.moments} · 사진 ${r.media} · 비용 ${r.expenses} 반영`;
+          // 영구삭제했던 것을 되살렸으면 **그렇게 말한다.** 2026-07-26에 이 문장이 없어서,
+          // 복원이 서버 원장에 막혀 통째로 무효화되는 동안 사용자는 「✅ 복원됨」만 봤다.
+          const back = r.unpurged ? ` · 영구삭제했던 ${r.unpurged}건을 되살립니다` : '';
+          status.textContent = `✅ 복원됨 · 여행 ${r.trips} · 순간 ${r.moments} · 사진 ${r.media} · 비용 ${r.expenses} 반영${back}`;
           onChanged();
           // 복원한 기억이 이 기기에만 갇히지 않게 곧바로 올린다(기기 분실 후 복구가 이 경로다).
           void requestSync('백업 복원');

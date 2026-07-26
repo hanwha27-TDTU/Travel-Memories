@@ -697,6 +697,17 @@ export interface PurgeRemote {
   /** 서버 원장 전체. 다른 기기의 영구삭제는 pull이 아니라 **여기서** 배운다(행이 없으므로). */
   ledgerAll(): Promise<{ ids: string[]; error?: string | undefined }>;
   /**
+   * **백업 복원 전용** — 원장에서 id를 뺀다(0017의 `journey.unpurge_ids`).
+   *
+   * 왜 필요한가(2026-07-26 사용자 실기기): 백업을 복원했는데 서버 원장이 그대로라
+   * BEFORE INSERT 트리거가 push를 거부했고, 이어서 원장 pull이 **로컬 행까지 지웠다.**
+   * 사용자에겐 아무 오류도 안 보였다 — 복원이 조용히 무효화됐다.
+   *
+   * 로컬 표식만 걷어내고 서버는 그대로 둔 **한쪽만 구현한 규칙**이 원인이다(§7 비대칭).
+   * 테이블 DELETE 권한은 여전히 없다 — 이 좁은 문으로만 지난다.
+   */
+  ledgerRemove(ids: string[]): Promise<{ removed: number; error?: string | undefined }>;
+  /**
    * 그 여행에 딸린 **서버의 자식 id 전부**(`trip_id = X`).
    *
    * 왜 서버에 묻는가(실제 결함 M-0016, 2026-07-26 사용자 신고에서 발견): `purgeTripPermanently`는
@@ -723,10 +734,12 @@ export interface PurgeRemote {
 /** 원장 테이블 이름 — 문자열을 여러 곳에 손으로 적지 않는다. */
 const LEDGER = 'purged_ids';
 
-export function purgeRemote(client: JourneyClient): PurgeRemote {
-  /** 자식 도메인만 훑는다(여행 자신은 호출부가 따로 처리). 등록부 기반이라 형제가 자동으로 따라온다. */
-  const childDomains = (): PurgeDomain[] => PURGE_DOMAINS.filter((d) => d !== 'trip');
-
+/**
+ * 원장(`purged_ids`) 접근만 모은 조각. `purgeRemote`가 120줄 상한(`check-fn-size`)에 걸려
+ * 쪼갰는데, 결과적으로 경계가 맞아떨어졌다 — **원장은 "무엇을 지웠나"의 기록**이고
+ * 나머지(familyIds·mediaPath·hardDelete)는 **"무엇을 지울까"의 조회·실행**이다. 다른 관심사다.
+ */
+function ledgerOps(client: JourneyClient): Pick<PurgeRemote, 'ledgerAdd' | 'ledgerHas' | 'ledgerAll' | 'ledgerRemove'> {
   return {
     async ledgerAdd(ids) {
       if (!ids.length) return {};
@@ -748,6 +761,16 @@ export function purgeRemote(client: JourneyClient): PurgeRemote {
         return { found: false, error: (e as Error).message };
       }
     },
+    async ledgerRemove(ids) {
+      if (!ids.length) return { removed: 0 };
+      try {
+        const r = await client.rpc('unpurge_ids', { p_ids: ids });
+        if (r.error) return { removed: 0, error: r.error.message };
+        return { removed: typeof r.data === 'number' ? r.data : 0 };
+      } catch (e) {
+        return { removed: 0, error: (e as Error).message };
+      }
+    },
     async ledgerAll() {
       try {
         const r = await client.from(LEDGER).select('id');
@@ -757,6 +780,15 @@ export function purgeRemote(client: JourneyClient): PurgeRemote {
         return { ids: [], error: (e as Error).message };
       }
     },
+  };
+}
+
+export function purgeRemote(client: JourneyClient): PurgeRemote {
+  /** 자식 도메인만 훑는다(여행 자신은 호출부가 따로 처리). 등록부 기반이라 형제가 자동으로 따라온다. */
+  const childDomains = (): PurgeDomain[] => PURGE_DOMAINS.filter((d) => d !== 'trip');
+
+  return {
+    ...ledgerOps(client),
     async familyIds(tripId) {
       try {
         const ids: string[] = [];
@@ -995,6 +1027,38 @@ async function repairCascadeOpsOnce(): Promise<void> {
   }
 }
 
+/**
+ * **복원이 되살린 id를 서버 원장에서 뺀다.** 다른 push·pull보다 **먼저** 돌아야 한다 —
+ * 원장이 남아 있으면 ① BEFORE INSERT 트리거가 복원 push를 거부하고 ② 이어지는 원장 pull이
+ * 로컬 행까지 지운다. 2026-07-26에 정확히 그 순서로 사용자의 복원이 무효화됐다.
+ *
+ * 실패하면 **op을 남긴다**(지우지 않는다). 남겨야 다음 동기화가 다시 시도하고, 그동안
+ * `applyPurgedLedger`가 이 id들을 건너뛴다. 조용히 포기하면 복원이 또 사라진다.
+ */
+export async function pushUnpurges(remote: PurgeRemote): Promise<{ pushed: number; failed: number }> {
+  const d = db();
+  const ops = (await d.syncQueue.toArray()).filter((q) => q.operationType === 'unpurge');
+  if (!ops.length) return { pushed: 0, failed: 0 };
+
+  const ids = [...new Set(ops.map((o) => o.entityId))];
+  const r = await remote.ledgerRemove(ids);
+  if (r.error) {
+    console.error(`복원: 영구삭제 원장 되돌리기 실패 — ${r.error}`);
+    return { pushed: 0, failed: ops.length };
+  }
+
+  // read-back — 지웠다는 응답이 아니라 **원장을 다시 읽어** 확인한다(데이터 안전 불변식).
+  const after = await remote.ledgerAll();
+  if (after.error) {
+    console.error(`복원: 원장 되읽기 실패 — ${after.error}`);
+    return { pushed: 0, failed: ops.length };
+  }
+  const still = new Set(after.ids);
+  const done = ops.filter((o) => !still.has(o.entityId));
+  for (const o of done) await d.syncQueue.delete(o.operationId);
+  return { pushed: done.length, failed: ops.length - done.length };
+}
+
 export async function runSync(client: JourneyClient, userId: string): Promise<SyncResult> {
   // push보다 **먼저** 돈다 — 재큐잉된 op가 이번 동기화에서 바로 처리되도록.
   await repairCascadeOpsOnce();
@@ -1002,12 +1066,15 @@ export async function runSync(client: JourneyClient, userId: string): Promise<Sy
   const mRemote = momentsRemote(client);
   const eRemote = expensesRemote(client);
   const dRemote = mediaRemote(client);
+  // **복원 되돌리기가 가장 먼저다.** 원장이 남아 있으면 아래 push가 트리거에 막힌다.
+  const pRemote0 = purgeRemote(client);
+  const pu = await pushUnpurges(pRemote0);
   const p = await pushPending(remote, userId);
   const pm = await pushPendingMoments(mRemote, userId);
   const pd = await pushPendingMedia(dRemote, userId);
   const pe = await pushPendingExpenses(eRemote, userId);
   // 영구삭제 전파는 **pull보다 먼저** — 이번 동기화에서 다른 기기가 바로 알 수 있게.
-  const pRemote = purgeRemote(client);
+  const pRemote = pRemote0;
   const pp = await pushPurges(pRemote, dRemote);
 
   // 다른 기기의 영구삭제를 배운다(ADR-0030). 행이 서버에서 사라졌으므로 pull은 그 사실을
@@ -1024,8 +1091,8 @@ export async function runSync(client: JourneyClient, userId: string): Promise<Sy
   const qd = await pullMedia(dRemote);
   const qe = await pullExpenses(eRemote);
   return {
-    pushed: p.pushed + pm.pushed + pd.pushed + pe.pushed + pp.pushed,
-    failed: p.failed + pm.failed + pd.failed + pe.failed + pp.failed,
+    pushed: pu.pushed + p.pushed + pm.pushed + pd.pushed + pe.pushed + pp.pushed,
+    failed: pu.failed + p.failed + pm.failed + pd.failed + pe.failed + pp.failed,
     pulled: q.pulled + qm.pulled + qd.pulled + qe.pulled,
     skippedEmptyCloud: q.skippedEmptyCloud || qm.skippedEmptyCloud || qd.skippedEmptyCloud || qe.skippedEmptyCloud,
   };

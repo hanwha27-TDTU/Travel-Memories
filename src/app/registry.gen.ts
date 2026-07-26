@@ -36,11 +36,11 @@ export const REGISTRY = {
   ] as const,
   gateCount: 28,
   /** 최신 앱 버전(정본: src/app/changelog.ts의 첫 항목). 첫 로드 화면은 이걸 읽는다. */
-  appVersion: '1.02',
+  appVersion: '1.03',
   agentCount: 28,
   skillCount: 9,
   screenCount: 11,
-  migrationCount: 16,
-  changelogCount: 102,
-  researchCount: 48,
+  migrationCount: 17,
+  changelogCount: 103,
+  researchCount: 49,
 } as const;

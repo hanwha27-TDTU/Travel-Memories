@@ -88,6 +88,7 @@ ROLLBACK;   -- 프로덕션 무변경
 | 사진 tombstone 후 Storage 객체가 고아로 남음 | 행 삭제와 바이트 삭제 시점 분리 | 소유자 폴더격리 DELETE 정책 + tombstone 반영 후 최선노력 스윕 |
 | **Storage 버킷은 SQL로 못 지운다**(2026-07-26) | `storage.protect_delete()` 트리거가 `delete from storage.buckets`를 막는다("Use the Storage API instead" — 고아 객체 사고 방지). 마이그레이션 **전체가 롤백**된다 | 버킷 행 삭제는 대시보드/Storage API(사용자 몫 — service_role 키는 안 쓴다). **정책 4종을 drop하면 목적은 달성된다** — RLS는 기본 거부라 정책이 없으면 아무도 못 읽고 못 쓴다. 껍데기만 남는다 |
 | **새 테이블에 GRANT 누락 → 앱이 permission denied**(M-0020) | RLS와 GRANT를 같은 층으로 오인 + 검증을 superuser로 수행 | `check-migration-grants` 게이트(18번째) + §4에 "superuser 검증은 검증이 아니다" 명문화 |
+| **차단 트리거를 만들며 정당한 예외의 문을 안 냄**(M-0032) | 거부 규칙을 설계할 때 **막을 대상**만 생각했다. 0013은 `purged_ids`에 UPDATE·DELETE를 의도적으로 withhold했고 그 판단은 옳았는데, *"그럼 사용자의 복원은 어느 문으로 들어오나"*를 묻지 않았다 → **없는 문은 조용히 막는다**(오류·로그·토스트 없이 기억이 사라짐) | `0017`의 **좁은 문** 패턴: 이름 있는 `SECURITY DEFINER` 함수 하나만 열고 ①`user_id = auth.uid()`로 자기 행만 ②`is_allowed()` 통과 필수 ③**명시한 id만**(전체 비우기 없음) ④**테이블 권한은 그대로 안 준다**. 그리고 거부 상태 자체를 **런타임 지표**로 만든다 |
 | **공유 프로젝트 백업 복원이 프로젝트 단위** | 한 앱 복원 = 다른 앱도 롤백 | ADR-0020에 위험으로 문서화. **복구 전 상호 확인 필수**. (메디컬 합류 시 재검토 — `docs/STORAGE_R2_PROPOSAL.md`) |
 
 ## 6. 검증 레시피 (정직한 완료)

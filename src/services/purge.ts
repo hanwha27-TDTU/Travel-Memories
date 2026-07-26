@@ -81,6 +81,47 @@ export function purgeOpType(domain: PurgeDomain): string {
   return `purge:${domain}`;
 }
 
+/** 원장 되돌리기(복원) 작업의 entityType. 도메인이 없다 — 원장은 종류를 모른다. */
+export const UNPURGE_OP = 'unpurge:ledger';
+
+/**
+ * **백업 복원이 되살린 id들을 서버 원장에서 빼달라고 큐에 올린다.**
+ *
+ * 왜 큐인가(2026-07-26 사용자 실기기): 복원은 오프라인에서도 되고, 서버 호출은 실패할 수 있다.
+ * 그때 그냥 넘어가면 다음 동기화가 원장을 pull해 **복원한 것을 다시 지운다** — 실제로 그렇게
+ * 됐고 사용자에겐 아무 오류도 안 보였다. 의사를 **남겨야** 재시도된다.
+ *
+ * 멱등: 이미 같은 id가 큐에 있으면 다시 넣지 않는다.
+ */
+export async function requestUnpurge(ids: string[]): Promise<number> {
+  if (!ids.length) return 0;
+  const d = db();
+  const queued = new Set(
+    (await d.syncQueue.toArray()).filter((q) => q.operationType === 'unpurge').map((q) => q.entityId),
+  );
+  const fresh = [...new Set(ids)].filter((id) => !queued.has(id));
+  if (!fresh.length) return 0;
+  const now = new Date().toISOString();
+  await d.syncQueue.bulkAdd(
+    fresh.map((id) => ({
+      operationId: crypto.randomUUID(),
+      entityType: UNPURGE_OP,
+      entityId: id,
+      operationType: 'unpurge' as const,
+      state: 'local_only' as const,
+      attempts: 0,
+      createdAt: now,
+    })),
+  );
+  return fresh.length;
+}
+
+/** 아직 서버 원장에서 못 뺀 복원 대상 id들 — `applyPurgedLedger`가 이걸 건너뛴다. */
+export async function pendingUnpurgeIds(): Promise<Set<string>> {
+  const rows = (await db().syncQueue.toArray()).filter((q) => q.operationType === 'unpurge');
+  return new Set(rows.map((q) => q.entityId));
+}
+
 /** entityType에서 도메인을 되읽는다. 영구삭제 작업이 아니면 null. */
 export function purgeDomainOf(entityType: string): PurgeDomain | null {
   if (!entityType.startsWith('purge:')) return null;
@@ -141,7 +182,11 @@ export async function applyRemotePurge(domain: PurgeDomain, id: string): Promise
 export async function applyPurgedLedger(ids: string[]): Promise<number> {
   const d = db();
   const known = await purgedIdSet();
-  const fresh = ids.filter((id) => !known.has(id));
+  // **복원 대기 중인 id는 건드리지 않는다**(2026-07-26). 사용자가 백업에서 되살린 것을
+  // 원장이 다시 지우면 복원이 조용히 무효화된다 — 실제로 그렇게 됐다. 서버 원장에서 빼는
+  // 작업이 아직 큐에 남아 있으면 그건 "지울 것"이 아니라 "되살릴 것"이다.
+  const restoring = await pendingUnpurgeIds();
+  const fresh = ids.filter((id) => !known.has(id) && !restoring.has(id));
   if (!fresh.length) return 0;
 
   const now = new Date().toISOString();
