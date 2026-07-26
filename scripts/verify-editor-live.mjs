@@ -248,6 +248,40 @@ await page.getByLabel('편집기 검증 여행 여행 열기').first().click();
 await page.waitForSelector('.moment-photo-input', { state: 'attached' });
 
 // 테스트 이미지 2장 생성(600x400 그라데이션 JPEG) — 배치 흐름 검증용
+/**
+ * **EXIF `DateTimeOriginal`을 실제로 품은 JPEG**을 만든다.
+ *
+ * 캔버스가 만든 JPEG에는 EXIF가 없다. 그래서 "사진에서 시각을 읽는다"를 라이브에서 잴 방법이
+ * 없었고, 실제로 그 자리에 **옛 전제를 못박은 검사**가 하나 있었다(EXIF 없는 파일인데 사진
+ * 근거가 나오길 기대했다 — 파일 수정시각으로 채우던 시절의 기대다). 전제가 바뀌었으니
+ * 케이스를 뒤집고, 진짜 근거를 재려면 진짜 EXIF가 필요하다(§2-B ②).
+ *
+ * SOI 뒤에 APP1(Exif) 세그먼트를 끼워 넣는다. IFD0 → ExifIFD → 0x9003(DateTimeOriginal).
+ */
+function withExifDateTime(jpegBytes, dt /* 'YYYY:MM:DD HH:MM:SS' */) {
+  const ascii = (s) => Buffer.from(s + '\0', 'latin1');
+  const dtBuf = ascii(dt); // 20바이트
+  // ── Exif 본문(TIFF 헤더 기준 오프셋) ──
+  const tiff = [];
+  const u16 = (n) => { const b = Buffer.alloc(2); b.writeUInt16BE(n); return b; };
+  const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32BE(n); return b; };
+  // TIFF 헤더(빅엔디안) + IFD0 오프셋 8
+  tiff.push(Buffer.from('MM', 'latin1'), u16(42), u32(8));
+  // IFD0: 항목 1개(ExifIFDPointer 0x8769) + next=0
+  const ifd0Len = 2 + 12 + 4;
+  const exifIfdOff = 8 + ifd0Len;
+  tiff.push(u16(1), u16(0x8769), u16(4), u32(1), u32(exifIfdOff), u32(0));
+  // ExifIFD: 항목 1개(DateTimeOriginal 0x9003, ASCII) + next=0, 값은 IFD 뒤에 붙인다
+  const exifIfdLen = 2 + 12 + 4;
+  const dtOff = exifIfdOff + exifIfdLen;
+  tiff.push(u16(1), u16(0x9003), u16(2), u32(dtBuf.length), u32(dtOff), u32(0), dtBuf);
+  const tiffBuf = Buffer.concat(tiff);
+  const app1Body = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), tiffBuf]);
+  const app1 = Buffer.concat([Buffer.from([0xff, 0xe1]), u16(app1Body.length + 2), app1Body]);
+  const src = Buffer.from(jpegBytes);
+  return Buffer.concat([src.subarray(0, 2), app1, src.subarray(2)]); // SOI 뒤에 삽입
+}
+
 const imgBuf = await page.evaluate(async () => {
   const c = document.createElement('canvas'); c.width = 600; c.height = 400;
   const x = c.getContext('2d');
@@ -1036,12 +1070,32 @@ const pick0 = await page.evaluate(() => ({
 }));
 check('사진 선택: 고른 만큼 미리보기 + 개수', pick0.cells === 3 && pick0.files === 3 && pick0.count.includes('3장'), JSON.stringify(pick0));
 
-// 사진을 고르면 시각 근거가 **사진 쪽으로 바뀐다** — 사진이 가장 강한 근거다.
-const whenAfter = await page.evaluate(() => {
+// 방금 고른 3장은 **캔버스 JPEG이라 EXIF가 없다.** 그러면 사진을 근거로 대면 안 된다 —
+// 예전엔 파일 수정시각으로 채워 「📷 사진에서」라고 말했고, 그건 *앱에 넣은 시각*이었다.
+const whenNoExif = await page.evaluate(() => {
   const n = document.querySelector('.when-note');
   return n && !n.hidden ? (n.textContent ?? '') : '';
 });
-check('발생 시각: 사진을 고르면 근거가 사진으로 바뀐다', whenAfter.includes('사진에서'), whenAfter || '(근거 줄 없음)');
+check(
+  '발생 시각: 촬영 시각 없는 사진은 **사진을 근거로 대지 않는다**(거짓 근거 금지)',
+  !whenNoExif.includes('사진에서'),
+  whenNoExif || '(근거 줄 없음)',
+);
+
+// EXIF가 **있는** 사진이면 그때는 사진이 근거다 — 진짜 EXIF를 심어 확인한다.
+await page.setInputFiles('.moment-photo-input', [
+  { name: 'exif.jpg', mimeType: 'image/jpeg', buffer: withExifDateTime(imgBuf, '2026:07:16 09:30:00') },
+]);
+await page.waitForTimeout(500);
+const whenExif = await page.evaluate(() => ({
+  note: document.querySelector('.when-note')?.textContent ?? '',
+  value: document.querySelector('.when-input')?.value ?? '',
+}));
+check(
+  '발생 시각: EXIF가 있으면 **그 시각**을 사진에서 읽는다',
+  whenExif.note.includes('사진에서') && whenExif.value.startsWith('2026-07-16T09:30'),
+  JSON.stringify(whenExif),
+);
 
 // 사용자가 직접 고친 값은 **사진을 더 골라도 덮이지 않는다**(앱이 사용자를 이기지 않는다).
 await page.fill('.when-input', '2026-07-16T09:30');

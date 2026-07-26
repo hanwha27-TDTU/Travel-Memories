@@ -41,8 +41,19 @@ export interface AddPhotoTarget {
 const EXIF_HEAD_BYTES = 256 * 1024;
 
 export interface PhotoMeta {
-  /** 촬영시각(ISO). EXIF → 파일 수정시각 → 지금 순으로 **폴백하되 지어내지 않는다**. */
-  takenAt: string;
+  /**
+   * **EXIF 촬영시각(ISO). 없으면 `null`** — 모르면 모른다고 말한다(비타협 원칙 #4).
+   *
+   * 왜 여기서 폴백하지 않나(2026-07-27): 예전엔 EXIF가 없으면 **파일 수정시각**으로 채웠다.
+   * 그런데 스크린샷·탑승권 QR처럼 카메라로 찍지 않은 이미지는 EXIF가 없고, 파일 수정시각은
+   * *"기기에 저장된 시각"* — 즉 **앱에 넣은 시각**이다. 실제로 7/17 여행 사진 9장 중 2장이
+   * `20260727_0225`(넣은 날 새벽)로 이름 붙었다.
+   *
+   * 폴백은 **부르는 쪽이 정한다.** 인테이크는 *그 사진이 속한 순간의 발생 시각*을 쓸 수 있고,
+   * 화면의 시각 추측은 **아예 세지 않아야** 한다(파일 수정시각을 「📷 사진에서」라고 말하면
+   * 근거를 거짓으로 대는 것이다). 여기서 채워 버리면 두 쪽 다 그 선택지를 잃는다.
+   */
+  takenAt: string | null;
   gpsLat: number | null;
   gpsLng: number | null;
 }
@@ -55,8 +66,32 @@ export interface PhotoMeta {
  * 두 곳이 서로 다르게 읽으면 *사진 파일은 7/16인데 그 사진이 달린 순간은 7/27*이 된다 —
  * 앱이 자기 안에서 다른 말을 하는 상태다(2026-07-27 사용자가 실제로 밟았다).
  */
+/**
+ * **촬영시각을 무엇으로 정하는가** — 순수 함수라 유닛이 모든 갈래를 직접 돌린다(§10 ③).
+ *
+ * 이 값은 그냥 메타데이터가 아니라 **R2 파일 이름의 앞부분**이 된다
+ * (`20260717_0536_제주여행__…`). 틀리면 사용자가 저장소를 열었을 때 사진이 엉뚱한 날짜로
+ * 정렬되고, 이름을 사람이 읽게 만든 목적 자체가 무너진다.
+ *
+ * 순서와 이유:
+ *  1. **EXIF 촬영시각** — 카메라가 찍은 시각. 가장 강한 근거.
+ *  2. **그 사진이 속한 순간의 발생 시각** — 스크린샷·탑승권 QR은 EXIF가 없다. 그때
+ *     사용자는 이미 *"이건 그 순간의 것"*이라고 말해 줬다. 그게 다음으로 강한 근거다.
+ *  3. **파일 수정시각** — 마지막 수단. 이건 "촬영"이 아니라 *"기기에 저장된 시각"*이라
+ *     대개 **앱에 넣은 날**이 된다(2026-07-27에 사진 2장이 그렇게 `20260727_…`로 붙었다).
+ */
+export function resolveTakenAt(
+  exifTakenAt: string | null,
+  momentOccurredAt: string | null | undefined,
+  fileLastModified: number,
+): string {
+  if (exifTakenAt) return exifTakenAt;
+  if (momentOccurredAt) return momentOccurredAt;
+  return new Date(fileLastModified || Date.now()).toISOString();
+}
+
 export async function readPhotoMeta(file: File): Promise<PhotoMeta> {
-  let takenAt = new Date(file.lastModified || Date.now()).toISOString();
+  let takenAt: string | null = null;
   let gpsLat: number | null = null;
   let gpsLng: number | null = null;
   if (/jpe?g/i.test(file.type)) {
@@ -68,7 +103,7 @@ export async function readPhotoMeta(file: File): Promise<PhotoMeta> {
         gpsLng = exif.gpsLng;
       }
     } catch {
-      /* EXIF 실패는 무시 — 폴백(파일 수정시각)을 쓴다. 없는 값을 지어내지 않는다. */
+      /* EXIF 실패는 null로 둔다 — 폴백은 부르는 쪽의 몫이다. */
     }
   }
   return { takenAt, gpsLat, gpsLng };
@@ -83,7 +118,13 @@ export async function addPhotoToMoment(
   if (!target.momentId || !target.tripId) throw new Error('순간 정보가 없습니다.');
 
   // 1) EXIF 먼저(압축 전) — `readPhotoMeta` 한 곳에서. 화면의 시각 추측도 **같은 함수**를 쓴다.
-  const { takenAt, gpsLat, gpsLng } = await readPhotoMeta(file);
+  const meta = await readPhotoMeta(file);
+  // EXIF가 없으면(스크린샷·저장한 이미지) **그 사진이 속한 순간의 발생 시각**을 쓴다.
+  // 파일 수정시각은 "기기에 저장된 시각"이라 *앱에 넣은 날*이 되어 버린다 — 사용자는 이미
+  // 이 사진을 그 순간에 넣어 "언제의 것인지" 말해 줬다. 그게 더 나은 근거다(2026-07-27).
+  const moment = await db().localMoments.get(target.momentId);
+  const takenAt = resolveTakenAt(meta.takenAt, moment?.occurredAt, file.lastModified);
+  const { gpsLat, gpsLng } = meta;
 
   // 2) 압축(원본은 인자로만 읽고 수정하지 않음). 편집본이 있으면 그것을 파생 소스로.
   const { display, thumb } = await compressForStorage(editedBlob ?? file);

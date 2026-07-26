@@ -320,7 +320,10 @@ function buildWhenField(
     value: () => fromLocalInputValue(input.value),
     async suggestFromFiles(files) {
       // 앞 256KB만 읽는다 — 9장을 고른 순간 전체를 읽으면 수십 MB가 한꺼번에 뜬다(저메모리 기기).
-      const photoTakenAts = await Promise.all(files.map(async (f) => (await readPhotoMeta(f)).takenAt));
+      // **EXIF가 없는 사진은 세지 않는다**(null 제거): 스크린샷의 파일 수정시각을 근거로 쓰면
+      // 화면이 「📷 사진에서」라고 말하면서 실은 *앱에 넣은 시각*을 보여주게 된다 — 거짓 근거다.
+      const metas = await Promise.all(files.map((f) => readPhotoMeta(f)));
+      const photoTakenAts = metas.map((m) => m.takenAt).filter((t): t is string => t !== null);
       apply(
         guessOccurredAt({
           photoTakenAts,
