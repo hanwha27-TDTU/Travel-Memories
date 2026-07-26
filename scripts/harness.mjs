@@ -25,6 +25,7 @@ const gates = [
   { name: 'check-lazy-screens', cmd: 'node scripts/check-lazy-screens.mjs' },
   { name: 'check-font-subsets', cmd: 'node scripts/check-font-subsets.mjs' },
   { name: 'check-fn-size', cmd: 'node scripts/check-fn-size.mjs' },
+  { name: 'check-sw', cmd: 'node scripts/check-sw.mjs' },
   { name: 'check-hand-counts', cmd: 'node scripts/check-hand-counts.mjs' },
   { name: 'check-doc-counts', cmd: 'node scripts/check-doc-counts.mjs' },
   { name: 'check-timezone', cmd: 'node scripts/check-timezone.mjs' },

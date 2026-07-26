@@ -20,18 +20,48 @@ if (!chromium) {
 
 const DIST = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
 const BASE = '/Travel-Memories/';
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.map': 'application/json' };
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.map': 'application/json', '.woff2': 'font/woff2' };
+
+/**
+ * 서버가 **실제로 파일을 내준** 경로 기록. 서비스워커 검사가 이걸 센다 —
+ * 브라우저 쪽 `fromServiceWorker()`는 "워커가 처리했다"일 뿐 "네트워크를 안 탔다"가 아니다.
+ */
+const served = [];
+
+/** dist를 BASE 경로로 서빙하는 서버를 만든다(오프라인 검사가 자기 서버를 따로 띄운다). */
+function makeServer(log) {
+  return createServer(async (req, res) => {
+    let p = new URL(req.url, 'http://x').pathname;
+    if (!p.startsWith(BASE)) { res.writeHead(404).end(); return; }
+    p = p.slice(BASE.length) || 'index.html';
+    log.push(p);
+    const headers = { 'cache-control': 'no-store' };
+    try {
+      const buf = await readFile(join(DIST, p));
+      res.writeHead(200, { ...headers, 'content-type': MIME[extname(p)] ?? 'application/octet-stream' }).end(buf);
+    } catch {
+      const buf = await readFile(join(DIST, 'index.html'));
+      res.writeHead(200, { ...headers, 'content-type': 'text/html' }).end(buf);
+    }
+  });
+}
 
 const server = createServer(async (req, res) => {
   let p = new URL(req.url, 'http://x').pathname;
   if (!p.startsWith(BASE)) { res.writeHead(404).end(); return; }
   p = p.slice(BASE.length) || 'index.html';
+  served.push(p);
+  // `no-store` — 브라우저 HTTP 캐시를 원천 차단한다. 이게 없으면 서비스워커 검사가 **공허해진다**:
+  // 워커 캐시를 통째로 무력화해도 브라우저 캐시가 서버 요청을 막아 그대로 통과했다(실제로 겪음).
+  // 워커의 `fetch()`도 HTTP 캐시를 타므로 페이지 쪽 CDP 설정만으로는 부족했다.
+  // 이제 서버 요청이 줄어든 것은 **오직 워커의 Cache Storage 덕분**이 된다.
+  const headers = { 'cache-control': 'no-store' };
   try {
     const buf = await readFile(join(DIST, p));
-    res.writeHead(200, { 'content-type': MIME[extname(p)] ?? 'application/octet-stream' }).end(buf);
+    res.writeHead(200, { ...headers, 'content-type': MIME[extname(p)] ?? 'application/octet-stream' }).end(buf);
   } catch {
     const buf = await readFile(join(DIST, 'index.html'));
-    res.writeHead(200, { 'content-type': 'text/html' }).end(buf);
+    res.writeHead(200, { ...headers, 'content-type': 'text/html' }).end(buf);
   }
 });
 await new Promise((r) => server.listen(4173, r));
@@ -1069,6 +1099,88 @@ check('플랫폼 지도: 화면에 마크다운 별표가 안 보인다', !plat.
   const rareFall = await width(RARE, 'monospace');
   check('폰트 조각: 희귀 받침도 Pretendard로 그려진다(커버리지 유지)', rarePre !== rareFall, `${rarePre.toFixed(0)} vs 폴백 ${rareFall.toFixed(0)}`);
   await page.evaluate(() => document.getElementById('rare-probe')?.remove());
+}
+
+// ── 서비스워커: 껍데기 캐시 + 오프라인 ────────────────────────────────────────
+// 정적 게이트(`check-sw`)는 "위험한 짓을 안 하는가"만 본다 — 실제로 캐시가 도는지,
+// 오프라인에서 앱이 뜨는지는 **브라우저만 답할 수 있다**(§10 ②).
+//
+// ⚠️ `response.fromServiceWorker()`를 "캐시에서 왔다"로 읽으면 안 된다. 워커가 **처리**했다는
+// 뜻일 뿐이고, 워커가 그 안에서 네트워크로 갔을 수도 있다. 실제로 이 함정에 걸려 "재방문은
+// 캐시"라고 잘못 읽을 뻔했다 — 그래서 여기서는 **서버가 실제로 파일을 내줬는지**를 센다.
+//
+// ⚠️⚠️ 그리고 **브라우저 자체 HTTP 캐시를 반드시 꺼야 한다.** 처음엔 안 껐는데, 워커의 캐시를
+// 통째로 무력화해도 검사가 그대로 통과했다 — 서버 요청을 막고 있던 건 워커가 아니라 브라우저
+// 캐시였다. 즉 **워커가 없어도 통과하는 검사**였다(§4 공허한 게이트). CDP로 HTTP 캐시를 끄면
+// 서버 요청이 줄어든 것은 오직 워커 덕분이 된다.
+{
+  const swCtx = await browser.newContext({ viewport: { width: 412, height: 915 } });
+  const swPage = await swCtx.newPage();
+  const noHttpCache = async (p) => {
+    const cdp = await swCtx.newCDPSession(p);
+    await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
+  };
+  await noHttpCache(swPage);
+  const url = `http://localhost:4173${BASE}`;
+
+  await swPage.goto(url, { waitUntil: 'networkidle' });
+  const registered = await swPage
+    .evaluate(async () => {
+      await navigator.serviceWorker.ready;
+      return navigator.serviceWorker.controller !== null;
+    })
+    .catch(() => false);
+  check('서비스워커: 등록되고 페이지를 제어한다', registered === true, `controller=${registered}`);
+
+  // 워커는 두 번째 방문에서 캐시를 채운다(미리받기 목록이 없으므로). 세 번째부터가 정상 상태.
+  await swPage.reload({ waitUntil: 'networkidle' });
+  await swPage.waitForTimeout(700);
+  served.length = 0; // 서버가 내준 파일 기록을 비우고 정상 상태만 잰다
+  await swPage.reload({ waitUntil: 'networkidle' });
+  await swPage.waitForTimeout(700);
+  // 서버는 BASE를 떼고 기록하므로 경로가 `assets/…`다(선행 슬래시 없음).
+  // `/assets/`로 찾다가 **아무것도 매칭되지 않아 늘 0건으로 통과**했다 — 셀렉터 불일치로
+  // 조용히 통과하는 §4의 그 형태였고, 주입시험에서만 드러났다.
+  const assetHits = served.filter((p) => p.startsWith('assets/'));
+  if (served.length === 0) throw new Error('verify: 서버 요청 기록이 비었다 — 검사가 아무것도 안 재고 있다.');
+  check(
+    '서비스워커: 정상 상태 재방문에 자산을 서버에서 다시 받지 않는다',
+    assetHits.length === 0,
+    assetHits.length === 0 ? '자산 서버 요청 0건' : assetHits.slice(0, 4).join(', '),
+  );
+
+  // 오프라인 — 이 앱은 여행 중에 쓰인다. 비행기·지하·로밍 끊김에서 껍데기가 떠야 한다.
+  // **오프라인은 서버를 내려서 만든다.** `context.setOffline(true)`로는 안 된다 —
+  // 그 설정은 페이지의 네트워크만 막고 **서비스워커가 보내는 요청은 그대로 나간다.**
+  // 실제로 "오프라인" 중에 서버가 요청 5건을 받았고, 그래서 워커를 무력화해도 이 검사가
+  // 통과했다(원리적으로 실패할 수 없는 검사였다). 서버를 닫으면 누구도 못 나간다.
+  const offLog = [];
+  const offServer = makeServer(offLog);
+  await new Promise((r) => offServer.listen(4174, r));
+  const offUrl = `http://localhost:4174${BASE}`;
+  const offCtx = await browser.newContext();
+  const offPage = await offCtx.newPage();
+  await offPage.goto(offUrl, { waitUntil: 'networkidle' }); // 워커 설치
+  await offPage.evaluate(() => navigator.serviceWorker.ready);
+  await offPage.reload({ waitUntil: 'networkidle' }); // 두 번째 방문에서 캐시가 채워진다
+  await offPage.waitForTimeout(800);
+
+  await new Promise((r) => offServer.close(r)); // ← 여기서부터 진짜로 아무 데도 못 간다
+  offLog.length = 0;
+
+  const coldPage = await offCtx.newPage(); // 새 탭 — 워커·Cache Storage만 공유
+  let offlineTitle = '';
+  try {
+    await coldPage.goto(offUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await coldPage.waitForTimeout(1500);
+    offlineTitle = await coldPage.evaluate(() => document.querySelector('.app-title')?.textContent ?? '');
+  } catch (e) {
+    offlineTitle = `(로드 실패: ${String(e).slice(0, 60)})`;
+  }
+  check('서비스워커: 네트워크가 끊겨도 앱 껍데기가 뜬다', offlineTitle.includes('Bugeon'), offlineTitle || '(빈 화면)');
+  check('서비스워커: 오프라인 검사가 진짜 오프라인이었다', offLog.length === 0, `서버가 받은 요청 ${offLog.length}건`);
+  await offCtx.close();
+  await swCtx.close();
 }
 
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));

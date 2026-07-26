@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.00<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->100<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->47<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.01<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->101<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->48<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->16<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -31,13 +31,33 @@
 | 비상 복구 체계(하네스 게이트·복원 드릴·좀비 트리거·DR 감사관) | ✅ | `scripts/harness.mjs`, `docs/DISASTER_RECOVERY.md`, `.claude/agents/disaster-recovery-guardian.md` |
 | 개발자정보·버전·연구노트(해시체인)·가이드 화면 | ✅ | `app/{changelog,researchLog,hashchain}.ts`, `ui/screens/guide.ts` |
 
-**하네스 게이트**: SSOT=`scripts/harness.mjs`, 현재 **<!--reg:gateCount-->26<!--/reg-->개**. **개수도 목록도 여기 손으로 적지 않는다** — `src/app/registry.gen.ts`(자동 생성, `check-registry-gen`이 드리프트 차단)에서 파생하고 개발자 정보→설계 개요도/가이드가 그 목록과 한 줄 설명을 그대로 표시한다. 목록을 눈으로 보려면 `npm run harness` 또는 `src/app/registry.gen.ts`를 열면 된다.
+**하네스 게이트**: SSOT=`scripts/harness.mjs`, 현재 **<!--reg:gateCount-->27<!--/reg-->개**. **개수도 목록도 여기 손으로 적지 않는다** — `src/app/registry.gen.ts`(자동 생성, `check-registry-gen`이 드리프트 차단)에서 파생하고 개발자 정보→설계 개요도/가이드가 그 목록과 한 줄 설명을 그대로 표시한다. 목록을 눈으로 보려면 `npm run harness` 또는 `src/app/registry.gen.ts`를 열면 된다.
 
 > **이 문단에 게이트 이름을 나열하지 마세요.** 예전엔 12개가 나열돼 있었고 실제가 23개가 될
 > 때까지 아무도 못 고쳤다 — 새 AI가 "여기부터 읽는다"고 지정된 바로 그 자리에서, 존재하는
 > 게이트의 절반을 없는 것처럼 알려주고 있었다. `check-hand-counts` 게이트가 재발을 막는다.
 
 선택 라이브 게이트: `node scripts/verify-editor-live.mjs`(편집기·뷰어·개요도·기계화 검증 흐름도 — 실제 Chromium으로 `dist` 서빙).
+
+**Phase 10b(2026-07-26)**: **서비스워커 등록 — 그리고 라이브 검사가 앱이 아니라 브라우저를 재고 있던 일**(v1.01). **질문(사용자)**: *"서비스워커가 혹시 R2?? 폰트는 아마 제목 2026 숫자 표기할 때 자간 때문 아니야?"* **둘 다 정확했다.** 서비스워커는 R2와 무관한 브라우저 캐시 기능이고(이름만 겹친다 — Cloudflare Workers·R2·Service Worker는 전부 다른 것), 폰트 도입 발단은 실제로 **연도 숫자 자간**이었다(researchLog). 그래서 "숫자 때문이면 한글 11,172자를 왜 싣나"가 정당한 질문이 됐다 — 한글 조각을 빼면 254KB→**42KB**. 다만 `--font-disp`가 **사용자 여행 제목**에도 걸려 있어 한 줄 안에서 숫자는 Pretendard·한글은 기기 폰트로 갈라진다. 기계가 판정할 수 없는 시각 문제라 **세 가지를 실제로 렌더해 사용자에게 보였고**(굵기 차이가 뚜렷했다), 사용자가 A 유지 + 서비스워커를 선택했다.
+
+**서비스워커 설계** — 네트워크 앞에 서는 코드라 규칙을 좁게 잡았다: **교차 출처 무개입**(서버 응답을 캐시에 가두면 *다른 기기에서 고친 기억이 안 보인다* — 비타협 원칙 #1의 반대편이고, R2 서명 URL을 캐시하면 만료 링크를 계속 내준다) · GET 전용 · 해시 자산만 캐시 우선(이름이 내용의 지문이라 낡을 수 없다) · HTML은 네트워크 우선(새 배포가 닿아야 한다) · **skipWaiting 금지**(지연 청크가 있어 세션 도중 교체는 옛 청크 404). 미리받기 목록은 두지 않는다 — index.html을 긁으면 CSS의 **희귀 한글 442KB까지 따라와** unicode-range로 아낀 것을 되돌린다.
+
+**실측**: ① 첫 방문 555KB → ② 두 번째 343KB → ③ **세 번째부터 7.7KB(99% 절감)**. 오프라인에서 앱 껍데기가 뜬다. 예열 한 번이 필요한 건 미리받기가 없기 때문이고, 그건 위 이유로 의도한 선택이다.
+
+**이 작업의 진짜 교훈은 워커가 아니다.** 라이브 검사를 **세 번 고쳐 쓸 때까지 검사가 앱이 아니라 브라우저를 재고 있었다** — 워커의 캐시를 통째로 무력화해도 계속 통과했다.
+
+| 교란 | 무엇을 재고 있었나 | 처방 |
+|---|---|---|
+| 브라우저 HTTP 캐시가 서버 요청을 막음 | 워커가 아니라 **브라우저 캐시** | 테스트 서버가 `no-store`로 응답(워커의 `fetch()`도 HTTP 캐시를 타므로 페이지 CDP 설정만으론 부족) |
+| 필터가 `/assets/`인데 서버 기록은 `assets/` | **아무것도** — 매칭 0건이라 늘 "0건 통과" | 셀렉터를 실측 문자열에 맞춤 + 기록이 비면 throw |
+| `setOffline(true)`이 워커 요청을 안 막음 | 페이지만 오프라인, **워커는 계속 나감**("오프라인" 중 서버가 5건 수신) | 오프라인을 **서버를 실제로 닫아서** 만든다 |
+
+**근본형**: *라이브 검사는 "무엇을 재고 있는지"가 정적 게이트보다 훨씬 불투명하다. 통과는 앱이 옳다는 뜻이 아니라 **교란 요인이 대신 만족시켰다**는 뜻일 수 있다.* 그래서 조건이 진짜였는지 확인하는 **메타 검사**를 함께 뒀다(「오프라인 검사가 진짜 오프라인이었다」). `gates-mechanization-dev` §4에 행 추가.
+
+**게이트**: `check-sw`(27번째, 정적 — *위험한 짓을 안 하는가*. 외부 호스트 목록은 손으로 적지 않고 `check-csp`의 connect-src에서 파생해 새 의존이 자동으로 따라온다) + `verify-editor-live` 4종(런타임 — *실제로 캐시가 도는가*). 비공허: 가드 제거·R2 호스트 취급·GET 필터 제거·skipWaiting·버전 없는 캐시 이름·등록 누락 **6종 전부 RED**, 워커 캐시 무력화 시 라이브 2종 RED. 만들다 자체검사가 **제 게이트의 구멍**(문자열까지 지워 호스트 검사가 공허)을 잡았고, 자체검사 기준을 살아 있는 파일 대신 **인라인 표본**으로 바꿨다(결함 주입 시 "정상을 위반으로 봄"이라는 엉뚱한 진단이 진짜 위반을 가렸다).
+
+**검증**: harness <!--reg:gateCount-->27<!--/reg-->/27 · 유닛 410 · verify-editor-live 127/127 · build 그린. **미실행**: 실기기 PWA 설치·실제 로밍 — 사용자 확인 몫.
 
 **Phase 10(2026-07-26)**: **코드 건강검진 — 게이트가 다 초록인데도 남아 있던 넷**(v1.00). **지시(사용자)**: *"내가 만든 앱인데 한 번 간단히 코드 건강검진 전체적으로 해볼래요?"* → 진단 후 *"니 추천대로 진행하자."* **먼저 잰 것**: 하네스 22게이트·유닛 402·라이브 119 전부 초록, `npm audit` 취약점 0, `any` 3건, 빈 `catch` 0건, `innerHTML`은 24건 전부 비우기 용도(XSS 표면 없음), 핵심 모듈 중 테스트 없는 것 2개. **객관 지표는 건강했다** — 그래서 남은 것은 전부 **게이트가 보지 않는 축**이었다.
 
@@ -56,7 +76,7 @@
 
 **남은 것(다음 사람에게)**: ①**서비스워커가 등록돼 있지 않다** — `envReport`가 지원 여부만 보고할 뿐 `main.ts`에 등록 코드가 없어, PWA 오프라인·자산 캐시가 실제로는 동작하지 않는다(폰트·번들을 매 콜드 로드에 받는 이유). CLAUDE.md 기술 스택엔 Service Worker가 적혀 있어 **문서와 현실이 어긋난 자리**다. ②`ui/photoEditor.ts`(895줄)는 여전히 첫 로드에 있다 — `check-lazy-screens`는 `screens/`·`panels/`만 보므로 대상 밖이다(편집기는 사진 편집 진입이 잦아 판단이 필요). ③테스트 없는 모듈 2개(`services/envReport.ts`·`media/compress.ts`) — 후자는 사진 파이프라인 위라 비타협 원칙 #1 표면이다. ④의존성 메이저 지연(maplibre 4→6, vite 5→8, vitest 2→4, TS 5→7; 취약점은 0).
 
-**검증**: harness <!--reg:gateCount-->26<!--/reg-->/26 · 유닛 410 · verify-editor-live 123/123(뷰어 13종·폰트 조각 4종 포함, 실제 Chromium이 `dist` 서빙) · build 그린. **미실행(정직)**: 실기기 터치·네트워크 동기화(샌드박스가 `*.supabase.co` 차단)·PWA 설치 — 여전히 사용자 실기기 확인 몫.
+**검증**: harness <!--reg:gateCount-->27<!--/reg-->/26 · 유닛 410 · verify-editor-live 123/123(뷰어 13종·폰트 조각 4종 포함, 실제 Chromium이 `dist` 서빙) · build 그린. **미실행(정직)**: 실기기 터치·네트워크 동기화(샌드박스가 `*.supabase.co` 차단)·PWA 설치 — 여전히 사용자 실기기 확인 몫.
 
 **Phase 9l(2026-07-26)**: **재발방지 층 정비 + 휴지통 확장**(v0.91). **지시(사용자)**: *"오늘 고생한 것들 재발방지하게 하기 위해서 게이트를 만드는 건 어때? 스킬문서도 업데이트하고..그리고 **게이트로도 못 잡는 것들은 어떻게 할지 생각해보자.** 그리고 바로 남은 것들도 마무리하자."* **분석이 먼저였다** — 오늘 결함 6건 중 **정적 게이트가 잡은 것은 0건**이고 전부 사용자 실기기 화면에서 나왔다. 사후 분류하니 셋으로 갈렸고 **각각 처방이 다르다**: ①**계약**(M-0020·M-0024 권한 누락) → 정적 게이트로 잡힌다 ②**상태 의존**(M-0019 저장소 혼재·M-0023 옛 방식 잔재) → **코드에 답이 없다.** 지금 데이터 모양에 달렸으므로 정적 게이트는 원리적으로 못 잡는다 → **진단 지표가 곧 그 결함군의 게이트다**(런타임) ③**전달**(M-0021 판정 문장이 엉뚱·M-0022 확인해놓고 화면에 안 알림) → **자료구조는 옳다.** 사용자 문장을 순수 함수로 뽑아야만 검사 가능. **CLAUDE.md §10 신설**로 이 세 부류와 각 층을 명문화하고, **§9에 4단계 "세계를 본다"(실서버 스냅샷)**를 추가했다 — M-0019가 정확히 그 단계의 부재였다. `brief.mjs`가 ④⑤로 이걸 묻는다. **게이트 신설**: `check-report-fields`(**20번째**) — 보고용 구조체의 필드가 화면에서 소비되는지 검사. M-0022가 정확히 이 형태였다(`safeToRemove`를 계산해 반환까지 했는데 화면 문장이 안 읽었다). 타입 검사도 유닛도 못 잡는 자리다 — `noUnusedLocals`는 지역변수만 보고, 유닛은 숫자를 검사했고 숫자는 다 맞았다. **비공허**: 화면이 `unpropagatedPurges`를 안 읽게 주입 → RED. **남은 것 마무리(F5 해소)**: `services/trash.ts` 신설 — 부모가 살아 있는데 혼자 지워진 순간·사진·비용을 휴지통에 표시하고 복원·영구삭제를 제공한다. 오래 미뤄둔 구멍인데 **오늘 실물이 됐다**(진단이 「파일 없는 사진 기록 2건」을 가리키는데 사용자가 손댈 곳이 없었다 — 판정만 하고 행동을 못 주면 관측으로 되돌아간 것이다). **설계**: 부모가 함께 휴지통이면 제외(여행 줄이 이미 다루고, 자식만 복원하면 부모 없는 자식이 생긴다) · 복원의 **도메인 분기와 딸린 것 모으기를 서비스가** 한다(화면이 목록을 만지면 M-0007이 재발한다) · 영구삭제는 여행과 **같은 2단계 확인·같은 사전 조건·같은 read-back**. **게이트가 잡아준 것**: `check-timezone`이 `iso.slice(0,10)`을 즉시 RED로 잡았다(UTC 날짜는 사용자의 날짜가 아니다) · `check-skill-routing`이 새 파일 라우팅 누락을 잡았다. **검증**: 유닛 12건, **비공허 3종**(복원이 딸린 것을 안 데려옴 / 부모가 휴지통인 자식도 표시 / 사전 조건 제거) 전부 RED. harness **20게이트** · 유닛 357 · verify-editor-live 101/101 · build 그린. **남은 것**: 「내 기기들 0대」는 저장·수정을 한 번 하면 채워진다(배선은 확인됨). v0.91.
 
@@ -182,7 +202,7 @@
 ```
 npm ci
 git config core.hooksPath .githooks   # commit-msg hook 활성
-npm run harness                        # Required 게이트 전체 (현재 <!--reg:gateCount-->26<!--/reg-->개 — 목록은 scripts/harness.mjs, 손편집 나열 금지 M-0001; 이 숫자는 gen-registry가 자동 갱신·check-doc-counts가 대조)
+npm run harness                        # Required 게이트 전체 (현재 <!--reg:gateCount-->27<!--/reg-->개 — 목록은 scripts/harness.mjs, 손편집 나열 금지 M-0001; 이 숫자는 gen-registry가 자동 갱신·check-doc-counts가 대조)
 npm run build                          # base=/Travel-Memories/ 정적 빌드
 npm run dev                            # 홈 화면 확인 (선택)
 ```

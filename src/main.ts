@@ -20,6 +20,20 @@ installAutoSync();
 // 저장된 테마·계절 선호를 문서에 반영(첫 페인트 전).
 initTheme();
 
+// 서비스워커 — 앱 껍데기를 캐시해 재방문·오프라인을 빠르게 한다(규칙·위험은 public/sw.js 머리주석).
+// 여행 중 데이터로 여는 앱이라 재방문에 같은 파일을 다시 받지 않는 것이 실제 이득이다.
+//   · **첫 페인트 뒤에** 등록한다 — 등록이 초기 렌더와 대역폭을 다투지 않게.
+//   · 개발 서버에서는 등록하지 않는다 — 캐시가 HMR을 가려 "고쳤는데 안 바뀐다"를 만든다.
+//   · 실패해도 조용히 넘어간다: 캐시는 **속도**일 뿐이고, 앱은 이것 없이도 완전히 동작한다.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    const base = import.meta.env.BASE_URL; // vite.config.ts의 BASE가 SSOT
+    void navigator.serviceWorker
+      .register(`${base}sw.js`, { scope: base })
+      .catch((e) => console.warn('서비스워커 등록 실패(앱 동작에는 영향 없음):', e));
+  });
+}
+
 const appEl = document.getElementById('app');
 if (!appEl) throw new Error('#app 마운트 지점을 찾을 수 없습니다.');
 const root: HTMLElement = appEl;
