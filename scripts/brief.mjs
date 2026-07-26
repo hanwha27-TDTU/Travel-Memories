@@ -65,6 +65,24 @@ export const SKILL_ROUTES = [
   { match: /^src\/services\/storage/, skill: 'diagnostics-dev' },
 ];
 
+/**
+ * **필독 사후분석** — 특정 영역을 건드리기 전에 반드시 읽어야 하는 사고 기록.
+ *
+ * 왜 스킬 문서와 따로 두나(2026-07-26): 스킬 문서는 *"이렇게 하라"*를 말하고, 사후분석은
+ * *"이렇게 하다 이렇게 됐다"*를 말한다. 둘은 다른 종류의 지식이고, 후자가 없으면 앞의 규칙이
+ * **왜** 있는지 몰라 상황이 조금만 달라져도 어긴다. 실제로 그날 §7·§10을 **직접 쓰고도**
+ * 같은 부류에 다시 빠졌다 — 규율을 쓰는 것과 적용하는 것은 다른 행동이다.
+ *
+ * 라우팅으로 강제하는 이유: 문서만 만들어 두면 **안 읽는다.** 읽을 자리를 표가 정해야 한다.
+ */
+export const POSTMORTEMS = [
+  {
+    match: /^(src\/services\/(sync|autoSync|purge|trash|storeState|r2|media)|src\/ui\/panels\/(diagnostics|verdict)|src\/offline\/|supabase\/)/,
+    doc: 'docs/records/2026-07-26-STORAGE-DELETE-POSTMORTEM.md',
+    why: '저장·동기화·삭제·진단에서 하루에 결함 10건 — 정적 게이트가 잡은 것은 0건이었다',
+  },
+];
+
 /** 스킬 문서가 필요 없는 영역 — **이유를 반드시 적는다**(이유 없는 제외는 결함, §7). */
 export const NO_SKILL_REQUIRED = new Map([
   ['src/main.ts', '진입점 배선만 — 규율은 각 모듈 문서가 갖는다'],
@@ -167,6 +185,17 @@ if (!skills.size) {
   console.log('\n  정독 중 **문서와 코드가 어긋나거나 규칙이 빠져 있으면 그것부터 고친다.**');
   console.log('  (오늘의 사고: ui-responsive-dev에 vh/dvh·오버레이 스크롤 규칙이 아예 없었다 —');
   console.log('   읽었어도 못 막았을 구멍이었고, 그 구멍을 메우는 게 이 단계의 진짜 일이다.)');
+}
+
+const pms = POSTMORTEMS.filter((pm) => paths.some((p) => pm.match.test(p)));
+if (pms.length) {
+  console.log('\n①-B 🔴 **필독 사후분석** — 이 영역에서 실제로 일어난 사고의 전말:');
+  for (const pm of pms) {
+    const lines = existsSync(join(ROOT, pm.doc)) ? readFileSync(join(ROOT, pm.doc), 'utf8').split('\n').length : 0;
+    console.log(`  📕 ${pm.doc}  (${lines}줄)`);
+    console.log(`     ${pm.why}`);
+  }
+  console.log('  스킬 문서가 "이렇게 하라"면 이건 "이렇게 하다 이렇게 됐다"이다. 둘 다 읽어야 한다.');
 }
 
 console.log('\n② 형제 목록 (§7 — 손으로 세지 않고 디렉터리에서 뽑음):');

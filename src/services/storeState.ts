@@ -91,6 +91,15 @@ export interface StoreComparison {
    * `known`이 false면 개수를 **쓰지 않는다**('확인 불가'). 못 본 것을 0으로 반올림하지 않는다.
    */
   outside: { count: number; known: boolean };
+  /** 내 사진 파일의 총 바이트 — 대시보드 숫자와 대조할 수 있게(2026-07-26 "왜 2.87MB?"). */
+  bytes: number;
+  /**
+   * **미완료 멀티파트 조각** — 객체 목록에도 대시보드 파일 목록에도 안 보이면서 용량을 먹는다.
+   * "다 지웠는데 왜 용량이 남지?"의 유일한 설명 가능한 후보다.
+   */
+  multipart: { mine: number; outside: number; known: boolean };
+  /** 서버 함수 판. 앱이 기대하는 판보다 낮으면 새 지표를 못 믿는다. */
+  fnVersion: number;
 }
 
 /**
@@ -125,6 +134,12 @@ export interface Listing {
   /** 내 폴더 **밖**의 최상위 항목 수. `outsideKnown`이 false면 이 값을 쓰지 않는다. */
   outside?: number;
   outsideKnown?: boolean;
+  /** 내 폴더 총 바이트. */
+  bytes?: number;
+  /** 미완료 멀티파트 조각 — 목록에 안 보이면서 용량을 먹는다. */
+  multipart?: { mine: number; outside: number; known: boolean };
+  /** 서버에 배포된 함수 판(0 = 안 밝힘 = 낡음). */
+  version?: number;
   error?: string | undefined;
 }
 
@@ -148,6 +163,14 @@ export function unionListings(listings: Listing[]): Listing {
     outside: listings.reduce((a, l) => a + (l.outside ?? 0), 0),
     // **하나라도 모르면 전체를 모른다**(truncated와 같은 규율 — 부분 정보로 만든 합은 거짓말이다).
     outsideKnown: listings.length > 0 && listings.every((l) => l.outsideKnown === true),
+    bytes: listings.reduce((a, l) => a + (l.bytes ?? 0), 0),
+    multipart: {
+      mine: listings.reduce((a, l) => a + (l.multipart?.mine ?? 0), 0),
+      outside: listings.reduce((a, l) => a + (l.multipart?.outside ?? 0), 0),
+      known: listings.length > 0 && listings.every((l) => l.multipart?.known === true),
+    },
+    // 판이 여럿이면 **가장 낮은 것**을 쓴다 — 하나라도 낡으면 그 기능은 못 믿는다.
+    version: listings.length ? Math.min(...listings.map((l) => l.version ?? 0)) : 0,
   };
 }
 
@@ -370,6 +393,9 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
   let fileAudit: MediaFileAudit | null = null;
   let fileAuditNote: string | null = files ? null : '이 기기의 사진 저장소가 R2가 아니라 목록을 물어볼 수 없어요';
   let outside = { count: 0, known: false };
+  let bytes = 0;
+  let multipart = { mine: 0, outside: 0, known: false };
+  let fnVersion = 0;
   if (files) {
     try {
       const [listing, rowIds] = await Promise.all([files.list(), port.mediaRowIds()]);
@@ -377,6 +403,9 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
       else {
         fileAudit = auditMediaFiles(listing.ids, rowIds, { foreign: listing.foreign ?? 0, truncated: listing.truncated === true });
         outside = { count: listing.outside ?? 0, known: listing.outsideKnown === true };
+        bytes = listing.bytes ?? 0;
+        multipart = listing.multipart ?? { mine: 0, outside: 0, known: false };
+        fnVersion = listing.version ?? 0;
       }
     } catch (e) {
       fileAuditNote = (e as Error).message;
@@ -394,6 +423,9 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
     serverTombstoned: serverTombstones,
     serverPurged,
     outside,
+    bytes,
+    multipart,
+    fnVersion,
   };
 }
 

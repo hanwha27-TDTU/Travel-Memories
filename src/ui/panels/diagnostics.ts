@@ -27,7 +27,7 @@ import { recentErrors, clearErrors } from '../../app/errorLog';
 import { CHANGELOG } from '../../app/changelog';
 import { syncStatus, requestSync } from '../../services/autoSync';
 import { compareStore, storeStateRemote, unionListings, DOMAIN_LABEL } from '../../services/storeState';
-import { r2ListObjects, r2DeleteObject } from '../../services/r2';
+import { r2ListObjects, r2DeleteMany, r2AbortMultipart } from '../../services/r2';
 import { PURGE_DOMAINS, requeueUnpropagatedPurges, purgeServerOnly } from '../../services/purge';
 import { supabase } from '../../services/supabase/client';
 import {
@@ -43,6 +43,12 @@ import { renderTool, levelFromMetrics, worst, type Verdict, type Metric, type Le
 
 /** 접힌 출처에 보일 사진 id 상한. 넘으면 "외 N건 생략"이라고 **적는다**(조용히 자르지 않는다). */
 export const FILE_ID_CAP = 20;
+
+/**
+ * 이 앱이 **기대하는** 사진 저장소 함수 판. 서버가 이보다 낮으면 새 지표를 믿을 수 없다.
+ * 함수에 연산을 추가할 때 `FN_VERSION`과 **함께** 올린다 — 안 올리면 화면이 낡음을 못 알아본다.
+ */
+export const EXPECTED_FN_VERSION = 4;
 
 /** 화면에 표시할 앱 버전 — changelog가 SSOT(손으로 적지 않는다). */
 const APP_VERSION = `v${CHANGELOG[0]?.version ?? '0.00'}`;
@@ -772,6 +778,42 @@ export async function storeStateProbe(): Promise<Verdict> {
         : {}),
   });
 
+  // ── 보이지 않는데 용량을 먹는 조각 ─────────────────────────────────
+  // 2026-07-26 사용자: 버킷 최상위가 **완전히 비었는데** 대시보드는 2.87MB를 계속 보여줬다.
+  // *"설마 휴지통 이런 데 간 거 아님? 완전히 날려버리지 않고?"*
+  //
+  // R2에 휴지통은 없다. 그러나 **미완료 멀티파트 업로드**는 정확히 그렇게 행동한다 —
+  // 업로드가 중간에 끊기면 조각이 남는데 **객체 목록에도 대시보드 파일 목록에도 안 보이면서
+  // 저장 공간은 차지한다.** 앱이 못 보면 그 질문에 영영 답할 수 없다(§8 — 보이게 만든다).
+  metrics.push({
+    label: '올리다 만 사진 조각',
+    actual: cmp.multipart.known ? `${cmp.multipart.mine}개` : '확인 못 함',
+    expected: '0개',
+    level: !cmp.multipart.known ? 'unknown' : cmp.multipart.mine ? 'todo' : 'ok',
+    ...(!cmp.multipart.known
+      ? { meaning: '사진 저장소에 물어보지 못했어요. 서버 함수가 낡았거나 조회에 실패했습니다.' }
+      : cmp.multipart.mine
+        ? {
+            meaning:
+              '사진을 올리다 중간에 끊긴 조각이에요. **목록에도 대시보드에도 안 보이는데 용량만 차지합니다** — 아래 [올리다 만 조각 정리]로 치울 수 있어요.',
+          }
+        : {}),
+  });
+
+  // 서버 함수 판 — 앱이 기대하는 것보다 낮으면 **위 지표들을 못 믿는다.** 그걸 말한다.
+  metrics.push({
+    label: '사진 저장소 함수 판',
+    actual: cmp.fnVersion ? `v${cmp.fnVersion}` : '알 수 없음(낡음)',
+    expected: `v${EXPECTED_FN_VERSION} 이상`,
+    level: cmp.fnVersion >= EXPECTED_FN_VERSION ? 'ok' : 'todo',
+    ...(cmp.fnVersion >= EXPECTED_FN_VERSION
+      ? {}
+      : {
+          meaning:
+            '서버에 배포된 사진 저장소 함수가 이 앱보다 낡았어요. 새 지표(조각·폴더 밖 항목)는 지금 믿을 수 없습니다 — 함수를 다시 배포해 주세요.',
+        }),
+  });
+
   // ── 전파되지 않은 영구삭제 ─────────────────────────────────────────
   // 내가 지웠다고 믿는데(로컬 표식) 서버엔 tombstone으로 남은 것. 로컬 표식 때문에 휴지통에도
   // 안 보이므로 **어디서도 손댈 수 없는 상태**다 — 앱이 말해주지 않으면 영원히 남는다.
@@ -838,6 +880,27 @@ export async function storeStateProbe(): Promise<Verdict> {
             },
           ]
         : []),
+      ...(cmp.multipart.known && cmp.multipart.mine
+        ? [
+            {
+              // 지표를 만들었으면 **고칠 곳도 만든다**(진단 §7-B — 그날 이걸 두 번 어겼다).
+              label: '올리다 만 조각 정리',
+              hook: 'data-abort-multipart',
+              run: async (): Promise<string> => {
+                const r = await r2AbortMultipart(c);
+                if (r.error) return `조각을 치우지 못했어요: ${r.error}`;
+                // 되읽기 — 목록을 다시 물어 실제로 사라졌는지 확인한다.
+                const after = await r2ListObjects(c);
+                if (after.error || !after.multipart.known) {
+                  return `${r.aborted}건을 치웠지만 다시 확인하지 못했어요.`;
+                }
+                return after.multipart.mine
+                  ? `${r.aborted}건을 치웠는데 ${after.multipart.mine}건이 남아 있어요.`
+                  : `조각 ${r.aborted}건을 치웠어요. 다시 대조합니다.`;
+              },
+            },
+          ]
+        : []),
       ...(leftoverFileIds.length
         ? [
             {
@@ -848,23 +911,14 @@ export async function storeStateProbe(): Promise<Verdict> {
               primary: !stranded && !clearableIds.length,
               hook: 'data-clear-leftover-files',
               run: async (): Promise<string> => {
-                const fails: string[] = [];
-                let sent = 0;
-                for (const id of leftoverFileIds) {
-                  const r = await r2DeleteObject(c, id);
-                  if (r.error) fails.push(`${id.slice(0, 8)}(${r.error})`);
-                  else sent++;
-                }
-                // **되읽어 확인한다** — 성공 응답이 아니라 목록을 다시 물어본다(데이터 안전 규율).
-                const after = await r2ListObjects(c);
-                if (after.error) {
-                  return `${sent}건 삭제를 요청했지만 목록을 다시 읽지 못해 확인하지 못했어요: ${after.error}`;
-                }
-                const still = leftoverFileIds.filter((id) => after.ids.includes(id));
-                if (still.length) {
-                  return `${leftoverFileIds.length}건 중 ${still.length}건이 아직 남아 있어요${fails.length ? ` — ${fails.join(' · ')}` : ''}`;
-                }
-                return `사진 파일 ${sent}건을 치웠어요. 다시 대조합니다.`;
+                // 건당 왕복 대신 **한 번에** 보내고, 함수가 지운 뒤 목록을 다시 읽어 확인한 결과를
+                // 받는다(v0.98). 100장이면 100왕복이던 것이 1왕복이 되고, "성공 응답"이 아니라
+                // **되읽기**가 완료의 근거다.
+                const r = await r2DeleteMany(c, leftoverFileIds);
+                if (r.error) return `치우지 못했어요: ${r.error}`;
+                if (!r.verified) return `${r.sent}건 삭제를 요청했지만 다시 읽어 확인하지 못했어요.`;
+                if (r.stillThere.length) return `${r.requested}건 중 ${r.stillThere.length}건이 아직 남아 있어요.`;
+                return `사진 파일 ${r.sent}건을 치웠어요. 다시 대조합니다.`;
               },
             },
           ]
@@ -922,7 +976,10 @@ export async function storeStateProbe(): Promise<Verdict> {
             {
               // 목록에 상한을 둔다 — 여행 사진 앱이라 수백 장이 정상이고, 상한이 없으면
               // 수리 버튼이 목록 뒤로 밀려 진단 도구가 스스로 수리 경로를 막는다(진단 §5.2).
-              label: `사진 파일 ${fa.files}개 · 기록 ${fa.rows}개${fa.truncated ? ' (다 못 봄)' : ''}`,
+              // 총 바이트를 **여기서 말한다.** 2026-07-26에 사용자가 대시보드의 「버킷 크기
+              // 2.87MB」와 앱의 「사진 파일 0개」를 대조하지 못해 콘솔을 반복해서 열었다.
+              // 앱이 자기 합계를 말하면 그 대조를 화면 안에서 끝낼 수 있다.
+              label: `사진 파일 ${fa.files}개(${bytes(cmp.bytes)}) · 기록 ${fa.rows}개${fa.truncated ? ' (다 못 봄)' : ''}`,
               build: () => {
                 const rows: [string, string][] = [];
                 const show = (ids: string[], what: string): void => {

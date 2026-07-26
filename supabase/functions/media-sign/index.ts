@@ -16,6 +16,11 @@
 //   3) 인증은 플랫폼 `verify_jwt` 설정에 **의존하지 않는다.** 매 요청 `/auth/v1/user`로 직접
 //      확인한다(verify_jwt가 꺼진 채 배포돼도 sub 위조가 성립하지 않게).
 //   4) 삭제는 브라우저에 권한을 주지 않는다 — 이 함수가 서명하고 이 함수가 실행한다.
+//      · 2026-07-26 추가: 여러 건 삭제(`deleteMany`)는 지운 뒤 **목록을 다시 읽어** 확인한다.
+//        "성공 응답"을 완료로 치지 않는다 — 그 습관이 없어서 M-0029(바이트 삭제 실패가
+//        조용히 증발)가 났다.
+//      · `abortMultipart`는 **내 폴더 아래 미완료 조각만** 중단한다. 이 조각들은 객체 목록에도
+//        대시보드에도 안 보이면서 용량을 먹는다 — 보이지 않는 것을 보이게 만드는 것이 진단이다.
 //   5) **목록의 범위도 서버가 못박는다.** prefix는 검증된 sub에서만 나오고, 요청 본문의
 //      prefix/delimiter/bucket은 읽지도 않는다. 목록 서명 URL은 브라우저로 나가지 않는다.
 //      · 2026-07-26 추가: 내 폴더 **밖**을 최상위 한 번만 훑어 **개수 하나**(`outside`)를
@@ -174,6 +179,22 @@ export function objectKey(userId: string, mediaId: string): string {
 export const LIST_PAGE_SIZE = 1000;
 export const LIST_MAX_PAGES = 10;
 
+/**
+ * 이 함수가 지원하는 연산과 **판**(version).
+ *
+ * 왜 필요한가(2026-07-26): 클라이언트가 새 필드를 기대하는데 서버에 **옛 함수가 배포돼 있으면**
+ * 앱은 그걸 알 방법이 없어 방어 코드(`?? 0`)로 조용히 넘어간다 — 그 순간 "0개"와 "모름"이
+ * 구분되지 않는다. 실제로 그날 그 방어 코드를 썼다. 함수가 **자기 능력을 스스로 밝히면**
+ * 화면이 「앱이 기대하는 기능이 서버에 없어요」라고 정직하게 말할 수 있다(비타협 원칙 #4).
+ *
+ * 규칙: **연산을 추가하면 이 목록에 넣는다.** 넣지 않으면 클라이언트가 없는 것으로 취급한다.
+ */
+export const FN_VERSION = 4;
+export const FN_OPS = ['probe', 'capabilities', 'list', 'put', 'get', 'delete', 'deleteMany', 'abortMultipart'] as const;
+
+/** 한 번에 지울 수 있는 최대 개수 — 요청 하나가 무한정 길어지지 않게. */
+export const DELETE_MANY_MAX = 200;
+
 /** XML 엔티티 되돌리기. 우리 키(`{uuid}/{uuid}.webp`)엔 없지만 없다고 가정하지 않는다. */
 export function xmlUnescape(s: string): string {
   return s
@@ -186,6 +207,8 @@ export function xmlUnescape(s: string): string {
 
 export interface ListPage {
   keys: string[];
+  /** 이 페이지 객체들의 **바이트 합계**. 앱이 "내 사진 N개 · X MB"를 스스로 말할 수 있게 한다. */
+  bytes: number;
   /**
    * `delimiter=/`로 조회했을 때 서버가 접어서 돌려주는 **최상위 폴더들**(`CommonPrefixes`).
    * 폴더 안을 열어보지 않고 "내 폴더 말고 뭐가 더 있나"를 한 번의 요청으로 알 수 있다.
@@ -204,8 +227,15 @@ export interface ListPage {
  */
 export function parseListXml(xml: string): ListPage {
   const keys: string[] = [];
-  for (const m of xml.matchAll(/<Contents>[\s\S]*?<Key>([\s\S]*?)<\/Key>[\s\S]*?<\/Contents>/g)) {
-    keys.push(xmlUnescape(m[1] ?? ''));
+  let bytes = 0;
+  for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+    const block = m[1] ?? '';
+    const k = block.match(/<Key>([\s\S]*?)<\/Key>/);
+    if (!k) continue;
+    keys.push(xmlUnescape(k[1] ?? ''));
+    // 크기를 못 읽으면 0으로 더한다 — 합계를 **부풀리지 않는다**(모르면 작게, 거짓 경보 방지).
+    const sz = block.match(/<Size>\s*(\d+)\s*<\/Size>/);
+    bytes += sz ? Number(sz[1]) : 0;
   }
   const prefixes: string[] = [];
   for (const m of xml.matchAll(/<CommonPrefixes>[\s\S]*?<Prefix>([\s\S]*?)<\/Prefix>[\s\S]*?<\/CommonPrefixes>/g)) {
@@ -213,7 +243,7 @@ export function parseListXml(xml: string): ListPage {
   }
   const truncated = /<IsTruncated>\s*true\s*<\/IsTruncated>/i.test(xml);
   const tok = xml.match(/<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/);
-  return { keys, prefixes, nextToken: truncated && tok ? xmlUnescape(tok[1] ?? '') : null };
+  return { keys, bytes, prefixes, nextToken: truncated && tok ? xmlUnescape(tok[1] ?? '') : null };
 }
 
 /**
@@ -229,6 +259,34 @@ export function parseListXml(xml: string): ListPage {
 export function countOutside(page: ListPage, myPrefix: string): number {
   // 최상위 파일(폴더에 안 든 것) + 내 것이 아닌 폴더.
   return page.keys.length + page.prefixes.filter((p) => p !== myPrefix).length;
+}
+
+/**
+ * **미완료 멀티파트 업로드** 목록 파싱(`GET /{bucket}?uploads`).
+ *
+ * 왜 필요한가(2026-07-26 사용자 실기기): 버킷 최상위가 **완전히 비었는데** 대시보드는
+ * 2.87MB를 계속 보여줬다. 사용자가 물었다 — *"설마 휴지통 이런 데 간 거 아님?"*
+ *
+ * R2에 휴지통은 없다. 그러나 **미완료 멀티파트 업로드**는 실제로 그렇게 행동한다:
+ * 업로드가 중간에 끊기면 조각이 남는데 **객체 목록에도 대시보드 파일 목록에도 안 보이면서
+ * 저장 공간은 차지한다.** 앱이 이걸 못 보면 "다 지웠는데 왜 용량이 남지?"를 영영 설명할 수 없다.
+ *
+ * 보이지 않는 것을 보이게 만드는 것이 진단의 일이다(§8).
+ */
+export interface MultipartUpload {
+  key: string;
+  uploadId: string;
+}
+
+export function parseMultipartXml(xml: string): MultipartUpload[] {
+  const out: MultipartUpload[] = [];
+  for (const m of xml.matchAll(/<Upload>([\s\S]*?)<\/Upload>/g)) {
+    const block = m[1] ?? '';
+    const k = block.match(/<Key>([\s\S]*?)<\/Key>/);
+    const u = block.match(/<UploadId>([\s\S]*?)<\/UploadId>/);
+    if (k && u) out.push({ key: xmlUnescape(k[1] ?? ''), uploadId: xmlUnescape(u[1] ?? '') });
+  }
+  return out;
 }
 
 /**
@@ -281,9 +339,9 @@ export async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
 
-  let body: { op?: unknown; mediaId?: unknown };
+  let body: { op?: unknown; mediaId?: unknown; mediaIds?: unknown };
   try {
-    body = (await req.json()) as { op?: unknown; mediaId?: unknown };
+    body = (await req.json()) as { op?: unknown; mediaId?: unknown; mediaIds?: unknown };
   } catch {
     return json({ error: 'bad_json' }, 400);
   }
@@ -296,6 +354,17 @@ export async function handler(req: Request): Promise<Response> {
       ok: env !== null,
       readPolicy: 'presigned', // B — 공개 URL 아님
       missing: env ? [] : R2_SECRET_NAMES.filter((n) => !envGet(n)),
+    });
+  }
+  // capabilities: **이 함수가 무엇을 할 줄 아는가.** 비밀은 담지 않으므로 인증 전에 답한다 —
+  // 인증이 깨진 상황에서도 "서버 판이 낡았나"를 앱이 구분할 수 있어야 한다.
+  if (op === 'capabilities') {
+    return json({
+      version: FN_VERSION,
+      ops: FN_OPS,
+      // 서버 시각 — 클라이언트 시계가 어긋나면 서명이 만료로 거절된다. 그 진단의 재료다.
+      serverTime: new Date().toISOString(),
+      secretsOk: env !== null,
     });
   }
   if (!env) return json({ error: 'r2_env_missing' }, 500);
@@ -312,6 +381,7 @@ export async function handler(req: Request): Promise<Response> {
     const prefix = `${userId}/`;
     const ids: string[] = [];
     let foreign = 0; // 우리 형식이 아닌 키 — 조용히 버리지 않고 개수로 보고한다
+    let bytes = 0; // 내 폴더 총 바이트
     let token: string | null = null;
     let truncated = false;
     try {
@@ -326,6 +396,7 @@ export async function handler(req: Request): Promise<Response> {
         const r = await fetch(url);
         if (!r.ok) return json({ error: 'r2_list_failed', status: r.status }, 502);
         const parsed: ListPage = parseListXml(await r.text());
+        bytes += parsed.bytes;
         for (const k of parsed.keys) {
           const id = mediaIdOfKey(k);
           if (id) ids.push(id);
@@ -370,8 +441,122 @@ export async function handler(req: Request): Promise<Response> {
       /* outsideKnown=false 로 남긴다 — 화면이 '확인 불가'라고 말한다. */
     }
 
+    // ── 미완료 멀티파트 업로드 ─────────────────────────────────────
+    // 2026-07-26 사용자: 버킷 최상위가 **완전히 비었는데** 대시보드는 2.87MB를 계속 보여줬다.
+    // *"설마 휴지통 이런 데 간 거 아님?"* — R2에 휴지통은 없다. 그런데 **미완료 멀티파트
+    // 업로드**는 정확히 그렇게 행동한다: 객체 목록에도 대시보드 파일 목록에도 **안 보이는데
+    // 저장 공간은 차지한다.** 앱이 이걸 못 보면 그 질문에 영영 답할 수 없다.
+    //
+    // 보이지 않는 것을 보이게 만드는 것이 진단의 일이다(§8).
+    let mpMine = 0;
+    let mpOutside = 0;
+    let mpKnown = false;
+    try {
+      const url = await presign(env, 'GET', '', Date.now(), [['uploads', '']]);
+      const r = await fetch(url);
+      if (r.ok) {
+        for (const u of parseMultipartXml(await r.text())) {
+          if (u.key.startsWith(prefix)) mpMine++;
+          else mpOutside++;
+        }
+        mpKnown = true;
+      }
+    } catch {
+      /* mpKnown=false — 못 본 것을 0으로 반올림하지 않는다. */
+    }
+
     // 키 전체가 아니라 mediaId만 돌려준다(폴더=uid는 다시 담지 않는다).
-    return json({ ids, foreign, truncated, count: ids.length, outside, outsideKnown });
+    return json({
+      ids,
+      foreign,
+      truncated,
+      count: ids.length,
+      bytes, // 내 폴더 총 바이트 — 앱이 "N개 · X MB"를 스스로 말할 수 있게
+      outside,
+      outsideKnown,
+      multipart: { mine: mpMine, outside: mpOutside, known: mpKnown },
+      version: FN_VERSION,
+    });
+  }
+
+  // ── deleteMany: 여러 장을 한 번에, 그리고 **되읽어 확인** ──────────
+  // 왜(2026-07-26 M-0029): 영구삭제의 바이트 삭제가 "최선노력"이라 실패해도 op을 지웠다.
+  // 재시도 기회가 없어 잔재가 남았고, 사용자는 Cloudflare 콘솔을 직접 열어야 했다.
+  // 그리고 정리할 때 3건이면 3왕복이었다 — 100장이면 100왕복이고 매번 JWT를 다시 검증한다.
+  //
+  // 여기서는 ① 한 번에 받고 ② 지운 뒤 ③ **목록을 다시 읽어** 실제로 사라졌는지 확인한다.
+  // "성공 응답"을 완료로 치지 않는다(데이터 안전 불변식의 read-back과 같은 규율).
+  if (op === 'deleteMany') {
+    const raw = Array.isArray(body.mediaIds) ? body.mediaIds : [];
+    const idsIn = raw.filter((x): x is string => typeof x === 'string' && UUID_RE.test(x));
+    if (!idsIn.length) return json({ error: 'no_media_ids' }, 400);
+    if (idsIn.length > DELETE_MANY_MAX) return json({ error: 'too_many', max: DELETE_MANY_MAX }, 400);
+
+    const prefix = `${userId}/`;
+    const errors: { id: string; status: number }[] = [];
+    let sent = 0;
+    for (const id of idsIn) {
+      try {
+        const url = await presign(env, 'DELETE', objectKey(userId, id), Date.now());
+        const r = await fetch(url, { method: 'DELETE' });
+        // R2는 없는 객체 삭제도 성공을 준다(멱등).
+        if (r.ok || r.status === 404) sent++;
+        else errors.push({ id, status: r.status });
+      } catch {
+        errors.push({ id, status: 0 });
+      }
+    }
+
+    // ③ 되읽기 — 한 번의 목록 조회로 전부 확인한다(건당 확인보다 싸고 더 정확하다).
+    let stillThere: string[] = [];
+    let verified = false;
+    try {
+      const url = await presign(env, 'GET', '', Date.now(), [
+        ['list-type', '2'],
+        ['prefix', prefix],
+        ['max-keys', String(LIST_PAGE_SIZE)],
+      ]);
+      const r = await fetch(url);
+      if (r.ok) {
+        const left = new Set(parseListXml(await r.text()).keys.map(mediaIdOfKey).filter((x): x is string => x !== null));
+        stillThere = idsIn.filter((id) => left.has(id));
+        verified = true;
+      }
+    } catch {
+      /* verified=false — 확인하지 못한 것을 성공으로 적지 않는다. */
+    }
+
+    return json({ requested: idsIn.length, sent, stillThere, verified, errors, version: FN_VERSION });
+  }
+
+  // ── abortMultipart: 보이지 않는 조각 치우기 ────────────────────────
+  // 미완료 멀티파트 업로드는 객체 목록에 안 보이면서 용량을 먹는다. 지표를 만들었으면
+  // **고칠 곳도 만든다**(진단 §7-B — 그날 이걸 두 번 어겼다).
+  //
+  // 🔐 **내 폴더 아래 것만** 중단한다. 남의 조각은 세기만 하고 손대지 않는다.
+  if (op === 'abortMultipart') {
+    const prefix = `${userId}/`;
+    let aborted = 0;
+    const failed: { key: string; status: number }[] = [];
+    let listed = false;
+    try {
+      const lu = await presign(env, 'GET', '', Date.now(), [['uploads', '']]);
+      const lr = await fetch(lu);
+      if (lr.ok) {
+        listed = true;
+        for (const u of parseMultipartXml(await lr.text())) {
+          if (!u.key.startsWith(prefix)) continue; // 남의 것은 건드리지 않는다
+          const du = await presign(env, 'DELETE', u.key, Date.now(), [['uploadId', u.uploadId]]);
+          const dr = await fetch(du, { method: 'DELETE' });
+          if (dr.ok || dr.status === 204 || dr.status === 404) aborted++;
+          else failed.push({ key: u.key.slice(prefix.length), status: dr.status });
+        }
+      }
+    } catch {
+      /* listed=false — 못 봤으면 "0건 정리"라고 말하지 않는다. */
+    }
+    if (!listed) return json({ error: 'r2_multipart_list_failed' }, 502);
+    return json({ aborted, failed, version: FN_VERSION });
   }
 
   const mediaId = typeof body.mediaId === 'string' ? body.mediaId : '';
