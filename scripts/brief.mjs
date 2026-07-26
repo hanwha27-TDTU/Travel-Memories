@@ -51,6 +51,9 @@ export const SKILL_ROUTES = [
   { match: /^src\/app\/deviceId/, skill: 'sync-offline-dev' },
   { match: /^src\/app\/errorLog/, skill: 'diagnostics-dev' },
   { match: /^src\/domain\/integrity/, skill: 'diagnostics-dev' },
+  // 자동 동기화 상태 → 사용자 문장. **판정 문장 자체가 결함일 수 있는** 부류라 진단 헌장이다
+  // (§10 ③ · 7-D). 2026-07-27: 성공 72초 뒤인데 「판정 불가」로 총괄을 끌어내렸다.
+  { match: /^src\/domain\/syncStatusVerdict/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/(sync|autoSync|purge|trips|moments|media|expenses|trash)\.ts/, skill: 'sync-offline-dev' },
   { match: /^src\/(sync|offline)\//, skill: 'sync-offline-dev' },
   { match: /^src\/domain\/\w+\/rowmap/, skill: 'sync-offline-dev' },
