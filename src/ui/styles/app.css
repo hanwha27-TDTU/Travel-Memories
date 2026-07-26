@@ -235,6 +235,25 @@
   background: var(--bg-2);
   border-radius: var(--radius-pill);
 }
+/* 누를 수 있는 상태 줄 — 조치할 곳으로 데려간다(2026-07-26 사용자 제안).
+   전체 알약을 키우지 않고 **세로 여백만** 늘려 손가락 표적을 확보한다: 시각 무게는 그대로 두고
+   (이 줄이 조용해야 하는 이유는 변하지 않았다) 누를 수 있는 넓이만 44px로 만든다. */
+.sync-note.is-actionable {
+  cursor: pointer;
+  /* 토큰이 진실원 — 픽셀을 손으로 맞추면 토큰이 바뀔 때 조용히 어긋난다(라이브 검사가 42px을 잡았다). */
+  min-height: var(--touch-target-min);
+  border: 1px solid transparent;
+}
+.sync-note.is-actionable:hover { border-color: color-mix(in srgb, var(--ink) 18%, transparent); }
+.sync-note.is-actionable:focus-visible { outline: 2px solid var(--a1); outline-offset: 2px; }
+/* 갈 곳이 있다는 유일한 시각 신호. 색이 아니라 **글리프**로 말한다(색각·흑백 대응).
+   진짜 <button>이라 키보드·화면읽기가 이걸 잡는다. 배경 없이 글리프만 보이게 둔다. */
+.sync-note-go {
+  border: 0; background: none; color: inherit; cursor: pointer;
+  padding: 0 2px; font: inherit; font-weight: 700; opacity: 0.7; line-height: 1;
+}
+.sync-note-go:focus-visible { outline: 2px solid var(--a1); outline-offset: 2px; border-radius: 4px; }
+
 /* 정상: 배경 없이 옅게 — "이상 없음"은 확인만 되면 되고 자리를 차지할 이유가 없다. */
 .sync-note.is-ok {
   background: transparent; padding-left: 2px; opacity: 0.62; font-weight: 500;
@@ -416,7 +435,7 @@
 .fx-row { display: flex; gap: var(--space-2); align-items: baseline; padding: 2px 0; flex-wrap: wrap; }
 .fx-row-k { flex: 0 0 72px; font-size: 0.74rem; color: var(--ink-soft); font-weight: 700; }
 .fx-row-v { flex: 1 1 auto; font-size: 0.8rem; color: var(--ink); font-variant-numeric: tabular-nums; }
-.fx-note { margin: var(--space-2) 0 0; font-size: 0.72rem; color: var(--ink-soft); line-height: 1.5; font-style: italic; }
+.fx-note { margin: var(--space-2) 0 0; font-size: 0.72rem; color: var(--ink-soft); line-height: 1.6; }
 
 /* 여행 없음 */
 .detail-notfound {
@@ -761,7 +780,14 @@
 .guide-step-body { display: flex; flex-direction: column; gap: 2px; }
 .guide-step-body b { font-size: 0.85rem; color: var(--ink); }
 .guide-step-desc { font-size: 0.8rem; color: var(--ink-soft); line-height: 1.55; }
-.guide-note { margin: var(--space-2) 0 0; font-size: 0.76rem; color: var(--ink-soft); font-style: italic; }
+/* 보조 안내문. **기울임을 쓰지 않는다** — 한글 글꼴에는 진짜 이탤릭 자형이 없어서 브라우저가
+   글자를 억지로 비스듬히 밀어 그린다(synthetic oblique). 획 균형이 무너져 길수록 읽기 어렵고
+   화면이 조잡해 보인다(2026-07-26 사용자 지적). 위계는 **크기와 색**으로 준다.
+   18곳이 이 클래스를 쓰므로 여기 한 곳을 고치면 전부 따라온다(§7). */
+.guide-note {
+  margin: var(--space-3) 0 0;
+  font-size: 0.76rem; line-height: 1.75; color: var(--ink-soft);
+}
 
 @media (max-width: 560px) {
   .guide-header { padding: var(--space-3) var(--space-4); }
@@ -1325,7 +1351,7 @@
   width: 100%; max-width: 100%; height: auto; display: block;
   border: 1px solid var(--line); border-radius: var(--radius-medium);
 }
-.r2-shot-cap { margin-top: 4px; font-size: 0.72rem; color: var(--ink-soft); font-style: italic; }
+.r2-shot-cap { margin-top: 4px; font-size: 0.72rem; color: var(--ink-soft); }
 .r2-table { display: flex; flex-direction: column; gap: 6px; margin: var(--space-2) 0; }
 .r2-row {
   display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
@@ -1398,7 +1424,7 @@
 .se-bar-fill { height: 100%; background: var(--a1); border-radius: 3px; }
 .se-item-sub { margin: 0; font-size: 0.74rem; color: var(--ink-soft); }
 .se-basis { margin: 6px 0 0; font-size: 0.8rem; line-height: 1.6; color: var(--ink); }
-.se-gap { margin: 4px 0 0; font-size: 0.76rem; line-height: 1.55; color: var(--ink-soft); font-style: italic; }
+.se-gap { margin: 4px 0 0; font-size: 0.76rem; line-height: 1.6; color: var(--ink-soft); }
 .se-w { margin-top: 8px; }
 .se-w-sum { cursor: pointer; font-size: 0.76rem; font-weight: 700; color: var(--a1); }
 .se-findings { margin-top: var(--space-2); }

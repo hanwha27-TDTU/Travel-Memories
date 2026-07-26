@@ -89,10 +89,48 @@ export function el<K extends keyof HTMLElementTagNameMap>(
  */
 export type NoteState = 'ok' | 'info' | 'error';
 
-export function setNote(node: HTMLElement, text: string, state: NoteState): void {
+/**
+ * 상태 줄을 **누를 수 있게** 만드는 목적지.
+ *
+ * 왜(사용자 제안 2026-07-26): 첫 화면의 「동기화 대기 13건」이 *말만 하고 갈 곳을 주지 않았다.*
+ * 사용자는 [데이터 관리] → [진단 도구] → [동기화 상태]를 스스로 찾아 들어가야 했다.
+ * 진단 §7-B와 같은 자리다 — **판정만 하고 행동을 못 주면 관측으로 되돌아간 것이다.**
+ */
+export interface NoteAction {
+  /** 눌렀을 때 갈 곳. */
+  go: () => void;
+  /** 화면읽기 라벨 — 화면에는 '›'만 보이므로 여기서 무엇을 하는 버튼인지 말한다. */
+  label: string;
+}
+
+/**
+ * 상태 줄을 갱신한다.
+ *
+ * `go`는 **선택이 아니라 필수**다(`null`을 명시해야 한다). 왜: 갈 곳이 있는데 안 준 상태가
+ * 이 저장소의 최빈 결함군이고(§7), 선택적 매개변수는 **누락을 조용히 삼킨다** — M-0007이
+ * 정확히 그 형태였다. `null`을 적게 만들면 "여긴 갈 곳이 없다"가 **결정**이 되고, 옆에 이유를
+ * 적게 된다.
+ */
+export function setNote(node: HTMLElement, text: string, state: NoteState, go: NoteAction | null): void {
   applyText(node, text);
   node.classList.toggle('is-ok', state === 'ok');
   node.classList.toggle('is-info', state === 'info');
   node.classList.toggle('is-error', state === 'error');
   node.hidden = text === '';
+
+  // 재렌더마다 이전 배선이 남지 않게 **속성 대입**으로 갈아 끼운다(addEventListener는 쌓인다).
+  node.onclick = null;
+  node.classList.toggle('is-actionable', go !== null);
+  if (!go) return;
+
+  // **역할을 바꾸지 않는다.** 이 줄은 `role="status"` 라이브 영역이라 글이 바뀌면 화면읽기가
+  // 읽어 준다 — 여기에 `role="button"`을 덮으면 그 알림이 사라진다(실제로 한 번 그렇게 짰다가
+  // 라이브 검사에서 잡혔다). 대신 **진짜 `<button>`을 안에 넣는다**: 키보드·화면읽기는 그
+  // 버튼이 책임지고, 손가락·마우스는 알약 전체를 눌러도 되게 클릭을 위로 받는다(버튼의 활성화는
+  // 어차피 이 노드로 버블링되므로 핸들러는 **한 곳**이면 된다 — 두 번 실행되지 않는다).
+  const btn = el('button', 'sync-note-go', '›');
+  btn.type = 'button';
+  btn.setAttribute('aria-label', go.label);
+  node.appendChild(btn);
+  node.onclick = () => go.go();
 }

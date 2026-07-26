@@ -45,7 +45,16 @@ function dot(level: Level): HTMLElement {
   return d;
 }
 
-export function openDiagnosticsHub(): void {
+/**
+ * 진단 허브를 연다. `toolId`를 주면 **그 도구로 바로 들어간다**(허브 홈을 거치지 않는다).
+ *
+ * 왜(사용자 제안 2026-07-26): 첫 화면의 「동기화 대기 13건」 칩이 *말만 하고 갈 곳을 주지
+ * 않았다.* 사용자는 [데이터 관리] → [진단 도구] → [동기화 상태]를 스스로 찾아 들어가야 했다.
+ * 진단 §7-B와 같은 자리다 — **판정만 하고 행동을 못 주면 관측으로 되돌아간 것이다.**
+ *
+ * 모르는 id를 주면 허브 홈을 연다 — 조용히 실패하지 않고, 잘못된 화면도 보여주지 않는다.
+ */
+export function openDiagnosticsHub(toolId?: string): void {
   const prevFocus = document.activeElement as HTMLElement | null;
 
   const overlay = el('div', 'overlay-base guide-overlay');
@@ -159,7 +168,11 @@ export function openDiagnosticsHub(): void {
   modal.append(header, body);
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
-  showHome();
+
+  // 지목된 도구로 바로 들어간다. 없는 id면 허브 홈 — 모르는 곳으로 데려가지 않는다.
+  const target = toolId ? DIAG_TOOLS.find((t) => t.id === toolId) : undefined;
+  if (target) showDetail(target);
+  else showHome();
 }
 
 /** 허브가 아는 도구 수 — 다른 화면이 "N개"를 손으로 세지 않도록. */

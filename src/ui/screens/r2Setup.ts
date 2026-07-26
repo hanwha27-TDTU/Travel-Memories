@@ -240,14 +240,15 @@ function probePanel(): HTMLElement {
   btn.addEventListener('click', () => {
     const client = supabase();
     if (!client) {
-      setNote(note, '아직 Supabase 연결이 설정되지 않았습니다(로컬 전용 모드).', 'info');
+      // 이 화면이 곧 조치 화면이다 — 갈 곳을 만들면 자기 자신을 가리킨다(§7 제외 이유).
+      setNote(note, '아직 Supabase 연결이 설정되지 않았습니다(로컬 전용 모드).', 'info', null);
       return;
     }
     btn.disabled = true;
-    setNote(note, '확인 중…', 'info');
+    setNote(note, '확인 중…', 'info', null);
     void r2Probe(client)
-      .then((r) => setNote(note, r.detail, r.ok ? 'ok' : 'error'))
-      .catch((e: Error) => setNote(note, `확인 실패: ${e.message}`, 'error'))
+      .then((r) => setNote(note, r.detail, r.ok ? 'ok' : 'error', null))
+      .catch((e: Error) => setNote(note, `확인 실패: ${e.message}`, 'error', null))
       .finally(() => {
         btn.disabled = false;
       });

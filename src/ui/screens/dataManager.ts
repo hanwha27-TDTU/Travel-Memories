@@ -256,17 +256,27 @@ function restorePanel(onChanged: () => void): HTMLElement {
 }
 
 // ── 상세 패널: 휴지통 ────────────────────────────────────────────────
-function trashPanel(onChanged: () => void): HTMLElement {
+function trashPanel(onChanged: () => void, closeHub: () => void): HTMLElement {
   const box = el('div', 'guide-detail-body');
-  box.append(
-    el('h3', 'guide-h', '삭제한 여행'),
-    el('p', 'guide-p', '삭제한 여행을 되살리거나, 이 기기에서 영구히 지워 저장공간을 비울 수 있어요.'),
-  );
+  // 제목을 다시 적지 않는다 — 바로 위 상세 바가 이미 「🗑 휴지통」이라고 말한다.
+  // 「삭제한 여행」 h3 + 「삭제한 여행 1개」 소제목이 겹쳐 같은 말을 두 번 하고 있었다.
+  box.append(el('p', 'guide-p', '삭제한 항목을 되살리거나, 영구히 지워 저장공간을 비울 수 있어요.'));
   const list = el('div', 'dm-trash-list');
   box.appendChild(list);
-  /** 영구삭제 결과 안내(특히 "먼저 동기화" 같은 행동 가능한 이유). setNote가 상태별 위계를 준다. */
-  const purgeNote = el('p', 'r2-probe-note');
+  /**
+   * 영구삭제 결과 안내(특히 "먼저 동기화" 같은 행동 가능한 이유). setNote가 상태별 위계를 준다.
+   *
+   * ⚠️ 옛 결함(2026-07-26 사용자 실기기): 여기에 `r2-probe-note`를 썼다. 그 클래스는 **R2 설정
+   * 화면의 가로 줄**을 위한 것이라 `flex: 1 1 240px`을 갖는데, 이 패널은 **세로 flex**라 그
+   * 240px이 **높이**가 되어 화면 절반을 먹는 분홍 덩어리가 됐다. 다른 화면의 클래스를 빌려오면
+   * 그 화면의 레이아웃 가정까지 따라온다 — 상태 줄의 공용 계약은 `sync-note` 하나다.
+   */
+  const purgeNote = el('p', 'sync-note');
+  purgeNote.setAttribute('role', 'status');
   purgeNote.hidden = true;
+
+  /** 실패 사유는 대개 "먼저 동기화"다 — 말만 하지 말고 **거기로 데려간다**(사용자 요청 2026-07-26). */
+  const toSync = { go: (): void => { closeHub(); openDiagnosticsHub('sync'); }, label: '동기화 상태 열기' };
 
   const render = (): void => {
     void (async () => {
@@ -321,12 +331,15 @@ function trashPanel(onChanged: () => void): HTMLElement {
               // 영구삭제 전파(ADR-0027)를 **즉시** 올린다. 이게 없으면 표식이 큐에 앉아만 있고
               // 다른 기기는 영영 모른다 — 실제로 그 상태였다(2026-07-26).
               void requestSync('영구삭제');
-              setNote(purgeNote, '', 'ok');
+              setNote(purgeNote, '', 'ok', null); // 빈 문자열 = 숨김. 보여줄 것도 갈 곳도 없다.
               onChanged();
               render();
             } catch (e) {
               // 조용히 삼키지 않는다 — 특히 "먼저 동기화" 같은 **행동 가능한** 이유는 반드시 보여준다.
-              setNote(purgeNote, (e as Error).message || '영구삭제에 실패했어요.', 'error');
+              // 허브를 **닫고** 연다 — 오버레이를 겹치지 않는다. 겹치면 Escape 한 번에 둘 다
+              // 닫혀(문서 수준 핸들러가 둘 다 반응) 사용자가 자리를 잃는다. 같은 이유로
+              // [R2 저장소 설정]·[진단 도구] 카드도 예전부터 close() 먼저 한다(§7 같은 규율).
+              setNote(purgeNote, (e as Error).message || '영구삭제에 실패했어요.', 'error', toSync);
               confirmBtn.disabled = false;
             }
           })();
@@ -373,7 +386,7 @@ function trashPanel(onChanged: () => void): HTMLElement {
           onChanged();
           render();
         } catch (e) {
-          setNote(purgeNote, (e as Error).message || '복원에 실패했어요.', 'error');
+          setNote(purgeNote, (e as Error).message || '복원에 실패했어요.', 'error', toSync);
           restore.disabled = false;
         }
       })();
@@ -395,11 +408,11 @@ function trashPanel(onChanged: () => void): HTMLElement {
         try {
           await purgeChildPermanently(c.domain, c.id);
           void requestSync('영구삭제');
-          setNote(purgeNote, '', 'ok');
+          setNote(purgeNote, '', 'ok', null); // 빈 문자열 = 숨김. 보여줄 것도 갈 곳도 없다.
           onChanged();
           render();
         } catch (e) {
-          setNote(purgeNote, (e as Error).message || '영구삭제에 실패했어요.', 'error');
+          setNote(purgeNote, (e as Error).message || '영구삭제에 실패했어요.', 'error', toSync);
           confirmBtn.disabled = false;
         }
       })();
@@ -480,7 +493,7 @@ function cards(onChanged: () => void): HubCard[] {
     { icon: '💾', label: '백업 (내보내기)', hint: '기억을 파일로 저장', open: (h) => h.detail('💾 백업 (내보내기)', backupPanel()) },
     { icon: '📥', label: '복원 (가져오기)', hint: '백업 파일에서 병합 복원', open: (h) => h.detail('📥 복원 (가져오기)', restorePanel(onChanged)) },
     { icon: '🩺', label: '진단 도구', hint: '동기화·무결성·저장소·환경·오류 한 곳에', open: (h) => { h.close(); openDiagnosticsHub(); } },
-    { icon: '🗑', label: '휴지통', hint: '삭제한 여행 복원·영구삭제', open: (h) => h.detail('🗑 휴지통', trashPanel(onChanged)) },
+    { icon: '🗑', label: '휴지통', hint: '삭제한 여행 복원·영구삭제', open: (h) => h.detail('🗑 휴지통', trashPanel(onChanged, h.close)) },
     { icon: '📖', label: '가이드', hint: '연결·설정과 개발·설계 안내', open: (h) => { h.close(); openGuide(); } },
   ];
 }
