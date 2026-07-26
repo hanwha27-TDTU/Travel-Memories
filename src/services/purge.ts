@@ -160,3 +160,50 @@ export async function applyPurgedLedger(ids: string[]): Promise<number> {
   }
   return fresh.length;
 }
+
+/**
+ * **전파되지 않은 영구삭제를 다시 큐에 넣는다**(2026-07-26 실기기에서 드러난 상태).
+ *
+ * 왜 이런 상태가 생기나: ADR-0027 **이전**의 `purgeTripPermanently`는 로컬 표식만 남기고
+ * 서버엔 아무것도 알리지 않았다(ADR-0025 — "서버 행은 tombstone으로 남겨 둔다"). 그래서
+ * 그 시절에 지운 항목은 **전파 op가 애초에 만들어진 적이 없다** — 아무리 동기화해도 안 간다.
+ *
+ * 그리고 로컬 표식 때문에 pull이 그 id를 건너뛰므로 **휴지통에도 안 보인다.** 사용자는
+ * "지웠다"고 믿고, 서버는 "안 지웠다"고 알고, 앱은 아무 말도 안 한다. 어디서도 손댈 수 없다.
+ *
+ * 여기서 하는 일은 **의도를 다시 실어 보내는 것**뿐이다 — 로컬은 이미 사용자 뜻대로 지워져
+ * 있으므로 건드리지 않는다. 종류를 모르는 id(다른 기기가 알려준 것)는 `'trip'`으로 보낸다:
+ * `pushPurges`의 여행 갈래가 **가족까지 쓸어 담으므로** 가장 넓게 잡는 쪽이 안전하다.
+ *
+ * 멱등: 이미 큐에 있는 id는 다시 넣지 않는다.
+ * @returns 이번에 새로 큐에 넣은 수.
+ */
+export async function requeueUnpropagatedPurges(ids: string[]): Promise<number> {
+  if (!ids.length) return 0;
+  const d = db();
+  const queued = new Set(
+    (await d.syncQueue.toArray()).filter((q) => purgeDomainOf(q.entityType) !== null).map((q) => q.entityId),
+  );
+  const marks = await d.purgedIds.bulkGet(ids);
+  const now = new Date().toISOString();
+  let added = 0;
+
+  for (const [i, id] of ids.entries()) {
+    if (queued.has(id)) continue;
+    // 표식이 없는 id는 **이 기기가 지운 것이 아니다.** 남의 tombstone을 영구삭제로 바꾸지 않는다.
+    const mark = marks[i];
+    if (!mark) continue;
+    const domain = purgeDomainOf(`purge:${mark.entityType}`) ?? 'trip';
+    await d.syncQueue.add({
+      operationId: crypto.randomUUID(),
+      entityType: purgeOpType(domain),
+      entityId: id,
+      operationType: 'purge',
+      state: 'local_only',
+      attempts: 0,
+      createdAt: now,
+    });
+    added++;
+  }
+  return added;
+}
