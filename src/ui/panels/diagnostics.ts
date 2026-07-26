@@ -20,13 +20,13 @@
 import { el } from '../dom';
 import { db } from '../../offline/db';
 import { diagnoseSync } from '../../services/diagnostics';
-import { forceRepairCascadeOps, retryFailedOps } from '../../services/sync';
+import { forceRepairCascadeOps, retryFailedOps, supabaseMediaIds } from '../../services/sync';
 import { checkIntegrity, CHECK_COUNT } from '../../domain/integrity';
 import { collectEnv, evictionRisk, requestPersist } from '../../services/envReport';
 import { recentErrors, clearErrors } from '../../app/errorLog';
 import { CHANGELOG } from '../../app/changelog';
 import { syncStatus, requestSync } from '../../services/autoSync';
-import { compareStore, storeStateRemote, DOMAIN_LABEL } from '../../services/storeState';
+import { compareStore, storeStateRemote, unionListings, DOMAIN_LABEL } from '../../services/storeState';
 import { r2ListObjects, mediaStoreKind } from '../../services/r2';
 import { PURGE_DOMAINS } from '../../services/purge';
 import { supabase } from '../../services/supabase/client';
@@ -487,10 +487,23 @@ export async function storeStateProbe(): Promise<Verdict> {
     };
   }
 
-  // 사진 파일 목록은 R2 경로에서만 물어볼 수 있다(Supabase Storage엔 이 함수가 없다).
-  // 종류 판단을 여기서 하고 storeState에는 **모양만** 넘긴다 — storeState가 저장소 종류를
-  // 알게 되면 되돌리기가 환경변수 하나라는 계약이 깨진다.
-  const filesPort = mediaStoreKind() === 'r2' ? { list: () => r2ListObjects(c) } : undefined;
+  // ── 사진 파일은 **두 저장소를 다 봐야 한다** ─────────────────────────────
+  // 저장소는 지금 혼재 상태다: R2 전환(2026-07-25) 이전 사진의 바이트는 **여전히
+  // Supabase Storage에 있다**(HANDOFF Phase 9c에 적혀 있다). R2만 훑고 "파일이 없다"고
+  // 판정하면 멀쩡한 사진 여러 장을 문제로 단정하는 **거짓 경보**가 된다 — M-0008에서
+  // 이미 한 번 저지른 실수라, 두 곳의 id를 합집합으로 본다.
+  //
+  // 종류 판단은 여기(합성 지점)서 하고 storeState에는 **모양만** 넘긴다 — storeState가
+  // 저장소 종류를 알게 되면 되돌리기가 환경변수 하나라는 계약이 깨진다.
+  const filesPort = {
+    list: async (): Promise<{ ids: string[]; foreign: number; truncated: boolean; error?: string | undefined }> => {
+      const sb = await supabaseMediaIds(c, u.id);
+      // 합치는 규칙(한쪽이라도 못 읽으면 통째로 확인 불가)은 `unionListings` 한 곳에 있다.
+      const parts = mediaStoreKind() === 'r2' ? [await r2ListObjects(c), sb] : [sb];
+      const u2 = unionListings(parts);
+      return { ids: u2.ids, foreign: u2.foreign ?? 0, truncated: u2.truncated === true, error: u2.error };
+    },
+  };
   const cmp = await compareStore(storeStateRemote(c), filesPort);
 
   const metrics: Metric[] = PURGE_DOMAINS.map((d) => {

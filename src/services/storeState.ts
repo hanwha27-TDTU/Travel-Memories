@@ -78,6 +78,34 @@ export interface MediaFileAudit {
   truncated: boolean;
 }
 
+/** 한 저장소의 목록 응답. */
+export interface Listing {
+  ids: string[];
+  foreign?: number;
+  truncated?: boolean;
+  error?: string | undefined;
+}
+
+/**
+ * **여러 저장소의 목록을 합친다**(2026-07-26 — 저장소 혼재 상태 때문에 생겼다).
+ *
+ * R2 전환(07-25) 이전 사진의 바이트는 여전히 Supabase Storage에 있다. 한 곳만 보고
+ * "파일이 없다"고 판정하면 멀쩡한 사진 여러 장을 문제로 단정하는 **거짓 경보**가 된다.
+ *
+ * **한쪽이라도 못 읽으면 합집합 전체를 버린다.** 이게 이 함수의 존재 이유다 —
+ * 읽지 못한 저장소를 "비어 있다"로 취급하면 거기 있는 사진이 **전부** '파일 없음'으로
+ * 잡힌다. 부분 정보로 만든 합집합은 정보가 아니라 거짓말이다(비타협 원칙 #4·M-0008).
+ */
+export function unionListings(listings: Listing[]): Listing {
+  const failed = listings.find((l) => l.error);
+  if (failed) return { ids: [], foreign: 0, truncated: false, error: failed.error };
+  return {
+    ids: [...new Set(listings.flatMap((l) => l.ids))],
+    foreign: listings.reduce((a, l) => a + (l.foreign ?? 0), 0),
+    truncated: listings.some((l) => l.truncated === true),
+  };
+}
+
 /**
  * 대조 자체는 **순수 함수**다 — 유닛이 네트워크 없이 모든 경계를 직접 돌린다.
  * (동기화 결정 로직을 `sync/merge.ts`로 뽑아낸 것과 같은 이유 — LESSONS §6.)
