@@ -28,13 +28,33 @@ export interface BlobStore {
 }
 
 /**
- * 저장 경로 `{userId}/{mediaId}.webp`에서 mediaId만 뽑는다.
- * 서버가 폴더를 다시 만들기 때문에 userId 부분은 **의도적으로 버린다**(신뢰하지 않는다).
+ * 저장 경로에서 mediaId를 뽑는다. 두 형식을 다 읽는다:
+ *  · 새 형식 `…/제주여행__c9ff5188/20260716_1432_제주여행__<32자>.webp` (2026-07-27~)
+ *  · 옛 형식 `…/<uuid>.webp`
+ *
+ * ⚠️ **Edge Function의 `mediaIdOfKey`와 같은 규칙이어야 한다.** 둘은 다른 배포 단위(브라우저/Deno)에
+ * 살아서 손으로는 맞출 수 없다 — `tests/unit/mediaNaming.test.ts`가 왕복으로 잠근다.
  */
 export function mediaIdFromPath(path: string): string | null {
-  const last = path.split('/').pop() ?? '';
-  const id = last.replace(/\.webp$/i, '');
-  return UUID_RE.test(id) ? id : null;
+  const base = (path.split('/').pop() ?? '').replace(/\.webp$/i, '');
+  const tail = base.split('__').pop() ?? ''; // 제목에 밑줄이 있어도 **맨 뒤**만 본다
+  if (/^[0-9a-f]{32}$/i.test(tail)) {
+    const h = tail.toLowerCase();
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+  }
+  return UUID_RE.test(base) ? base : null;
+}
+
+/**
+ * 전체 경로에서 **사용자 폴더를 뗀 접미**를 돌려준다 — 함수에 보낼 값이다.
+ *
+ * 왜 떼나: 첫 칸은 함수가 **검증된 sub로 직접** 붙인다. 클라이언트가 보낸 값을 쓰지 않으므로
+ * 남의 폴더를 가리키는 것이 원리적으로 불가능하다. 그 경계를 지키려면 여기서 떼어 보내야 한다.
+ */
+export function restOfPath(path: string): string | null {
+  const parts = path.split('/').filter((p) => p !== '');
+  if (parts.length < 2) return null; // 최소 `{uid}/{파일}`
+  return parts.slice(1).join('/');
 }
 
 interface SignResult {
@@ -234,9 +254,10 @@ export async function r2Capabilities(
 
 export function r2BlobStore(client: JourneyClient): BlobStore {
   async function signed(op: 'put' | 'get', path: string): Promise<{ url?: string; error?: string }> {
-    const mediaId = mediaIdFromPath(path);
-    if (!mediaId) return { error: 'bad_media_id' };
-    const r = await callSign(client, op, mediaId);
+    // 이름은 앱이 정하고 **폴더는 함수가 붙인다** — 그래서 접미만 보낸다.
+    const rest = restOfPath(path);
+    if (!rest) return { error: 'bad_media_path' };
+    const r = await callSign(client, op, null, { path: rest });
     if (r.error) return { error: explainR2Error(r.error) };
     if (!r.data?.url) return { error: '서명 URL이 응답에 없습니다' };
     return { url: r.data.url };
@@ -269,10 +290,10 @@ export function r2BlobStore(client: JourneyClient): BlobStore {
     },
 
     async remove(path) {
-      const mediaId = mediaIdFromPath(path);
-      if (!mediaId) return { error: 'bad_media_id' };
+      const rest = restOfPath(path);
+      if (!rest) return { error: 'bad_media_path' };
       // 삭제는 브라우저가 하지 않는다 — 함수가 서명하고 함수가 실행한다.
-      const r = await callSign(client, 'delete', mediaId);
+      const r = await callSign(client, 'delete', null, { path: rest });
       if (r.error) return { error: explainR2Error(r.error) };
       return {};
     },

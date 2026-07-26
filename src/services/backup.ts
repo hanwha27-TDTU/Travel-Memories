@@ -21,6 +21,10 @@ import { mergeDecision, isEmptyCloudAnomaly } from '../sync/merge';
 import { zipStore, unzip, looksLikeZip, type ZipEntry } from './zip';
 import { encryptBytes, decryptBytes, isEncryptedEnvelope } from './backupCrypto';
 import { requestUnpurge } from './purge';
+// 이름 규칙은 **한 곳**에서 온다 — ZIP 폴더·파일명과 R2 객체 키가 같은 규율을 쓴다(§7).
+import { tripFolderName as tripFolder, photoFileBase } from '../domain/media/naming';
+
+export { photoFileBase, stampFromISO } from '../domain/media/naming';
 
 export const BACKUP_APP_TAG = 'bugeon-journey';
 export const BACKUP_VERSION = 1;
@@ -290,19 +294,9 @@ interface ZipManifest {
 }
 
 /** 파일시스템 안전 문자열: 금지문자 제거·공백→_·앞뒤 정리. */
-function fsSafe(s: string, max = 40): string {
-  return (s || '')
-    .replace(/[\/\\:*?"<>|]/g, '')
-    .replace(/\s+/g, '_')
-    .replace(/^\.+|\.+$/g, '')
-    .slice(0, max)
-    .trim();
-}
-
+/** ZIP 안 여행 폴더명 — R2 폴더와 **같은 규칙**을 쓴다(naming.ts 한 곳). */
 function tripFolderName(trip: LocalTrip): string {
-  const base = fsSafe(trip.title || '여행', 60);
-  const suffix = trip.id.replace(/-/g, '').slice(0, 8);
-  return `${base || '여행'}__${suffix}`;
+  return tripFolder(trip.title, trip.id);
 }
 
 function extForMime(mime: string): string {
@@ -313,28 +307,7 @@ function extForMime(mime: string): string {
   return 'bin';
 }
 
-/** ISO → { date:'YYYYMMDD', time:'HHMM' }. 로컬 시각 기준. 파싱 불가면 '00000000'/'0000'. */
-export function stampFromISO(iso: string | null | undefined): { date: string; time: string } {
-  const t = iso ? Date.parse(iso) : NaN;
-  if (Number.isNaN(t)) return { date: '00000000', time: '0000' };
-  const d = new Date(t);
-  const p = (n: number, w = 2) => String(n).padStart(w, '0');
-  return {
-    date: `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`,
-    time: `${p(d.getHours())}${p(d.getMinutes())}`,
-  };
-}
 
-/**
- * 백업 사진 파일명(순수): '날짜_시간_제목_용도__id8'. 사람이 알아볼 수 있게.
- * 같은 분·같은 제목이어도 미디어 id 접미로 충돌하지 않는다(복원은 메타 경로로 되읽으므로 안전).
- */
-export function photoFileBase(takenAt: string | null | undefined, title: string, mediaId: string): string {
-  const { date, time } = stampFromISO(takenAt);
-  const t = fsSafe(title, 30) || '사진';
-  const id8 = mediaId.replace(/-/g, '').slice(0, 8);
-  return `${date}_${time}_${t}__${id8}`;
-}
 
 const PURPOSE = { original: '원본', display: '표시본', thumb: '썸네일' } as const;
 

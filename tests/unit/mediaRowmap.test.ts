@@ -29,25 +29,31 @@ const media: LocalMedia = {
 };
 
 describe('media rowmap 경계', () => {
-  it('storage 경로 규약은 {userId}/{id}.webp', () => {
-    expect(mediaStoragePath(USER, media.id)).toBe(`${USER}/${media.id}.webp`);
+  it('storage 경로는 {userId}/{여행폴더}/{읽을 수 있는 이름}.webp', () => {
+    const p = mediaStoragePath(USER, media, '제주 여행');
+    // 첫 칸은 **반드시** userId — 이게 인가 경계다.
+    expect(p.startsWith(`${USER}/`)).toBe(true);
+    expect(p.split('/')).toHaveLength(3);
+    expect(p).toContain('/제주_여행__'); // 폴더: 제목 + 여행 id 8자
+    expect(p.endsWith('.webp')).toBe(true);
   });
 
   it('행에는 blob·GPS가 담기지 않는다(원본 로컬 전용·GPS PII 미동기화)', () => {
-    const row = toMediaRow(media, USER, mediaStoragePath(USER, media.id));
+    const path = mediaStoragePath(USER, media, '제주 여행');
+    const row = toMediaRow(media, USER, path);
     // 행에 blob/gps 키 자체가 없다
     expect('displayBlob' in row).toBe(false);
     expect('originalBlob' in row).toBe(false);
     expect('gps_lat' in row).toBe(false);
     expect('gpsLat' in row).toBe(false);
-    expect(row.storage_path).toBe(`${USER}/${media.id}.webp`);
+    expect(row.storage_path).toBe(path);
     expect(row.user_id).toBe(USER);
     expect(row.bytes_display).toBe(660000);
     expect(row.source).toBe('user');
   });
 
   it('메타 왕복: toMediaRow → fromMediaRow가 메타 필드를 보존한다', () => {
-    const meta = fromMediaRow(toMediaRow(media, USER, mediaStoragePath(USER, media.id)));
+    const meta = fromMediaRow(toMediaRow(media, USER, mediaStoragePath(USER, media, '제주 여행')));
     expect(meta.id).toBe(media.id);
     expect(meta.momentId).toBe(media.momentId);
     expect(meta.tripId).toBe(media.tripId);
@@ -58,7 +64,7 @@ describe('media rowmap 경계', () => {
     expect(meta.version).toBe(2);
     expect(meta.deletedAt).toBe(null);
     expect(meta.clientOperationId).toBe(media.clientOperationId);
-    expect(meta.storagePath).toBe(`${USER}/${media.id}.webp`);
+    expect(meta.storagePath).toBe(mediaStoragePath(USER, media, '제주 여행'));
   });
 
   it('tombstone·storage_path null도 왕복 보존', () => {
