@@ -14,7 +14,7 @@
 //    그래서 판정은 '문제'가 아니라 '할 일'이다. 진짜 실패는 동기화 도구가 따로 말한다.
 
 import { db } from '../offline/db';
-import { PURGE_DOMAINS, DOMAIN_PURGE, type PurgeDomain } from './purge';
+import { PURGE_DOMAINS, DOMAIN_PURGE, purgedIdSet, type PurgeDomain } from './purge';
 import { parseDeviceStamp, shortDeviceId, deviceId } from '../app/deviceId';
 import type { JourneyClient } from './supabase/client';
 
@@ -52,6 +52,13 @@ export interface StoreComparison {
   fileAudit: MediaFileAudit | null;
   /** 대조를 못 한 이유(사람이 읽는 한 줄). 대조에 성공했으면 null. */
   fileAuditNote: string | null;
+  /**
+   * **이 기기가 영구삭제했다고 믿는데 서버엔 아직 남아 있는** id들.
+   *
+   * 0이 정상이다. 0이 아니면 사용자의 의도가 서버에 반영되지 않은 상태이고, 로컬 표식 때문에
+   * 휴지통에도 안 보여 **어디서도 손댈 수 없다** — 앱이 말해주지 않으면 영원히 남는다.
+   */
+  unpropagatedPurges: string[];
 }
 
 /**
@@ -145,6 +152,14 @@ export interface StoreStatePort {
    * 잘못 잡힌다(라벨이 말할 수 있는 것만 말하게 한다 — 진단 §5.9).
    */
   mediaRowIds(): Promise<string[]>;
+  /**
+   * 서버에서 **tombstone(휴지통) 상태인 행의 id**들.
+   *
+   * 왜 필요한가(2026-07-26 실기기): 로컬에 영구삭제 표식이 있으면 pull이 그 id를 건너뛰므로
+   * **휴지통에도 안 보인다.** 그런데 서버엔 남아 있으면 사용자는 "지웠다"고 믿고 서버는
+   * "안 지웠다"고 안다 — 그 어긋남을 보려면 서버 tombstone 목록이 있어야 한다.
+   */
+  tombstonedIds(): Promise<string[]>;
 }
 
 export function storeStateRemote(client: JourneyClient): StoreStatePort {
@@ -194,6 +209,15 @@ export function storeStateRemote(client: JourneyClient): StoreStatePort {
       if (p.error) throw new Error(`영구삭제 원장 조회 실패: ${p.error.message}`);
       return { tombstoned, purged: p.count ?? 0 };
     },
+    async tombstonedIds() {
+      const ids: string[] = [];
+      for (const d of PURGE_DOMAINS) {
+        const r = await client.from(DOMAIN_PURGE[d].remoteTable).select('id').not('deleted_at', 'is', null);
+        if (r.error) throw new Error(`${DOMAIN_PURGE[d].remoteTable} 휴지통 조회 실패: ${r.error.message}`);
+        for (const x of (r.data ?? []) as { id: string }[]) ids.push(x.id);
+      }
+      return ids;
+    },
     async mediaRowIds() {
       const r = await client.from('media').select('id').not('storage_path', 'is', null);
       if (r.error) throw new Error(`사진 기록 조회 실패: ${r.error.message}`);
@@ -240,12 +264,16 @@ export interface FilesPort {
 }
 
 export async function compareStore(port: StoreStatePort, files?: FilesPort): Promise<StoreComparison> {
-  const [cloud, local, stamps, remnants] = await Promise.all([
+  const [cloud, local, stamps, remnants, serverTombstones, purged] = await Promise.all([
     port.activeCounts(),
     localActiveCounts(),
     port.deviceStamps(),
     port.remnantCounts(),
+    port.tombstonedIds(),
+    purgedIdSet(),
   ]);
+  // 내가 지웠다고 믿는데(로컬 표식) 서버엔 tombstone으로 남은 것 = 전파가 안 된 영구삭제.
+  const unpropagatedPurges = serverTombstones.filter((id) => purged.has(id));
   const counts = {} as StoreComparison['counts'];
   for (const d of PURGE_DOMAINS) counts[d] = { cloud: cloud[d], local: local[d] };
   const devices = foldDevices(stamps, shortDeviceId(deviceId()));
@@ -264,7 +292,7 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
       fileAuditNote = (e as Error).message;
     }
   }
-  return { counts, devices, lastCloudWriteAt, remnants, fileAudit, fileAuditNote };
+  return { counts, devices, lastCloudWriteAt, remnants, fileAudit, fileAuditNote, unpropagatedPurges };
 }
 
 /** 사람이 읽는 도메인 이름 — 화면이 손으로 다시 적지 않게 여기 한 곳. */

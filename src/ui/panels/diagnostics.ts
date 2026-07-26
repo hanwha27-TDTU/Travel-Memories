@@ -28,7 +28,7 @@ import { CHANGELOG } from '../../app/changelog';
 import { syncStatus, requestSync } from '../../services/autoSync';
 import { compareStore, storeStateRemote, unionListings, DOMAIN_LABEL } from '../../services/storeState';
 import { r2ListObjects } from '../../services/r2';
-import { PURGE_DOMAINS } from '../../services/purge';
+import { PURGE_DOMAINS, requeueUnpropagatedPurges } from '../../services/purge';
 import { supabase } from '../../services/supabase/client';
 import { deviceLabel, shortDeviceId } from '../../app/deviceId';
 import { renderTool, levelFromMetrics, worst, type Verdict, type Metric, type Level } from './verdict';
@@ -480,8 +480,10 @@ export function errorProbe(): Promise<Verdict> {
  * 진단 도구의 제1 규율(§8)은 "판정한다"인데, **엉뚱한 것을 판정하면 관측보다 나쁘다** —
  * 사용자를 틀린 곳으로 보낸다. 그래서 문장을 손으로 쓰지 않고 **무리별 개수에서 만든다.**
  */
-export function storeHeadline(level: Level, countBad: number, fileBad: number): string {
+export function storeHeadline(level: Level, countBad: number, fileBad: number, stranded = 0): string {
   if (level === 'ok') return '이 기기는 클라우드와 같습니다';
+  // 가장 무거운 것부터 말한다 — 이건 **사용자 의도가 반영되지 않은** 상태라 제일 먼저 알아야 한다.
+  if (stranded) return `지웠는데 서버에 남은 항목이 ${stranded}건 있어요`;
   if (countBad && fileBad) return `클라우드와 다른 항목 ${countBad}가지, 사진 파일 문제 ${fileBad}가지가 있어요`;
   if (countBad) return `클라우드와 다른 항목이 ${countBad}가지 있어요`;
   if (fileBad) return `사진 파일에 확인할 것이 ${fileBad}가지 있어요`;
@@ -585,12 +587,26 @@ export async function storeStateProbe(): Promise<Verdict> {
     });
   }
 
+  // ── 전파되지 않은 영구삭제 ─────────────────────────────────────────
+  // 내가 지웠다고 믿는데(로컬 표식) 서버엔 tombstone으로 남은 것. 로컬 표식 때문에 휴지통에도
+  // 안 보이므로 **어디서도 손댈 수 없는 상태**다 — 앱이 말해주지 않으면 영원히 남는다.
+  const stranded = cmp.unpropagatedPurges.length;
+  metrics.push({
+    label: '지웠는데 서버에 남은 항목',
+    actual: stranded === 0 ? '없음' : `${stranded}건`,
+    expected: '없음',
+    level: stranded > 0 ? 'problem' : 'ok',
+    ...(stranded > 0
+      ? { meaning: '이 기기에서 영구삭제했지만 서버에 전하지 못한 항목이에요. 휴지통에도 안 보여서 손댈 수가 없습니다 — 아래 [서버에서도 지우기]를 눌러 주세요.' }
+      : {}),
+  });
+
   const level = levelFromMetrics(metrics);
   const behind = cmp.devices.filter((d) => !d.isThis && cmp.lastCloudWriteAt && d.lastPushAt < cmp.lastCloudWriteAt);
 
   const countBad = countMetrics.filter((m) => m.level !== 'ok').length;
   const fileBad = metrics.slice(countMetrics.length).filter((m) => m.level !== 'ok').length;
-  const headline = storeHeadline(level, countBad, fileBad);
+  const headline = storeHeadline(level, countBad, fileBad, stranded);
 
   return {
     level,
@@ -610,9 +626,28 @@ export async function storeStateProbe(): Promise<Verdict> {
           : '기기 이름은 무언가를 저장·수정해 서버로 올릴 때 찍혀요. 아직 그 뒤로 올린 것이 없습니다.',
     metrics,
     actions: [
+      ...(stranded
+        ? [
+            {
+              label: '서버에서도 지우기',
+              primary: true,
+              hook: 'data-requeue-purges',
+              run: async (): Promise<string> => {
+                // 로컬은 이미 사용자 뜻대로 지워져 있다 — 여기서는 **의도를 다시 실어 보낼 뿐**이다.
+                const n = await requeueUnpropagatedPurges(cmp.unpropagatedPurges);
+                if (!n) return '큐에 이미 들어 있어요. [지금 동기화]를 눌러 주세요.';
+                await requestSync('전파 안 된 영구삭제');
+                const st = syncStatus();
+                return st.phase === 'failed'
+                  ? `${n}건을 큐에 넣었지만 동기화가 실패했어요: ${st.lastError ?? '사유 불명'}`
+                  : `${n}건을 서버로 보냈어요. 다시 대조합니다.`;
+              },
+            },
+          ]
+        : []),
       {
         label: '지금 동기화',
-        primary: level !== 'ok',
+        primary: level !== 'ok' && !stranded,
         hook: 'data-store-sync',
         run: async () => {
           await requestSync('저장 상태 확인');

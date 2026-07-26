@@ -29,6 +29,6 @@ export const REGISTRY = {
   skillCount: 9,
   screenCount: 11,
   migrationCount: 14,
-  changelogCount: 87,
+  changelogCount: 88,
   researchCount: 46,
 } as const;
