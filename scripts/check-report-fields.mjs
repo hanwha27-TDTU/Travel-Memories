@@ -34,6 +34,14 @@ export const REPORTS = [
     /** 이 구조체를 화면으로 옮기는 곳들. */
     consumers: ['src/ui/panels/diagnostics.ts'],
   },
+  {
+    // 2026-07-26: 기기 이름표를 공용 것으로 바꾸자 `device.platform`이 **아무 데서도 안 읽히게**
+    // 됐다. 게이트가 StoreComparison만 보고 있어서 못 잡았다 — 등록부가 좁으면 검사도 좁다.
+    // 환경 보고도 **사용자에게 보여주려고 만든 것**이므로 같은 규율을 받는다(§7 형제 대칭).
+    declaredIn: 'src/services/envReport.ts',
+    name: 'EnvReport',
+    consumers: ['src/ui/panels/diagnostics.ts'],
+  },
 ];
 
 /** 근거 있는 제외. 비면 규율이 죽는다 — 새로 넣을 때는 한 줄 이유를 함께 쓴다. */
@@ -47,8 +55,15 @@ export function stripComments(src) {
 }
 
 /**
- * `export interface X { … }` 본문에서 필드 이름을 뽑는다.
- * 중첩 객체 타입은 바깥 필드만 센다(그 안쪽은 바깥이 소비되면 따라온다).
+ * `export interface X { … }` 본문에서 필드 이름을 뽑는다. **한 줄짜리 중첩 객체의 안쪽까지** 센다.
+ *
+ * ⚠️ 처음엔 *"중첩 객체는 바깥 필드만 센다 — 그 안쪽은 바깥이 소비되면 따라온다"*고 가정했다.
+ * **그 가정은 2026-07-26에 틀린 것으로 드러났다.** 기기 이름표를 공용 것으로 바꾸자
+ * `EnvReport.device.platform`이 아무 데서도 안 읽히게 됐는데, `device` 자체는 (`device.ua`로)
+ * 소비되고 있어서 게이트가 통과시켰다. **바깥이 소비돼도 안쪽은 죽어 있을 수 있다.**
+ *
+ * 이걸 어떻게 알았나: 게이트를 넓힌 뒤 **알려진 실패를 주입했는데 RED가 안 났다**(§4).
+ * 게이트는 통과했다고 믿는 게 아니라 **빨간불을 확인하고** 믿는 것이다.
  */
 export function fieldsOf(src, name) {
   const m = stripComments(src).match(new RegExp(`export interface ${name}\\s*\\{([\\s\\S]*?)\\n\\}`));
@@ -59,8 +74,18 @@ export function fieldsOf(src, name) {
   for (const line of body.split('\n')) {
     const t = line.trim();
     if (depth === 0) {
-      const f = t.match(/^(\w+)\??\s*:/);
-      if (f) fields.push(f[1]);
+      const f = t.match(/^(\w+)\??\s*:(.*)$/);
+      if (f) {
+        fields.push(f[1]);
+        // 한 줄 안에 `{ a: X; b: Y }`가 다 들어 있으면 안쪽 이름도 검사 대상이다.
+        const inline = (f[2] ?? '').match(/\{([^{}]*)\}/);
+        if (inline) {
+          for (const part of (inline[1] ?? '').split(';')) {
+            const k = part.trim().match(/^(\w+)\??\s*:/);
+            if (k) fields.push(`${f[1]}.${k[1]}`);
+          }
+        }
+      }
     }
     depth += (t.match(/\{/g)?.length ?? 0) - (t.match(/\}/g)?.length ?? 0);
   }
@@ -70,6 +95,9 @@ export function fieldsOf(src, name) {
 /** 소비처 어딘가에서 `.field`로 읽거나 구조분해로 꺼내는가. */
 export function isConsumed(consumerSrc, field) {
   const s = stripComments(consumerSrc);
+  // `device.platform` 같은 중첩 이름은 **안쪽 이름**으로 찾는다(`env.device.platform`).
+  const leaf = field.includes('.') ? field.slice(field.lastIndexOf('.') + 1) : field;
+  field = leaf;
   return (
     new RegExp(`\\.${field}\\b`).test(s) ||
     // `const { a, b } = cmp` 형태
@@ -108,40 +136,31 @@ export function audit(reports, readFn) {
 let selfTestCount = 0;
 {
   const DECL = `export interface R {\n  a: number;\n  b: string;\n  nested: { x: number; y: number };\n}`;
+  const ALL = 'r.a; r.b; r.nested; r.nested.x; r.nested.y;';
+  const run = (consumer, decl = DECL) =>
+    audit([{ declaredIn: 'd', name: 'R', consumers: ['c'] }], (k) => (k === 'd' ? decl : consumer));
   const cases = [
-    {
-      name: '전부 소비되면 정상',
-      fn: () => audit([{ declaredIn: 'd', name: 'R', consumers: ['c'] }], (k) => (k === 'd' ? DECL : 'r.a; r.b; r.nested;')),
-      clean: true,
-    },
+    { name: '전부 소비되면 정상', fn: () => run(ALL), clean: true },
     {
       name: '안 쓰는 필드 검출(M-0022가 정확히 이 형태였다)',
-      fn: () => audit([{ declaredIn: 'd', name: 'R', consumers: ['c'] }], (k) => (k === 'd' ? DECL : 'r.a; r.nested;')),
+      fn: () => run('r.a; r.nested; r.nested.x; r.nested.y;'),
       clean: false,
     },
     {
-      name: '구조분해로 꺼내도 소비로 센다',
-      fn: () =>
-        audit([{ declaredIn: 'd', name: 'R', consumers: ['c'] }], (k) =>
-          k === 'd' ? DECL : 'const { a, b, nested } = r;',
-        ),
-      clean: true,
+      // 2026-07-26: 이 자리에 원래 "중첩 안쪽은 세지 않는다(바깥이 소비되면 따라온다)"가 있었다.
+      // **그 전제가 틀렸다.** `device`는 `device.ua`로 소비되는데 `device.platform`은 죽어 있었고,
+      // 게이트는 통과시켰다. 주입해도 RED가 안 나서 알았다 — 그래서 케이스를 뒤집었다.
+      name: '중첩 객체 **안쪽**이 안 쓰이면 검출한다(바깥이 소비돼도 안쪽은 죽어 있을 수 있다)',
+      fn: () => run('r.a; r.b; r.nested; r.nested.x;'), // y가 죽었다
+      clean: false,
     },
+    { name: '구조분해로 꺼내도 소비로 센다', fn: () => run('const { a, b, nested, x, y } = r;'), clean: true },
     {
       name: '주석 속 언급은 소비가 아니다(오탐 아니라 미탐 방지)',
-      fn: () => audit([{ declaredIn: 'd', name: 'R', consumers: ['c'] }], (k) => (k === 'd' ? DECL : 'r.a; r.nested; // r.b 는 나중에')),
+      fn: () => run('r.a; r.nested; r.nested.x; r.nested.y; // r.b 는 나중에'),
       clean: false,
     },
-    {
-      name: '중첩 객체 안쪽 필드는 세지 않는다(바깥이 소비되면 따라온다)',
-      fn: () => audit([{ declaredIn: 'd', name: 'R', consumers: ['c'] }], (k) => (k === 'd' ? DECL : 'r.a; r.b; r.nested;')),
-      clean: true,
-    },
-    {
-      name: '인터페이스가 사라지면 검출(등록부 낡음)',
-      fn: () => audit([{ declaredIn: 'd', name: 'Gone', consumers: ['c'] }], () => DECL),
-      clean: false,
-    },
+    { name: '인터페이스가 사라지면 검출(등록부 낡음)', fn: () => audit([{ declaredIn: 'd', name: 'Gone', consumers: ['c'] }], () => DECL), clean: false },
   ];
   const broken = cases.filter((c) => (c.fn().length === 0) !== c.clean);
   if (broken.length) {
