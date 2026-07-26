@@ -40,7 +40,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const SKILL_ROUTES = [
   { match: /^src\/ui\/(styles|theme|toast|dom)/, skill: 'ui-responsive-dev' },
   { match: /^src\/ui\/screens\//, skill: 'ui-responsive-dev' },
-  { match: /^src\/ui\/(photoEditor|editor)/, skill: 'photo-editor-dev' },
+  // 보조 화면 지연 로드의 단일 관문. 화면을 다루는 파일이므로 UI 헌장을 읽되,
+  // 이 파일을 바꾼다는 건 "무엇이 첫 로드에 들어가는가"를 바꾼다는 뜻이다(check-lazy-screens).
+  { match: /^src\/ui\/lazyScreens/, skill: 'ui-responsive-dev' },
+  { match: /^src\/ui\/(photoEditor|photoViewer|editor)/, skill: 'photo-editor-dev' },
   { match: /^src\/media\//, skill: 'photo-editor-dev' },
   { match: /^src\/ui\/panels\/(verdict|diagnostics)/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/(diagnostics|envReport|storeState)/, skill: 'diagnostics-dev' },

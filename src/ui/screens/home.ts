@@ -23,10 +23,11 @@ import {
 } from '../../services/auth';
 import { requestSync } from '../../services/autoSync';
 import { el, setNote, type NoteAction } from '../dom';
-import { openDiagnosticsHub } from './diagnosticsHub';
-import { openDataManager } from './dataManager';
-import { openAboutApp } from './aboutApp';
-import { APP_VERSION } from '../../app/changelog';
+// 보조 화면은 반드시 lazyScreens를 거친다(정적 import 금지 — check-lazy-screens).
+import { openDiagnosticsHub, openDataManager, openAboutApp } from '../lazyScreens';
+// 버전은 생성물에서 읽는다. changelog.ts를 직접 import하면 CHANGELOG 전문(80KB)이
+// 첫 로드 번들에 딸려 온다(registry.gen.ts는 check-registry-gen이 동기화를 강제).
+import { REGISTRY } from '../../app/registry.gen';
 import {
   SEASONS,
   SEASON_LABEL,
@@ -160,6 +161,47 @@ function buildControls(): HTMLElement {
   return controls;
 }
 
+/**
+ * 헤더 조립 — 제목 줄(+계정) / 컨트롤 줄.
+ *
+ * 왜 함수로 뺐나: `renderHome`이 길이 래칫에 걸렸다(`check-fn-size`). 래칫은 한 방향이라
+ * "늘린 만큼 다른 데로 덜어내라"고 말한다 — 그 요구가 이 추출을 만들었고, 결과적으로
+ * 헤더 구조가 한눈에 읽힌다. 게이트가 설계를 밀어준 사례다.
+ *
+ * `authArea`를 **인자로 받는** 이유: 내용은 로그인 상태에 따라 계속 다시 그려지므로
+ * 그 껍데기의 소유권은 호출부(`renderAuth`)에 있어야 한다.
+ */
+function buildHeader(authArea: HTMLElement, onData: () => void): HTMLElement {
+  const header = el('header', 'app-header');
+
+  // 제목 + 버전 배지(누르면 개발자 정보). 버전은 changelog SSOT의 생성물에서 읽는다.
+  const titleRow = el('div', 'app-title-row');
+  titleRow.appendChild(el('h1', 'app-title', '🧳 Bugeon Journey'));
+  const verBadge = el('button', 'app-version', `v${REGISTRY.appVersion}`) as HTMLButtonElement;
+  verBadge.type = 'button';
+  verBadge.setAttribute('aria-label', `버전 ${REGISTRY.appVersion} · 개발자 정보 열기`);
+  verBadge.addEventListener('click', () => void openAboutApp());
+  titleRow.appendChild(verBadge);
+
+  // 계정 영역은 **제목과 같은 줄 오른쪽**에 둔다(사용자 요청 2026-07-26).
+  // 왜: 예전에는 계절·테마 컨트롤과 같은 행에 넣었는데, 그 행이 좁은 화면에서 줄바꿈되면서
+  // 계정 줄이 화면 위쪽을 한 줄 더 먹었다. 계정 정보는 **자주 쓰지 않는 것**이라 세로 공간을
+  // 그만큼 쓸 이유가 없다 — 제목 옆 빈 자리가 그 자리다.
+  // 좁아지면 자연스럽게 줄바꿈되어 오른쪽 정렬로 내려간다(숨기지 않는다).
+  const headTop = el('div', 'app-head-top');
+  headTop.append(titleRow, authArea);
+  header.appendChild(headTop);
+
+  const controls = buildControls();
+  const dataBtn = el('button', 'btn-ghost data-open', '📦 데이터 관리') as HTMLButtonElement;
+  dataBtn.type = 'button';
+  dataBtn.setAttribute('aria-label', '데이터 관리 열기 — 백업·복원·휴지통·가이드');
+  dataBtn.addEventListener('click', onData);
+  controls.appendChild(dataBtn);
+  header.appendChild(controls);
+  return header;
+}
+
 /** 로그인 상태면 서버 동기화 시도(실패는 다음 트리거에서 재시도). */
 /** 동기화 요청 — 규칙은 `services/autoSync.ts` 한 곳에 있다(§7). */
 async function trySync(_user: SessionUser | null): Promise<void> {
@@ -176,27 +218,9 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   let user: SessionUser | null = null;
 
   const wrap = el('main', 'screen screen-home');
-  const header = el('header', 'app-header');
-  // 제목 + 버전 배지(누르면 개발자 정보). 버전은 changelog SSOT에서 읽는다.
-  const titleRow = el('div', 'app-title-row');
-  titleRow.appendChild(el('h1', 'app-title', '🧳 Bugeon Journey'));
-  const verBadge = el('button', 'app-version', `v${APP_VERSION}`) as HTMLButtonElement;
-  verBadge.type = 'button';
-  verBadge.setAttribute('aria-label', `버전 ${APP_VERSION} · 개발자 정보 열기`);
-  verBadge.addEventListener('click', () => openAboutApp());
-  titleRow.appendChild(verBadge);
-  header.appendChild(titleRow);
-  const controls = buildControls();
-  const dataBtn = el('button', 'btn-ghost data-open', '📦 데이터 관리') as HTMLButtonElement;
-  dataBtn.type = 'button';
-  dataBtn.setAttribute('aria-label', '데이터 관리 열기 — 백업·복원·휴지통·가이드');
-  // onChanged: 복원·휴지통 조작 후 홈 목록·통계를 즉시 갱신(refresh는 아래에서 선언·호이스팅).
-  dataBtn.addEventListener('click', () => openDataManager({ onChanged: () => void refresh() }));
-  controls.appendChild(dataBtn);
   const authArea = el('div', 'auth-area');
-  controls.appendChild(authArea); // 계절·테마 컨트롤과 같은 액션 행에 배치
-  header.appendChild(controls);
-  wrap.appendChild(header);
+  // onChanged: 복원·휴지통 조작 후 홈 목록·통계를 즉시 갱신(refresh는 아래에서 선언·호이스팅).
+  wrap.appendChild(buildHeader(authArea, () => void openDataManager({ onChanged: () => void refresh() })));
 
   const section = el('section', 'trip-section');
   const list = el('div', 'trip-list');
@@ -287,8 +311,10 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
       return;
     }
     if (user) {
-      const who = el('span', 'muted small');
+      const who = el('span', 'muted small auth-who');
       who.textContent = user.email ?? '로그인됨';
+      // 좁은 화면에서는 CSS가 말줄임으로 자른다 — 잘린 값을 확인할 길을 남긴다.
+      if (user.email) who.title = user.email;
       const syncBtn = el('button', 'btn-ghost', '↻ 동기화') as HTMLButtonElement;
       syncBtn.type = 'button';
       syncBtn.addEventListener('click', () => {
@@ -377,10 +403,10 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
     //                    진단으로 보내면 오히려 멀어진다.
     //  · 동기화됨(ok)  → **목적지 없음.** 정상은 침묵이어야 한다(진단 §5.1). 여기에 알약과
     //                    셰브론을 붙이면 아무 할 일 없는 상태가 화면에서 제일 시끄러워진다.
-    const toSync: NoteAction = { go: () => openDiagnosticsHub('sync'), label: '동기화 상태 열기' };
+    const toSync: NoteAction = { go: () => void openDiagnosticsHub('sync'), label: '동기화 상태 열기' };
     if (!isConfigured()) {
       setNote(status, `📴 로컬 저장 모드 · 대기 ${pending}건`, 'info', {
-        go: () => openDiagnosticsHub('environment'),
+        go: () => void openDiagnosticsHub('environment'),
         label: '환경·기능 열기',
       });
     } else if (user) {

@@ -75,7 +75,7 @@ description: 비용·환율 개발 프롬프트 — expense/format.ts·expense/f
 ## 5. 검증 체크리스트 (정직한 완료)
 
 자동층(전부 통과해야 "통과"라 말한다):
-1. `npm run typecheck` · `npm test` · `npm run harness`(12게이트) · `npm run build`
+1. `npm run typecheck` · `npm test` · `npm run harness` · `npm run build`
 2. 순수 로직은 **고정 픽스처로 유닛테스트**(현재 `tests/unit/fx.test.ts` + `expenseFormat.test.ts` = 42건). 비공허: 알려진 실패를 주입해 RED 확인.
 3. 통화를 추가하면 유닛이 자동으로 지켜준다(국기 전수 검사·코드 유일성·상단 5개 순서). 이 성질을 깨지 말 것.
 4. **시간대**: 날짜가 얽힌 변경은 `check-timezone`이 UTC 아닌 두 시간대에서 유닛을 재실행한다. 로컬에서 직접 확인하려면 `TZ=Asia/Seoul npx vitest run`.

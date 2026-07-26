@@ -10,10 +10,35 @@
 //   ISO 문자열을 잘라(slice) 날짜를 만들지 않는다 — 그건 UTC 날짜이지 사용자의 날짜가 아니다.
 //   `scripts/check-local-date.mjs` 게이트가 이 규칙을 기계적으로 강제한다.
 
+const p2 = (n: number): string => String(n).padStart(2, '0');
+
 /** ISO 일시 → 사용자의 로컬 달력 날짜 'YYYY-MM-DD'. 파싱 실패는 빈 문자열. */
 export function localDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  const p = (n: number): string => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+}
+
+/**
+ * ISO 일시 → 로컬 시각 'HH:mm'. 파싱 실패는 빈 문자열.
+ * 화면에서 "몇 시에 있었던 일인가"를 말할 때 쓴다(타임라인 순간·사진 편집기 제목).
+ */
+export function localTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${p2(d.getHours())}:${p2(d.getMinutes())}`;
+}
+
+/**
+ * ISO 일시 → 로컬 날짜+시각 'YYYY.MM.DD HH:mm'. 파싱 실패는 빈 문자열.
+ * 지도 팝업처럼 **날짜 맥락이 화면에 없는 자리**에서 쓴다(타임라인은 날짜 헤더가 이미 있어 시각만 쓴다).
+ *
+ * 왜 여기 있나: 같은 계산이 `tripDetail`·`mapView`에 각자 `timeLabel`이라는 같은 이름으로
+ * 있었고 **내용은 서로 달랐다**(하나는 시각만, 하나는 날짜까지). 이름이 같고 뜻이 다른 것은
+ * 다음 사람을 속인다 — 로컬 시각 파생은 이 파일 하나에서만 한다.
+ */
+export function localDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}.${p2(d.getMonth() + 1)}.${p2(d.getDate())} ${localTime(iso)}`;
 }

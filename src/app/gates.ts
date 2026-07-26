@@ -9,17 +9,39 @@ export const CATEGORY_LABEL: Record<GateCategory, string> = {
   unit: '유닛 (순수 로직)',
 };
 
-/** 게이트 한 줄 설명. 목록엔 없어도 이름만 표시되니 필수 아님. */
+/**
+ * 게이트 한 줄 설명 — **게이트마다 반드시 하나씩.**
+ *
+ * 설명 없는 게이트는 가이드 화면에 이름만 뜬다. 사용자에게 `check-edge-fn-ops`는 아무 뜻도
+ * 아니므로, 그건 "무엇을 지키는지 말하지 않는 안전장치"다(§8 — 도구는 관측이 아니라 판정을
+ * 한다). 실제로 이 표는 12개에서 멈춰 있었고 게이트가 22개로 늘 동안 10개가 이름만 떴다.
+ * 그래서 이제 `check-registry-gen`이 누락을 RED로 잡는다 — 새 게이트를 추가하면 여기도 따라온다.
+ */
 export const GATE_DESC: Record<string, string> = {
   typecheck: 'TypeScript strict 타입 오류 0',
   'check-secret-leak': '시크릿(키·토큰) 형태가 코드에 새지 않았는지',
   'check-domain-wiring': '도메인↔화면 배선이 죽지 않았는지',
   'check-csp': 'CSP 위반(인라인·외부 리소스) 없는지',
   'check-base-consistency': 'base 경로·자산 참조 일관성',
+  'check-env-wiring': '환경변수가 코드·워크플로·문서에서 같은 이름으로 쓰이는지',
+  'check-domain-symmetry': '도메인 4종이 같은 생명주기 심볼을 갖는지(삭제만 있고 복원이 없는 형태 차단)',
+  'check-verdict-symmetry': '진단 도구가 자기 렌더 코드를 갖지 않고 단일 렌더러를 거치는지',
+  'check-skill-routing': '모든 코드 영역이 착수 전 읽을 스킬 문서를 갖는지',
+  'check-self-eval': '자가평가 항목이 실제 게이트·코드와 어긋나지 않는지',
   'check-schema-parity': '클라 rowmap 필드 ⊆ 서버 마이그레이션 컬럼(드리프트 차단)',
+  'check-migration-grants': '코드가 하는 연산을 서버 권한(GRANT·RLS)이 실제로 허락하는지',
+  'check-report-fields': '보고용 구조체의 필드를 화면이 실제로 읽는지(계산만 하고 안 보여주는 형태 차단)',
+  'check-no-synthetic-italic': '가짜 기울임(합성 이탤릭)으로 한글을 뭉개지 않는지',
+  'check-edge-fn-ops': 'Edge Function이 처리하는 연산 목록이 클라이언트가 보내는 것과 일치하는지',
   'check-backup-coverage': '모든 사용자 테이블이 백업 export/import에 다 있는지',
   'check-blueprint': '설계 개요도(배선맵) 선언 ↔ 실제 구조 일치',
   'check-registry-gen': '자동 집계 카운트·목록이 SSOT와 일치(손 스냅샷 드리프트 차단)',
+  'check-platform-map': '어느 데이터가 어느 서비스에 사는지의 지도가 실제 코드와 일치',
+  'check-lazy-screens': '어쩌다 여는 화면이 첫 로드 번들에 딸려 오지 않는지',
+  'check-font-subsets': '제목 폰트 조각 선언 ↔ 실제 파일·구간·선언순서 정합',
+  'check-fn-size': '큰 함수가 더 커지지 않는지(래칫 — 결함이 숨을 면적을 줄인다)',
+  'check-sw': '서비스워커가 서버 응답을 캐시에 가두지 않는지(교차 출처 무개입·GET 전용)',
+  'check-hand-counts': '지시문서가 게이트 개수를 손으로 적지 않는지(반드시 낡는 숫자 차단)',
   'check-doc-counts': '문서에 표시한 live 카운트가 실제와 일치(마커 대조)',
   'check-timezone': '날짜를 UTC가 아닌 사용자 로컬로 계산(+ 다른 시간대에서도 유닛 통과)',
   'unit-tests': '순수 로직 유닛(비공허 확인)',
@@ -32,10 +54,25 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-domain-wiring': 'generated',
   'check-csp': 'static',
   'check-base-consistency': 'generated',
+  'check-env-wiring': 'generated',
+  'check-domain-symmetry': 'static',
+  'check-verdict-symmetry': 'static',
+  'check-skill-routing': 'generated',
+  'check-self-eval': 'generated',
   'check-schema-parity': 'static',
+  'check-migration-grants': 'static',
+  'check-report-fields': 'static',
+  'check-no-synthetic-italic': 'static',
+  'check-edge-fn-ops': 'static',
   'check-backup-coverage': 'static',
   'check-blueprint': 'generated',
   'check-registry-gen': 'generated',
+  'check-platform-map': 'generated',
+  'check-lazy-screens': 'static',
+  'check-font-subsets': 'generated',
+  'check-fn-size': 'static',
+  'check-sw': 'static',
+  'check-hand-counts': 'generated',
   'check-doc-counts': 'generated',
   'check-timezone': 'static',
   'unit-tests': 'unit',
