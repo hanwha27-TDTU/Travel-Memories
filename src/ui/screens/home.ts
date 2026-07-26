@@ -22,7 +22,8 @@ import {
   type SessionUser,
 } from '../../services/auth';
 import { requestSync } from '../../services/autoSync';
-import { el, setNote } from '../dom';
+import { el, setNote, type NoteAction } from '../dom';
+import { openDiagnosticsHub } from './diagnosticsHub';
 import { openDataManager } from './dataManager';
 import { openAboutApp } from './aboutApp';
 import { APP_VERSION } from '../../app/changelog';
@@ -368,13 +369,25 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
       items.forEach((t, i) => list.appendChild(tripCard(t, i, navigate, deleteTrip)));
     }
     // 정상(동기화됨)은 조용하게, 알아둘 것·문제는 눈에 띄게(setNote 위계).
+    //
+    // 목적지(§7 — 갈 곳이 있는 상태에 전부 걸었는가):
+    //  · 대기 N건      → 「동기화 상태」. 거기에 [지금 동기화]가 있다. 사용자가 요청한 자리.
+    //  · 로컬 저장 모드 → 「환경·기능」. 왜 서버로 안 가는지는 환경이 답한다.
+    //  · 로그인 안내    → **목적지 없음.** 조치 버튼([로그인])이 이 화면 헤더에 이미 있다 —
+    //                    진단으로 보내면 오히려 멀어진다.
+    //  · 동기화됨(ok)  → **목적지 없음.** 정상은 침묵이어야 한다(진단 §5.1). 여기에 알약과
+    //                    셰브론을 붙이면 아무 할 일 없는 상태가 화면에서 제일 시끄러워진다.
+    const toSync: NoteAction = { go: () => openDiagnosticsHub('sync'), label: '동기화 상태 열기' };
     if (!isConfigured()) {
-      setNote(status, `📴 로컬 저장 모드 · 대기 ${pending}건`, 'info');
+      setNote(status, `📴 로컬 저장 모드 · 대기 ${pending}건`, 'info', {
+        go: () => openDiagnosticsHub('environment'),
+        label: '환경·기능 열기',
+      });
     } else if (user) {
-      if (pending > 0) setNote(status, `☁️ 동기화 대기 ${pending}건`, 'info');
-      else setNote(status, '☁️ 동기화됨', 'ok');
+      if (pending > 0) setNote(status, `☁️ 동기화 대기 ${pending}건`, 'info', toSync);
+      else setNote(status, '☁️ 동기화됨', 'ok', null);
     } else {
-      setNote(status, `🔒 로그인하면 기기 간 동기화 · 로컬 대기 ${pending}건`, 'info');
+      setNote(status, `🔒 로그인하면 기기 간 동기화 · 로컬 대기 ${pending}건`, 'info', null);
     }
   }
 

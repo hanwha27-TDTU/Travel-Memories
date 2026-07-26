@@ -598,6 +598,10 @@ check('히어로: 상태 배지가 뒤로가기 버튼과 안 겹침', noOverlap
 // 계약: 정상 상태(동기화됨)는 내용 폭만 차지한다 — 전폭 배너 금지.
 await page.setViewportSize({ width: 1480, height: 920 });
 await page.waitForTimeout(200);
+// `.sync-note`는 홈과 여행 상세 **양쪽에** 있다 — 어디를 보고 있는지 명시하지 않으면
+// 엉뚱한 줄을 검사한다(실제로 그렇게 짰다가 이 검사가 잡았다). 홈으로 돌아가서 본다.
+await page.goto(`http://localhost:4173${BASE}`);
+await page.waitForSelector('.sync-note', { timeout: 15000 }).catch(() => {});
 const noteBox = await page.evaluate(() => {
   const n = document.querySelector('.sync-note');
   if (!n) return null;
@@ -606,6 +610,121 @@ const noteBox = await page.evaluate(() => {
 });
 check('상태 줄: 전폭 배너가 아님(내용 폭만)', !noteBox || noteBox.w < noteBox.vw * 0.5,
   noteBox ? `${noteBox.w}px / ${noteBox.vw}px` : 'none');
+
+// ── v0.94: 상태 줄이 **갈 곳을 준다**(사용자 제안 2026-07-26) ──────────────
+// 계약: 조치할 것이 있는 상태(info/error)는 눌러서 조치할 화면으로 데려간다. 정상(ok)은
+// 갈 곳을 만들지 않는다 — 아무 할 일 없는 상태가 화면에서 제일 시끄러워지면 안 된다(§5.1).
+// 이 층이 최종 판정층인 이유: 타입은 "인자를 넘겼는가"까지만 보고, **눌러서 열리는가**는
+// 실제 DOM 이벤트만 답한다.
+const noteAct = await page.evaluate(() => {
+  const n = document.querySelector('.sync-note');
+  if (!n) return null;
+  const r = n.getBoundingClientRect();
+  return {
+    cls: n.className,
+    role: n.getAttribute('role') ?? '',
+    tabindex: n.getAttribute('tabindex') ?? '',
+    aria: n.getAttribute('aria-label') ?? '',
+    chev: Boolean(n.querySelector('.sync-note-chev')),
+    h: Math.round(r.height),
+    txt: n.textContent ?? '',
+  };
+});
+// 계약: ok면 갈 곳이 없어야 한다. ok가 아니면 이 검사는 해당 없음(아래 주입 검사가 본론이다).
+check('상태 줄: 정상(ok)에는 갈 곳을 만들지 않는다(침묵이 정상)',
+  Boolean(noteAct) && (!noteAct.cls.includes('is-ok') || !noteAct.cls.includes('is-actionable')),
+  noteAct ? noteAct.cls : 'none');
+
+// 여기서 멈추면 **공허한 검사**가 된다(§4): 지금 화면은 대기 0건이라 정작 눌러야 할 상태가
+// 렌더되지 않는다. 그래서 대기 작업을 **직접 주입**해 그 상태를 실제로 만든다.
+// (환율 표 주입과 같은 수법 — 네트워크가 아니라 UI 경로를 검증하는 것이 목적이다.)
+await page.evaluate(async () => {
+  await new Promise((resolve, reject) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const tx = req.result.transaction('syncQueue', 'readwrite');
+      tx.objectStore('syncQueue').put({
+        operationId: 'live-check-pending-0001',
+        entityType: 'trip',
+        entityId: 'live-check-0001',
+        operationType: 'update',
+        state: 'local_only',
+        attempts: 0,
+        createdAt: new Date().toISOString(),
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+});
+await page.reload();
+// 고정 대기가 아니라 **상태가 실제로 나타날 때까지** 기다린다(인증 확인이 늦게 올 수 있다).
+await page.waitForSelector('.sync-note.is-actionable', { timeout: 15000 }).catch(() => {});
+const noteAct2 = await page.evaluate(() => {
+  const n = document.querySelector('.sync-note');
+  if (!n) return null;
+  const r = n.getBoundingClientRect();
+  return {
+    cls: n.className,
+    role: n.getAttribute('role') ?? '',
+    tabindex: n.getAttribute('tabindex') ?? '',
+    aria: n.getAttribute('aria-label') ?? '',
+    chev: Boolean(n.querySelector('.sync-note-go')),
+    // 역할을 덮어쓰지 않았는가 — 이 줄은 라이브 영역이라 글이 바뀌면 읽어 줘야 한다.
+    liveRegion: n.getAttribute('role') === 'status',
+    goLabel: n.querySelector('.sync-note-go')?.getAttribute('aria-label') ?? '',
+    h: Math.round(r.height),
+    txt: n.textContent ?? '',
+  };
+});
+check('상태 줄: 대기가 생기면 누를 수 있게 바뀐다(주입 픽스처)',
+  Boolean(noteAct2) && noteAct2.cls.includes('is-actionable') && noteAct2.txt.includes('대기'),
+  noteAct2 ? `${noteAct2.cls} · "${noteAct2.txt}"` : 'none');
+check('상태 줄: 누를 수 있어도 라이브 영역(role=status)을 뺏지 않는다',
+  noteAct2?.liveRegion === true, `role=${noteAct2?.role}`);
+check('상태 줄: 진짜 버튼이 화면읽기 라벨을 갖는다',
+  (noteAct2?.goLabel.length ?? 0) > 0, `aria-label="${noteAct2?.goLabel}"`);
+check('상태 줄: 갈 곳이 있다는 신호가 글리프로 보인다(색만으로 인코딩하지 않는다)',
+  Boolean(noteAct2?.chev), `chev=${noteAct2?.chev}`);
+check('상태 줄: 손가락 표적 44px 이상', (noteAct2?.h ?? 0) >= 44, `${noteAct2?.h}px`);
+
+await page.click('.sync-note');
+await page.waitForTimeout(1200);
+const jumped = await page.evaluate(() => {
+  const ov = document.querySelector('.guide-overlay');
+  return {
+    open: Boolean(ov),
+    // 허브 홈이 아니라 **지목된 도구**로 바로 들어갔는가(카드 격자가 없어야 한다).
+    title: ov?.querySelector('.guide-detail-title')?.textContent ?? '',
+    hasBack: Boolean(ov?.querySelector('.guide-back')),
+    cards: ov?.querySelectorAll('.guide-card').length ?? 0,
+  };
+});
+// 어떤 도구로 가야 하는지는 **칩이 말한 상태**가 정한다. 아무 데나 열면 갈 곳을 준 게 아니다.
+const expectTool = (noteAct2?.txt ?? '').includes('로컬 저장 모드') ? '환경' : '동기화';
+check('상태 줄: 누르면 **그 상태에 맞는** 조치 화면으로 바로 간다(허브 홈을 거치지 않는다)',
+  jumped.open && jumped.title.includes(expectTool) && jumped.cards === 0,
+  `${JSON.stringify(jumped)} · 기대="${expectTool}"`);
+check('상태 줄: 거기서 허브 홈으로 되돌아올 길이 있다', jumped.hasBack, `back=${jumped.hasBack}`);
+
+// 뒷정리 — 주입한 픽스처를 남기면 뒤따르는 검사가 오염된다.
+await page.keyboard.press('Escape');
+await page.waitForTimeout(300);
+await page.evaluate(async () => {
+  await new Promise((resolve) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const tx = req.result.transaction('syncQueue', 'readwrite');
+      tx.objectStore('syncQueue').delete('live-check-pending-0001');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    };
+    req.onerror = () => resolve();
+  });
+});
+await page.reload();
+await page.waitForTimeout(900);
 
 // ── v0.69: 진단 도구가 **판정**을 하는가(정적 게이트가 못 보는 층) ──
 // 계약(CLAUDE.md §8): ① 총괄 판정이 계산되어 '확인 중…'을 벗어난다 ② 정상 지표는 카드가 아니라
@@ -737,6 +856,38 @@ const trashText = await page.evaluate(() => {
   const modal = document.querySelector('.guide-modal');
   return { txt: modal?.textContent ?? '', strongs: modal?.querySelectorAll('strong').length ?? 0 };
 });
+// ── v0.94: 휴지통의 상태 줄이 **다른 화면의 레이아웃을 빌려오지 않는가** ──────────
+// 원래 결함(2026-07-26 사용자 실기기 "디자인이 조잡해요"): 이 줄이 R2 설정 화면용 클래스
+// (`r2-probe-note`, `flex: 1 1 240px`)를 쓰고 있었다. 이 패널은 **세로 flex**라 그 240px이
+// **높이**가 되어 화면 절반을 먹는 분홍 덩어리가 됐다. 타입도 유닛도 못 보는 자리다 —
+// 클래스가 어느 부모 안에 놓이는지는 **실제 레이아웃만** 안다.
+await page.locator('.dm-trash-row button:has-text("영구삭제")').first().click().catch(() => {});
+await page.waitForTimeout(200);
+await page.locator('.dm-trash-row button:has-text("정말 지움")').first().click().catch(() => {});
+await page.waitForTimeout(1000);
+const trashNote = await page.evaluate(() => {
+  const n = document.querySelector('.guide-overlay .sync-note');
+  if (!n || n.hidden) return null;
+  const r = n.getBoundingClientRect();
+  const panel = n.closest('.guide-detail-body')?.getBoundingClientRect();
+  return {
+    cls: n.className,
+    h: Math.round(r.height),
+    w: Math.round(r.width),
+    panelW: Math.round(panel?.width ?? 0),
+    go: n.querySelector('.sync-note-go')?.getAttribute('aria-label') ?? '',
+    txt: (n.textContent ?? '').slice(0, 40),
+  };
+});
+check('휴지통: 실패 안내가 덩어리가 아니라 한 줄 알약이다(빌려온 레이아웃 회귀)',
+  Boolean(trashNote) && trashNote.h <= 80, trashNote ? `${trashNote.w}×${trashNote.h}px` : '상태 줄이 안 뜸');
+// 폭은 '패널보다 작다'로 잠그지 않는다 — 좁은 화면에서 긴 한글 문장이 줄바꿈되어 패널 폭을
+// 채우는 것은 **정상**이다. 잠글 것은 **넘침**이다(가로 스크롤을 만드는 것이 결함이다).
+check('휴지통: 실패 안내가 패널 밖으로 넘치지 않는다',
+  Boolean(trashNote) && trashNote.w <= trashNote.panelW + 1, trashNote ? `${trashNote.w}px / ${trashNote.panelW}px` : 'none');
+check('휴지통: 실패 안내가 조치할 곳으로 가는 길을 준다(사용자 요청)',
+  (trashNote?.go.length ?? 0) > 0, `aria-label="${trashNote?.go}"`);
+
 check('휴지통: 화면에 마크다운 별표가 안 보인다(M-0012)', !trashText.txt.includes('**'),
   trashText.txt.includes('**') ? `노출: ${trashText.txt.slice(trashText.txt.indexOf('**') - 20, trashText.txt.indexOf('**') + 40)}` : `strong ${trashText.strongs}개로 렌더`);
 check('휴지통: 강조가 <strong>으로 실제 렌더된다', trashText.strongs > 0, `strong ${trashText.strongs}개`);

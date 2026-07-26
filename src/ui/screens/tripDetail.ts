@@ -36,6 +36,7 @@ import { convertAmount, formatRate, fxDateFor, fxKey, unitRate, type FxRateTable
 import { ensureTable, fxBase, todayDate } from '../../services/fx';
 import { momentCoord } from '../../domain/place/geojson';
 import { openMapView, openMapPicker, type MapPoint } from './mapView';
+import { openDiagnosticsHub } from './diagnosticsHub';
 import { searchPlaces } from '../../services/geocode';
 
 /** 장소 입력 + 🔍 검색(Nominatim) + 결과 선택. 결과 텍스트는 textContent로만(외부 데이터·XSS 방지). */
@@ -1110,7 +1111,8 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
             }
           }
           await processPhotosIntoMoment(files, moment.id, trip!.id, (msg) => {
-            setNote(note, msg, 'info'); // 사진 처리 진행 — 잠깐 보이는 정보
+            // 진행 중은 갈 곳이 없다 — 지금 벌어지는 일을 보고할 뿐이고, 곧 결과로 바뀐다.
+            setNote(note, msg, 'info', null); // 사진 처리 진행 — 잠깐 보이는 정보
           });
           input.value = '';
           placeField.reset();
@@ -1120,12 +1122,16 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           // 미리보기 URL 회수 + 개수 문구까지 한 번에(초기화 경로를 두 개 만들지 않는다).
           setFiles([]);
           for (const btn of emoButtons.values()) btn.setAttribute('aria-pressed', 'false');
-          setNote(note, '✅ 저장됨', 'ok'); // 정상 — 조용하게
+          setNote(note, '✅ 저장됨', 'ok', null); // 정상 — 조용하게(침묵이 정상이므로 갈 곳도 안 만든다)
           await refresh();
           await trySync(); // 로그인 시 서버로 전송(순간). 사진은 후속(3b).
           await refresh();
         } catch (err) {
-          setNote(note, `저장 실패: ${err instanceof Error ? err.message : String(err)}`, 'error');
+          // 저장 실패야말로 갈 곳이 필요하다 — 무엇이 막혔는지는 「동기화 상태」가 말한다.
+          setNote(note, `저장 실패: ${err instanceof Error ? err.message : String(err)}`, 'error', {
+            go: () => openDiagnosticsHub('sync'),
+            label: '동기화 상태 열기',
+          });
         } finally {
           save.disabled = false;
         }
