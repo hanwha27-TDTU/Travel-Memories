@@ -1183,6 +1183,45 @@ check('플랫폼 지도: 화면에 마크다운 별표가 안 보인다', !plat.
   await swCtx.close();
 }
 
+// ── v1.02: 계정 영역이 **제목 줄 오른쪽**에 오는가(사용자 요청 2026-07-26) ──────────
+// 왜 이 층인가: 배치는 CSS flex와 내용 폭이 함께 정한다 — 타입도 유닛도 못 본다.
+// 넓은 화면에서 같은 줄인지, 오른쪽에 붙는지, 넘치지 않는지를 **실측**한다.
+await page.setViewportSize({ width: 900, height: 900 });
+await page.goto(`http://localhost:4173${BASE}`);
+await page.waitForTimeout(800);
+// 로그인 상태를 이 환경에서 만들 수 없으므로 계정 영역에 실제와 같은 내용을 주입해 폭만 잰다.
+await page.evaluate(() => {
+  const a = document.querySelector('.auth-area');
+  if (!a) return;
+  a.innerHTML = '';
+  const who = document.createElement('span');
+  who.className = 'muted small auth-who';
+  who.textContent = 'someone@example.com';
+  for (const label of ['↻ 동기화', '로그아웃']) {
+    const b = document.createElement('button');
+    b.className = 'btn-ghost';
+    b.textContent = label;
+    a.appendChild(b);
+  }
+  a.insertBefore(who, a.firstChild);
+});
+await page.waitForTimeout(300);
+const headM = await page.evaluate(() => {
+  const t = document.querySelector('.app-title-row')?.getBoundingClientRect();
+  const a = document.querySelector('.auth-area')?.getBoundingClientRect();
+  const head = document.querySelector('.app-head-top')?.getBoundingClientRect();
+  return {
+    sameLine: t && a ? Math.abs(t.top - a.top) < 8 : false,
+    // 오른쪽에 붙었는가 — 제목 오른쪽 끝보다 뒤에 있고, 헤더 오른쪽 가장자리에 닿는가.
+    afterTitle: t && a ? a.left >= t.right - 1 : false,
+    flushRight: head && a ? head.right - a.right < 2 : false,
+    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  };
+});
+check('헤더: 계정 영역이 제목과 **같은 줄**에 온다(넓은 화면)', headM.sameLine, JSON.stringify(headM));
+check('헤더: 계정 영역이 **오른쪽 끝**에 붙는다', headM.afterTitle && headM.flushRight, JSON.stringify(headM));
+check('헤더: 가로 넘침 0', headM.overflow === 0, `overflow=${headM.overflow}`);
+
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 
 await browser.close();
