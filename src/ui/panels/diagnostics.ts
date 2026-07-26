@@ -488,13 +488,42 @@ export function errorProbe(): Promise<Verdict> {
  * 진단 도구의 제1 규율(§8)은 "판정한다"인데, **엉뚱한 것을 판정하면 관측보다 나쁘다** —
  * 사용자를 틀린 곳으로 보낸다. 그래서 문장을 손으로 쓰지 않고 **무리별 개수에서 만든다.**
  */
-export function storeHeadline(level: Level, countBad: number, fileBad: number, stranded = 0): string {
-  if (level === 'ok') return '이 기기는 클라우드와 같습니다';
+export interface StoreHeadlineInput {
+  level: Level;
+  /** 개수 대조에서 어긋난 도메인 수. */
+  countBad: number;
+  /** 사진 파일 대조에서 어긋난 지표 수. */
+  fileBad: number;
+  /** 전파되지 않은 영구삭제 건수. */
+  stranded: number;
+  /** **살아 있는(활성) 기록** 총합. 0이면 "같다"만 말해선 안 된다. */
+  alive: number;
+  /** 휴지통에 있는 항목 수(클라우드 기준). 자료는 그대로 있고 복원하면 돌아온다. */
+  trashed: number;
+}
+
+export function storeHeadline(i: StoreHeadlineInput): string {
+  if (i.level === 'ok') {
+    // ⚠️ 2026-07-26 사용자 지적: *"클라우드와 동일한 게 아니잖아요? 이미 휴지통으로 자료가
+    // 이동했는데."* 옛 문장은 「이 기기는 클라우드와 같습니다」였다. 대조 자체는 맞았지만
+    // **무엇을 비교했는지 말하지 않았다** — 비교한 것은 *살아 있는 항목의 개수*뿐이고,
+    // 휴지통·영구삭제 표식·사진 파일은 그 문장이 다루는 대상이 아니었다.
+    //
+    // 특히 활성이 **양쪽 다 0**일 때가 최악이었다. 0 == 0은 대조라기보다 "비교할 것이 없다"에
+    // 가까운데, 화면은 초록 「정상 · 클라우드와 같습니다」를 띄웠다. 자료가 전부 휴지통으로
+    // 옮겨간 사용자는 그 문장을 "아무 문제 없다"로 읽고 **자기 자료가 어디 갔는지 모른 채**
+    // 화면을 떠난다. M-0021과 같은 부류다 — 판정 문장이 실제로 검사한 것과 다른 것을 가리킨다.
+    //
+    // 그래서 **비교한 대상을 문장에 넣고**, 살아 있는 것이 없으면 자료가 어디 있는지 말한다.
+    if (i.alive > 0) return `살아 있는 기록 ${i.alive}건이 클라우드와 같아요`;
+    if (i.trashed > 0) return `살아 있는 기록이 없어요 — ${i.trashed}건이 휴지통에 있습니다`;
+    return '아직 기록이 없어요';
+  }
   // 가장 무거운 것부터 말한다 — 이건 **사용자 의도가 반영되지 않은** 상태라 제일 먼저 알아야 한다.
-  if (stranded) return `지웠는데 서버에 남은 항목이 ${stranded}건 있어요`;
-  if (countBad && fileBad) return `클라우드와 다른 항목 ${countBad}가지, 사진 파일 문제 ${fileBad}가지가 있어요`;
-  if (countBad) return `클라우드와 다른 항목이 ${countBad}가지 있어요`;
-  if (fileBad) return `사진 파일에 확인할 것이 ${fileBad}가지 있어요`;
+  if (i.stranded) return `지웠는데 서버에 남은 항목이 ${i.stranded}건 있어요`;
+  if (i.countBad && i.fileBad) return `클라우드와 다른 항목 ${i.countBad}가지, 사진 파일 문제 ${i.fileBad}가지가 있어요`;
+  if (i.countBad) return `클라우드와 다른 항목이 ${i.countBad}가지 있어요`;
+  if (i.fileBad) return `사진 파일에 확인할 것이 ${i.fileBad}가지 있어요`;
   // 어느 무리에도 안 잡혔는데 정상도 아니다 = 대조 자체를 못 했다(확인 불가).
   return '지금은 클라우드와 대조하지 못했어요';
 }
@@ -595,6 +624,25 @@ export async function storeStateProbe(): Promise<Verdict> {
     };
   });
 
+  // 휴지통도 **자료다.** 활성만 대조하면 자료가 전부 휴지통으로 옮겨간 순간 양쪽이 0이 되어
+  // 화면이 「같습니다」라고 말한다 — 정작 13건이 어디 있는지는 아무 지표도 말하지 않았다
+  // (2026-07-26 사용자 지적: *"클라우드와 동일한 게 아니잖아요? 이미 휴지통으로 자료가 이동했는데."*).
+  //
+  // 기대값을 `같음`으로 쓰지 않는 이유: **이 기기가 더 적은 것은 정상이다.** 다른 기기에서 지운
+  // 항목은 이 기기에 사본이 없으면 tombstone을 만들지 않는다(비파괴 pull, 불변식 #8).
+  // 그래서 어긋남은 한 방향뿐이다 — 이 기기가 **더 많으면** 아직 안 올린 것이 있다는 뜻이다.
+  countMetrics.push({
+    label: '휴지통 항목',
+    actual: `클라우드 ${cmp.trashed.cloud} · 이 기기 ${cmp.trashed.local}`,
+    expected: '이 기기가 클라우드보다 많지 않음',
+    level: cmp.trashed.local > cmp.trashed.cloud ? ('todo' as const) : ('ok' as const),
+    ...(cmp.trashed.local > cmp.trashed.cloud
+      ? {
+          meaning: `이 기기에서 지운 것 중 ${cmp.trashed.local - cmp.trashed.cloud}건이 아직 클라우드에 안 올라갔어요. 동기화하면 올라갑니다.`,
+        }
+      : {}),
+  });
+
   // 개수 대조와 파일 대조를 **한 배열에 담되 경계를 기억한다** — 판정 문장이 둘을 구분해야 한다.
   const metrics: Metric[] = [...countMetrics];
 
@@ -676,7 +724,11 @@ export async function storeStateProbe(): Promise<Verdict> {
 
   const countBad = countMetrics.filter((m) => m.level !== 'ok').length;
   const fileBad = metrics.slice(countMetrics.length).filter((m) => m.level !== 'ok').length;
-  const headline = storeHeadline(level, countBad, fileBad, stranded);
+  // 살아 있는 기록이 하나도 없을 때 「클라우드와 같습니다」만 말하면 사용자는 **자기 자료가
+  // 어디 갔는지 모른 채** 화면을 떠난다. 그래서 판정 문장에 대조한 대상(활성)과 자료의
+  // 현재 위치(휴지통)를 함께 넘긴다.
+  const alive = PURGE_DOMAINS.reduce((n, d) => n + cmp.counts[d].local, 0);
+  const headline = storeHeadline({ level, countBad, fileBad, stranded, alive, trashed: cmp.trashed.cloud });
 
   return {
     level,
