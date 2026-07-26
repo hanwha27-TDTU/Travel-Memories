@@ -517,15 +517,22 @@ export async function storeStateProbe(): Promise<Verdict> {
   //
   // 종류 판단은 여기(합성 지점)서 하고 storeState에는 **모양만** 넘긴다 — storeState가
   // 저장소 종류를 알게 되면 되돌리기가 환경변수 하나라는 계약이 깨진다.
-  // 옛 저장소에 남은 수는 **이관 진행 상황**이라 따로 들고 있어야 지표를 만들 수 있다.
+  // 옛 저장소 상태는 **이관 진행 상황**이라 따로 들고 있어야 지표를 만들 수 있다.
+  // 단순히 "남은 개수"만 세면 *아직 안 옮긴 것*과 *옮겼는데 원본이 남은 것*을 구분 못 한다 —
+  // 사용자가 할 일이 정반대다(옮기기 vs 정리). 그래서 **두 집합을 다 붙잡는다.**
   let oldStoreCount: number | null = null;
+  let oldAlreadyCopied = 0;
   const filesPort = {
     list: async (): Promise<{ ids: string[]; foreign: number; truncated: boolean; error?: string | undefined }> => {
       const sb = await supabaseMediaIds(c, u.id);
       oldStoreCount = sb.error ? null : sb.ids.length;
       // 합치는 규칙(한쪽이라도 못 읽으면 통째로 확인 불가)은 `unionListings` 한 곳에 있다.
-      const parts = mediaStoreKind() === 'r2' ? [await r2ListObjects(c), sb] : [sb];
-      const u2 = unionListings(parts);
+      const r2 = mediaStoreKind() === 'r2' ? await r2ListObjects(c) : null;
+      if (r2 && !r2.error && !sb.error) {
+        const inNew = new Set(r2.ids);
+        oldAlreadyCopied = sb.ids.filter((id) => inNew.has(id)).length;
+      }
+      const u2 = unionListings(r2 ? [r2, sb] : [sb]);
       return { ids: u2.ids, foreign: u2.foreign ?? 0, truncated: u2.truncated === true, error: u2.error };
     },
   };
@@ -601,7 +608,15 @@ export async function storeStateProbe(): Promise<Verdict> {
       // '문제'가 아니라 '할 일'이다 — 사진은 멀쩡히 있고, 옮기기만 하면 된다(§5.10).
       level: oldStoreCount === null ? 'unknown' : oldStoreCount > 0 ? 'todo' : 'ok',
       ...(oldStoreCount
-        ? { meaning: '사진은 안전합니다. 새 저장소로 옮기면 한 곳에서 관리돼요. 아래 [옛 저장소 사진 옮기기]를 눌러 주세요.' }
+        ? {
+            meaning:
+              oldAlreadyCopied >= oldStoreCount
+                // 이미 다 새 저장소에 있다 = 남은 건 원본 정리뿐. "옮기라"고 하면 사용자가 헷갈린다.
+                ? `${oldStoreCount}장 모두 새 저장소에 있는 것이 확인됐어요. 이제 [옮긴 뒤 옛 파일 정리]로 원본을 지우면 됩니다.`
+                : oldAlreadyCopied
+                  ? `${oldStoreCount}장 중 ${oldAlreadyCopied}장은 이미 옮겨졌어요. [옛 저장소 사진 옮기기]로 나머지를 마저 옮겨 주세요.`
+                  : '사진은 안전합니다. 새 저장소로 옮기면 한 곳에서 관리돼요. 아래 [옛 저장소 사진 옮기기]를 눌러 주세요.',
+          }
         : {}),
     });
   }
@@ -640,7 +655,13 @@ export async function storeStateProbe(): Promise<Verdict> {
     level,
     headline,
     because:
-      cmp.devices.length > 1
+      // 판정 문장이 사진 파일을 가리키면 **그 밑도 사진 얘기여야 한다.** 기기 얘기를 붙여 놓으면
+      // 사용자가 "기기 때문에 문제라는 건가?"로 읽는다(실제로 그렇게 보였다 — 2026-07-26).
+      fileBad && !countBad
+        ? oldStoreCount
+          ? '사진 파일이 옛 저장소와 새 저장소에 나뉘어 있어요. 아래 버튼으로 한 곳에 모을 수 있습니다.'
+          : '사진 기록과 서버 파일이 짝이 맞지 않아요. 아래 지표에서 어느 쪽인지 볼 수 있습니다.'
+        : cmp.devices.length > 1
         ? `기기 ${cmp.devices.length}대가 이 계정에 기록을 올렸어요.${behind.length ? ` 그중 ${behind.length}대는 최신본보다 오래됐습니다.` : ''}`
         : cmp.devices.length === 1
           ? '아직 이 기기에서만 올렸어요.'
