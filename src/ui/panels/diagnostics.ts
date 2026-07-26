@@ -27,10 +27,14 @@ import { recentErrors, clearErrors } from '../../app/errorLog';
 import { CHANGELOG } from '../../app/changelog';
 import { syncStatus, requestSync } from '../../services/autoSync';
 import { compareStore, storeStateRemote, DOMAIN_LABEL } from '../../services/storeState';
+import { r2ListObjects, mediaStoreKind } from '../../services/r2';
 import { PURGE_DOMAINS } from '../../services/purge';
 import { supabase } from '../../services/supabase/client';
 import { deviceLabel, shortDeviceId } from '../../app/deviceId';
 import { renderTool, levelFromMetrics, worst, type Verdict, type Metric, type Level } from './verdict';
+
+/** 접힌 출처에 보일 사진 id 상한. 넘으면 "외 N건 생략"이라고 **적는다**(조용히 자르지 않는다). */
+export const FILE_ID_CAP = 20;
 
 /** 화면에 표시할 앱 버전 — changelog가 SSOT(손으로 적지 않는다). */
 const APP_VERSION = `v${CHANGELOG[0]?.version ?? '0.00'}`;
@@ -483,7 +487,11 @@ export async function storeStateProbe(): Promise<Verdict> {
     };
   }
 
-  const cmp = await compareStore(storeStateRemote(c));
+  // 사진 파일 목록은 R2 경로에서만 물어볼 수 있다(Supabase Storage엔 이 함수가 없다).
+  // 종류 판단을 여기서 하고 storeState에는 **모양만** 넘긴다 — storeState가 저장소 종류를
+  // 알게 되면 되돌리기가 환경변수 하나라는 계약이 깨진다.
+  const filesPort = mediaStoreKind() === 'r2' ? { list: () => r2ListObjects(c) } : undefined;
+  const cmp = await compareStore(storeStateRemote(c), filesPort);
 
   const metrics: Metric[] = PURGE_DOMAINS.map((d) => {
     const { cloud, local } = cmp.counts[d];
@@ -503,6 +511,43 @@ export async function storeStateProbe(): Promise<Verdict> {
           }),
     };
   });
+
+  // ── 사진 파일 대조 ──────────────────────────────────────────────
+  // 두 방향을 **한 숫자로 합치지 않는다.** 사용자가 할 일이 정반대이기 때문이다
+  // (진단 §4의 "대기 중인 작업 3건"이 정확히 그 실수였다).
+  const fa = cmp.fileAudit;
+  if (!fa) {
+    // 못 본 것을 정상으로 반올림하지 않는다(비타협 원칙 #4).
+    metrics.push({
+      label: '사진 파일 대조',
+      actual: '확인 못 함',
+      expected: '기록과 파일이 1:1',
+      level: 'unknown',
+      meaning: cmp.fileAuditNote ?? '서버 사진 목록을 물어보지 못했어요',
+    });
+  } else {
+    metrics.push({
+      label: '기록 없는 사진 파일',
+      actual: `${fa.orphans.length}개`,
+      expected: '0개',
+      level: fa.orphans.length ? 'problem' : 'ok',
+      ...(fa.orphans.length
+        ? { meaning: '기록은 지워졌는데 서버에 파일만 남았어요. 기억은 안전하고 용량만 차지합니다.' }
+        : {}),
+    });
+    metrics.push({
+      label: '파일이 없는 사진 기록',
+      actual: fa.truncated ? '확인 못 함' : `${fa.missing.length}개`,
+      expected: '0개',
+      // 목록이 잘렸으면 "없다"고 말할 수 없다 — 뒤쪽 페이지에 있을 수 있다.
+      level: fa.truncated ? 'unknown' : fa.missing.length ? 'problem' : 'ok',
+      ...(fa.truncated
+        ? { meaning: `사진이 너무 많아 목록을 다 보지 못했어요(${fa.files}개까지 확인). 이 판정은 보류합니다.` }
+        : fa.missing.length
+          ? { meaning: '기록은 있는데 서버에 사진 파일이 없어요. 사본을 가진 기기에서 동기화하면 다시 올라갑니다.' }
+          : {}),
+    });
+  }
 
   const level = levelFromMetrics(metrics);
   const behind = cmp.devices.filter((d) => !d.isThis && cmp.lastCloudWriteAt && d.lastPushAt < cmp.lastCloudWriteAt);
@@ -546,6 +591,28 @@ export async function storeStateProbe(): Promise<Verdict> {
             ['사진 파일은?', '영구삭제 시점에 서버 사진 파일도 함께 지웁니다(위 개수에 안 잡힙니다).'],
           ]),
       },
+      ...(fa
+        ? [
+            {
+              // 목록에 상한을 둔다 — 여행 사진 앱이라 수백 장이 정상이고, 상한이 없으면
+              // 수리 버튼이 목록 뒤로 밀려 진단 도구가 스스로 수리 경로를 막는다(진단 §5.2).
+              label: `사진 파일 ${fa.files}개 · 기록 ${fa.rows}개${fa.truncated ? ' (다 못 봄)' : ''}`,
+              build: () => {
+                const rows: [string, string][] = [];
+                const show = (ids: string[], what: string): void => {
+                  for (const id of ids.slice(0, FILE_ID_CAP)) rows.push([id.slice(0, 8), what]);
+                  // 조용히 자르지 않는다 — 자른 것은 자랐다고 적는다(진단 §5.3).
+                  if (ids.length > FILE_ID_CAP) rows.push(['…', `${what} 외 ${ids.length - FILE_ID_CAP}건 생략`]);
+                };
+                show(fa.orphans, '기록 없는 파일');
+                show(fa.missing, '파일 없는 기록');
+                if (fa.foreign) rows.push(['(형식 밖)', `${fa.foreign}개 — 이 앱이 만들지 않은 이름의 파일이에요`]);
+                if (fa.truncated) rows.push(['⚠', `사진이 많아 목록을 다 보지 못했어요 — 위 개수는 확인한 범위까지입니다`]);
+                return table(rows);
+              },
+            },
+          ]
+        : []),
       {
         label: `내 기기들 ${cmp.devices.length}대`,
         build: () =>

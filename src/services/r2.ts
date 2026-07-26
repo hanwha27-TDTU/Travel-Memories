@@ -50,7 +50,7 @@ interface SignResult {
 
 async function callSign(
   client: JourneyClient,
-  op: 'put' | 'get' | 'delete' | 'probe',
+  op: 'put' | 'get' | 'delete' | 'probe' | 'list',
   mediaId: string | null,
 ): Promise<{ data: SignResult | null; error?: string }> {
   try {
@@ -79,6 +79,8 @@ export function explainR2Error(code: string): string {
       return '서명 생성 실패 — 시크릿 값에 공백이 섞였을 수 있습니다';
     case 'r2_delete_failed':
       return 'R2가 삭제를 거부했습니다 — 버킷 잠금 규칙이 켜졌는지 확인(5b단계)';
+    case 'r2_list_failed':
+      return 'R2가 목록 조회를 거부했습니다 — 토큰 권한에 읽기(Object Read)가 있는지 확인(6단계)';
     default:
       return code;
   }
@@ -92,6 +94,38 @@ export async function r2Probe(client: JourneyClient): Promise<{ ok: boolean; det
   if (!d) return { ok: false, detail: '응답이 비었습니다' };
   if (d.ok) return { ok: true, detail: '함수와 시크릿 4개 확인됨 — 실제 업로드(CORS)는 사진 저장으로만 증명됩니다' };
   return { ok: false, detail: `빠진 시크릿: ${(d.missing ?? []).join(', ') || '알 수 없음'}` };
+}
+
+/**
+ * 서버에 실제로 있는 사진 파일 목록(내 폴더만).
+ *
+ * 왜 필요한가(사용자 지적 2026-07-26): 지금까지 "R2에 고아 파일이 남았나"를 확인하는 유일한
+ * 방법이 **사용자가 Cloudflare 콘솔을 열어 화면을 캡처해 주는 것**이었다. 그건 §8("진단 도구는
+ * 관측이 아니라 판정을 한다")에 어긋난다 — 앱이 스스로 말할 수 있는 일을 사람이 대신했다.
+ *
+ * 응답에는 **mediaId만** 온다(폴더=uid는 함수가 떼고 준다). 목록 서명 URL은 브라우저에
+ * 오지 않는다 — 함수가 호출하고 결과만 준다.
+ */
+export interface R2Listing {
+  /** 서버에 파일이 있는 사진 id들. */
+  ids: string[];
+  /** 우리 형식(`{uuid}.webp`)이 아닌 키의 수. 조용히 버리지 않고 개수로 보고한다. */
+  foreign: number;
+  /** 페이지 상한에 걸려 **다 못 봤다**. true면 "고아 0건"이라 말하면 안 된다. */
+  truncated: boolean;
+  error?: string;
+}
+
+export async function r2ListObjects(client: JourneyClient): Promise<R2Listing> {
+  const r = await callSign(client, 'list', null);
+  if (r.error) return { ids: [], foreign: 0, truncated: false, error: explainR2Error(r.error) };
+  const d = r.data as ({ ids?: unknown; foreign?: unknown; truncated?: unknown } & SignResult) | null;
+  if (!d || !Array.isArray(d.ids)) return { ids: [], foreign: 0, truncated: false, error: '목록 응답이 비었습니다' };
+  return {
+    ids: (d.ids as unknown[]).filter((x): x is string => typeof x === 'string'),
+    foreign: typeof d.foreign === 'number' ? d.foreign : 0,
+    truncated: d.truncated === true,
+  };
 }
 
 export function r2BlobStore(client: JourneyClient): BlobStore {

@@ -16,6 +16,8 @@
 //   3) 인증은 플랫폼 `verify_jwt` 설정에 **의존하지 않는다.** 매 요청 `/auth/v1/user`로 직접
 //      확인한다(verify_jwt가 꺼진 채 배포돼도 sub 위조가 성립하지 않게).
 //   4) 삭제는 브라우저에 권한을 주지 않는다 — 이 함수가 서명하고 이 함수가 실행한다.
+//   5) **목록의 범위도 서버가 못박는다.** prefix는 검증된 sub에서만 나오고, 요청 본문의
+//      prefix/delimiter/bucket은 읽지도 않는다. 목록 서명 URL은 브라우저로 나가지 않는다.
 //
 // 배포: Supabase 대시보드 › Edge Functions › Deploy a new function › Via Editor,
 //       함수 이름 `media-sign`. **이 파일 한 개**를 통째로 붙여넣는다(시크릿 4개는 앱 내
@@ -102,18 +104,25 @@ export function amzDateOf(ms: number): string {
 /**
  * presigned URL 생성. 헤더는 host만 서명하므로 브라우저가 Content-Type을 덧붙여도
  * 서명이 깨지지 않는다(쿼리 서명에서 미서명 헤더는 검증 대상이 아니다).
+ *
+ * `key`가 빈 문자열이면 **버킷 자체**를 가리킨다(ListObjectsV2용). 이때 `extraQuery`로
+ * `list-type=2`·`prefix` 등을 넘긴다 — 이들도 **서명에 포함**되므로 중간에서 prefix를
+ * 바꿔치기할 수 없다. 이게 "목록의 범위를 서버가 못박는다"의 실제 구현이다.
  */
 export async function presign(
   env: R2Env,
   method: 'PUT' | 'GET' | 'DELETE',
   key: string,
   nowMs: number,
+  extraQuery: [string, string][] = [],
 ): Promise<string> {
   const host = `${env.accountId}.r2.cloudflarestorage.com`;
   const amzDate = amzDateOf(nowMs);
   const dateStamp = amzDate.slice(0, 8);
   const scope = `${dateStamp}/${REGION}/${SERVICE}/aws4_request`;
-  const canonicalUri = `/${uriEncode(env.bucket)}/${key.split('/').map(uriEncode).join('/')}`;
+  const canonicalUri = key
+    ? `/${uriEncode(env.bucket)}/${key.split('/').map(uriEncode).join('/')}`
+    : `/${uriEncode(env.bucket)}`;
 
   const canonicalQuery = (
     [
@@ -122,6 +131,7 @@ export async function presign(
       ['X-Amz-Date', amzDate],
       ['X-Amz-Expires', String(EXPIRES_SEC)],
       ['X-Amz-SignedHeaders', 'host'],
+      ...extraQuery,
     ] as [string, string][]
   )
     .map(([k, v]) => [uriEncode(k), uriEncode(v)] as [string, string])
@@ -150,6 +160,58 @@ export async function presign(
  */
 export function objectKey(userId: string, mediaId: string): string {
   return `${userId}/${mediaId}.webp`;
+}
+
+// ── 목록 조회(ListObjectsV2) ────────────────────────────────────────
+/**
+ * 한 번에 받을 객체 수와 페이지 상한. 개인 여행 앱이라 수천 장이 상한이면 충분하고,
+ * 무한 루프를 구조적으로 막는다. **상한에 걸리면 `truncated`로 반드시 말한다** —
+ * 조용히 자르고 "고아 0건"이라 판정하면 그건 거짓말이다(비타협 원칙 #4).
+ */
+export const LIST_PAGE_SIZE = 1000;
+export const LIST_MAX_PAGES = 10;
+
+/** XML 엔티티 되돌리기. 우리 키(`{uuid}/{uuid}.webp`)엔 없지만 없다고 가정하지 않는다. */
+export function xmlUnescape(s: string): string {
+  return s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+export interface ListPage {
+  keys: string[];
+  /** 서버가 준 다음 페이지 토큰(없으면 끝). */
+  nextToken: string | null;
+}
+
+/**
+ * ListObjectsV2 응답 XML에서 키와 다음 토큰만 뽑는다.
+ *
+ * DOM 파서 없이 정규식을 쓰는 이유: Deno 런타임에 XML 파서가 없고, S3 응답은 스키마가
+ * 고정된 기계 생성물이라 `<Contents><Key>…</Key>` 형태가 변하지 않는다. **순수 함수라
+ * 유닛이 실제 응답 형태로 직접 돌린다** — 서명과 달리 이건 이 환경에서 증명 가능하다.
+ */
+export function parseListXml(xml: string): ListPage {
+  const keys: string[] = [];
+  for (const m of xml.matchAll(/<Contents>[\s\S]*?<Key>([\s\S]*?)<\/Key>[\s\S]*?<\/Contents>/g)) {
+    keys.push(xmlUnescape(m[1] ?? ''));
+  }
+  const truncated = /<IsTruncated>\s*true\s*<\/IsTruncated>/i.test(xml);
+  const tok = xml.match(/<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/);
+  return { keys, nextToken: truncated && tok ? xmlUnescape(tok[1] ?? '') : null };
+}
+
+/**
+ * 키에서 mediaId를 뽑는다. **폴더(uid) 부분은 버린다** — 응답에 다시 담지 않기 위해서다.
+ * 우리 형식이 아니면 null(호출부가 따로 세어 보고한다 — 조용히 버리지 않는다).
+ */
+export function mediaIdOfKey(key: string): string | null {
+  const last = key.split('/').pop() ?? '';
+  const id = last.replace(/\.webp$/i, '');
+  return UUID_RE.test(id) ? id : null;
 }
 
 // ── 인증 — 플랫폼 설정에 의존하지 않는 실제 확인 ──────────────────
@@ -213,6 +275,46 @@ export async function handler(req: Request): Promise<Response> {
 
   const userId = await verifiedUserId(req);
   if (!userId) return json({ error: 'unauthorized' }, 401);
+
+  // ── list: 내 폴더의 객체 목록 ────────────────────────────────────
+  // 🔐 prefix는 **검증된 sub에서만** 나온다. 요청 본문의 prefix/delimiter/bucket은
+  //    읽지도 않는다 — 파싱해 두면 언젠가 쓰게 되고, 그 순간 버킷 전체가 열린다.
+  //    서명 URL도 브라우저에 주지 않는다: 목록 URL은 "이 접두사 아래 전부"를 뜻해
+  //    유출 시 단건 URL보다 손해가 크다(삭제와 같은 이유로 함수가 직접 호출한다).
+  if (op === 'list') {
+    const prefix = `${userId}/`;
+    const ids: string[] = [];
+    let foreign = 0; // 우리 형식이 아닌 키 — 조용히 버리지 않고 개수로 보고한다
+    let token: string | null = null;
+    let truncated = false;
+    try {
+      for (let page = 0; page < LIST_MAX_PAGES; page++) {
+        const q: [string, string][] = [
+          ['list-type', '2'],
+          ['prefix', prefix],
+          ['max-keys', String(LIST_PAGE_SIZE)],
+        ];
+        if (token) q.push(['continuation-token', token]);
+        const url = await presign(env, 'GET', '', Date.now(), q);
+        const r = await fetch(url);
+        if (!r.ok) return json({ error: 'r2_list_failed', status: r.status }, 502);
+        const parsed: ListPage = parseListXml(await r.text());
+        for (const k of parsed.keys) {
+          const id = mediaIdOfKey(k);
+          if (id) ids.push(id);
+          else foreign++;
+        }
+        token = parsed.nextToken;
+        if (!token) break;
+        // 마지막 페이지까지 돌았는데도 토큰이 남았다 = 더 있다.
+        if (page === LIST_MAX_PAGES - 1) truncated = true;
+      }
+    } catch {
+      return json({ error: 'r2_list_failed' }, 502);
+    }
+    // 키 전체가 아니라 mediaId만 돌려준다(폴더=uid는 다시 담지 않는다).
+    return json({ ids, foreign, truncated, count: ids.length });
+  }
 
   const mediaId = typeof body.mediaId === 'string' ? body.mediaId : '';
   if (!UUID_RE.test(mediaId)) return json({ error: 'bad_media_id' }, 400);
