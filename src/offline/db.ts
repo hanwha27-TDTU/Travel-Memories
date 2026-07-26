@@ -85,7 +85,12 @@ export interface SyncQueueItem {
   entityType: string;
   entityId: string;
   /** `purge` = 영구삭제 전파(ADR-0027). 로컬 행이 이미 없으므로 도메인 push 루프가 처리하지 않는다. */
-  operationType: 'insert' | 'update' | 'delete' | 'finalize_upload' | 'purge';
+  /**
+   * `unpurge` — 백업 복원이 만든 **원장 되돌리기** 의사(2026-07-26).
+   * 복원은 "영구히 치움"보다 우선하는 새 의도인데, 서버 원장을 그대로 두면 push가 트리거에
+   * 막히고 이어서 원장 pull이 로컬 행까지 지운다. 그 순서를 끊기 위해 큐에 올린다.
+   */
+  operationType: 'insert' | 'update' | 'delete' | 'finalize_upload' | 'purge' | 'unpurge';
   state: string;
   attempts: number;
   createdAt: string;

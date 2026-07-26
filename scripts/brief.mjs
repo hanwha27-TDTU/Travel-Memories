@@ -80,9 +80,9 @@ export const SKILL_ROUTES = [
  */
 export const POSTMORTEMS = [
   {
-    match: /^(src\/services\/(sync|autoSync|purge|trash|storeState|r2|media)|src\/ui\/panels\/(diagnostics|verdict)|src\/offline\/|supabase\/)/,
+    match: /^(src\/services\/(sync|autoSync|purge|trash|storeState|r2|media|backup)|src\/ui\/panels\/(diagnostics|verdict)|src\/offline\/|supabase\/)/,
     doc: 'docs/records/2026-07-26-STORAGE-DELETE-POSTMORTEM.md',
-    why: '저장·동기화·삭제·진단에서 하루에 결함 10건 — 정적 게이트가 잡은 것은 0건이었다',
+    why: '저장·동기화·삭제·복원·진단에서 하루에 결함 11건 — 정적 게이트가 잡은 것은 0건이었다',
   },
 ];
 

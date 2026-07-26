@@ -20,6 +20,7 @@ import { db, type LocalTrip, type LocalMoment, type LocalMedia, type LocalExpens
 import { mergeDecision, isEmptyCloudAnomaly } from '../sync/merge';
 import { zipStore, unzip, looksLikeZip, type ZipEntry } from './zip';
 import { encryptBytes, decryptBytes, isEncryptedEnvelope } from './backupCrypto';
+import { requestUnpurge } from './purge';
 
 export const BACKUP_APP_TAG = 'bugeon-journey';
 export const BACKUP_VERSION = 1;
@@ -45,6 +46,11 @@ export interface ImportResult {
   media: number;
   expenses: number;
   skippedEmptyGuard: boolean;
+  /**
+   * 서버 영구삭제 원장에서 **되돌리기를 요청한 건수**(복원이 되살린 id 중 새로 큐에 올린 수).
+   * 0이 아니면 "영구삭제했던 것을 되살렸다"는 뜻이라 화면이 그렇게 말해야 한다.
+   */
+  unpurged?: number;
 }
 
 function statsOf(rows: CollectedRows): BackupStats {
@@ -80,7 +86,7 @@ export async function importMergeRows(rows: CollectedRows): Promise<ImportResult
     localTrips.filter((t) => t.deletedAt === null).length +
     localMoments.filter((m) => m.deletedAt === null).length;
   if (isEmptyCloudAnomaly(backupTotal, localActive)) {
-    return { trips: 0, moments: 0, media: 0, expenses: 0, skippedEmptyGuard: true };
+    return { trips: 0, moments: 0, media: 0, expenses: 0, skippedEmptyGuard: true, unpurged: 0 };
   }
 
   let tc = 0;
@@ -89,6 +95,8 @@ export async function importMergeRows(rows: CollectedRows): Promise<ImportResult
   let ec = 0;
   // 복원한 행은 **서버로도 전파돼야** 한다. op를 만들지 않으면 그 기억은 이 기기에만 남고
   // 다른 기기·서버에 영영 닿지 않는다(재해 복구의 절반이 빠진 상태). 2026-07-25 감사 F2.
+  /** 이번 복원이 되살린 id들 — 서버 원장에서도 빼야 한다(아래 requestUnpurge). */
+  const restoredIds = new Set<string>();
   const enqueue = async (entityType: 'trip' | 'moment' | 'media' | 'expense', row: SyncMeta & { id: string }): Promise<void> => {
     await d.syncQueue.add({
       operationId: crypto.randomUUID(),
@@ -102,6 +110,11 @@ export async function importMergeRows(rows: CollectedRows): Promise<ImportResult
     // 사용자가 명시적으로 복원한 것은 "영구히 치움" 의사보다 우선한다 — 표식을 걷어낸다.
     // (남겨두면 로컬에는 있는데 pull이 계속 무시하는 어긋난 상태가 된다.)
     await d.purgedIds.delete(row.id);
+    // ⚠️ **로컬만 걷어내면 안 된다**(2026-07-26 사용자 실기기). 서버 원장이 남아 있으면
+    // ① BEFORE INSERT 트리거가 이 push를 거부하고 ② 이어지는 원장 pull이 로컬 행까지 지운다.
+    // 복원이 통째로 무효화되는데 **사용자에게는 아무 오류도 안 보인다.**
+    // 규칙을 한쪽에만 구현한 §7 비대칭이었다 — 서버 쪽 의사도 같이 남긴다.
+    restoredIds.add(row.id);
   };
 
   await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.syncQueue, d.purgedIds], async () => {
@@ -134,7 +147,13 @@ export async function importMergeRows(rows: CollectedRows): Promise<ImportResult
       }
     }
   });
-  return { trips: tc, moments: mc, media: mdc, expenses: ec, skippedEmptyGuard: false };
+
+  // 서버 원장 되돌리기 의사를 **큐에 남긴다.** 여기서 바로 서버를 부르지 않는 이유:
+  // 복원은 오프라인에서도 되고 호출은 실패할 수 있는데, 그냥 넘어가면 다음 동기화가 원장을
+  // pull해 **복원한 것을 다시 지운다**(2026-07-26에 실제로 그랬다). 남겨야 재시도된다.
+  const unpurged = await requestUnpurge([...restoredIds]);
+
+  return { trips: tc, moments: mc, media: mdc, expenses: ec, skippedEmptyGuard: false, unpurged };
 }
 
 // ═══════════════ 순수 직렬화층: base64 · blob 유틸(FileReader 미사용 — Node/브라우저 공통) ═══════════════
@@ -483,7 +502,7 @@ export async function importBackupAuto(
 ): Promise<ImportResult & { needsPassphrase?: boolean }> {
   let bytes = new Uint8Array(buf);
   if (isEncryptedEnvelope(bytes)) {
-    if (!passphrase) return { trips: 0, moments: 0, media: 0, expenses: 0, skippedEmptyGuard: false, needsPassphrase: true };
+    if (!passphrase) return { trips: 0, moments: 0, media: 0, expenses: 0, skippedEmptyGuard: false, unpurged: 0, needsPassphrase: true };
     const plain = await decryptBytes(bytes, passphrase); // 실패 시 throw(암호 틀림)
     bytes = plain;
   }

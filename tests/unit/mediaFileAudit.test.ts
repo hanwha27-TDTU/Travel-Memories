@@ -14,7 +14,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { auditMediaFiles, unionListings } from '../../src/services/storeState';
-import { storeHeadline, classifyOrphanFiles } from '../../src/ui/panels/diagnostics';
+import { storeHeadline, classifyOrphanFiles, blockedByLedgerMetric } from '../../src/ui/panels/diagnostics';
 import type { Level } from '../../src/ui/panels/verdict';
 import { parseListXml, mediaIdOfKey, xmlUnescape, presign, LIST_MAX_PAGES, countOutside } from '../../supabase/functions/media-sign/index';
 
@@ -197,7 +197,7 @@ describe('⑥ 판정 문장이 **엉뚱한 곳을 가리키지 않는다** (2026
   // 실제로 이렇게 나왔다: 개수 대조는 전부 정상인데 문장이 `클라우드와 다른 항목이 1가지 있어요`.
   // 진짜 문제는 사진 파일이었다. §8의 "판정한다"는 **맞는 것을 판정한다**는 뜻이다 —
   // 엉뚱한 것을 가리키면 관측보다 나쁘다(사용자를 틀린 곳으로 보낸다).
-  const base = { level: 'ok' as Level, countBad: 0, fileBad: 0, stranded: 0, alive: 3, trashed: 0 };
+  const base = { level: 'ok' as Level, countBad: 0, fileBad: 0, stranded: 0, blocked: 0, alive: 3, trashed: 0 };
 
   it('사진 파일만 문제면 사진 파일이라고 말한다', () => {
     const h = storeHeadline({ ...base, level: 'problem', fileBad: 1 });
@@ -220,6 +220,15 @@ describe('⑥ 판정 문장이 **엉뚱한 곳을 가리키지 않는다** (2026
   it('정상도 아닌데 어느 무리도 안 잡히면 **확인 불가**라고 말한다(정상으로 반올림 금지)', () => {
     expect(storeHeadline({ ...base, level: 'unknown' })).toContain('대조하지 못했');
   });
+
+  // 2026-07-26 사용자: *"복원 내용은 앱에는 하나도 없고 서버에만 좀비처럼 살아났어요."*
+  // 이건 **자료가 없어지는** 문제라 다른 어떤 것보다 먼저 말해야 한다.
+  it('복원이 막혀 있으면 **그걸 제일 먼저** 말한다 — 기억을 잃는 쪽이 1위다', () => {
+    const h = storeHeadline({ ...base, level: 'problem', blocked: 4, stranded: 2, countBad: 1, fileBad: 3 });
+    expect(h).toContain('되살린 기록 4건');
+    expect(h).not.toContain('지웠는데');
+    expect(h).not.toContain('사진 파일');
+  });
 });
 
 describe('⑦ 정상일 때 **무엇이 같은지** 말한다 (2026-07-26 사용자 지적)', () => {
@@ -227,7 +236,7 @@ describe('⑦ 정상일 때 **무엇이 같은지** 말한다 (2026-07-26 사용
   // 옛 문장은 「이 기기는 클라우드와 같습니다」였다. 대조는 맞았지만 **비교한 것이 활성 개수뿐**
   // 이라는 사실을 말하지 않았다. 특히 활성이 양쪽 0일 때가 최악이다 — 0 == 0을 초록 정상으로
   // 칠하면, 자료를 전부 휴지통으로 옮긴 사용자는 자기 자료가 어디 있는지 모른 채 화면을 떠난다.
-  const ok = { level: 'ok' as Level, countBad: 0, fileBad: 0, stranded: 0 };
+  const ok = { level: 'ok' as Level, countBad: 0, fileBad: 0, stranded: 0, blocked: 0 };
 
   it('살아 있는 기록이 있으면 **그 개수와 함께** 같다고 말한다', () => {
     const h = storeHeadline({ ...ok, alive: 12, trashed: 0 });
@@ -265,26 +274,74 @@ describe('⑧ 기록 없는 사진 파일을 **치울 것과 건드리면 안 �
   const B = 'bbbbbbbb-2222-4222-8222-222222222222';
   const C = 'cccccccc-3333-4333-8333-333333333333';
 
+  const none = new Set<string>();
+
   it('원장에 있으면 **치워도 되는** 잔재다', () => {
-    expect(classifyOrphanFiles([A, B], [A, B])).toEqual({ leftover: [A, B], unexplained: [] });
+    expect(classifyOrphanFiles([A, B], [A, B], none)).toEqual({ leftover: [A, B], restoring: [], unexplained: [] });
   });
 
   it('원장에 없으면 **지우면 안 된다** — 그 파일이 마지막 사본일 수 있다', () => {
-    expect(classifyOrphanFiles([C], [A, B])).toEqual({ leftover: [], unexplained: [C] });
+    expect(classifyOrphanFiles([C], [A, B], none)).toEqual({ leftover: [], restoring: [], unexplained: [C] });
   });
 
   it('섞여 있으면 갈라서 담는다', () => {
-    const r = classifyOrphanFiles([A, C], [A, B]);
+    const r = classifyOrphanFiles([A, C], [A, B], none);
     expect(r.leftover).toEqual([A]);
     expect(r.unexplained).toEqual([C]);
   });
 
-  it('고아가 없으면 양쪽 다 비어 있다', () => {
-    expect(classifyOrphanFiles([], [A])).toEqual({ leftover: [], unexplained: [] });
+  it('고아가 없으면 전부 비어 있다', () => {
+    expect(classifyOrphanFiles([], [A], none)).toEqual({ leftover: [], restoring: [], unexplained: [] });
   });
 
   it('원장이 비면 **아무것도 치울 수 없다**(모르는 것을 지워도 되는 것으로 반올림하지 않는다)', () => {
-    expect(classifyOrphanFiles([A, B, C], [])).toEqual({ leftover: [], unexplained: [A, B, C] });
+    expect(classifyOrphanFiles([A, B, C], [], none)).toEqual({
+      leftover: [],
+      restoring: [],
+      unexplained: [A, B, C],
+    });
+  });
+
+  // 2026-07-26 그날의 두 번째 사고: R2에 남아 있던 파일 10개는 잔재가 아니라 **방금 복원한
+  // 사진들**이었는데, 화면은 그걸 「치워도 되는 것」으로 분류하고 정리 버튼까지 내어 줬다.
+  it('되살리는 중이면 원장에 있어도 **치울 대상이 아니다** — 그게 되살아날 사진의 바이트다', () => {
+    const r = classifyOrphanFiles([A, B], [A, B], new Set([A]));
+    expect(r.leftover).toEqual([B]);
+    expect(r.restoring).toEqual([A]);
+    expect(r.unexplained).toEqual([]);
+  });
+
+  it('되살리는 중인 id가 원장에 없으면 여전히 **설명할 수 없는 파일**이다(보호가 분류를 흐리지 않는다)', () => {
+    const r = classifyOrphanFiles([C], [], new Set([C]));
+    expect(r.leftover).toEqual([]);
+    expect(r.restoring).toEqual([]);
+    expect(r.unexplained).toEqual([C]);
+  });
+});
+
+describe('⑧-b 복원이 막혔다는 **문장**이 사용자에게 실제로 나간다 (2026-07-26 M-0032)', () => {
+  // 왜 문장을 따로 검사하나(§10 ③): M-0022에서 유닛 15건이 전부 통과했는데 화면 문장은 틀렸다.
+  // 숫자는 다 맞았고, **화면에 무엇이 나가는지 검사한 것이 하나도 없었다.**
+  it('없으면 침묵한다 — 정상은 화면에서 사라진다(§8)', () => {
+    const m = blockedByLedgerMetric(0, 0);
+    expect(m.level).toBe('ok');
+    expect(m.meaning).toBeUndefined();
+  });
+
+  it('있으면 **기억을 잃는다는 사실**과 누를 버튼을 말한다', () => {
+    const m = blockedByLedgerMetric(3, 0);
+    expect(m.level).toBe('problem'); // 할 일이 아니라 문제다 — 그대로 두면 사라진다
+    expect(m.actual).toBe('3건');
+    expect(m.meaning).toContain('사라집니다');
+    expect(m.meaning).toContain('복원한 항목 되살리기');
+  });
+
+  it('지켜 둔 사진 파일이 있으면 **왜 안 치우는지** 말한다', () => {
+    expect(blockedByLedgerMetric(3, 10).meaning).toContain('10개');
+  });
+
+  it('지켜 둔 파일이 없으면 그 문장을 붙이지 않는다(0개라고 말하지 않는다)', () => {
+    expect(blockedByLedgerMetric(3, 0).meaning).not.toContain('0개');
   });
 });
 

@@ -26,9 +26,21 @@ import { collectEnv, evictionRisk, requestPersist } from '../../services/envRepo
 import { recentErrors, clearErrors } from '../../app/errorLog';
 import { CHANGELOG } from '../../app/changelog';
 import { syncStatus, requestSync } from '../../services/autoSync';
-import { compareStore, storeStateRemote, unionListings, DOMAIN_LABEL } from '../../services/storeState';
+import {
+  compareStore,
+  storeStateRemote,
+  unionListings,
+  DOMAIN_LABEL,
+  type StoreComparison,
+} from '../../services/storeState';
 import { r2ListObjects, r2DeleteMany, r2AbortMultipart } from '../../services/r2';
-import { PURGE_DOMAINS, requeueUnpropagatedPurges, purgeServerOnly } from '../../services/purge';
+import {
+  PURGE_DOMAINS,
+  requeueUnpropagatedPurges,
+  purgeServerOnly,
+  requestUnpurge,
+  pendingUnpurgeIds,
+} from '../../services/purge';
 import { supabase } from '../../services/supabase/client';
 import {
   deviceLabel,
@@ -508,24 +520,60 @@ export function errorProbe(): Promise<Verdict> {
  * 사용자를 틀린 곳으로 보낸다. 그래서 문장을 손으로 쓰지 않고 **무리별 개수에서 만든다.**
  */
 /**
- * **기록 없는 사진 파일**을 두 갈래로 가른다. 순수 함수 — 유닛이 모든 갈래를 직접 돌린다(§10 ③).
+ * **기록 없는 사진 파일**을 세 갈래로 가른다. 순수 함수 — 유닛이 모든 갈래를 직접 돌린다(§10 ③).
  *
  * 2026-07-26 사용자 실기기: 서버 행이 전부 0인데 R2에 파일 3개가 남았다. 영구삭제 시 바이트
  * 삭제는 **최선노력**이라(실패해도 op을 지운다) 재시도 기회가 없고, 그래서 잔재가 생긴다.
  *
- * 한 숫자에 두면 **사용자가 할 일이 정반대인 둘**이 섞인다:
- *  · `leftover`   — 영구삭제 원장에 있는 id. 자료는 이미 없다. **치우면 된다.**
+ * 한 숫자에 두면 **사용자가 할 일이 정반대인 것들**이 섞인다:
+ *  · `leftover`   — 영구삭제 원장에 있고 **되살리는 중도 아닌** id. 자료는 이미 없다. 치우면 된다.
+ *  · `restoring`  — 원장에 있지만 사용자가 **지금 복원 중**인 id. 원장에 있다는 사실은 같지만
+ *    자료는 없어진 게 아니라 **돌아오는 중**이다. 이 바이트가 그 사진의 마지막 사본일 수 있다.
  *  · `unexplained` — 원장에 없는 id. 올리다 기록이 안 만들어졌다면 이 파일이 그 사진의
  *    **마지막 사본**이다. **앱이 지우면 안 된다.**
+ *
+ * 왜 `restoring`을 여기서 가르나(2026-07-26 그날의 두 번째 사고): 같은 날 R2에 남아 있던 파일
+ * 10개는 잔재가 아니라 **사용자가 방금 복원한 사진들**이었는데, 화면은 그걸 「치워도 되는 것」으로
+ * 분류하고 [남은 사진 파일 정리] 버튼까지 내어 주고 있었다. 그 판단이 화면 코드 한복판의
+ * `filter` 한 줄로 흩어져 있으면 다음 사람이 모르고 지운다 — **분류는 분류하는 곳에서 끝낸다.**
  */
 export function classifyOrphanFiles(
   orphans: string[],
   purgedLedger: string[],
-): { leftover: string[]; unexplained: string[] } {
+  /** 지금 되살리는 중인 id — 원장에 있어도 **치울 대상이 아니다.** 없으면 빈 집합을 넘긴다. */
+  restorePending: ReadonlySet<string>,
+): { leftover: string[]; restoring: string[]; unexplained: string[] } {
   const led = new Set(purgedLedger);
   return {
-    leftover: orphans.filter((id) => led.has(id)),
+    leftover: orphans.filter((id) => led.has(id) && !restorePending.has(id)),
+    restoring: orphans.filter((id) => led.has(id) && restorePending.has(id)),
     unexplained: orphans.filter((id) => !led.has(id)),
+  };
+}
+
+/**
+ * **복원했는데 서버가 막은 항목** 지표. 순수 함수 — 사용자에게 나가는 문장을 유닛이 직접 돌린다(§10 ③).
+ *
+ * 2026-07-26 사용자 실기기: 백업을 복원했더니 *"복원 내용은 앱에는 하나도 없고 서버에만 좀비처럼
+ * 살아났어요."* 복원은 **로컬** 영구삭제 표식만 걷어내고 서버 원장은 그대로 뒀다 → push는 트리거에
+ * 거부되고 다음 pull이 로컬 행까지 지웠다. **아무 오류도 안 보였다.**
+ *
+ * 왜 지표인가(§10 ②): 이건 코드가 아니라 **지금 데이터의 모양**에 달린 결함이다. 고친 뒤에도
+ * 옛 판으로 이미 복원해 둔 사람은 여전히 이 상태이고, 그걸 데려올 층은 런타임 진단뿐이다.
+ */
+export function blockedByLedgerMetric(blocked: number, restoringFiles: number): Metric {
+  if (blocked === 0) return { label: '복원했는데 서버가 막은 항목', actual: '없음', expected: '없음', level: 'ok' };
+  return {
+    label: '복원했는데 서버가 막은 항목',
+    actual: `${blocked}건`,
+    expected: '없음',
+    // 그대로 두면 **다음 동기화에서 이 기기에서도 사라진다** — 기억 손실이므로 '문제'다.
+    level: 'problem',
+    meaning:
+      '백업에서 되살린 기록인데 서버가 「영구삭제된 것」으로 알고 받지 않고 있어요. 그대로 두면 다음 동기화 때 이 기기에서도 사라집니다 — 아래 [복원한 항목 되살리기]를 눌러 주세요.' +
+      // 왜 굳이 덧붙이나: 위쪽 「영구삭제 후 남은 사진 파일」이 그만큼 줄어 보이기 때문이다.
+      // 숫자가 줄어든 이유를 화면이 말하지 않으면 사용자는 파일이 사라진 줄 안다.
+      (restoringFiles ? ` 사진 파일 ${restoringFiles}개는 되살아날 사진이라 정리 대상에서 빼 뒀어요.` : ''),
   };
 }
 
@@ -537,6 +585,11 @@ export interface StoreHeadlineInput {
   fileBad: number;
   /** 전파되지 않은 영구삭제 건수. */
   stranded: number;
+  /**
+   * **복원했는데 서버 원장이 막고 있는** 건수. 가장 무겁다 — 그대로 두면 다음 동기화에서
+   * 이 기기에서도 사라진다(2026-07-26 사용자: *"서버에만 좀비처럼 살아났어요"*).
+   */
+  blocked: number;
   /** **살아 있는(활성) 기록** 총합. 0이면 "같다"만 말해선 안 된다. */
   alive: number;
   /** 휴지통에 있는 항목 수(클라우드 기준). 자료는 그대로 있고 복원하면 돌아온다. */
@@ -560,7 +613,10 @@ export function storeHeadline(i: StoreHeadlineInput): string {
     if (i.trashed > 0) return `살아 있는 기록이 없어요 — ${i.trashed}건이 휴지통에 있습니다`;
     return '아직 기록이 없어요';
   }
-  // 가장 무거운 것부터 말한다 — 이건 **사용자 의도가 반영되지 않은** 상태라 제일 먼저 알아야 한다.
+  // 가장 무거운 것부터 말한다.
+  // 1위는 **기억을 잃는 쪽**이다 — 되살린 기록이 서버에 막혀 있으면 다음 동기화 때 이 기기에서도
+  // 사라진다. 「지웠는데 남은 것」은 용량과 정합의 문제지만 이건 자료가 없어지는 문제다.
+  if (i.blocked) return `되살린 기록 ${i.blocked}건을 서버가 받지 않고 있어요`;
   if (i.stranded) return `지웠는데 서버에 남은 항목이 ${i.stranded}건 있어요`;
   if (i.countBad && i.fileBad) return `클라우드와 다른 항목 ${i.countBad}가지, 사진 파일 문제 ${i.fileBad}가지가 있어요`;
   if (i.countBad) return `클라우드와 다른 항목이 ${i.countBad}가지 있어요`;
@@ -608,6 +664,168 @@ function renameDeviceAction(): Action {
   };
 }
 
+/**
+ * 「저장 상태」의 **행동 버튼들**.
+ *
+ * 왜 따로 두나: `storeStateProbe`가 지표를 만들고 판정 문장을 고르고 버튼까지 짓느라 계속
+ * 커졌고, 길이 래칫이 이를 막았다(큰 함수는 결함이 숨을 면적이다). 판정(무엇이 문제인가)과
+ * 행동(무엇을 눌러 고치나)은 원래 다른 일이므로 여기서 갈라 둔다.
+ *
+ * **primary는 하나뿐이어야 한다.** 위에서부터 무거운 순 — 되살리기 › 서버 삭제 전파 ›
+ * 조각 정리 › 파일 정리 › 기록 정리 › 동기화. 순서가 곧 "지금 눌러야 할 것"의 순서다.
+ */
+interface StoreActionsInput {
+  /** `supabase()`가 준 그 클라이언트 — 스키마(journey)까지 붙은 타입을 그대로 받는다. */
+  c: NonNullable<ReturnType<typeof supabase>>;
+  cmp: StoreComparison;
+  level: Level;
+  /** 전파되지 않은 영구삭제 건수. */
+  stranded: number;
+  /** 복원했는데 서버 원장이 막고 있는 건수. */
+  blocked: number;
+  /** 치워도 되는 고아 파일 id(복원 대기분은 이미 빠져 있다). */
+  leftoverFileIds: string[];
+  /** 자료 없이 기록 줄만 남은 사진 id. */
+  clearableIds: string[];
+}
+
+/**
+ * 「저장 상태」의 **치우기 버튼들** — 이미 자료가 없는 잔재만 다룬다.
+ *
+ * 되살리기·전파와 갈라 둔 이유는 성격이 정반대이기 때문이다. 위쪽 둘은 **자료를 지키는** 일이고
+ * 여기 셋은 **찌꺼기를 버리는** 일이다. 한 함수에 섞여 있으면 "지우는 버튼"과 "살리는 버튼"이
+ * 같은 코드 덩어리 안에서 서로의 조건을 보게 된다 — 실제로 복원 대기 중인 사진을
+ * 「치워도 되는 파일」로 분류하는 사고가 그렇게 났다(2026-07-26).
+ */
+function storeCleanupActions(i: StoreActionsInput): Action[] {
+  const { c, cmp, stranded, blocked, leftoverFileIds, clearableIds } = i;
+  return [
+    ...(cmp.multipart.known && cmp.multipart.mine
+      ? [
+          {
+            // 지표를 만들었으면 **고칠 곳도 만든다**(진단 §7-B — 그날 이걸 두 번 어겼다).
+            label: '올리다 만 조각 정리',
+            hook: 'data-abort-multipart',
+            run: async (): Promise<string> => {
+              const r = await r2AbortMultipart(c);
+              if (r.error) return `조각을 치우지 못했어요: ${r.error}`;
+              // 되읽기 — 목록을 다시 물어 실제로 사라졌는지 확인한다.
+              const after = await r2ListObjects(c);
+              if (after.error || !after.multipart.known) {
+                return `${r.aborted}건을 치웠지만 다시 확인하지 못했어요.`;
+              }
+              return after.multipart.mine
+                ? `${r.aborted}건을 치웠는데 ${after.multipart.mine}건이 남아 있어요.`
+                : `조각 ${r.aborted}건을 치웠어요. 다시 대조합니다.`;
+            },
+          },
+        ]
+      : []),
+    ...(leftoverFileIds.length
+      ? [
+          {
+            // 지표를 만들었으면 **고칠 곳도 만든다**(진단 §7-B). 2026-07-26에 사용자는
+            // 「기록 없는 사진 파일 3개」를 보면서 앱 안에서 손댈 방법이 없어 Cloudflare
+            // 대시보드를 직접 열어야 했다. 판정만 하고 행동을 못 주면 관측으로 되돌아간 것이다.
+            label: '남은 사진 파일 정리',
+            primary: !blocked && !stranded && !clearableIds.length,
+            hook: 'data-clear-leftover-files',
+            run: async (): Promise<string> => {
+              // 건당 왕복 대신 **한 번에** 보내고, 함수가 지운 뒤 목록을 다시 읽어 확인한 결과를
+              // 받는다(v0.98). 100장이면 100왕복이던 것이 1왕복이 되고, "성공 응답"이 아니라
+              // **되읽기**가 완료의 근거다.
+              const r = await r2DeleteMany(c, leftoverFileIds);
+              if (r.error) return `치우지 못했어요: ${r.error}`;
+              if (!r.verified) return `${r.sent}건 삭제를 요청했지만 다시 읽어 확인하지 못했어요.`;
+              if (r.stillThere.length) return `${r.requested}건 중 ${r.stillThere.length}건이 아직 남아 있어요.`;
+              return `사진 파일 ${r.sent}건을 치웠어요. 다시 대조합니다.`;
+            },
+          },
+        ]
+      : []),
+    ...(clearableIds.length
+      ? [
+          {
+            label: '지운 사진 기록 정리',
+            primary: !blocked && !stranded && !leftoverFileIds.length,
+            hook: 'data-clear-dead-media',
+            run: async (): Promise<string> => {
+              // 사진 자체는 이미 없다 — 서버에 남은 **기록 줄**만 치운다.
+              // 로컬에 그 행이 없을 수 있으므로(비파괴 pull 규율) 서버 기준으로 의도를 만든다.
+              const n = await purgeServerOnly('media', clearableIds);
+              if (!n) return '큐에 이미 들어 있어요. [지금 동기화]를 눌러 주세요.';
+              await requestSync('지운 사진 기록 정리');
+              const st = syncStatus();
+              return st.phase === 'failed'
+                ? `${n}건을 큐에 넣었지만 동기화가 실패했어요: ${st.lastError ?? '사유 불명'}`
+                : `${n}건을 정리했어요. 다시 대조합니다.`;
+            },
+          },
+        ]
+      : []),
+  ];
+}
+
+function storeActions(i: StoreActionsInput): Action[] {
+  const { cmp, level, stranded, blocked, leftoverFileIds, clearableIds } = i;
+  return [
+    // 지표를 만들었으면 **고칠 곳도 만든다**(진단 §7-B). 판정만 하고 행동을 못 주면 사용자는
+    // "그래서 어쩌라고"에 남겨진다 — 2026-07-26에 반복해서 나온 지적이 그것이다.
+    ...(blocked
+      ? [
+          {
+            label: '복원한 항목 되살리기',
+            primary: true,
+            hook: 'data-unpurge-restored',
+            run: async (): Promise<string> => {
+              // 로컬 행은 이미 복원돼 있다 — 여기서는 **서버 원장에서 빼 달라는 의사**를 실어 보낸다.
+              // 그 의사는 큐에 남으므로 오프라인이거나 실패해도 다음 동기화에서 다시 시도된다.
+              await requestUnpurge(cmp.blockedByLedger);
+              await requestSync('복원한 항목 되살리기');
+              const st = syncStatus();
+              const n = cmp.blockedByLedger.length;
+              return st.phase === 'failed'
+                ? `${n}건을 큐에 넣었지만 동기화가 실패했어요: ${st.lastError ?? '사유 불명'}`
+                // "보냈다"가 아니라 **다시 대조해서** 확인한다(§8 — 고쳤다고 말하지 말고 다시 읽어라).
+                : `${n}건을 서버에 되살렸다고 알렸어요. 다시 대조합니다.`;
+            },
+          },
+        ]
+      : []),
+    ...(stranded
+      ? [
+          {
+            label: '서버에서도 지우기',
+            primary: !blocked,
+            hook: 'data-requeue-purges',
+            run: async (): Promise<string> => {
+              // 로컬은 이미 사용자 뜻대로 지워져 있다 — 여기서는 **의도를 다시 실어 보낼 뿐**이다.
+              const n = await requeueUnpropagatedPurges(cmp.unpropagatedPurges);
+              if (!n) return '큐에 이미 들어 있어요. [지금 동기화]를 눌러 주세요.';
+              await requestSync('전파 안 된 영구삭제');
+              const st = syncStatus();
+              return st.phase === 'failed'
+                ? `${n}건을 큐에 넣었지만 동기화가 실패했어요: ${st.lastError ?? '사유 불명'}`
+                : `${n}건을 서버로 보냈어요. 다시 대조합니다.`;
+            },
+          },
+        ]
+      : []),
+    ...storeCleanupActions(i),
+    {
+      label: '지금 동기화',
+      primary: level !== 'ok' && !blocked && !stranded && !clearableIds.length && !leftoverFileIds.length,
+      hook: 'data-store-sync',
+      run: async () => {
+        await requestSync('저장 상태 확인');
+        const s = syncStatus();
+        return s.phase === 'failed' ? `동기화 실패: ${s.lastError ?? '사유 불명'}` : '동기화했어요. 다시 대조합니다.';
+      },
+    },
+    renameDeviceAction(),
+  ];
+}
+
 export async function storeStateProbe(): Promise<Verdict> {
   const c = supabase();
   const u = c ? await currentUserSafe() : null;
@@ -642,6 +860,13 @@ export async function storeStateProbe(): Promise<Verdict> {
     list: async () => unionListings([await r2ListObjects(c)]),
   };
   const cmp = await compareStore(storeStateRemote(c), filesPort);
+
+  // **복원 대기 중인 id는 손대면 안 된다.** 원장에 있다는 이유로 「치워도 되는 파일」로 분류하면,
+  // 되살아나려는 사진의 **마지막 바이트**를 앱이 스스로 지운다. 실제로 2026-07-26에 R2에 남은
+  // 파일 10개가 바로 그 사진들이었고, 화면은 그걸 [남은 사진 파일 정리]로 치우라고 권하고 있었다.
+  // 원장(`blockedByLedger`)과 큐(`pendingUnpurgeIds`) 둘 다 본다 — 로컬 행이 이미 지워졌어도
+  // 되돌리기 의사가 남아 있으면 여전히 복원 중이다.
+  const restorePending = new Set<string>([...cmp.blockedByLedger, ...(await pendingUnpurgeIds())]);
 
   const countMetrics: Metric[] = PURGE_DOMAINS.map((d) => {
     const { cloud, local } = cmp.counts[d];
@@ -691,6 +916,8 @@ export async function storeStateProbe(): Promise<Verdict> {
   let clearableIds: string[] = [];
   /** 원장에 있는(= 자료가 이미 없는) 고아 파일 id — 치워도 되는 것만 여기 담긴다. */
   let leftoverFileIds: string[] = [];
+  /** 되살리는 중이라 **지키는** 사진 파일 수. 화면이 "왜 안 치우는지"를 말할 수 있어야 한다. */
+  let restoringFiles = 0;
   if (!fa) {
     // 못 본 것을 정상으로 반올림하지 않는다(비타협 원칙 #4).
     metrics.push({
@@ -710,16 +937,17 @@ export async function storeStateProbe(): Promise<Verdict> {
     //  · 원장에 있는 id → 영구삭제한 사진의 잔재. **자료는 이미 없다.** 치우면 된다(todo).
     //  · 원장에 없는 id → **설명할 수 없는 파일.** 업로드는 됐는데 기록이 안 만들어졌을 수
     //    있고, 그러면 이 파일이 그 사진의 **마지막 사본**이다. 지우면 기억을 잃는다(problem).
-    const { leftover, unexplained } = classifyOrphanFiles(fa.orphans, cmp.serverPurged);
+    const { leftover, restoring, unexplained } = classifyOrphanFiles(fa.orphans, cmp.serverPurged, restorePending);
     leftoverFileIds = leftover;
+    restoringFiles = restoring.length;
 
     metrics.push({
       label: '영구삭제 후 남은 사진 파일',
-      actual: `${leftover.length}개`,
+      actual: `${leftoverFileIds.length}개`,
       expected: '0개',
       // '문제'가 아니라 '할 일'이다 — 자료는 이미 없고 바이트만 남았다. 겁줄 일이 아니다(§5.10).
-      level: leftover.length ? 'todo' : 'ok',
-      ...(leftover.length
+      level: leftoverFileIds.length ? 'todo' : 'ok',
+      ...(leftoverFileIds.length
         ? { meaning: '영구삭제할 때 파일 지우기가 실패해 바이트만 남았어요. 기억은 이미 지워졌고 용량만 차지합니다 — 아래 [남은 사진 파일 정리]로 치울 수 있어요.' }
         : {}),
     });
@@ -841,6 +1069,9 @@ export async function storeStateProbe(): Promise<Verdict> {
       : {}),
   });
 
+  const blocked = cmp.blockedByLedger.length;
+  metrics.push(blockedByLedgerMetric(blocked, restoringFiles));
+
   const level = levelFromMetrics(metrics);
   const behind = cmp.devices.filter((d) => !d.isThis && cmp.lastCloudWriteAt && d.lastPushAt < cmp.lastCloudWriteAt);
 
@@ -850,7 +1081,7 @@ export async function storeStateProbe(): Promise<Verdict> {
   // 어디 갔는지 모른 채** 화면을 떠난다. 그래서 판정 문장에 대조한 대상(활성)과 자료의
   // 현재 위치(휴지통)를 함께 넘긴다.
   const alive = PURGE_DOMAINS.reduce((n, d) => n + cmp.counts[d].local, 0);
-  const headline = storeHeadline({ level, countBad, fileBad, stranded, alive, trashed: cmp.trashed.cloud });
+  const headline = storeHeadline({ level, countBad, fileBad, stranded, blocked, alive, trashed: cmp.trashed.cloud });
 
   return {
     level,
@@ -860,7 +1091,9 @@ export async function storeStateProbe(): Promise<Verdict> {
       // 사용자가 "기기 때문에 문제라는 건가?"로 읽는다(실제로 그렇게 보였다 — 2026-07-26).
       // 판정 문장이 가리키는 곳과 **같은 것**을 설명해야 한다. 2026-07-26에 두 번 어긋났다:
       // 처음엔 사진 문제인데 기기 얘기를, 다음엔 전파 안 된 삭제인데 사진 얘기를 했다(M-0021).
-      stranded
+      blocked
+        ? '백업에서 되살린 기록을 서버가 「이미 영구삭제된 것」으로 알고 거부하고 있어요. 아래 버튼으로 서버에 되살렸다고 알릴 수 있습니다.'
+        : stranded
         ? '이 기기에서 지운 것이 서버까지 가지 못했어요. 아래 버튼으로 다시 보낼 수 있습니다.'
         : fileBad && !countBad
         ? '사진 기록과 서버 파일이 짝이 맞지 않아요. 아래 지표에서 어느 쪽인지 볼 수 있습니다.'
@@ -873,101 +1106,7 @@ export async function storeStateProbe(): Promise<Verdict> {
           // 이걸 그냥 "0대"로 두면 사용자가 연동이 끊겼다고 오해한다(§5.9 — 말할 수 있는 것만).
           : '기기 이름은 무언가를 저장·수정해 서버로 올릴 때 찍혀요. 아직 그 뒤로 올린 것이 없습니다.',
     metrics,
-    actions: [
-      ...(stranded
-        ? [
-            {
-              label: '서버에서도 지우기',
-              primary: true,
-              hook: 'data-requeue-purges',
-              run: async (): Promise<string> => {
-                // 로컬은 이미 사용자 뜻대로 지워져 있다 — 여기서는 **의도를 다시 실어 보낼 뿐**이다.
-                const n = await requeueUnpropagatedPurges(cmp.unpropagatedPurges);
-                if (!n) return '큐에 이미 들어 있어요. [지금 동기화]를 눌러 주세요.';
-                await requestSync('전파 안 된 영구삭제');
-                const st = syncStatus();
-                return st.phase === 'failed'
-                  ? `${n}건을 큐에 넣었지만 동기화가 실패했어요: ${st.lastError ?? '사유 불명'}`
-                  : `${n}건을 서버로 보냈어요. 다시 대조합니다.`;
-              },
-            },
-          ]
-        : []),
-      ...(cmp.multipart.known && cmp.multipart.mine
-        ? [
-            {
-              // 지표를 만들었으면 **고칠 곳도 만든다**(진단 §7-B — 그날 이걸 두 번 어겼다).
-              label: '올리다 만 조각 정리',
-              hook: 'data-abort-multipart',
-              run: async (): Promise<string> => {
-                const r = await r2AbortMultipart(c);
-                if (r.error) return `조각을 치우지 못했어요: ${r.error}`;
-                // 되읽기 — 목록을 다시 물어 실제로 사라졌는지 확인한다.
-                const after = await r2ListObjects(c);
-                if (after.error || !after.multipart.known) {
-                  return `${r.aborted}건을 치웠지만 다시 확인하지 못했어요.`;
-                }
-                return after.multipart.mine
-                  ? `${r.aborted}건을 치웠는데 ${after.multipart.mine}건이 남아 있어요.`
-                  : `조각 ${r.aborted}건을 치웠어요. 다시 대조합니다.`;
-              },
-            },
-          ]
-        : []),
-      ...(leftoverFileIds.length
-        ? [
-            {
-              // 지표를 만들었으면 **고칠 곳도 만든다**(진단 §7-B). 2026-07-26에 사용자는
-              // 「기록 없는 사진 파일 3개」를 보면서 앱 안에서 손댈 방법이 없어 Cloudflare
-              // 대시보드를 직접 열어야 했다. 판정만 하고 행동을 못 주면 관측으로 되돌아간 것이다.
-              label: '남은 사진 파일 정리',
-              primary: !stranded && !clearableIds.length,
-              hook: 'data-clear-leftover-files',
-              run: async (): Promise<string> => {
-                // 건당 왕복 대신 **한 번에** 보내고, 함수가 지운 뒤 목록을 다시 읽어 확인한 결과를
-                // 받는다(v0.98). 100장이면 100왕복이던 것이 1왕복이 되고, "성공 응답"이 아니라
-                // **되읽기**가 완료의 근거다.
-                const r = await r2DeleteMany(c, leftoverFileIds);
-                if (r.error) return `치우지 못했어요: ${r.error}`;
-                if (!r.verified) return `${r.sent}건 삭제를 요청했지만 다시 읽어 확인하지 못했어요.`;
-                if (r.stillThere.length) return `${r.requested}건 중 ${r.stillThere.length}건이 아직 남아 있어요.`;
-                return `사진 파일 ${r.sent}건을 치웠어요. 다시 대조합니다.`;
-              },
-            },
-          ]
-        : []),
-      ...(clearableIds.length
-        ? [
-            {
-              label: '지운 사진 기록 정리',
-              primary: !stranded && !leftoverFileIds.length,
-              hook: 'data-clear-dead-media',
-              run: async (): Promise<string> => {
-                // 사진 자체는 이미 없다 — 서버에 남은 **기록 줄**만 치운다.
-                // 로컬에 그 행이 없을 수 있으므로(비파괴 pull 규율) 서버 기준으로 의도를 만든다.
-                const n = await purgeServerOnly('media', clearableIds);
-                if (!n) return '큐에 이미 들어 있어요. [지금 동기화]를 눌러 주세요.';
-                await requestSync('지운 사진 기록 정리');
-                const st = syncStatus();
-                return st.phase === 'failed'
-                  ? `${n}건을 큐에 넣었지만 동기화가 실패했어요: ${st.lastError ?? '사유 불명'}`
-                  : `${n}건을 정리했어요. 다시 대조합니다.`;
-              },
-            },
-          ]
-        : []),
-      {
-        label: '지금 동기화',
-        primary: level !== 'ok' && !stranded && !clearableIds.length && !leftoverFileIds.length,
-        hook: 'data-store-sync',
-        run: async () => {
-          await requestSync('저장 상태 확인');
-          const s = syncStatus();
-          return s.phase === 'failed' ? `동기화 실패: ${s.lastError ?? '사유 불명'}` : '동기화했어요. 다시 대조합니다.';
-        },
-      },
-      renameDeviceAction(),
-    ],
+    actions: storeActions({ c, cmp, level, stranded, blocked, leftoverFileIds, clearableIds }),
     evidence: [
       {
         // 사용자가 Supabase·R2를 직접 열어 "안 지워졌다"고 판단하던 자리(2026-07-26).

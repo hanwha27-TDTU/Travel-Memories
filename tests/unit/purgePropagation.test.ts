@@ -120,6 +120,7 @@ function fakePurge(over: Partial<PurgeRemote> = {}): PurgeRemote & { calls: stri
       return Promise.resolve({ found: true });
     },
     ledgerAll: () => Promise.resolve({ ids: [] }),
+    ledgerRemove: () => Promise.resolve({ removed: 0 }),
     familyIds: () => {
       calls.push('familyIds');
       return Promise.resolve({ ids: [] });

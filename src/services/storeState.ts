@@ -82,6 +82,18 @@ export interface StoreComparison {
    */
   serverPurged: string[];
   /**
+   * **이 기기에 있는데 서버 영구삭제 원장이 막고 있는** id들 — 0이 정상이다.
+   *
+   * 왜 있나(2026-07-26 사용자 실기기): 백업을 복원했더니 *"복원 내용은 앱에는 하나도 없고
+   * 서버에만 좀비처럼 살아났어요."* 복원이 로컬 표식만 걷어내고 **서버 원장은 그대로 둬서**,
+   * push는 트리거에 거부되고 다음 pull이 로컬 행까지 지웠다. 사용자에겐 아무 오류도 안 보였다.
+   *
+   * 이 지표가 그 층이다(§10 ② — 상태 의존 결함은 정적 게이트가 못 잡는다. **지금 데이터가
+   * 어떤 모양인지**에 달렸으므로 런타임 진단이 곧 게이트다). 고친 뒤에도 남는다:
+   * 옛 판으로 이미 복원해 둔 사람은 여전히 이 상태이고, 그걸 데려올 것은 이 지표뿐이다.
+   */
+  blockedByLedger: string[];
+  /**
    * **앱이 관리하지 않는 항목** — 사진 저장소에서 내 폴더 밖에 있는 최상위 항목 수.
    *
    * 왜 필요한가(2026-07-26 사용자): 앱의 목록 조회는 보안상 **내 폴더만** 본다. 그래서
@@ -329,17 +341,46 @@ export function foldDevices(rows: { stamp: string; at: string }[], thisId: strin
   return [...byId.values()].sort((a, b) => (a.isThis ? -1 : b.isThis ? 1 : b.lastPushAt.localeCompare(a.lastPushAt)));
 }
 
-/** 로컬 활성 개수 — 서버와 **같은 기준**(tombstone 제외)으로 센다. 기준이 다르면 대조가 거짓이 된다. */
-export async function localActiveCounts(): Promise<Record<PurgeDomain, number>> {
+/** 로컬 행 한 줄에서 이 파일이 보는 것 — id와 생사뿐이다. */
+type LocalRow = { id: string; deletedAt: string | null };
+
+/**
+ * 로컬 4종 행을 **한 번에** 읽는다.
+ *
+ * 왜 모으나(§7 — 다음 형제가 자동으로 따라오게): 아래 세 지표가 각자 4개 테이블을 손으로
+ * 열거하고 있었다. 도메인이 하나 늘면 세 곳을 다 고쳐야 하고, 한 곳을 빠뜨리면 **그 도메인만
+ * 조용히 안 세지는** 형태가 된다 — 이 저장소가 이미 세 번 겪은 그 모양이다.
+ */
+async function allLocalRows(): Promise<Record<PurgeDomain, LocalRow[]>> {
   const d = db();
-  const [trips, moments, media, expenses] = await Promise.all([
+  const [trip, moment, media, expense] = await Promise.all([
     d.localTrips.toArray(),
     d.localMoments.toArray(),
     d.localMedia.toArray(),
     d.localExpenses.toArray(),
   ]);
-  const alive = (rows: { deletedAt: string | null }[]): number => rows.filter((r) => r.deletedAt === null).length;
-  return { trip: alive(trips), moment: alive(moments), media: alive(media), expense: alive(expenses) };
+  return { trip, moment, media, expense };
+}
+
+/** 로컬 활성 개수 — 서버와 **같은 기준**(tombstone 제외)으로 센다. 기준이 다르면 대조가 거짓이 된다. */
+export async function localActiveCounts(): Promise<Record<PurgeDomain, number>> {
+  const rows = await allLocalRows();
+  const counts = {} as Record<PurgeDomain, number>;
+  for (const d of PURGE_DOMAINS) counts[d] = rows[d].filter((r) => r.deletedAt === null).length;
+  return counts;
+}
+
+/**
+ * 이 기기에 **행이 존재하는** 모든 id(휴지통 포함).
+ *
+ * 왜 휴지통까지 세나: 서버 영구삭제 원장과 대조하는 데 쓰기 때문이다. 원장에 있는 id의 행이
+ * 이 기기에 **있다**는 것 자체가 어긋남이다 — 활성이든 휴지통이든 서버는 그 id를 받지 않는다.
+ */
+export async function localIdSet(): Promise<Set<string>> {
+  const rows = await allLocalRows();
+  const ids = new Set<string>();
+  for (const d of PURGE_DOMAINS) for (const r of rows[d]) ids.add(r.id);
+  return ids;
 }
 
 /**
@@ -350,15 +391,8 @@ export async function localActiveCounts(): Promise<Record<PurgeDomain, number>> 
  * 어디 있는지는 어느 지표도 말하지 않았다. **지운 것도 자료다.** 대조 대상이어야 한다.
  */
 export async function localTombstoneCount(): Promise<number> {
-  const d = db();
-  const [trips, moments, media, expenses] = await Promise.all([
-    d.localTrips.toArray(),
-    d.localMoments.toArray(),
-    d.localMedia.toArray(),
-    d.localExpenses.toArray(),
-  ]);
-  const dead = (rows: { deletedAt: string | null }[]): number => rows.filter((r) => r.deletedAt !== null).length;
-  return dead(trips) + dead(moments) + dead(media) + dead(expenses);
+  const rows = await allLocalRows();
+  return PURGE_DOMAINS.reduce((n, d) => n + rows[d].filter((r) => r.deletedAt !== null).length, 0);
 }
 
 /**
@@ -371,18 +405,22 @@ export interface FilesPort {
 }
 
 export async function compareStore(port: StoreStatePort, files?: FilesPort): Promise<StoreComparison> {
-  const [cloud, local, stamps, remnants, serverTombstones, purged, localTrash, serverPurged] = await Promise.all([
-    port.activeCounts(),
-    localActiveCounts(),
-    port.deviceStamps(),
-    port.remnantCounts(),
-    port.tombstonedIds(),
-    purgedIdSet(),
-    localTombstoneCount(),
-    port.purgedLedgerIds(),
-  ]);
+  const [cloud, local, stamps, remnants, serverTombstones, purged, localTrash, serverPurged, localIds] =
+    await Promise.all([
+      port.activeCounts(),
+      localActiveCounts(),
+      port.deviceStamps(),
+      port.remnantCounts(),
+      port.tombstonedIds(),
+      purgedIdSet(),
+      localTombstoneCount(),
+      port.purgedLedgerIds(),
+      localIdSet(),
+    ]);
   // 내가 지웠다고 믿는데(로컬 표식) 서버엔 tombstone으로 남은 것 = 전파가 안 된 영구삭제.
   const unpropagatedPurges = serverTombstones.filter((id) => purged.has(id));
+  // 이 기기에 행이 있는데 서버 원장이 그 id를 막고 있는 것 = 복원이 서버에 닿지 못한 상태.
+  const blockedByLedger = serverPurged.filter((id) => localIds.has(id));
   const counts = {} as StoreComparison['counts'];
   for (const d of PURGE_DOMAINS) counts[d] = { cloud: cloud[d], local: local[d] };
   const devices = foldDevices(stamps, shortDeviceId(deviceId()), deviceLabel());
@@ -422,6 +460,7 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
     unpropagatedPurges,
     serverTombstoned: serverTombstones,
     serverPurged,
+    blockedByLedger,
     outside,
     bytes,
     multipart,
