@@ -18,7 +18,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Node 판은 `.nvmrc` 한 곳이 정한다(SSOT). 워크플로에 숫자를 박으면 로컬과 어긋나고,
+          # 그 어긋남이 2026-07-26에 게이트를 CI에서만 죽여 배포를 두 번 막았다.
+          node-version-file: '.nvmrc'
           cache: 'npm'
       - run: npm ci
       - name: Harness (Required gates)
