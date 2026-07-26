@@ -76,6 +76,11 @@ export interface StoreComparison {
    * 활성인 것은 **기억 손실 위험**이라 지우면 안 된다. 성격이 정반대다.
    */
   serverTombstoned: string[];
+  /**
+   * 서버 **영구삭제 원장**의 id들 — 화면이 「치워도 되는 파일」과 「지우면 안 되는 파일」을
+   * 가르는 데 쓴다. 원장에 있으면 자료는 이미 없고, 없으면 그 파일이 마지막 사본일 수 있다.
+   */
+  serverPurged: string[];
 }
 
 /**
@@ -177,6 +182,20 @@ export interface StoreStatePort {
    * "안 지웠다"고 안다 — 그 어긋남을 보려면 서버 tombstone 목록이 있어야 한다.
    */
   tombstonedIds(): Promise<string[]>;
+  /**
+   * **영구삭제 원장(`journey.purged_ids`)의 id들.**
+   *
+   * 왜 필요한가(2026-07-26 실기기): 서버 행이 하나도 없는데 R2에 파일 3개가 남았다.
+   * 영구삭제 시 바이트 삭제는 **최선노력**이라(실패해도 op을 지운다) 재시도 기회가 없다.
+   * 그 결과 「기록 없는 사진 파일」이 생기는데, 이 숫자만으로는 성격이 **정반대인 둘**이 섞인다:
+   *
+   *  · 원장에 있는 id → **영구삭제한 사진의 잔재.** 자료는 이미 없다. 치우면 된다.
+   *  · 원장에 없는 id → **설명할 수 없는 파일.** 업로드는 됐는데 기록이 안 만들어졌을 수
+   *    있다(그러면 그 파일이 그 사진의 **마지막 사본**이다). 지우면 기억을 잃는다.
+   *
+   * 「사진 파일이 사라진 기록」을 두 갈래로 쪼갠 것과 **같은 규율**이다(§7 대칭).
+   */
+  purgedLedgerIds(): Promise<string[]>;
 }
 
 export function storeStateRemote(client: JourneyClient): StoreStatePort {
@@ -234,6 +253,11 @@ export function storeStateRemote(client: JourneyClient): StoreStatePort {
         for (const x of (r.data ?? []) as { id: string }[]) ids.push(x.id);
       }
       return ids;
+    },
+    async purgedLedgerIds() {
+      const r = await client.from('purged_ids').select('id');
+      if (r.error) throw new Error(`영구삭제 원장 조회 실패: ${r.error.message}`);
+      return ((r.data ?? []) as { id: string }[]).map((x) => x.id);
     },
     async mediaRowIds() {
       const r = await client.from('media').select('id').not('storage_path', 'is', null);
@@ -308,7 +332,7 @@ export interface FilesPort {
 }
 
 export async function compareStore(port: StoreStatePort, files?: FilesPort): Promise<StoreComparison> {
-  const [cloud, local, stamps, remnants, serverTombstones, purged, localTrash] = await Promise.all([
+  const [cloud, local, stamps, remnants, serverTombstones, purged, localTrash, serverPurged] = await Promise.all([
     port.activeCounts(),
     localActiveCounts(),
     port.deviceStamps(),
@@ -316,6 +340,7 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
     port.tombstonedIds(),
     purgedIdSet(),
     localTombstoneCount(),
+    port.purgedLedgerIds(),
   ]);
   // 내가 지웠다고 믿는데(로컬 표식) 서버엔 tombstone으로 남은 것 = 전파가 안 된 영구삭제.
   const unpropagatedPurges = serverTombstones.filter((id) => purged.has(id));
@@ -347,6 +372,7 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
     fileAuditNote,
     unpropagatedPurges,
     serverTombstoned: serverTombstones,
+    serverPurged,
   };
 }
 

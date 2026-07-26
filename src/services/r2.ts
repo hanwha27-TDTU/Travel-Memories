@@ -123,6 +123,21 @@ export async function r2ListObjects(client: JourneyClient): Promise<R2Listing> {
   };
 }
 
+/**
+ * 사진 파일 하나를 **id로** 지운다(경로를 만들 필요 없이).
+ *
+ * 왜 따로 두나(2026-07-26): 진단의 「영구삭제 후 남은 사진 파일」은 **R2 목록에서 얻은 id**만
+ * 알고 있다. 그 사진의 서버 행은 이미 없어서 `storage_path`를 물어볼 곳이 없다. `BlobStore.remove`
+ * 는 경로를 받아 다시 id를 뽑아내므로, 여기서는 그 왕복을 건너뛴다.
+ *
+ * 삭제는 브라우저가 하지 않는다 — 함수가 서명하고 함수가 실행한다(자격증명은 서버에만).
+ */
+export async function r2DeleteObject(client: JourneyClient, mediaId: string): Promise<{ error?: string }> {
+  const r = await callSign(client, 'delete', mediaId);
+  if (r.error) return { error: explainR2Error(r.error) };
+  return {};
+}
+
 export function r2BlobStore(client: JourneyClient): BlobStore {
   async function signed(op: 'put' | 'get', path: string): Promise<{ url?: string; error?: string }> {
     const mediaId = mediaIdFromPath(path);

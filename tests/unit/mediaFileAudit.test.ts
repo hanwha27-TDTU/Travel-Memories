@@ -14,7 +14,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { auditMediaFiles, unionListings } from '../../src/services/storeState';
-import { storeHeadline } from '../../src/ui/panels/diagnostics';
+import { storeHeadline, classifyOrphanFiles } from '../../src/ui/panels/diagnostics';
 import type { Level } from '../../src/ui/panels/verdict';
 import { parseListXml, mediaIdOfKey, xmlUnescape, presign, LIST_MAX_PAGES } from '../../supabase/functions/media-sign/index';
 
@@ -254,5 +254,36 @@ describe('⑦ 정상일 때 **무엇이 같은지** 말한다 (2026-07-26 사용
   it('정상이 아니면 활성/휴지통 문구가 끼어들지 않는다', () => {
     const h = storeHeadline({ ...ok, level: 'todo', countBad: 1, alive: 0, trashed: 13 });
     expect(h).not.toContain('휴지통');
+  });
+});
+
+describe('⑧ 기록 없는 사진 파일을 **치울 것과 건드리면 안 될 것**으로 가른다 (2026-07-26 실기기)', () => {
+  // 서버 행이 전부 0인데 R2에 파일 3개가 남았다. 영구삭제의 바이트 삭제는 최선노력이라
+  // 실패해도 op을 지운다 — 재시도 기회가 없어 잔재가 남는다. 그 잔재와 "설명할 수 없는
+  // 파일"은 사용자가 할 일이 **정반대**인데 예전엔 「기록 없는 사진 파일 3개」로 뭉뚱그렸다.
+  const A = 'aaaaaaaa-1111-4111-8111-111111111111';
+  const B = 'bbbbbbbb-2222-4222-8222-222222222222';
+  const C = 'cccccccc-3333-4333-8333-333333333333';
+
+  it('원장에 있으면 **치워도 되는** 잔재다', () => {
+    expect(classifyOrphanFiles([A, B], [A, B])).toEqual({ leftover: [A, B], unexplained: [] });
+  });
+
+  it('원장에 없으면 **지우면 안 된다** — 그 파일이 마지막 사본일 수 있다', () => {
+    expect(classifyOrphanFiles([C], [A, B])).toEqual({ leftover: [], unexplained: [C] });
+  });
+
+  it('섞여 있으면 갈라서 담는다', () => {
+    const r = classifyOrphanFiles([A, C], [A, B]);
+    expect(r.leftover).toEqual([A]);
+    expect(r.unexplained).toEqual([C]);
+  });
+
+  it('고아가 없으면 양쪽 다 비어 있다', () => {
+    expect(classifyOrphanFiles([], [A])).toEqual({ leftover: [], unexplained: [] });
+  });
+
+  it('원장이 비면 **아무것도 치울 수 없다**(모르는 것을 지워도 되는 것으로 반올림하지 않는다)', () => {
+    expect(classifyOrphanFiles([A, B, C], [])).toEqual({ leftover: [], unexplained: [A, B, C] });
   });
 });
