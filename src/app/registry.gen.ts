@@ -25,11 +25,12 @@ export const REGISTRY = {
   'check-registry-gen',
   'check-platform-map',
   'check-lazy-screens',
+  'check-hand-counts',
   'check-doc-counts',
   'check-timezone',
   'unit-tests',
   ] as const,
-  gateCount: 23,
+  gateCount: 24,
   /** 최신 앱 버전(정본: src/app/changelog.ts의 첫 항목). 첫 로드 화면은 이걸 읽는다. */
   appVersion: '0.99',
   agentCount: 28,

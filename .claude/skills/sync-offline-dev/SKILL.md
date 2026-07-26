@@ -73,7 +73,7 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·s
 ## 4. 검증 레시피 (정직한 완료)
 
 자동층:
-1. `npm run harness`(12게이트) — 특히 `check-schema-parity`·`check-blueprint`·`check-backup-coverage`
+1. `npm run harness` — 특히 `check-schema-parity`·`check-blueprint`·`check-backup-coverage`
 2. **`merge.ts` 적대적 유닛**: 좀비 시나리오(지연 pull·오래된 백업·동률 version)를 넣고, **옛 로직을 주입하면 RED가 나는지** 확인(비공허)
 3. rowmap 왕복 유닛(필드 누락·tombstone·null 경계)
 

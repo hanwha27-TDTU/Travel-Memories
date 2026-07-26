@@ -23,6 +23,7 @@ const gates = [
   { name: 'check-registry-gen', cmd: 'node scripts/check-registry-gen.mjs' },
   { name: 'check-platform-map', cmd: 'node scripts/check-platform-map.mjs' },
   { name: 'check-lazy-screens', cmd: 'node scripts/check-lazy-screens.mjs' },
+  { name: 'check-hand-counts', cmd: 'node scripts/check-hand-counts.mjs' },
   { name: 'check-doc-counts', cmd: 'node scripts/check-doc-counts.mjs' },
   { name: 'check-timezone', cmd: 'node scripts/check-timezone.mjs' },
   { name: 'unit-tests', cmd: 'npm run -s test' },

@@ -8,12 +8,16 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v0.65 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(현재 v0.65), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq 1–41).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->0.99<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->99<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->46<!--/reg-->개).
 
-> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 0001–0010 적용.
+> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->16<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
 
-### 현재 기능 지도 (v0.44 — 새 AI는 이 표로 기능 표면을 즉시 파악)
+### 현재 기능 지도 (새 AI는 이 표로 기능 표면을 즉시 파악)
+
+> 이 표에 **버전을 손으로 적지 않는다.** 예전엔 "(v0.44)"라고 적혀 있었고 앱이 v0.99가 될
+> 때까지 아무도 고치지 않았다 — 표의 내용은 계속 맞았는데 붙어 있던 숫자만 거짓이 됐다.
+> 현재 버전은 이 문서 맨 위 한 곳(마커)에만 있다.
 
 | 영역 | 상태 | 핵심 파일 |
 |---|---|---|
@@ -27,7 +31,13 @@
 | 비상 복구 체계(하네스 게이트·복원 드릴·좀비 트리거·DR 감사관) | ✅ | `scripts/harness.mjs`, `docs/DISASTER_RECOVERY.md`, `.claude/agents/disaster-recovery-guardian.md` |
 | 개발자정보·버전·연구노트(해시체인)·가이드 화면 | ✅ | `app/{changelog,researchLog,hashchain}.ts`, `ui/screens/guide.ts` |
 
-**하네스 게이트**: SSOT=`scripts/harness.mjs`. **개수·목록은 손으로 세지 않는다** — `src/app/registry.gen.ts`(자동 생성, `check-registry-gen`이 드리프트 차단)에서 파생하고 개발자 정보→설계 개요도/가이드가 그 목록을 그대로 표시한다. 현재 게이트 계열: typecheck · check-secret-leak · check-domain-wiring · check-csp · check-base-consistency · check-schema-parity · check-backup-coverage · check-blueprint · check-registry-gen · check-doc-counts · check-timezone · unit-tests. 선택 라이브 게이트: `node scripts/verify-editor-live.mjs`(편집기·뷰어·개요도·기계화 검증 흐름도).
+**하네스 게이트**: SSOT=`scripts/harness.mjs`, 현재 **<!--reg:gateCount-->24<!--/reg-->개**. **개수도 목록도 여기 손으로 적지 않는다** — `src/app/registry.gen.ts`(자동 생성, `check-registry-gen`이 드리프트 차단)에서 파생하고 개발자 정보→설계 개요도/가이드가 그 목록과 한 줄 설명을 그대로 표시한다. 목록을 눈으로 보려면 `npm run harness` 또는 `src/app/registry.gen.ts`를 열면 된다.
+
+> **이 문단에 게이트 이름을 나열하지 마세요.** 예전엔 12개가 나열돼 있었고 실제가 23개가 될
+> 때까지 아무도 못 고쳤다 — 새 AI가 "여기부터 읽는다"고 지정된 바로 그 자리에서, 존재하는
+> 게이트의 절반을 없는 것처럼 알려주고 있었다. `check-hand-counts` 게이트가 재발을 막는다.
+
+선택 라이브 게이트: `node scripts/verify-editor-live.mjs`(편집기·뷰어·개요도·기계화 검증 흐름도 — 실제 Chromium으로 `dist` 서빙).
 
 **Phase 9l(2026-07-26)**: **재발방지 층 정비 + 휴지통 확장**(v0.91). **지시(사용자)**: *"오늘 고생한 것들 재발방지하게 하기 위해서 게이트를 만드는 건 어때? 스킬문서도 업데이트하고..그리고 **게이트로도 못 잡는 것들은 어떻게 할지 생각해보자.** 그리고 바로 남은 것들도 마무리하자."* **분석이 먼저였다** — 오늘 결함 6건 중 **정적 게이트가 잡은 것은 0건**이고 전부 사용자 실기기 화면에서 나왔다. 사후 분류하니 셋으로 갈렸고 **각각 처방이 다르다**: ①**계약**(M-0020·M-0024 권한 누락) → 정적 게이트로 잡힌다 ②**상태 의존**(M-0019 저장소 혼재·M-0023 옛 방식 잔재) → **코드에 답이 없다.** 지금 데이터 모양에 달렸으므로 정적 게이트는 원리적으로 못 잡는다 → **진단 지표가 곧 그 결함군의 게이트다**(런타임) ③**전달**(M-0021 판정 문장이 엉뚱·M-0022 확인해놓고 화면에 안 알림) → **자료구조는 옳다.** 사용자 문장을 순수 함수로 뽑아야만 검사 가능. **CLAUDE.md §10 신설**로 이 세 부류와 각 층을 명문화하고, **§9에 4단계 "세계를 본다"(실서버 스냅샷)**를 추가했다 — M-0019가 정확히 그 단계의 부재였다. `brief.mjs`가 ④⑤로 이걸 묻는다. **게이트 신설**: `check-report-fields`(**20번째**) — 보고용 구조체의 필드가 화면에서 소비되는지 검사. M-0022가 정확히 이 형태였다(`safeToRemove`를 계산해 반환까지 했는데 화면 문장이 안 읽었다). 타입 검사도 유닛도 못 잡는 자리다 — `noUnusedLocals`는 지역변수만 보고, 유닛은 숫자를 검사했고 숫자는 다 맞았다. **비공허**: 화면이 `unpropagatedPurges`를 안 읽게 주입 → RED. **남은 것 마무리(F5 해소)**: `services/trash.ts` 신설 — 부모가 살아 있는데 혼자 지워진 순간·사진·비용을 휴지통에 표시하고 복원·영구삭제를 제공한다. 오래 미뤄둔 구멍인데 **오늘 실물이 됐다**(진단이 「파일 없는 사진 기록 2건」을 가리키는데 사용자가 손댈 곳이 없었다 — 판정만 하고 행동을 못 주면 관측으로 되돌아간 것이다). **설계**: 부모가 함께 휴지통이면 제외(여행 줄이 이미 다루고, 자식만 복원하면 부모 없는 자식이 생긴다) · 복원의 **도메인 분기와 딸린 것 모으기를 서비스가** 한다(화면이 목록을 만지면 M-0007이 재발한다) · 영구삭제는 여행과 **같은 2단계 확인·같은 사전 조건·같은 read-back**. **게이트가 잡아준 것**: `check-timezone`이 `iso.slice(0,10)`을 즉시 RED로 잡았다(UTC 날짜는 사용자의 날짜가 아니다) · `check-skill-routing`이 새 파일 라우팅 누락을 잡았다. **검증**: 유닛 12건, **비공허 3종**(복원이 딸린 것을 안 데려옴 / 부모가 휴지통인 자식도 표시 / 사전 조건 제거) 전부 RED. harness **20게이트** · 유닛 357 · verify-editor-live 101/101 · build 그린. **남은 것**: 「내 기기들 0대」는 저장·수정을 한 번 하면 채워진다(배선은 확인됨). v0.91.
 
@@ -153,7 +163,7 @@
 ```
 npm ci
 git config core.hooksPath .githooks   # commit-msg hook 활성
-npm run harness                        # Required 게이트 전체 (현재 <!--reg:gateCount-->23<!--/reg-->개 — 목록은 scripts/harness.mjs, 손편집 나열 금지 M-0001; 이 숫자는 gen-registry가 자동 갱신·check-doc-counts가 대조)
+npm run harness                        # Required 게이트 전체 (현재 <!--reg:gateCount-->24<!--/reg-->개 — 목록은 scripts/harness.mjs, 손편집 나열 금지 M-0001; 이 숫자는 gen-registry가 자동 갱신·check-doc-counts가 대조)
 npm run build                          # base=/Travel-Memories/ 정적 빌드
 npm run dev                            # 홈 화면 확인 (선택)
 ```
