@@ -13,7 +13,7 @@
 //  ④ 목록 prefix는 **검증된 sub에서만** 나온다(supabase-security-dev §2.8).
 
 import { describe, it, expect } from 'vitest';
-import { auditMediaFiles } from '../../src/services/storeState';
+import { auditMediaFiles, unionListings } from '../../src/services/storeState';
 import { parseListXml, mediaIdOfKey, xmlUnescape, presign, LIST_MAX_PAGES } from '../../supabase/functions/media-sign/index';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
@@ -157,5 +157,36 @@ describe('④ 목록 서명의 범위는 서버가 못박는다 (supabase-securi
   it('비밀값이 URL에 나오지 않는다', async () => {
     const url = await presign(env, 'GET', '', at, [['list-type', '2']]);
     expect(url).not.toContain('SK');
+  });
+});
+
+describe('⑤ 저장소가 둘이다 — 합집합 규칙 (2026-07-26 실측에서 나왔다)', () => {
+  // 실측: 서버 사진 기록 13건 중 9건이 R2 버킷이 생기기 **전**에 만들어졌다. 그 바이트는
+  // 여전히 Supabase Storage에 있다(HANDOFF Phase 9c의 "혼재 상태"). R2만 훑고 판정하면
+  // 멀쩡한 사진 여러 장이 '파일 없음'으로 잡히는 **거짓 경보**가 된다 — M-0008의 재판.
+  it('두 저장소의 id를 합친다(중복 제거)', () => {
+    const r = unionListings([{ ids: [A, B] }, { ids: [B, C] }]);
+    expect([...(r.ids ?? [])].sort()).toEqual([A, B, C].sort());
+    expect(r.error).toBeUndefined();
+  });
+
+  it('옛 저장소에만 있는 사진은 고아가 아니다(거짓 경보 방지)', () => {
+    const files = unionListings([{ ids: [A] }, { ids: [B] }]); // R2에 A, 옛 저장소에 B
+    const audit = auditMediaFiles(files.ids, [A, B]);
+    expect(audit.missing).toEqual([]); // B를 "파일 없음"이라 하면 거짓말이다
+  });
+
+  it('한쪽이라도 못 읽으면 **합집합 전체를 버린다** — 부분 정보는 거짓말이 된다', () => {
+    const r = unionListings([{ ids: [A, B] }, { ids: [], error: '조회 실패' }]);
+    expect(r.error).toBe('조회 실패');
+    expect(r.ids).toEqual([]); // 읽은 쪽 id만 들고 판정하면 나머지가 전부 '없음'이 된다
+  });
+
+  it('잘림은 **전파된다** — 한 곳만 잘려도 전체가 잘린 것이다', () => {
+    expect(unionListings([{ ids: [A] }, { ids: [B], truncated: true }]).truncated).toBe(true);
+  });
+
+  it('형식 밖 키 개수는 더해진다', () => {
+    expect(unionListings([{ ids: [], foreign: 2 }, { ids: [], foreign: 3 }]).foreign).toBe(5);
   });
 });
