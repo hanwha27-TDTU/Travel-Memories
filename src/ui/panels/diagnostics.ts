@@ -27,7 +27,7 @@ import { recentErrors, clearErrors } from '../../app/errorLog';
 import { CHANGELOG } from '../../app/changelog';
 import { syncStatus, requestSync } from '../../services/autoSync';
 import { compareStore, storeStateRemote, unionListings, DOMAIN_LABEL } from '../../services/storeState';
-import { r2ListObjects } from '../../services/r2';
+import { r2ListObjects, r2DeleteObject } from '../../services/r2';
 import { PURGE_DOMAINS, requeueUnpropagatedPurges, purgeServerOnly } from '../../services/purge';
 import { supabase } from '../../services/supabase/client';
 import {
@@ -488,6 +488,28 @@ export function errorProbe(): Promise<Verdict> {
  * 진단 도구의 제1 규율(§8)은 "판정한다"인데, **엉뚱한 것을 판정하면 관측보다 나쁘다** —
  * 사용자를 틀린 곳으로 보낸다. 그래서 문장을 손으로 쓰지 않고 **무리별 개수에서 만든다.**
  */
+/**
+ * **기록 없는 사진 파일**을 두 갈래로 가른다. 순수 함수 — 유닛이 모든 갈래를 직접 돌린다(§10 ③).
+ *
+ * 2026-07-26 사용자 실기기: 서버 행이 전부 0인데 R2에 파일 3개가 남았다. 영구삭제 시 바이트
+ * 삭제는 **최선노력**이라(실패해도 op을 지운다) 재시도 기회가 없고, 그래서 잔재가 생긴다.
+ *
+ * 한 숫자에 두면 **사용자가 할 일이 정반대인 둘**이 섞인다:
+ *  · `leftover`   — 영구삭제 원장에 있는 id. 자료는 이미 없다. **치우면 된다.**
+ *  · `unexplained` — 원장에 없는 id. 올리다 기록이 안 만들어졌다면 이 파일이 그 사진의
+ *    **마지막 사본**이다. **앱이 지우면 안 된다.**
+ */
+export function classifyOrphanFiles(
+  orphans: string[],
+  purgedLedger: string[],
+): { leftover: string[]; unexplained: string[] } {
+  const led = new Set(purgedLedger);
+  return {
+    leftover: orphans.filter((id) => led.has(id)),
+    unexplained: orphans.filter((id) => !led.has(id)),
+  };
+}
+
 export interface StoreHeadlineInput {
   level: Level;
   /** 개수 대조에서 어긋난 도메인 수. */
@@ -651,6 +673,8 @@ export async function storeStateProbe(): Promise<Verdict> {
   // (진단 §4의 "대기 중인 작업 3건"이 정확히 그 실수였다).
   const fa = cmp.fileAudit;
   let clearableIds: string[] = [];
+  /** 원장에 있는(= 자료가 이미 없는) 고아 파일 id — 치워도 되는 것만 여기 담긴다. */
+  let leftoverFileIds: string[] = [];
   if (!fa) {
     // 못 본 것을 정상으로 반올림하지 않는다(비타협 원칙 #4).
     metrics.push({
@@ -661,13 +685,36 @@ export async function storeStateProbe(): Promise<Verdict> {
       meaning: cmp.fileAuditNote ?? '서버 사진 목록을 물어보지 못했어요',
     });
   } else {
+    // 「기록 없는 사진 파일」도 **두 갈래로 쪼갠다**(2026-07-26 사용자 실기기 — 서버 행이
+    // 전부 0인데 R2에 파일 3개가 남았다). 영구삭제 시 바이트 삭제는 **최선노력**이라
+    // 실패해도 op을 지운다 → 재시도 기회가 없다. 그래서 잔재가 생긴다.
+    //
+    // 성격이 정반대인 둘이 한 숫자에 섞여 있었다 — 「사진 파일이 사라진 기록」을 쪼갠 것과
+    // **같은 근본형**이다(§7 대칭):
+    //  · 원장에 있는 id → 영구삭제한 사진의 잔재. **자료는 이미 없다.** 치우면 된다(todo).
+    //  · 원장에 없는 id → **설명할 수 없는 파일.** 업로드는 됐는데 기록이 안 만들어졌을 수
+    //    있고, 그러면 이 파일이 그 사진의 **마지막 사본**이다. 지우면 기억을 잃는다(problem).
+    const { leftover, unexplained } = classifyOrphanFiles(fa.orphans, cmp.serverPurged);
+    leftoverFileIds = leftover;
+
     metrics.push({
-      label: '기록 없는 사진 파일',
-      actual: `${fa.orphans.length}개`,
+      label: '영구삭제 후 남은 사진 파일',
+      actual: `${leftover.length}개`,
       expected: '0개',
-      level: fa.orphans.length ? 'problem' : 'ok',
-      ...(fa.orphans.length
-        ? { meaning: '기록은 지워졌는데 서버에 파일만 남았어요. 기억은 안전하고 용량만 차지합니다.' }
+      // '문제'가 아니라 '할 일'이다 — 자료는 이미 없고 바이트만 남았다. 겁줄 일이 아니다(§5.10).
+      level: leftover.length ? 'todo' : 'ok',
+      ...(leftover.length
+        ? { meaning: '영구삭제할 때 파일 지우기가 실패해 바이트만 남았어요. 기억은 이미 지워졌고 용량만 차지합니다 — 아래 [남은 사진 파일 정리]로 치울 수 있어요.' }
+        : {}),
+    });
+
+    metrics.push({
+      label: '설명할 수 없는 사진 파일',
+      actual: `${unexplained.length}개`,
+      expected: '0개',
+      level: unexplained.length ? 'problem' : 'ok',
+      ...(unexplained.length
+        ? { meaning: '기록도 없고 영구삭제한 적도 없는 파일이에요. 올리다 기록이 안 만들어졌다면 **이 파일이 그 사진의 마지막 사본**일 수 있습니다 — 앱이 자동으로 지우지 않습니다.' }
         : {}),
     });
     // 「파일이 없는 사진 기록」을 **두 갈래로 쪼갠다**(2026-07-26 사용자 실기기에서 배웠다).
@@ -771,11 +818,42 @@ export async function storeStateProbe(): Promise<Verdict> {
             },
           ]
         : []),
+      ...(leftoverFileIds.length
+        ? [
+            {
+              // 지표를 만들었으면 **고칠 곳도 만든다**(진단 §7-B). 2026-07-26에 사용자는
+              // 「기록 없는 사진 파일 3개」를 보면서 앱 안에서 손댈 방법이 없어 Cloudflare
+              // 대시보드를 직접 열어야 했다. 판정만 하고 행동을 못 주면 관측으로 되돌아간 것이다.
+              label: '남은 사진 파일 정리',
+              primary: !stranded && !clearableIds.length,
+              hook: 'data-clear-leftover-files',
+              run: async (): Promise<string> => {
+                const fails: string[] = [];
+                let sent = 0;
+                for (const id of leftoverFileIds) {
+                  const r = await r2DeleteObject(c, id);
+                  if (r.error) fails.push(`${id.slice(0, 8)}(${r.error})`);
+                  else sent++;
+                }
+                // **되읽어 확인한다** — 성공 응답이 아니라 목록을 다시 물어본다(데이터 안전 규율).
+                const after = await r2ListObjects(c);
+                if (after.error) {
+                  return `${sent}건 삭제를 요청했지만 목록을 다시 읽지 못해 확인하지 못했어요: ${after.error}`;
+                }
+                const still = leftoverFileIds.filter((id) => after.ids.includes(id));
+                if (still.length) {
+                  return `${leftoverFileIds.length}건 중 ${still.length}건이 아직 남아 있어요${fails.length ? ` — ${fails.join(' · ')}` : ''}`;
+                }
+                return `사진 파일 ${sent}건을 치웠어요. 다시 대조합니다.`;
+              },
+            },
+          ]
+        : []),
       ...(clearableIds.length
         ? [
             {
               label: '지운 사진 기록 정리',
-              primary: !stranded,
+              primary: !stranded && !leftoverFileIds.length,
               hook: 'data-clear-dead-media',
               run: async (): Promise<string> => {
                 // 사진 자체는 이미 없다 — 서버에 남은 **기록 줄**만 치운다.
@@ -793,7 +871,7 @@ export async function storeStateProbe(): Promise<Verdict> {
         : []),
       {
         label: '지금 동기화',
-        primary: level !== 'ok' && !stranded && !clearableIds.length,
+        primary: level !== 'ok' && !stranded && !clearableIds.length && !leftoverFileIds.length,
         hook: 'data-store-sync',
         run: async () => {
           await requestSync('저장 상태 확인');

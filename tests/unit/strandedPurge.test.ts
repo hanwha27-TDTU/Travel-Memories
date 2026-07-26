@@ -37,6 +37,7 @@ function port(tombstoned: string[]): StoreStatePort {
     remnantCounts: () => Promise.resolve({ tombstoned: tombstoned.length, purged: 0 }),
     mediaRowIds: () => Promise.resolve([]),
     tombstonedIds: () => Promise.resolve(tombstoned),
+    purgedLedgerIds: () => Promise.resolve([]),
   };
 }
 
