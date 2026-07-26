@@ -45,11 +45,12 @@ interface SignResult {
 
 async function callSign(
   client: JourneyClient,
-  op: 'put' | 'get' | 'delete' | 'probe' | 'list',
+  op: 'put' | 'get' | 'delete' | 'probe' | 'list' | 'deleteMany' | 'abortMultipart' | 'capabilities',
   mediaId: string | null,
+  extra?: Record<string, unknown>,
 ): Promise<{ data: SignResult | null; error?: string }> {
   try {
-    const body: Record<string, unknown> = { op };
+    const body: Record<string, unknown> = { op, ...extra };
     if (mediaId) body['mediaId'] = mediaId;
     const r = await client.functions.invoke(FN, { body });
     if (r.error) return { data: null, error: r.error.message };
@@ -114,17 +115,45 @@ export interface R2Listing {
    */
   outside: number;
   outsideKnown: boolean;
+  /** 내 폴더 총 바이트 — 앱이 "N개 · X MB"를 스스로 말할 수 있게(대시보드와 대조 가능). */
+  bytes: number;
+  /**
+   * **미완료 멀티파트 업로드** — 객체 목록에도 대시보드에도 **안 보이는데 용량을 먹는** 조각.
+   * 2026-07-26에 "버킷이 비었는데 왜 2.87MB?"의 유력 후보였다. 보이게 만든다.
+   */
+  multipart: { mine: number; outside: number; known: boolean };
+  /** 서버에 배포된 함수 판. 클라이언트가 기대하는 판보다 낮으면 화면이 그렇게 말한다. */
+  version: number;
   error?: string;
 }
 
 export async function r2ListObjects(client: JourneyClient): Promise<R2Listing> {
   const r = await callSign(client, 'list', null);
-  const empty = { ids: [], foreign: 0, truncated: false, outside: 0, outsideKnown: false };
+  const empty = {
+    ids: [],
+    foreign: 0,
+    truncated: false,
+    outside: 0,
+    outsideKnown: false,
+    bytes: 0,
+    multipart: { mine: 0, outside: 0, known: false },
+    version: 0,
+  };
   if (r.error) return { ...empty, error: explainR2Error(r.error) };
   const d = r.data as
-    | ({ ids?: unknown; foreign?: unknown; truncated?: unknown; outside?: unknown; outsideKnown?: unknown } & SignResult)
+    | ({
+        ids?: unknown;
+        foreign?: unknown;
+        truncated?: unknown;
+        outside?: unknown;
+        outsideKnown?: unknown;
+        bytes?: unknown;
+        multipart?: unknown;
+        version?: unknown;
+      } & SignResult)
     | null;
   if (!d || !Array.isArray(d.ids)) return { ...empty, error: '목록 응답이 비었습니다' };
+  const mp = d.multipart as { mine?: unknown; outside?: unknown; known?: unknown } | undefined;
   return {
     ids: (d.ids as unknown[]).filter((x): x is string => typeof x === 'string'),
     foreign: typeof d.foreign === 'number' ? d.foreign : 0,
@@ -132,6 +161,14 @@ export async function r2ListObjects(client: JourneyClient): Promise<R2Listing> {
     // 옛 버전 함수가 배포돼 있으면 이 필드가 없다 → **0이 아니라 '모른다'**로 둔다.
     outside: typeof d.outside === 'number' ? d.outside : 0,
     outsideKnown: d.outsideKnown === true,
+    bytes: typeof d.bytes === 'number' ? d.bytes : 0,
+    multipart: {
+      mine: typeof mp?.mine === 'number' ? mp.mine : 0,
+      outside: typeof mp?.outside === 'number' ? mp.outside : 0,
+      known: mp?.known === true,
+    },
+    // 판을 안 밝히는 함수 = v3 이하. 0으로 두면 화면이 "낡았다"고 말할 수 있다.
+    version: typeof d.version === 'number' ? d.version : 0,
   };
 }
 
@@ -148,6 +185,51 @@ export async function r2DeleteObject(client: JourneyClient, mediaId: string): Pr
   const r = await callSign(client, 'delete', mediaId);
   if (r.error) return { error: explainR2Error(r.error) };
   return {};
+}
+
+/**
+ * 여러 장을 **한 번에** 지우고, 함수가 **되읽어 확인한** 결과를 받는다.
+ *
+ * 왜(M-0029): 건당 왕복이면 100장에 100번이고 매번 JWT를 다시 검증한다. 더 중요한 건
+ * "성공 응답"을 완료로 치지 않는 것이다 — 함수가 지운 뒤 목록을 다시 읽어 `stillThere`를 준다.
+ */
+export async function r2DeleteMany(
+  client: JourneyClient,
+  mediaIds: string[],
+): Promise<{ requested: number; sent: number; stillThere: string[]; verified: boolean; error?: string }> {
+  if (!mediaIds.length) return { requested: 0, sent: 0, stillThere: [], verified: true };
+  const r = await callSign(client, 'deleteMany', null, { mediaIds });
+  if (r.error) return { requested: mediaIds.length, sent: 0, stillThere: mediaIds, verified: false, error: explainR2Error(r.error) };
+  const d = r.data as { requested?: unknown; sent?: unknown; stillThere?: unknown; verified?: unknown } | null;
+  return {
+    requested: typeof d?.requested === 'number' ? d.requested : mediaIds.length,
+    sent: typeof d?.sent === 'number' ? d.sent : 0,
+    stillThere: Array.isArray(d?.stillThere) ? (d.stillThere as unknown[]).filter((x): x is string => typeof x === 'string') : [],
+    // 확인하지 못한 것을 성공으로 적지 않는다.
+    verified: d?.verified === true,
+  };
+}
+
+/** 내 폴더 아래 **미완료 멀티파트 조각**을 중단한다(보이지 않으면서 용량을 먹던 것). */
+export async function r2AbortMultipart(client: JourneyClient): Promise<{ aborted: number; error?: string }> {
+  const r = await callSign(client, 'abortMultipart', null);
+  if (r.error) return { aborted: 0, error: explainR2Error(r.error) };
+  const d = r.data as { aborted?: unknown } | null;
+  return { aborted: typeof d?.aborted === 'number' ? d.aborted : 0 };
+}
+
+/** 서버에 배포된 함수의 **판과 능력**. 앱이 기대하는 것과 어긋나면 화면이 그렇게 말한다. */
+export async function r2Capabilities(
+  client: JourneyClient,
+): Promise<{ version: number; ops: string[]; serverTime: string | null; error?: string }> {
+  const r = await callSign(client, 'capabilities', null);
+  if (r.error) return { version: 0, ops: [], serverTime: null, error: explainR2Error(r.error) };
+  const d = r.data as { version?: unknown; ops?: unknown; serverTime?: unknown } | null;
+  return {
+    version: typeof d?.version === 'number' ? d.version : 0,
+    ops: Array.isArray(d?.ops) ? (d.ops as unknown[]).filter((x): x is string => typeof x === 'string') : [],
+    serverTime: typeof d?.serverTime === 'string' ? d.serverTime : null,
+  };
 }
 
 export function r2BlobStore(client: JourneyClient): BlobStore {

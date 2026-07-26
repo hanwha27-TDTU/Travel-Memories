@@ -200,3 +200,70 @@ describe('probe — 진단은 주되 값은 주지 않는다', () => {
     expect(text).not.toContain(ENV.R2_ACCESS_KEY_ID!);
   });
 });
+
+// ── 2026-07-26: 함수가 자기 능력을 정직하게 밝히는가 ────────────────────────
+// 왜(사후분석 근본형 B): 클라이언트가 새 필드를 기대하는데 서버에 **옛 함수가 배포돼 있으면**
+// 앱은 알 방법이 없어 `?? 0` 방어 코드로 넘어간다 — 그 순간 "0개"와 "모름"이 구분되지 않는다.
+// 실제로 그날 그 코드를 썼다. 그래서 함수가 버전과 op 목록을 스스로 밝히게 했다.
+describe('함수 능력 선언 — 값의 경계', () => {
+  // 선언↔구현 **대칭**은 소스를 읽어야 해서 게이트(`check-edge-fn-ops`)가 맡는다.
+  // 여기서는 파일을 안 읽고도 확인할 수 있는 것만 본다(node:fs는 이 검사 설정 밖이다).
+  it('버전은 올라가기만 한다(내려가면 클라이언트 판단이 뒤집힌다)', () => {
+    expect(fn.FN_VERSION).toBeGreaterThanOrEqual(4);
+  });
+
+  it('한 번에 지울 수 있는 개수에 **상한이 있다**(요청 하나가 무한정 길어지지 않게)', () => {
+    expect(fn.DELETE_MANY_MAX).toBeGreaterThan(0);
+    expect(fn.DELETE_MANY_MAX).toBeLessThanOrEqual(1000);
+  });
+
+  it('선언 목록이 비어 있지 않다(비면 클라이언트가 아무것도 못 한다고 판단한다)', () => {
+    expect(fn.FN_OPS.length).toBeGreaterThan(0);
+  });
+});
+
+describe('미완료 멀티파트 — 보이지 않는데 용량을 먹는 것', () => {
+  // 2026-07-26 사용자: 버킷 최상위가 **완전히 비었는데** 대시보드는 2.87MB였다.
+  // *"설마 휴지통 이런 데 간 거 아님?"* — R2에 휴지통은 없지만 미완료 조각은 그렇게 행동한다.
+  const xml = `<?xml version="1.0"?><ListMultipartUploadsResult>
+    <Upload><Key>uid-a/photo1.webp</Key><UploadId>ABC123</UploadId></Upload>
+    <Upload><Key>uid-b/photo2.webp</Key><UploadId>DEF456</UploadId></Upload>
+  </ListMultipartUploadsResult>`;
+
+  it('키와 uploadId를 뽑는다', () => {
+    expect(fn.parseMultipartXml(xml)).toEqual([
+      { key: 'uid-a/photo1.webp', uploadId: 'ABC123' },
+      { key: 'uid-b/photo2.webp', uploadId: 'DEF456' },
+    ]);
+  });
+
+  it('조각이 없으면 빈 목록이다(없는 것을 지어내지 않는다)', () => {
+    expect(fn.parseMultipartXml('<ListMultipartUploadsResult></ListMultipartUploadsResult>')).toEqual([]);
+  });
+
+  it('uploadId가 없는 항목은 버린다 — 중단할 수 없는 것을 목록에 넣지 않는다', () => {
+    expect(fn.parseMultipartXml('<Upload><Key>a/b.webp</Key></Upload>')).toEqual([]);
+  });
+});
+
+describe('목록이 **바이트 합계**를 함께 센다', () => {
+  // 왜: 앱이 "내 사진 10개 · 2.87MB"를 스스로 말할 수 있어야 대시보드 숫자와 대조할 수 있다.
+  // 그게 없어서 사용자가 콘솔을 열고 사진을 찍어 보내야 했다.
+  it('Size를 더한다', () => {
+    const x = `<ListBucketResult>
+      <Contents><Key>a/1.webp</Key><Size>1000</Size></Contents>
+      <Contents><Key>a/2.webp</Key><Size>2500</Size></Contents>
+    </ListBucketResult>`;
+    const p = fn.parseListXml(x);
+    expect(p.keys.length).toBe(2);
+    expect(p.bytes).toBe(3500);
+  });
+
+  it('Size가 없으면 **0으로** 더한다 — 합계를 부풀리지 않는다(거짓 경보 방지)', () => {
+    expect(fn.parseListXml('<Contents><Key>a/1.webp</Key></Contents>').bytes).toBe(0);
+  });
+
+  it('객체가 없으면 0바이트다', () => {
+    expect(fn.parseListXml('<ListBucketResult></ListBucketResult>').bytes).toBe(0);
+  });
+});
