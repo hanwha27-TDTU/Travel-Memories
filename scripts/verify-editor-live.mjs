@@ -1008,6 +1008,69 @@ check('플랫폼 지도: 옛 저장소(Storage)가 안 보인다', !plat.parts.i
 check('플랫폼 지도: 가로 넘침 0', plat.overflow <= 1, `overflow=${plat.overflow}`);
 check('플랫폼 지도: 화면에 마크다운 별표가 안 보인다', !plat.text.includes('**'), '');
 
+// ── 제목 웹폰트 조각화(unicode-range) 계약 ────────────────────────────────────
+// 정적 게이트로는 원리적으로 못 잡는다: "브라우저가 어느 조각을 실제로 받는가"는
+// CSS 캐스케이드와 화면에 뜬 글자에 달렸다(§10 ②에 가까운 부류 — 런타임이 답을 쥔다).
+// 계약은 둘이고 **양쪽 다** 확인해야 한다.
+//   ① 흔한 한글만 있는 화면은 희귀/기호 조각을 받지 않는다(안 그러면 쪼갠 의미가 없다)
+//   ② 희귀 받침이 나오면 그때 받아서 **제대로 그린다**(커버리지 100% 유지 — 사용자가 쓴
+//      여행 제목이 폴백으로 갈라지지 않아야 한다. 폰트를 번들한 이유가 그것이었다)
+{
+  const seen = new Set();
+  page.on('response', (r) => {
+    const u = r.url();
+    if (u.includes('.woff2')) seen.add(u.split('/').pop().replace(/-[A-Za-z0-9_-]{8}\.woff2$/, '.woff2'));
+  });
+  await page.goto(`http://localhost:4173${BASE}`);
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(600);
+
+  const width = (text, fam) =>
+    page.evaluate(
+      ([t, f]) => {
+        const s = document.createElement('span');
+        s.style.cssText = `position:absolute;visibility:hidden;white-space:nowrap;font-size:64px;font-weight:800;font-family:${f}`;
+        s.textContent = t;
+        document.body.appendChild(s);
+        const w = s.getBoundingClientRect().width;
+        s.remove();
+        return w;
+      },
+      [text, fam],
+    );
+
+  const common = [...seen].sort();
+  check(
+    '폰트 조각: 흔한 한글 화면은 core+ko만 받는다',
+    common.includes('pretendard-core.woff2') &&
+      common.includes('pretendard-ko.woff2') &&
+      !common.includes('pretendard-ko-ext.woff2') &&
+      !common.includes('pretendard-sym.woff2'),
+    common.join(', '),
+  );
+
+  const koPre = await width('여행의 기억을 되찾다', "'Pretendard', monospace");
+  const koFall = await width('여행의 기억을 되찾다', 'monospace');
+  check('폰트 조각: 흔한 한글이 폴백이 아니라 Pretendard로 그려진다', koPre !== koFall, `${koPre.toFixed(0)} vs 폴백 ${koFall.toFixed(0)}`);
+
+  // 사용자가 희귀 받침이 든 제목을 쓴 상황(넋·값·곬·훑·뷁·앉 = ㄳㅄㄽㄾㄺㄵ)
+  const RARE = '넋 값 곬 훑 뷁 앉';
+  await page.evaluate((t) => {
+    const h = document.createElement('h1');
+    h.className = 'app-title';
+    h.id = 'rare-probe';
+    h.textContent = t;
+    document.body.appendChild(h);
+  }, RARE);
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(900);
+  check('폰트 조각: 희귀 받침이 나오면 그때 ko-ext를 받는다', seen.has('pretendard-ko-ext.woff2'), [...seen].sort().join(', '));
+  const rarePre = await width(RARE, "'Pretendard', monospace");
+  const rareFall = await width(RARE, 'monospace');
+  check('폰트 조각: 희귀 받침도 Pretendard로 그려진다(커버리지 유지)', rarePre !== rareFall, `${rarePre.toFixed(0)} vs 폴백 ${rareFall.toFixed(0)}`);
+  await page.evaluate(() => document.getElementById('rare-probe')?.remove());
+}
+
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 
 await browser.close();
