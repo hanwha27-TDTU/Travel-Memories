@@ -1,6 +1,7 @@
 // domain/moment/rowmap.ts — Moment의 직렬화 경계 (docs/DATA_MODEL.md 경계 규칙)
 // 메모리는 camelCase, DB 행은 snake_case. 두 표기는 이 파일의 함수 안에서만 만난다.
 
+import { isoInstant, isoInstantOrNull, type WithInstants } from '../time';
 import type { LocalMoment } from '../../offline/db';
 
 /** Supabase journey.moments 행 (snake_case — 이 파일 밖에서 사용 금지). */
@@ -45,7 +46,8 @@ export function toMomentRow(m: LocalMoment, userId: string, device?: string): Mo
   };
 }
 
-export function fromMomentRow(r: MomentRow): LocalMoment {
+/** 서버 행 → 로컬 행. 시각은 반드시 `isoInstant()`를 통과한다(M-0034 — `domain/time.ts` 참조). */
+export function fromMomentRow(r: MomentRow): WithInstants<LocalMoment> {
   return {
     id: r.id,
     tripId: r.trip_id,
@@ -57,9 +59,9 @@ export function fromMomentRow(r: MomentRow): LocalMoment {
     placeLat: r.place_lat,
     placeLng: r.place_lng,
     version: r.version,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-    deletedAt: r.deleted_at,
+    createdAt: isoInstant(r.created_at),
+    updatedAt: isoInstant(r.updated_at),
+    deletedAt: isoInstantOrNull(r.deleted_at),
     ...(r.client_operation_id ? { clientOperationId: r.client_operation_id } : {}),
   };
 }

@@ -45,6 +45,7 @@ export const GATE_DESC: Record<string, string> = {
   'check-hand-counts': '지시문서가 게이트 개수를 손으로 적지 않는지(반드시 낡는 숫자 차단)',
   'check-doc-counts': '문서에 표시한 live 카운트가 실제와 일치(마커 대조)',
   'check-timezone': '날짜를 UTC가 아닌 사용자 로컬로 계산(+ 다른 시간대에서도 유닛 통과)',
+  'check-instant-normalization': '밖에서 온 시각을 앱의 표준 표기로 바꿔 저장(같은 순간을 두 표기로 적지 않게)',
   'unit-tests': '순수 로직 유닛(비공허 확인)',
 };
 
@@ -77,6 +78,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-hand-counts': 'generated',
   'check-doc-counts': 'generated',
   'check-timezone': 'static',
+  'check-instant-normalization': 'static',
   'unit-tests': 'unit',
 };
 

@@ -54,6 +54,11 @@ export const SKILL_ROUTES = [
   { match: /^src\/services\/(sync|autoSync|purge|trips|moments|media|expenses|trash)\.ts/, skill: 'sync-offline-dev' },
   { match: /^src\/(sync|offline)\//, skill: 'sync-offline-dev' },
   { match: /^src\/domain\/\w+\/rowmap/, skill: 'sync-offline-dev' },
+  // 2026-07-27 M-0034로 옮겼다. 예전엔 "순수 날짜 함수"라며 문서 불필요로 분류돼 있었는데,
+  // 그 사이 이 파일이 **시각 표기의 SSOT**(`isoInstant`·`Instant` 브랜드)를 갖게 됐다 —
+  // 서버·백업 경계가 전부 여기를 통과하므로 규율은 동기화 헌장에 있다. 분류가 낡으면
+  // 착수 브리핑이 "읽을 것 없음"이라고 **거짓으로** 말한다.
+  { match: /^src\/domain\/time/, skill: 'sync-offline-dev' },
   // 이름 규칙(R2 객체 키 + ZIP 폴더·파일명). 여기 한 글자가 바뀌면 **Edge Function의 파서**와
   // 어긋나 멀쩡한 사진이 「설명할 수 없는 파일」로 뜬다 — 그 계약은 동기화 헌장에 있다.
   { match: /^src\/domain\/media\/naming/, skill: 'sync-offline-dev' },
@@ -97,7 +102,6 @@ export const POSTMORTEMS = [
 /** 스킬 문서가 필요 없는 영역 — **이유를 반드시 적는다**(이유 없는 제외는 결함, §7). */
 export const NO_SKILL_REQUIRED = new Map([
   ['src/main.ts', '진입점 배선만 — 규율은 각 모듈 문서가 갖는다'],
-  ['src/domain/time.ts', '순수 날짜 함수. 규율은 check-timezone 게이트가 직접 강제한다'],
   ['src/domain/registry.ts', '데이터 선언만 — 파생물은 gen-registry가 만든다'],
   ['src/app/changelog.ts', '사용자 대면 이력 데이터. 규율은 파일 머리주석에 있다'],
   ['src/app/researchLog.ts', '연구 기록 데이터 — 코드 규율 없음'],

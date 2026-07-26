@@ -2,6 +2,7 @@
 // 메모리는 camelCase, DB 행은 snake_case. 두 표기는 이 파일의 함수 안에서만 만난다.
 // check-schema-parity 게이트가 ExpenseRow 필드 ⊆ journey.expenses 컬럼을 강제한다.
 
+import { isoInstant, isoInstantOrNull, type WithInstants } from '../time';
 import type { LocalExpense } from '../../offline/db';
 
 /** Supabase journey.expenses 행 (snake_case — 이 파일 밖에서 사용 금지). */
@@ -42,7 +43,8 @@ export function toExpenseRow(e: LocalExpense, userId: string, device?: string): 
   };
 }
 
-export function fromExpenseRow(r: ExpenseRow): LocalExpense {
+/** 서버 행 → 로컬 행. 시각은 반드시 `isoInstant()`를 통과한다(M-0034 — `domain/time.ts` 참조). */
+export function fromExpenseRow(r: ExpenseRow): WithInstants<LocalExpense> {
   return {
     id: r.id,
     momentId: r.moment_id,
@@ -52,9 +54,9 @@ export function fromExpenseRow(r: ExpenseRow): LocalExpense {
     category: r.category,
     note: r.note,
     version: r.version,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-    deletedAt: r.deleted_at,
+    createdAt: isoInstant(r.created_at),
+    updatedAt: isoInstant(r.updated_at),
+    deletedAt: isoInstantOrNull(r.deleted_at),
     ...(r.client_operation_id ? { clientOperationId: r.client_operation_id } : {}),
   };
 }
