@@ -15,7 +15,7 @@
 
 import { db } from '../offline/db';
 import { PURGE_DOMAINS, DOMAIN_PURGE, purgedIdSet, type PurgeDomain } from './purge';
-import { parseDeviceStamp, shortDeviceId, deviceId } from '../app/deviceId';
+import { parseDeviceStamp, shortDeviceId, deviceId, deviceLabel } from '../app/deviceId';
 import type { JourneyClient } from './supabase/client';
 
 export interface DeviceSeen {
@@ -232,15 +232,23 @@ export function storeStateRemote(client: JourneyClient): StoreStatePort {
   };
 }
 
-/** 서버 스탬프 목록 → 기기별 최신 1건. **순수 함수**(유닛이 모든 경계를 직접 돌린다). */
-export function foldDevices(rows: { stamp: string; at: string }[], thisId: string): DeviceSeen[] {
+/**
+ * 서버 스탬프 목록 → 기기별 최신 1건. **순수 함수**(유닛이 모든 경계를 직접 돌린다).
+ *
+ * `thisLabel`을 주면 **이 기기 줄만** 그 이름으로 덮어쓴다. 왜 필요한가(§9 4단계 — 옛 데이터를
+ * 누가 데려오나): 이름은 push할 때 서버 행에 **찍힌 채로 남는다.** 사용자가 방금 이름을 바꿔도
+ * 다음 저장 전까지 서버엔 옛 이름이 있어서, 화면이 서버 값을 그대로 그리면 **바꾼 이름이
+ * 안 보인다.** 다른 기기 줄은 건드리지 않는다 — 그 기기가 스스로 밝힌 이름이 진실이다.
+ */
+export function foldDevices(rows: { stamp: string; at: string }[], thisId: string, thisLabel?: string): DeviceSeen[] {
   const byId = new Map<string, DeviceSeen>();
   for (const r of rows) {
     const { label, id } = parseDeviceStamp(r.stamp);
     const key = id || label;
+    const isThis = id === thisId;
     const cur = byId.get(key);
     if (!cur || r.at > cur.lastPushAt) {
-      byId.set(key, { label, id, lastPushAt: r.at, isThis: id === thisId });
+      byId.set(key, { label: isThis && thisLabel ? thisLabel : label, id, lastPushAt: r.at, isThis });
     }
   }
   // 최근에 올린 기기가 위로. 이 기기는 항상 맨 위(사용자가 자기 자리를 먼저 찾게).
@@ -282,7 +290,7 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
   const unpropagatedPurges = serverTombstones.filter((id) => purged.has(id));
   const counts = {} as StoreComparison['counts'];
   for (const d of PURGE_DOMAINS) counts[d] = { cloud: cloud[d], local: local[d] };
-  const devices = foldDevices(stamps, shortDeviceId(deviceId()));
+  const devices = foldDevices(stamps, shortDeviceId(deviceId()), deviceLabel());
   const lastCloudWriteAt = stamps.reduce<string | null>((m, r) => (m === null || r.at > m ? r.at : m), null);
 
   // 파일 대조는 **선택**이다. 포트가 없으면(Supabase Storage 경로 등) 못 한 것이지 정상이 아니다

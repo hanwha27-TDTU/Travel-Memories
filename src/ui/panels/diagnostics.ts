@@ -30,8 +30,16 @@ import { compareStore, storeStateRemote, unionListings, DOMAIN_LABEL } from '../
 import { r2ListObjects } from '../../services/r2';
 import { PURGE_DOMAINS, requeueUnpropagatedPurges, purgeServerOnly } from '../../services/purge';
 import { supabase } from '../../services/supabase/client';
-import { deviceLabel, shortDeviceId } from '../../app/deviceId';
-import { renderTool, levelFromMetrics, worst, type Verdict, type Metric, type Level } from './verdict';
+import {
+  deviceLabel,
+  shortDeviceId,
+  customDeviceName,
+  setCustomDeviceName,
+  detectDeviceLabel,
+  readDeviceHints,
+  DEVICE_NAME_MAX,
+} from '../../app/deviceId';
+import { renderTool, levelFromMetrics, worst, type Verdict, type Metric, type Level, type Action } from './verdict';
 
 /** 접힌 출처에 보일 사진 id 상한. 넘으면 "외 N건 생략"이라고 **적는다**(조용히 자르지 않는다). */
 export const FILE_ID_CAP = 20;
@@ -491,6 +499,45 @@ export function storeHeadline(level: Level, countBad: number, fileBad: number, s
   return '지금은 클라우드와 대조하지 못했어요';
 }
 
+/**
+ * **이 기기 이름 바꾸기.**
+ *
+ * 왜(2026-07-26 사용자 실기기): 태블릿이 「PC · Linux · Chrome」으로 서버에 찍혔다. UA만
+ * 보는 한 이건 고칠 수 없다 — Chrome의 「데스크톱 사이트」가 UA를 통째로 바꿔 보내기 때문이다
+ * (`deviceId.ts` 머리말). 감지를 아무리 다듬어도 **사용자보다 정확할 수 없으므로**, 판단을
+ * 사용자에게 넘긴다. 감지는 기본값으로만 남는다.
+ *
+ * 한 곳에서 만들어 로그인 전/후 두 갈래가 **같은 것을 쓴다** — 손으로 두 번 적으면 드리프트가
+ * 시간 문제다(§7).
+ */
+function renameDeviceAction(): Action {
+  return {
+    label: '이 기기 이름 바꾸기',
+    hook: 'data-rename-device',
+    input: {
+      label: '이 기기 이름',
+      placeholder: '예: 갤럭시 탭 · 거실 PC',
+      // 재판정 때마다 다시 읽는다 — 방금 바꾼 이름이 칸에 남아 있어야 한다.
+      initial: () => customDeviceName() ?? '',
+      maxLength: DEVICE_NAME_MAX,
+    },
+    run: async (raw: string): Promise<string> => {
+      const before = customDeviceName();
+      const after = setCustomDeviceName(raw);
+      // read-back — 저장했다고 말하지 말고 되읽는다(데이터 안전과 같은 규율).
+      if (customDeviceName() !== after) throw new Error('이름을 저장하지 못했어요.');
+      if (after === null) {
+        return before === null
+          ? `자동 감지를 씁니다: ${detectDeviceLabel(readDeviceHints())}`
+          : `이름을 지웠어요. 자동 감지로 돌아갑니다: ${detectDeviceLabel(readDeviceHints())}`;
+      }
+      // 서버 행의 이름은 **다음에 저장·수정할 때** 바뀐다. 그 사실을 감추면 사용자가
+      // "안 바뀌었네"라고 읽는다 — 화면은 지금 바로 새 이름으로 보인다(foldDevices가 덮어쓴다).
+      return `이 기기를 "${after}"(으)로 부릅니다. 다음에 저장·수정할 때 서버 기록에도 이 이름이 찍혀요.`;
+    },
+  };
+}
+
 export async function storeStateProbe(): Promise<Verdict> {
   const c = supabase();
   const u = c ? await currentUserSafe() : null;
@@ -503,7 +550,8 @@ export async function storeStateProbe(): Promise<Verdict> {
       headline: '로그인하면 클라우드와 대조할 수 있어요',
       because: '지금은 이 기기의 기록만 볼 수 있습니다. 기록은 이 기기에 안전하게 저장돼 있어요.',
       metrics: [],
-      actions: [],
+      // 이름 짓기는 서버가 필요 없다 — 로그인 전이라고 막을 이유가 없다.
+      actions: [renameDeviceAction()],
       evidence: [],
       context: [{ label: '이 기기', value: me }],
     };
@@ -701,6 +749,7 @@ export async function storeStateProbe(): Promise<Verdict> {
           return s.phase === 'failed' ? `동기화 실패: ${s.lastError ?? '사유 불명'}` : '동기화했어요. 다시 대조합니다.';
         },
       },
+      renameDeviceAction(),
     ],
     evidence: [
       {
@@ -743,14 +792,23 @@ export async function storeStateProbe(): Promise<Verdict> {
       {
         label: `내 기기들 ${cmp.devices.length}대`,
         build: () =>
-          table(
-            cmp.devices.length
+          table([
+            ...(cmp.devices.length
               ? cmp.devices.map((d): [string, string] => [
                   `${d.label}${d.isThis ? ' (이 기기)' : ''}`,
                   `마지막으로 올림 ${d.lastPushAt.replace('T', ' ').slice(0, 19)}`,
                 ])
-              : [['(없음)', '기기 이름은 서버로 올릴 때 찍혀요. 저장·수정을 한 번 하면 여기에 나타납니다.']],
-          ),
+              : ([['(없음)', '기기 이름은 서버로 올릴 때 찍혀요. 저장·수정을 한 번 하면 여기에 나타납니다.']] as [string, string][])),
+            // 이름이 왜 틀릴 수 있는지 **여기서** 말한다. 사용자가 "내 태블릿이 왜 PC야?"를
+            // 물을 자리가 바로 이 목록이고, 고치는 버튼은 위에 있다(위 renameDeviceAction).
+            [
+              '이름이 안 맞나요',
+              '브라우저의 「데스크톱 사이트」를 켜면 기기 종류가 PC로 바뀌어 전달돼요 — 앱이 알 수 있는 방법이 없습니다. 위 [이 기기 이름 바꾸기]로 직접 지어 주세요.',
+            ],
+            ...(customDeviceName()
+              ? ([['자동 감지값', `${detectDeviceLabel(readDeviceHints())} (지금은 지어 주신 이름을 씁니다)`]] as [string, string][])
+              : []),
+          ]),
       },
     ],
     context: [
