@@ -82,7 +82,12 @@ export const POSTMORTEMS = [
   {
     match: /^(src\/services\/(sync|autoSync|purge|trash|storeState|r2|media|backup)|src\/ui\/panels\/(diagnostics|verdict)|src\/offline\/|supabase\/)/,
     doc: 'docs/records/2026-07-26-STORAGE-DELETE-POSTMORTEM.md',
-    why: '저장·동기화·삭제·복원·진단에서 하루에 결함 11건 — 정적 게이트가 잡은 것은 0건이었다',
+    // ⚠️ **개수를 여기 손으로 적지 않는다.** 처음엔 '결함 10건'이라고 박아 뒀는데 사고가 12건이
+    // 될 때까지 아무도 못 고쳤다 — 브리핑이 "이 영역에서 뭐가 났는지"를 알려주는 자리에서
+    // **틀린 숫자를 알려주고 있었다**(M-0001의 그 드리프트). 이제 문서 표에서 뽑는다.
+    why: (n) => `저장·동기화·삭제·복원·진단에서 하루에 결함 ${n}건 — 정적 게이트가 잡은 것은 0건이었다`,
+    /** 사후분석 §1 표의 「발견된 결함 | **N건** 」에서 실측. 못 읽으면 숫자 없이 말한다(반올림 금지). */
+    count: (text) => /발견된 결함 \|\s*\*\*(\d+)건\*\*/.exec(text)?.[1] ?? null,
   },
 ];
 
@@ -194,9 +199,12 @@ const pms = POSTMORTEMS.filter((pm) => paths.some((p) => pm.match.test(p)));
 if (pms.length) {
   console.log('\n①-B 🔴 **필독 사후분석** — 이 영역에서 실제로 일어난 사고의 전말:');
   for (const pm of pms) {
-    const lines = existsSync(join(ROOT, pm.doc)) ? readFileSync(join(ROOT, pm.doc), 'utf8').split('\n').length : 0;
+    const text = existsSync(join(ROOT, pm.doc)) ? readFileSync(join(ROOT, pm.doc), 'utf8') : '';
+    const lines = text ? text.split('\n').length : 0;
+    const n = pm.count(text);
     console.log(`  📕 ${pm.doc}  (${lines}줄)`);
-    console.log(`     ${pm.why}`);
+    // 개수를 못 읽었으면 **숫자를 지어내지 않는다** — 문장만 남긴다.
+    console.log(`     ${n ? pm.why(n) : '저장·동기화·삭제·복원·진단에서 하루에 여러 건 — 정적 게이트가 잡은 것은 0건이었다'}`);
   }
   console.log('  스킬 문서가 "이렇게 하라"면 이건 "이렇게 하다 이렇게 됐다"이다. 둘 다 읽어야 한다.');
 }
