@@ -18,7 +18,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import 'fake-indexeddb/auto';
 import { db } from '../../src/offline/db';
-import { requeueUnpropagatedPurges, purgeOpType } from '../../src/services/purge';
+import { requeueUnpropagatedPurges, purgeServerOnly, purgeOpType } from '../../src/services/purge';
 import { compareStore, type StoreStatePort } from '../../src/services/storeState';
 
 const TRIP = 'e956fd01-8e30-4342-b149-a489773ba0f1'; // 실제로 남아 있던 그 여행
@@ -110,5 +110,44 @@ describe('④ 멱등', () => {
 
   it('빈 목록이면 아무 일도 하지 않는다', async () => {
     expect(await requeueUnpropagatedPurges([])).toBe(0);
+  });
+});
+
+describe('⑤ 서버에만 있는 tombstone도 치울 수 있다 (2026-07-26 — 휴지통이 못 보던 것)', () => {
+  // 사용자 실기기에서 드러났다: 서버엔 tombstone 사진이 있는데 **휴지통은 비어 있다**고 했다.
+  // `listTrashedChildren`은 로컬 Dexie를 보는데 `pullMedia`가 "로컬에 없는 tombstone은 만들지
+  // 않는다"(비파괴 규율)로 건너뛰어 그 행이 이 기기에 아예 없었다. 진단은 서버를 보고 "1개",
+  // 휴지통은 로컬을 보고 "없음" — **두 화면이 다른 이야기를 했다.** M-0016과 같은 근본형.
+  it('로컬에 행이 없어도 purge op와 표식을 만든다', async () => {
+    const d = db();
+    expect(await d.localMedia.get(OTHER)).toBeUndefined(); // 로컬엔 없다
+    expect(await purgeServerOnly('media', [OTHER])).toBe(1);
+
+    const ops = await d.syncQueue.toArray();
+    expect(ops.map((o) => o.entityType)).toEqual([purgeOpType('media')]);
+    expect(ops[0]?.entityId).toBe(OTHER);
+    expect(await d.purgedIds.get(OTHER)).toBeTruthy();
+  });
+
+  it('로컬에 행이 있으면 함께 치운다', async () => {
+    const d = db();
+    const now = '2026-07-01T00:00:00.000Z';
+    await d.localMedia.put({
+      id: OTHER, tripId: TRIP, momentId: TRIP, width: 1, height: 1, takenAt: '',
+      bytesDisplay: 1, createdAt: now, updatedAt: now, deletedAt: now, version: 1,
+    } as never);
+    await purgeServerOnly('media', [OTHER]);
+    expect(await d.localMedia.get(OTHER)).toBeUndefined();
+  });
+
+  it('멱등 — 이미 큐에 있으면 다시 넣지 않는다', async () => {
+    expect(await purgeServerOnly('media', [OTHER])).toBe(1);
+    expect(await purgeServerOnly('media', [OTHER])).toBe(0);
+    expect(await db().syncQueue.count()).toBe(1);
+  });
+
+  it('빈 목록이면 아무 일도 하지 않는다', async () => {
+    expect(await purgeServerOnly('media', [])).toBe(0);
+    expect(await db().syncQueue.count()).toBe(0);
   });
 });

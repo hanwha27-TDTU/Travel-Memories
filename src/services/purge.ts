@@ -207,3 +207,54 @@ export async function requeueUnpropagatedPurges(ids: string[]): Promise<number> 
   }
   return added;
 }
+
+/**
+ * **서버에만 있는 tombstone을 영구삭제한다**(로컬엔 행이 없는 경우).
+ *
+ * 왜 필요한가(2026-07-26, 휴지통 확장 직후 사용자 실기기): 서버에 tombstone 사진이 남아
+ * 있는데 **휴지통엔 안 보였다.** `listTrashedChildren`은 로컬 Dexie를 보는데, `pullMedia`가
+ * "로컬에 없는 tombstone은 만들지 않는다"(비파괴 규율·불변식 #8)로 건너뛰어 **그 행이 이
+ * 기기에 아예 없기** 때문이다. 진단은 서버를 봐서 "1개 있다"고 말하고 휴지통은 로컬을 봐서
+ * "비었다"고 말했다 — 두 화면이 다른 이야기를 했다.
+ *
+ * M-0016과 같은 근본형이다: **로컬이 못 보는 것은 없는 것으로 친다.** 그래서 여기서는
+ * 로컬 행의 존재를 요구하지 않는다 — 서버가 아는 id로 바로 의도를 만든다.
+ *
+ * ⚠️ 이것은 **사용자가 명시적으로 누른 경우에만** 부른다. 표식 없는 서버 tombstone을 자동으로
+ * 영구삭제로 바꾸면 *다른 기기가 휴지통에 넣은 것*을 내가 뒤집는 셈이다(M-0023에서 막았다).
+ * 사용자의 새 의도는 그것과 다르다 — 그래서 호출부는 2단계 확인을 거친다.
+ *
+ * @returns 이번에 새로 큐에 넣은 수.
+ */
+export async function purgeServerOnly(domain: PurgeDomain, ids: string[]): Promise<number> {
+  if (!ids.length) return 0;
+  const d = db();
+  const queued = new Set(
+    (await d.syncQueue.toArray()).filter((q) => purgeDomainOf(q.entityType) !== null).map((q) => q.entityId),
+  );
+  const now = new Date().toISOString();
+  const table = DOMAIN_PURGE[domain].table();
+  let added = 0;
+
+  for (const id of ids) {
+    if (queued.has(id)) continue;
+    await d.transaction('rw', [table, d.purgedIds, d.syncQueue], async () => {
+      // 표식을 **먼저** — 중간에 실패해도 "지웠는데 표식이 없어 되살아나는" 창이 없다.
+      await d.purgedIds.put({ id, entityType: domain, purgedAt: now });
+      await d.syncQueue.add({
+        operationId: crypto.randomUUID(),
+        entityType: purgeOpType(domain),
+        entityId: id,
+        operationType: 'purge',
+        state: 'local_only',
+        attempts: 0,
+        createdAt: now,
+      });
+      // 로컬에 행이 **있을 수도** 있다(기기마다 다르다). 있으면 함께 치운다.
+      await table.delete(id);
+    });
+    if (!(await d.purgedIds.get(id))) throw new Error(`영구삭제 표식 확인 실패: ${id}`);
+    added++;
+  }
+  return added;
+}
