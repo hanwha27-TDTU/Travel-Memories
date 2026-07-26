@@ -6,6 +6,7 @@
 // (Playwright는 devDependency가 아니므로 전역 설치본을 폴백으로 찾는다.)
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { readdirSync, statSync } from 'node:fs';
 import { join, extname, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,6 +21,46 @@ if (!chromium) {
 
 const DIST = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
 const BASE = '/Travel-Memories/';
+
+/**
+ * 🔴 **`dist`가 지금 소스보다 낡았으면 멈춘다.**
+ *
+ * 2026-07-27에 이 구멍을 밟았다: 알려진 실패를 주입했는데 **빌드가 타입 오류로 죽었고**,
+ * 그래서 `dist`는 옛 번들 그대로였다 — 라이브 검사는 초록을 냈다. 주입 검증이 통과했으니
+ * "검사가 살아 있다"고 믿을 뻔했다. **낡은 번들을 재는 검사는 공허한 게이트다**(§4·§2-B).
+ *
+ * `npm run build`가 실패해도 옛 `dist`는 남는다는 게 핵심이다 — 없어지지 않으므로
+ * "빌드했겠지"라는 가정이 조용히 성립한다. 그래서 시각을 직접 비교한다.
+ */
+function assertDistFresh() {
+  const newest = (dir) => {
+    let t = 0;
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+      const full = join(dir, e.name);
+      t = Math.max(t, e.isDirectory() ? newest(full) : statSync(full).mtimeMs);
+    }
+    return t;
+  };
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  let built;
+  try {
+    built = statSync(join(DIST, 'index.html')).mtimeMs;
+  } catch {
+    console.error('verify-editor-live: dist가 없습니다 — `npm run build` 먼저.');
+    process.exit(2);
+  }
+  const src = Math.max(newest(join(root, 'src')), newest(join(root, 'public')));
+  if (src > built) {
+    const age = Math.round((src - built) / 1000);
+    console.error(
+      `verify-editor-live: **dist가 소스보다 ${age}초 낡았습니다.** 낡은 번들을 재면 검사가 공허해집니다.\n` +
+        '  → `npm run build`가 성공했는지 확인하고 다시 실행하세요(빌드가 실패해도 옛 dist는 남습니다).',
+    );
+    process.exit(2);
+  }
+}
+assertDistFresh();
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.map': 'application/json', '.woff2': 'font/woff2' };
 
 /**
@@ -960,6 +1001,28 @@ await page.waitForTimeout(500);
 await page.locator('.trip-card').first().click();
 await page.waitForSelector('.moment-form', { timeout: 8000 });
 
+// ── v1.06: 발생 시각 칸이 **보이고**, 앱이 그 값의 근거를 말하는가 ──
+// 사용자 지적(2026-07-27): "입력단계에서 날짜와 시간을 지정하는 필드가 없네요."
+// 진짜 문제는 칸이 없는 게 아니라 값이 조용히 `now`로 찍히는 것이었다 — 소급 입력에서
+// 거의 항상 틀린 값이다. 그래서 ①칸이 접히지 않고 보이는지 ②근거 줄이 값과 함께 뜨는지 잰다.
+const when0 = await page.evaluate(() => {
+  const i = document.querySelector('.when-input');
+  const n = document.querySelector('.when-note');
+  return {
+    exists: !!i,
+    visible: !!i && i.getBoundingClientRect().height > 0,
+    value: i?.value ?? '',
+    note: n && !n.hidden ? (n.textContent ?? '') : '',
+  };
+});
+check('발생 시각: 생성 폼에 칸이 **펼쳐진 채로** 있다', when0.exists && when0.visible, JSON.stringify(when0));
+check('발생 시각: 값이 비어 있지 않다(소급 입력에 바로 쓸 수 있게)', /^\d{4}-\d{2}-\d{2}T/.test(when0.value), when0.value || '(빈 값)');
+check(
+  '발생 시각: **근거**를 값과 함께 말한다(추측을 사실처럼 두지 않는다)',
+  when0.note.length > 0 && when0.note.includes(when0.value.slice(0, 10)),
+  when0.note || '(근거 줄 없음)',
+);
+
 await page.setInputFiles('.moment-photo-input', [
   { name: 'p1.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgBuf) },
   { name: 'p2.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgBuf) },
@@ -972,6 +1035,26 @@ const pick0 = await page.evaluate(() => ({
   files: document.querySelector('.moment-photo-input')?.files?.length ?? -1,
 }));
 check('사진 선택: 고른 만큼 미리보기 + 개수', pick0.cells === 3 && pick0.files === 3 && pick0.count.includes('3장'), JSON.stringify(pick0));
+
+// 사진을 고르면 시각 근거가 **사진 쪽으로 바뀐다** — 사진이 가장 강한 근거다.
+const whenAfter = await page.evaluate(() => {
+  const n = document.querySelector('.when-note');
+  return n && !n.hidden ? (n.textContent ?? '') : '';
+});
+check('발생 시각: 사진을 고르면 근거가 사진으로 바뀐다', whenAfter.includes('사진에서'), whenAfter || '(근거 줄 없음)');
+
+// 사용자가 직접 고친 값은 **사진을 더 골라도 덮이지 않는다**(앱이 사용자를 이기지 않는다).
+await page.fill('.when-input', '2026-07-16T09:30');
+await page.setInputFiles('.moment-photo-input', [{ name: 'p9.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgBuf) }]);
+await page.waitForTimeout(400);
+const kept = await page.evaluate(() => document.querySelector('.when-input')?.value ?? '');
+check('발생 시각: 사용자가 고친 값을 추측이 덮지 않는다', kept === '2026-07-16T09:30', kept);
+await page.setInputFiles('.moment-photo-input', [
+  { name: 'p1.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgBuf) },
+  { name: 'p2.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgBuf) },
+  { name: 'p3.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgBuf) },
+]);
+await page.waitForTimeout(400);
 
 await page.locator('.pick-x').first().click();
 await page.waitForTimeout(300);

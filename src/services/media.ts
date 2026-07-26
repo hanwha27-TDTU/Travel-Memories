@@ -33,6 +33,47 @@ export interface AddPhotoTarget {
  * editedBlob이 있으면(비파괴 편집 결과) 압축본·썸네일은 그것에서 파생하되,
  * EXIF(촬영시각·GPS)는 항상 "원본"에서 읽는다(§0 — 편집은 메타데이터를 잃지 않는다).
  */
+/**
+ * EXIF를 담기에 넉넉한 **앞부분만** 읽는다. JPEG의 APP1(EXIF)은 규격상 SOI 바로 뒤에 오므로
+ * 256KB면 내장 썸네일까지 들어간다. 사진 9장을 고른 순간 전체를 통째로 읽으면 수십 MB가
+ * 한꺼번에 뜨는데, 이 앱은 **저메모리 기기**를 전제한다.
+ */
+const EXIF_HEAD_BYTES = 256 * 1024;
+
+export interface PhotoMeta {
+  /** 촬영시각(ISO). EXIF → 파일 수정시각 → 지금 순으로 **폴백하되 지어내지 않는다**. */
+  takenAt: string;
+  gpsLat: number | null;
+  gpsLng: number | null;
+}
+
+/**
+ * 사진 한 장의 촬영 메타를 읽는다.
+ *
+ * **왜 한 곳인가(§7)**: 이 값은 두 곳에서 쓰인다 — ① 인테이크가 `LocalMedia.takenAt`에 넣고
+ * 그게 **R2 파일 이름**이 된다 ② 순간 생성 화면이 **발생 시각 기본값**을 추측한다.
+ * 두 곳이 서로 다르게 읽으면 *사진 파일은 7/16인데 그 사진이 달린 순간은 7/27*이 된다 —
+ * 앱이 자기 안에서 다른 말을 하는 상태다(2026-07-27 사용자가 실제로 밟았다).
+ */
+export async function readPhotoMeta(file: File): Promise<PhotoMeta> {
+  let takenAt = new Date(file.lastModified || Date.now()).toISOString();
+  let gpsLat: number | null = null;
+  let gpsLng: number | null = null;
+  if (/jpe?g/i.test(file.type)) {
+    try {
+      const exif = readJpegExif(await file.slice(0, EXIF_HEAD_BYTES).arrayBuffer());
+      if (exif.takenAt) takenAt = exif.takenAt;
+      if (exif.gpsLat !== undefined && exif.gpsLng !== undefined) {
+        gpsLat = exif.gpsLat;
+        gpsLng = exif.gpsLng;
+      }
+    } catch {
+      /* EXIF 실패는 무시 — 폴백(파일 수정시각)을 쓴다. 없는 값을 지어내지 않는다. */
+    }
+  }
+  return { takenAt, gpsLat, gpsLng };
+}
+
 export async function addPhotoToMoment(
   file: File,
   target: AddPhotoTarget,
@@ -41,22 +82,8 @@ export async function addPhotoToMoment(
 ): Promise<LocalMedia> {
   if (!target.momentId || !target.tripId) throw new Error('순간 정보가 없습니다.');
 
-  // 1) EXIF 먼저(압축 전). JPEG가 아니거나 없으면 파일 mtime 폴백.
-  let takenAt = new Date(file.lastModified || Date.now()).toISOString();
-  let gpsLat: number | null = null;
-  let gpsLng: number | null = null;
-  if (/jpe?g/i.test(file.type)) {
-    try {
-      const exif = readJpegExif(await file.arrayBuffer());
-      if (exif.takenAt) takenAt = exif.takenAt;
-      if (exif.gpsLat !== undefined && exif.gpsLng !== undefined) {
-        gpsLat = exif.gpsLat;
-        gpsLng = exif.gpsLng;
-      }
-    } catch {
-      /* EXIF 실패는 무시 — 폴백 사용 */
-    }
-  }
+  // 1) EXIF 먼저(압축 전) — `readPhotoMeta` 한 곳에서. 화면의 시각 추측도 **같은 함수**를 쓴다.
+  const { takenAt, gpsLat, gpsLng } = await readPhotoMeta(file);
 
   // 2) 압축(원본은 인자로만 읽고 수정하지 않음). 편집본이 있으면 그것을 파생 소스로.
   const { display, thumb } = await compressForStorage(editedBlob ?? file);
