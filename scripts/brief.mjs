@@ -48,7 +48,7 @@ export const SKILL_ROUTES = [
   { match: /^src\/app\/deviceId/, skill: 'sync-offline-dev' },
   { match: /^src\/app\/errorLog/, skill: 'diagnostics-dev' },
   { match: /^src\/domain\/integrity/, skill: 'diagnostics-dev' },
-  { match: /^src\/services\/(sync|autoSync|purge|trips|moments|media|expenses)\.ts/, skill: 'sync-offline-dev' },
+  { match: /^src\/services\/(sync|autoSync|purge|trips|moments|media|expenses|trash)\.ts/, skill: 'sync-offline-dev' },
   { match: /^src\/(sync|offline)\//, skill: 'sync-offline-dev' },
   { match: /^src\/domain\/\w+\/rowmap/, skill: 'sync-offline-dev' },
   { match: /^src\/services\/(backup|zip)/, skill: 'backup-restore-dev' },
@@ -185,7 +185,17 @@ if (mistakes.length) {
   for (const m of mistakes.slice(0, 6)) console.log(`  ⚠️ ${m}`);
 }
 
-console.log('\n④ 착수 전 자문(CLAUDE.md §0 5W1H · §7 · §8):');
+console.log('\n④ 세계를 본다 — 상태 의존 작업이면 **실서버 스냅샷을 한 번 뜬다**(§9 4단계):');
+console.log('  · 지금 데이터에 **옛 방식으로 만들어진 것**이 있는가? 있으면 누가 데려오는가?');
+console.log('  · 규칙 문서는 "무엇이어야 하는가"를 말하지 "지금 무엇인가"를 말하지 않는다.');
+console.log('  · 실측 M-0019: 저장소가 둘인 걸 모르고 만들어 멀쩡한 사진 11장을 문제로 단정할 뻔했다.');
+
+console.log('\n⑤ 이 변경은 게이트가 잡을 수 있는 부류인가(§10):');
+console.log('  · 계약(권한·형제 대칭) → 정적 게이트로 잠근다');
+console.log('  · 상태 의존(과거 데이터) → **진단 지표**로 만든다. 정적 게이트는 못 잡는다');
+console.log('  · 전달(사용자 문장) → 순수 함수로 뽑아 유닛 + **실기기 확인**');
+
+console.log('\n⑥ 착수 전 자문(CLAUDE.md §0 5W1H · §7 · §8):');
 console.log('  · 왜   — 북극성("기억과 의미를 다시 찾아준다")을 더 잘 이루는가?');
 console.log('  · 어디서 — 이 사실의 SSOT는 어디인가? 손편집 중복을 만들고 있지 않은가?');
 console.log('  · 어떻게 — 검증 경로는? 알려진 실패를 주입해 RED를 확인할 수 있는가?');

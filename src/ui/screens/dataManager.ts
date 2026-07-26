@@ -5,6 +5,13 @@
 import { el, setNote } from '../dom';
 import { openDiagnosticsHub } from './diagnosticsHub';
 import { openGuide } from './guide';
+import {
+  listTrashedChildren,
+  purgeChildPermanently,
+  restoreTrashedChild,
+  CHILD_LABEL,
+  type TrashedChild,
+} from '../../services/trash';
 import { exportBackup, exportBackupZip, importBackupAuto } from '../../services/backup';
 import { recordBackupNow, getLastBackupAt, backupFreshness } from '../../services/backupMeta';
 import { listDeletedTrips, restoreTripFromTrash, purgeTripPermanently } from '../../services/trips';
@@ -264,11 +271,15 @@ function trashPanel(onChanged: () => void): HTMLElement {
   const render = (): void => {
     void (async () => {
       const trips = await listDeletedTrips();
+      const kids = await listTrashedChildren();
       list.innerHTML = '';
-      if (trips.length === 0) {
+      // **둘 다 없어야 비었다.** 여행만 보고 "비어 있어요"라고 말하던 것이 2026-07-26에
+      // 사용자를 헷갈리게 했다 — 서버엔 지운 것이 있는데 화면은 비었다고 했다.
+      if (trips.length === 0 && kids.length === 0) {
         list.appendChild(el('p', 'guide-note', '휴지통이 비어 있어요.'));
         return;
       }
+      if (trips.length) list.appendChild(el('h4', 'dm-trash-subhead', `삭제한 여행 ${trips.length}개`));
       for (const t of trips) {
         const row = el('div', 'dm-trash-row');
         const info = el('div', 'dm-trash-info');
@@ -324,8 +335,80 @@ function trashPanel(onChanged: () => void): HTMLElement {
         row.append(info, actions);
         list.appendChild(row);
       }
+
+      // ── 여행이 아닌 것들(순간·사진·비용) ─────────────────────────────
+      // 부모가 살아 있는데 혼자 지워진 것들. **여기 말고는 어디에도 안 보인다** — 실행취소
+      // 토스트가 사라지면 복구 경로가 통째로 없었다(F5). 2026-07-26에 그게 실제 문제가 됐다:
+      // 진단이 「파일이 없는 사진 기록 2건」을 가리키는데 사용자가 손댈 곳이 없었다.
+      const children = await listTrashedChildren();
+      if (children.length) {
+        list.appendChild(el('h4', 'dm-trash-subhead', `개별로 지운 항목 ${children.length}개`));
+        for (const c of children) list.appendChild(childRow(c));
+      } else if (trips.length) {
+        // 여행이 있을 때만 침묵한다. 둘 다 없으면 위의 "휴지통이 비어 있어요"가 이미 말했다.
+      }
     })();
   };
+
+  /** 자식 한 줄 — 여행 줄과 **같은 자리·같은 어휘**(§7 사용자 대면 대칭). */
+  function childRow(c: TrashedChild): HTMLElement {
+    const row = el('div', 'dm-trash-row');
+    const info = el('div', 'dm-trash-info');
+    info.append(
+      el('b', undefined, `${CHILD_LABEL[c.domain]} · ${c.label}`),
+      el('span', 'dm-trash-meta', `삭제 ${fmtDate(c.deletedAt)}`),
+    );
+    const actions = el('div', 'dm-trash-actions');
+
+    const restore = el('button', 'btn-ghost', '↩ 복원') as HTMLButtonElement;
+    restore.type = 'button';
+    restore.addEventListener('click', () => {
+      restore.disabled = true;
+      void (async () => {
+        try {
+          // 도메인 분기와 **딸린 것 모으기는 서비스가 한다** — 화면이 목록을 만지면
+          // 언젠가 하나를 빠뜨린다(M-0007이 정확히 그 형태였다).
+          await restoreTrashedChild(c.domain, c.id);
+          void requestSync('휴지통 복원');
+          onChanged();
+          render();
+        } catch (e) {
+          setNote(purgeNote, (e as Error).message || '복원에 실패했어요.', 'error');
+          restore.disabled = false;
+        }
+      })();
+    });
+
+    // 영구삭제: 여행과 **같은 2단계 확인**. 규율이 화면마다 다르면 사용자가 매번 배워야 한다.
+    const purge = el('button', 'btn-danger', '영구삭제') as HTMLButtonElement;
+    purge.type = 'button';
+    const confirmBtn = el('button', 'btn-danger', '정말 지움') as HTMLButtonElement;
+    confirmBtn.type = 'button';
+    confirmBtn.hidden = true;
+    purge.addEventListener('click', () => {
+      purge.hidden = true;
+      confirmBtn.hidden = false;
+    });
+    confirmBtn.addEventListener('click', () => {
+      confirmBtn.disabled = true;
+      void (async () => {
+        try {
+          await purgeChildPermanently(c.domain, c.id);
+          void requestSync('영구삭제');
+          setNote(purgeNote, '', 'ok');
+          onChanged();
+          render();
+        } catch (e) {
+          setNote(purgeNote, (e as Error).message || '영구삭제에 실패했어요.', 'error');
+          confirmBtn.disabled = false;
+        }
+      })();
+    });
+
+    actions.append(restore, purge, confirmBtn);
+    row.append(info, actions);
+    return row;
+  }
   render();
   box.appendChild(purgeNote);
   box.appendChild(

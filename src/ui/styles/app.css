@@ -717,6 +717,13 @@
 /* ── 플랫폼 지도(무엇이 어디서 도나) ─────────────────────────────────────────
    서비스별로 묶어, "Supabase가 이만큼을 한다"가 한눈에 들어오게 한다.
    색은 시맨틱 토큰만 쓴다 — 계절 강조색(--a3)을 쓰면 테마에 따라 의미가 무너진다. */
+/* 휴지통 소제목 — 여행 묶음과 개별 항목 묶음을 가른다. */
+.dm-trash-subhead {
+  margin: var(--space-3) 0 var(--space-2); font-size: 0.78rem; font-weight: 800;
+  color: var(--ink-soft); letter-spacing: -0.01em;
+}
+.dm-trash-subhead:first-child { margin-top: 0; }
+
 .guide-plat { display: flex; flex-direction: column; gap: var(--space-3); }
 .guide-plat-group {
   border: 1px solid var(--line); border-radius: var(--radius-small); overflow: hidden; background: var(--bg);
