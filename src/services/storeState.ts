@@ -59,6 +59,12 @@ export interface StoreComparison {
    * 휴지통에도 안 보여 **어디서도 손댈 수 없다** — 앱이 말해주지 않으면 영원히 남는다.
    */
   unpropagatedPurges: string[];
+  /**
+   * 서버에서 tombstone(휴지통) 상태인 id들 — **화면이 "지워도 되는 것"과 "지우면 안 되는 것"을
+   * 가르는 데 쓴다.** 파일이 없는 기록 중 tombstone인 것은 자료가 이미 없으니 정리하면 되고,
+   * 활성인 것은 **기억 손실 위험**이라 지우면 안 된다. 성격이 정반대다.
+   */
+  serverTombstoned: string[];
 }
 
 /**
@@ -292,7 +298,7 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
       fileAuditNote = (e as Error).message;
     }
   }
-  return { counts, devices, lastCloudWriteAt, remnants, fileAudit, fileAuditNote, unpropagatedPurges };
+  return { counts, devices, lastCloudWriteAt, remnants, fileAudit, fileAuditNote, unpropagatedPurges, serverTombstoned: serverTombstones };
 }
 
 /** 사람이 읽는 도메인 이름 — 화면이 손으로 다시 적지 않게 여기 한 곳. */

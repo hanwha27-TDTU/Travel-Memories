@@ -28,7 +28,7 @@ import { CHANGELOG } from '../../app/changelog';
 import { syncStatus, requestSync } from '../../services/autoSync';
 import { compareStore, storeStateRemote, unionListings, DOMAIN_LABEL } from '../../services/storeState';
 import { r2ListObjects } from '../../services/r2';
-import { PURGE_DOMAINS, requeueUnpropagatedPurges } from '../../services/purge';
+import { PURGE_DOMAINS, requeueUnpropagatedPurges, purgeServerOnly } from '../../services/purge';
 import { supabase } from '../../services/supabase/client';
 import { deviceLabel, shortDeviceId } from '../../app/deviceId';
 import { renderTool, levelFromMetrics, worst, type Verdict, type Metric, type Level } from './verdict';
@@ -554,6 +554,7 @@ export async function storeStateProbe(): Promise<Verdict> {
   // 두 방향을 **한 숫자로 합치지 않는다.** 사용자가 할 일이 정반대이기 때문이다
   // (진단 §4의 "대기 중인 작업 3건"이 정확히 그 실수였다).
   const fa = cmp.fileAudit;
+  let clearableIds: string[] = [];
   if (!fa) {
     // 못 본 것을 정상으로 반올림하지 않는다(비타협 원칙 #4).
     metrics.push({
@@ -573,17 +574,38 @@ export async function storeStateProbe(): Promise<Verdict> {
         ? { meaning: '기록은 지워졌는데 서버에 파일만 남았어요. 기억은 안전하고 용량만 차지합니다.' }
         : {}),
     });
+    // 「파일이 없는 사진 기록」을 **두 갈래로 쪼갠다**(2026-07-26 사용자 실기기에서 배웠다).
+    // 한 숫자에 섞으면 성격이 정반대인 둘이 같은 줄에 온다:
+    //  · 휴지통에 있으면서 파일 없음 → **자료가 이미 없다.** 기록만 남았으니 정리하면 된다.
+    //  · 활성인데 파일 없음 → **기억 손실 위험.** 지우면 안 되고, 사본을 가진 기기가 올려야 한다.
+    // 사용자가 해야 할 일이 정반대인데 예전엔 "파일이 없는 사진 기록 2개"로 뭉뚱그렸다.
+    const deadIds = new Set(cmp.serverTombstoned);
+    const clearable = fa.truncated ? [] : fa.missing.filter((id) => deadIds.has(id));
+    clearableIds = clearable;
+    const atRisk = fa.truncated ? [] : fa.missing.filter((id) => !deadIds.has(id));
+
     metrics.push({
-      label: '파일이 없는 사진 기록',
-      actual: fa.truncated ? '확인 못 함' : `${fa.missing.length}개`,
+      label: '사진 파일이 사라진 기록',
+      actual: fa.truncated ? '확인 못 함' : `${atRisk.length}개`,
       expected: '0개',
       // 목록이 잘렸으면 "없다"고 말할 수 없다 — 뒤쪽 페이지에 있을 수 있다.
-      level: fa.truncated ? 'unknown' : fa.missing.length ? 'problem' : 'ok',
+      level: fa.truncated ? 'unknown' : atRisk.length ? 'problem' : 'ok',
       ...(fa.truncated
         ? { meaning: `사진이 너무 많아 목록을 다 보지 못했어요(${fa.files}개까지 확인). 이 판정은 보류합니다.` }
-        : fa.missing.length
-          ? { meaning: '기록은 있는데 서버에 사진 파일이 없어요. 사본을 가진 기기에서 동기화하면 다시 올라갑니다.' }
+        : atRisk.length
+          ? { meaning: '살아 있는 사진인데 서버에 파일이 없어요. **지우지 마세요** — 사본을 가진 기기에서 동기화하면 다시 올라갑니다.' }
           : {}),
+    });
+
+    metrics.push({
+      label: '지운 사진의 남은 기록',
+      actual: fa.truncated ? '확인 못 함' : `${clearable.length}개`,
+      expected: '0개',
+      // '문제'가 아니라 '할 일'이다 — 자료는 이미 없고 기록 줄만 남았다. 겁줄 일이 아니다.
+      level: fa.truncated ? 'unknown' : clearable.length ? 'todo' : 'ok',
+      ...(clearable.length
+        ? { meaning: '이미 지운 사진의 기록 줄만 서버에 남아 있어요. 사진 자체는 없습니다 — 아래 [지운 사진 기록 정리]로 치울 수 있어요.' }
+        : {}),
     });
   }
 
@@ -649,9 +671,29 @@ export async function storeStateProbe(): Promise<Verdict> {
             },
           ]
         : []),
+      ...(clearableIds.length
+        ? [
+            {
+              label: '지운 사진 기록 정리',
+              primary: !stranded,
+              hook: 'data-clear-dead-media',
+              run: async (): Promise<string> => {
+                // 사진 자체는 이미 없다 — 서버에 남은 **기록 줄**만 치운다.
+                // 로컬에 그 행이 없을 수 있으므로(비파괴 pull 규율) 서버 기준으로 의도를 만든다.
+                const n = await purgeServerOnly('media', clearableIds);
+                if (!n) return '큐에 이미 들어 있어요. [지금 동기화]를 눌러 주세요.';
+                await requestSync('지운 사진 기록 정리');
+                const st = syncStatus();
+                return st.phase === 'failed'
+                  ? `${n}건을 큐에 넣었지만 동기화가 실패했어요: ${st.lastError ?? '사유 불명'}`
+                  : `${n}건을 정리했어요. 다시 대조합니다.`;
+              },
+            },
+          ]
+        : []),
       {
         label: '지금 동기화',
-        primary: level !== 'ok' && !stranded,
+        primary: level !== 'ok' && !stranded && !clearableIds.length,
         hook: 'data-store-sync',
         run: async () => {
           await requestSync('저장 상태 확인');
