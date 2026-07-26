@@ -16,7 +16,7 @@
 // 우회한다 — 앱이 쓰는 역할이 아니다. `supabase-security-dev` §4는 `set_config(
 // 'request.jwt.claims', …)`로 **남이 되어 보라**고 적혀 있었고, 그대로 했으면 즉시 잡혔다.
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -66,6 +66,56 @@ export function policiesGateInvite(allSql, table) {
   return bad;
 }
 
+/**
+ * **코드가 하는 연산을 서버가 허락하는가**(M-0024, 2026-07-26).
+ *
+ * ADR-0030에서 영구삭제를 "tombstone 유지" → "행 하드 삭제"로 바꿨는데, 서버에 DELETE 권한도
+ * 정책도 주지 않았다. `pushPurges`는 원장 기록(INSERT)까지 성공하고 그 다음 삭제에서 막혔다 —
+ * 사용자 화면엔 `3건을 서버로 보냈어요`라고 뜨는데 **서버에선 아무것도 안 지워졌다.**
+ *
+ * M-0020과 같은 근본형이다: 그때는 *새 테이블*의 GRANT를, 이번엔 *새 연산*의 GRANT를 빠뜨렸다.
+ * 그래서 이 검사는 테이블이 아니라 **연산**을 본다 — `.delete()`를 부르는 테이블마다 DELETE
+ * 권한과 정책이 있는지.
+ */
+export function deleteOpsAreGranted(srcFiles, allSql) {
+  const problems = [];
+  const src = srcFiles.map(([, t]) => t).join('\n');
+  if (!/\.delete\(\)/.test(src)) return problems; // 하드 삭제를 안 하면 검사할 것이 없다
+
+  // ⚠️ **문장 단위로 끊어서 본다.** 처음엔 `grant …{0,120}… delete …{0,120}… on journey.trips`
+  // 같은 느슨한 정규식을 썼는데, 그게 **문장 경계를 넘어** 다른 테이블의 grant를 잘못 물었다.
+  // 그래서 trips의 DELETE 권한을 지워도 게이트가 통과했다 — 게이트가 공허했다.
+  // 비공허 확인을 안 했으면 이 결함을 그대로 배포했을 것이다(§4가 존재하는 이유).
+  const stmts = stripSql(allSql)
+    .split(';')
+    .map((x) => x.trim().replace(/\s+/g, ' '))
+    .filter(Boolean);
+
+  const grantsDelete = (t) =>
+    stmts.some((st) => {
+      const m = st.match(/^grant\s+([\w\s,]+?)\s+on\s+journey\.(\w+)\s+to\s+authenticated$/i);
+      if (!m || m[2].toLowerCase() !== t) return false;
+      return m[1]
+        .split(',')
+        .map((x) => x.trim().toLowerCase())
+        .some((x) => x === 'delete' || x === 'all');
+    });
+
+  const hasDeletePolicy = (t) =>
+    stmts.some((st) => new RegExp(`^create\\s+policy\\s+\\w+\\s+on\\s+journey\\.${t}\\s+for\\s+delete\\b`, 'i').test(st));
+
+  const domains = [...src.matchAll(/remoteTable:\s*'(\w+)'/g)].map((m) => m[1].toLowerCase());
+  for (const t of new Set(domains)) {
+    if (!grantsDelete(t)) {
+      problems.push(`journey.${t}: 코드가 하드 삭제(.delete())를 하는데 DELETE GRANT가 없음 — 서버가 조용히 막는다(M-0024)`);
+    }
+    if (!hasDeletePolicy(t)) {
+      problems.push(`journey.${t}: DELETE RLS 정책이 없음 — 권한이 있어도 RLS가 기본 거부한다`);
+    }
+  }
+  return problems;
+}
+
 export function auditMigrations(files) {
   const allSql = files.map(([, s]) => s).join('\n');
   const problems = [];
@@ -112,6 +162,52 @@ let selfTestCount = 0;
   ];
   const cases = [
     { name: '권한·초대제 다 있으면 정상', fn: () => auditMigrations(OK), clean: true },
+    {
+      name: '하드 삭제에 DELETE 권한·정책이 있으면 정상',
+      fn: () =>
+        deleteOpsAreGranted(
+          [['sync.ts', `remoteTable: 'trips',\n client.from(x).delete().eq('id', id)`]],
+          `grant delete on journey.trips to authenticated;
+           create policy trips_delete_own on journey.trips for delete using (true);`,
+        ),
+      clean: true,
+    },
+    {
+      name: 'DELETE GRANT 누락 검출(오늘 실제로 낸 결함)',
+      fn: () =>
+        deleteOpsAreGranted(
+          [['sync.ts', `remoteTable: 'trips',\n client.from(x).delete().eq('id', id)`]],
+          `grant select, insert, update on journey.trips to authenticated;
+           create policy trips_delete_own on journey.trips for delete using (true);`,
+        ),
+      clean: false,
+    },
+    {
+      name: 'DELETE 정책 누락 검출',
+      fn: () =>
+        deleteOpsAreGranted(
+          [['sync.ts', `remoteTable: 'trips',\n client.from(x).delete().eq('id', id)`]],
+          `grant delete on journey.trips to authenticated;`,
+        ),
+      clean: false,
+    },
+    {
+      name: '다른 테이블의 DELETE 권한에 속지 않는다(게이트가 실제로 공허했던 자리)',
+      fn: () =>
+        deleteOpsAreGranted(
+          [['sync.ts', `remoteTable: 'trips',\n client.from(x).delete().eq('id', id)`]],
+          `grant select on journey.trips to authenticated;
+           grant delete on journey.moments to authenticated;
+           create policy trips_delete_own on journey.trips for delete using (true);`,
+        ),
+      clean: false,
+    },
+    {
+      name: '하드 삭제를 안 하면 검사할 것이 없다',
+      fn: () => deleteOpsAreGranted([['sync.ts', `remoteTable: 'trips',`]], ''),
+      clean: true,
+    },
+
     {
       name: 'GRANT 누락 검출(0012에서 실제로 낸 결함)',
       fn: () =>
@@ -179,7 +275,15 @@ const files = readdirSync(DIR)
   .sort()
   .map((f) => [relative(ROOT, join(DIR, f)), readFileSync(join(DIR, f), 'utf8')]);
 
-const problems = auditMigrations(files);
+const srcFiles = [];
+for (const rel of ['src/services/sync.ts', 'src/services/purge.ts']) {
+  const abs = join(ROOT, rel);
+  if (existsSync(abs)) srcFiles.push([rel, readFileSync(abs, 'utf8')]);
+}
+const problems = [
+  ...auditMigrations(files),
+  ...deleteOpsAreGranted(srcFiles, files.map(([, t]) => t).join('\n')),
+];
 if (problems.length) {
   for (const p of problems) console.error(`  ✗ ${p}`);
   console.error('check-migration-grants: 새 테이블에 권한·초대제가 빠졌다 — 앱은 permission denied를 받는다.');
