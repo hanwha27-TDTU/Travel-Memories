@@ -1,6 +1,7 @@
 // sync/merge.ts — 동기화 결정의 순수 함수 (docs/SYNC_PROTOCOL.md 불변식).
 // 네트워크·DB 의존이 없어 직접 단위테스트로 잠근다(LESSONS §6: 미러 아닌 운영함수 테스트).
 
+import { compareInstants } from '../domain/time';
 import type { SyncMeta } from '../offline/db';
 
 /**
@@ -33,8 +34,17 @@ export function mergeDecision(
   }
 
   // ── 삭제상태가 같으면 평범한 LWW(updatedAt 우선 → version → 안정) ──
-  if (server.updatedAt > local.updatedAt) return 'take-server';
-  if (server.updatedAt < local.updatedAt) return 'keep-local';
+  //
+  // ⚠️ **시각은 문자열이 아니라 순간으로 비교한다**(M-0034, 2026-07-27). 같은 순간이 두 표기로
+  // 저장될 수 있었다 — 서버(PostgREST) `…48.34+00:00` vs 로컬(JS) `…48.340Z`. 문자열 대소로 재면
+  // 같은 순간인데 한쪽이 크게 나오고, **동률일 때만 도는 version 판정을 건너뛴다**(더 높은 세대의
+  // 서버 행이 조용히 무시된다). 표기는 `isoInstant()`가 경계에서 정규화하지만, 비교 자체도
+  // 표기에 의존하지 않게 둔다 — 방어선은 하나면 뚫린다.
+  //
+  // 파싱 불가는 `null` → 시각 판정을 건너뛰고 version으로 간다(모르는 값으로 승부를 내지 않는다).
+  const byTime = compareInstants(server.updatedAt, local.updatedAt);
+  if (byTime !== null && byTime > 0) return 'take-server';
+  if (byTime !== null && byTime < 0) return 'keep-local';
   if (server.version !== local.version) return server.version > local.version ? 'take-server' : 'keep-local';
   return 'keep-local';
 }

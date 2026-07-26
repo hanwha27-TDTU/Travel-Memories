@@ -3,7 +3,10 @@
 // + 빈-클라우드 가드 + 병합(교체 아님). 네트워크는 TripsRemote 포트 뒤로 격리해
 // 순수 결정 로직(sync/merge.ts)을 직접 테스트할 수 있게 한다(LESSONS §6).
 
-import { db, type SyncQueueItem, type LocalMedia } from '../offline/db';
+import type { Table } from 'dexie';
+import { db, type SyncQueueItem, type LocalMedia, type SyncMeta } from '../offline/db';
+// 시각 표기의 SSOT — rowmap(서버 경계)·백업 복원과 **같은 함수**를 쓴다(§7: 규율은 한 곳에).
+import { withCanonicalStamps } from '../domain/time';
 import { toRow, fromRow, type TripRow } from '../domain/trip/rowmap';
 import { toMomentRow, fromMomentRow, type MomentRow } from '../domain/moment/rowmap';
 import { toExpenseRow, fromExpenseRow, type ExpenseRow } from '../domain/expense/rowmap';
@@ -668,6 +671,8 @@ async function requeueIfServerStillActive(
 
 /** 정합 복구 1회 실행 표식. 완료된 tombstone까지 매번 다시 밀지 않도록 잠근다. */
 const REPAIR_KEY = 'bj.repair.cascadeOps.v1';
+/** 시각 표기 1회 정리 표식(M-0034). 되돌려야 하면 `.v2`로 올려 전 기기가 한 번 더 돌게 한다. */
+const STAMP_KEY = 'bj.repair.stampFormat.v1';
 
 /**
  * 실패로 박힌 작업을 다시 시도 가능한 상태로 되돌린다(진단 화면의 [실패 재시도]).
@@ -1011,10 +1016,62 @@ export async function retryFailedOps(): Promise<number> {
 export async function forceRepairCascadeOps(): Promise<{ media: number; expenses: number }> {
   try {
     localStorage.removeItem(REPAIR_KEY);
+    // 시각 표기 정리도 **같은 버튼**이 다시 돌게 한다(M-0034). 따로 버튼을 만들면 사용자가
+    // "어느 정리를 눌러야 하나"를 알아야 하고, 그건 앱이 대신할 일이다(§12).
+    localStorage.removeItem(STAMP_KEY);
   } catch {
     /* 표식을 못 지워도 아래 재큐잉 자체는 동작한다. */
   }
+  await normalizeStamps();
   return requeueOrphanTombstones();
+}
+
+/**
+ * **이미 저장된 행의 시각 표기를 정규형으로 맞춘다**(M-0034, 2026-07-27).
+ *
+ * 왜 코드 수정만으로 부족한가: `isoInstant()`는 *앞으로* 들어올 값을 막을 뿐이고, 서버 표기
+ * (`…48.34+00:00`)로 **이미 박힌 행은 그대로 남는다.** 사용자 기기에 사진 9건이 그 상태였고
+ * 진단이 그걸 「시간 역전」으로 띄웠다. 방식을 바꾸는 커밋의 필수 질문 — *"옛 방식으로 만들어진
+ * 것을 누가 데려오는가?"* — 의 답이 이 함수다(§9 4단계).
+ *
+ * 안전성: **같은 순간, 다른 표기**다. version·deletedAt 유무·LWW 결과가 바뀌지 않으므로
+ * 사용자 편집이 아니고 **sync op를 만들지 않는다**(만들면 전 기기가 무의미한 push를 돈다).
+ * blob은 건드리지 않는다 — `update()`로 시각 3칸만 다시 쓴다.
+ */
+async function normalizeTableStamps(table: Table<SyncMeta & { id: string }, string>): Promise<number> {
+  const patches: { id: string; patch: Partial<SyncMeta> }[] = [];
+  // `each`는 커서라 blob을 한 행씩만 들고 있는다(사진 테이블을 통째로 메모리에 올리지 않는다).
+  await table.each((r) => {
+    const next = withCanonicalStamps(r);
+    if (next.createdAt === r.createdAt && next.updatedAt === r.updatedAt && next.deletedAt === r.deletedAt) return;
+    patches.push({ id: r.id, patch: { createdAt: next.createdAt, updatedAt: next.updatedAt, deletedAt: next.deletedAt } });
+  });
+  for (const p of patches) await table.update(p.id, p.patch);
+  return patches.length;
+}
+
+/** 4개 테이블 전부 — 형제를 손으로 세지 않는다(§7). 고친 행 수를 돌려준다. */
+export async function normalizeStamps(): Promise<number> {
+  const d = db();
+  const tables = [d.localTrips, d.localMoments, d.localMedia, d.localExpenses] as unknown as Table<SyncMeta & { id: string }, string>[];
+  let fixed = 0;
+  for (const t of tables) fixed += await normalizeTableStamps(t);
+  return fixed;
+}
+
+async function normalizeStampsOnce(): Promise<void> {
+  try {
+    if (localStorage.getItem(STAMP_KEY)) return;
+  } catch {
+    return; // localStorage 불가 — 건너뛴다. 진단의 「시각 표기가 표준형이 아님」이 대신 말한다.
+  }
+  const n = await normalizeStamps();
+  if (n) console.info(`시각 표기 정리: ${n}건을 표준 표기로 다시 적음(같은 순간, 다른 표기)`);
+  try {
+    localStorage.setItem(STAMP_KEY, new Date().toISOString());
+  } catch {
+    /* 표식 저장 실패는 무해 — 다음 동기화에서 한 번 더 돌 뿐이고 이 변환은 멱등이다. */
+  }
 }
 
 async function repairCascadeOpsOnce(): Promise<void> {
@@ -1095,6 +1152,9 @@ async function revivePushOps(ids: string[]): Promise<number> {
 export async function runSync(client: JourneyClient, userId: string): Promise<SyncResult> {
   // push보다 **먼저** 돈다 — 재큐잉된 op가 이번 동기화에서 바로 처리되도록.
   await repairCascadeOpsOnce();
+  // 표기 정리도 **병합보다 먼저**다(M-0034). 아래 pull이 `mergeDecision`으로 승부를 내는데,
+  // 로컬에 옛 표기가 남아 있으면 같은 순간을 두 표기로 재게 된다.
+  await normalizeStampsOnce();
   const remote = tripsRemote(client);
   const mRemote = momentsRemote(client);
   const eRemote = expensesRemote(client);

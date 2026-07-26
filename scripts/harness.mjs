@@ -30,6 +30,7 @@ const gates = [
   { name: 'check-hand-counts', cmd: 'node scripts/check-hand-counts.mjs' },
   { name: 'check-doc-counts', cmd: 'node scripts/check-doc-counts.mjs' },
   { name: 'check-timezone', cmd: 'node scripts/check-timezone.mjs' },
+  { name: 'check-instant-normalization', cmd: 'node scripts/check-instant-normalization.mjs' },
   { name: 'unit-tests', cmd: 'npm run -s test' },
 ];
 

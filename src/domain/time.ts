@@ -12,6 +12,86 @@
 
 const p2 = (n: number): string => String(n).padStart(2, '0');
 
+// ───────────────────────────────────────────────────────────────────────────
+// 시각 **표기**의 SSOT — 결함군 M-0034(2026-07-27 사용자 실기기)
+//
+// 진단이 사진 9건을 「만든 시각이 고친 시각보다 늦음」으로 띄웠다. 실제 데이터는 멀쩡했다.
+// 같은 순간을 **두 가지 표기**로 저장하고 있었을 뿐이다:
+//
+//   로컬(JS `toISOString()`)  2026-07-26T17:29:48.340Z      ← ms 3자리 고정 · `Z`
+//   서버(PostgREST/JSON)      2026-07-26T17:29:48.34+00:00  ← ms 끝 0 생략 · `+00:00`
+//
+// 그리고 이 앱은 시각을 **문자열로 비교**한다(`mergeDecision`의 LWW, 진단의 시간 역전).
+// `'0'`(0x30) > `'+'`(0x2B)이므로 **같은 순간인데 createdAt이 더 크다**고 읽혔다.
+//
+// 근본형 한 문장: **밖에서 들어온 시각 문자열을 우리 표기로 바꾸지 않고 저장했다.**
+// 그래서 표기를 정하는 곳을 여기 하나로 두고, 서버·백업 경계가 **반드시** 통과하게 한다
+// (`Instant` 브랜드 타입 — 통과하지 않으면 컴파일 오류. §7 2층).
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * **정규 표기로 검증된** ISO 시각. `isoInstant()`만 만들 수 있다.
+ *
+ * 왜 브랜드인가: 조항("서버 시각은 정규화한다")과 게이트만으로는 다음 rowmap이 자동으로
+ * 따라오지 않는다 — M-0033이 정확히 그 형태였다(규율이 문서에 있었는데 새것 하나만
+ * 바깥에서 태어났다). 타입이면 `createdAt: r.created_at`이 **컴파일 오류**가 된다.
+ */
+export type Instant = string & { readonly __instant: unique symbol };
+
+/**
+ * 시각 3종이 **정규화를 거쳤음이 타입에 박힌** 행. 서버·백업에서 들어오는 모든 행의 반환형이다.
+ * `createdAt: r.created_at`처럼 날것을 넣으면 `string`은 `Instant`가 아니라서 **컴파일이 막는다.**
+ */
+export type WithInstants<T extends { createdAt: string; updatedAt: string; deletedAt: string | null }> =
+  Omit<T, 'createdAt' | 'updatedAt' | 'deletedAt'> & { createdAt: Instant; updatedAt: Instant; deletedAt: Instant | null };
+
+/**
+ * 어떤 표기의 ISO 시각이든 → 이 앱의 정규 표기(`YYYY-MM-DDTHH:MM:SS.sssZ`).
+ *
+ * 파싱 안 되는 값은 **그대로 돌려준다.** 지어내지 않는다(비타협 원칙 #4) — 대신 진단의
+ * `BAD_TIME_FORMAT`가 그 값을 보이게 한다. 조용히 `now`로 채우면 사용자의 시각이 사라진다.
+ */
+export function isoInstant(s: string): Instant {
+  const t = Date.parse(s);
+  return (Number.isNaN(t) ? s : new Date(t).toISOString()) as Instant;
+}
+
+/** `isoInstant`의 null 허용판 — tombstone(`deletedAt`)처럼 없을 수 있는 시각용. */
+export function isoInstantOrNull(s: string | null): Instant | null {
+  return s == null ? null : isoInstant(s);
+}
+
+/** 이 문자열이 이미 정규 표기인가. 진단이 "옛 표기로 저장된 기록"을 셀 때 쓴다. */
+export function isCanonicalInstant(s: string): boolean {
+  return s === isoInstant(s);
+}
+
+/**
+ * 행의 시각 3종(`createdAt`·`updatedAt`·`deletedAt`)을 정규 표기로 다시 쓴다.
+ * **같은 순간, 다른 표기**일 뿐이므로 version·LWW 의미가 바뀌지 않는다 — 그래서 이 변환은
+ * 사용자 편집이 아니고 sync op를 만들지 않는다.
+ *
+ * 쓰는 곳이 둘이다(§7 — 한 곳에 구현하고 형제가 통과하게):
+ *  · 백업 복원(`importMergeRows`) — 옛 백업 파일에 옛 표기가 들어 있다.
+ *  · 로컬 1회 정리(`normalizeStampsOnce`) — **이미 저장된** 행은 코드를 고쳐도 안 바뀐다(§10 ②).
+ */
+export function withCanonicalStamps<T extends { createdAt: string; updatedAt: string; deletedAt: string | null }>(
+  row: T,
+): T {
+  return { ...row, createdAt: isoInstant(row.createdAt), updatedAt: isoInstant(row.updatedAt), deletedAt: isoInstantOrNull(row.deletedAt) };
+}
+
+/**
+ * 시각 두 개를 **순간으로** 비교한다(문자열 대소가 아니라). `a - b`의 부호.
+ * 하나라도 파싱 안 되면 `null` — 모르는 것을 "같다"로도 "크다"로도 반올림하지 않는다.
+ */
+export function compareInstants(a: string, b: string): number | null {
+  const ta = Date.parse(a);
+  const tb = Date.parse(b);
+  if (Number.isNaN(ta) || Number.isNaN(tb)) return null;
+  return ta - tb;
+}
+
 /** ISO 일시 → 사용자의 로컬 달력 날짜 'YYYY-MM-DD'. 파싱 실패는 빈 문자열. */
 export function localDate(iso: string): string {
   const d = new Date(iso);

@@ -3,6 +3,7 @@
 // check-schema-parity 게이트가 MediaRow 필드 ⊆ journey.media 컬럼을 강제한다.
 
 import { tripFolderName, mediaObjectName } from './naming';
+import { isoInstant, isoInstantOrNull, type WithInstants } from '../time';
 import type { LocalMedia } from '../../offline/db';
 
 /** Supabase journey.media 행 (snake_case — 이 파일 밖에서 사용 금지). blob은 담지 않는다. */
@@ -64,7 +65,8 @@ export function toMediaRow(m: LocalMedia, userId: string, storagePath: string | 
   };
 }
 
-export function fromMediaRow(r: MediaRow): MediaMeta {
+/** 서버 행 → 메타. 시각은 반드시 `isoInstant()`를 통과한다(M-0034 — `domain/time.ts` 참조). */
+export function fromMediaRow(r: MediaRow): WithInstants<MediaMeta> {
   return {
     id: r.id,
     momentId: r.moment_id,
@@ -75,9 +77,9 @@ export function fromMediaRow(r: MediaRow): MediaMeta {
     takenAt: r.taken_at ?? '',
     bytesDisplay: r.bytes_display,
     version: r.version,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-    deletedAt: r.deleted_at,
+    createdAt: isoInstant(r.created_at),
+    updatedAt: isoInstant(r.updated_at),
+    deletedAt: isoInstantOrNull(r.deleted_at),
     ...(r.client_operation_id ? { clientOperationId: r.client_operation_id } : {}),
   };
 }

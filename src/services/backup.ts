@@ -21,6 +21,8 @@ import { mergeDecision, isEmptyCloudAnomaly } from '../sync/merge';
 import { zipStore, unzip, looksLikeZip, type ZipEntry } from './zip';
 import { encryptBytes, decryptBytes, isEncryptedEnvelope } from './backupCrypto';
 import { requestUnpurge } from './purge';
+// 시각 표기의 SSOT — 서버 경계(rowmap)와 **같은 함수**를 쓴다(§7: 규율은 한 곳에 구현한다).
+import { withCanonicalStamps } from '../domain/time';
 // 이름 규칙은 **한 곳**에서 온다 — ZIP 폴더·파일명과 R2 객체 키가 같은 규율을 쓴다(§7).
 import { tripFolderName as tripFolder, photoFileBase } from '../domain/media/naming';
 
@@ -81,8 +83,17 @@ export async function exportCollectRows(): Promise<CollectedRows> {
  * import 병합: 재구성된 행(미디어 blob 복원 완료)을 mergeDecision으로만 반영한다.
  * 절대 로컬을 통째로 덮어쓰지 않는다 — 빈-데이터 가드로 로컬을 지키고, 각 행은 LWW+tombstone.
  */
-export async function importMergeRows(rows: CollectedRows): Promise<ImportResult> {
+export async function importMergeRows(incoming: CollectedRows): Promise<ImportResult> {
   const d = db();
+  // 시각 표기를 먼저 정규형으로 맞춘다(M-0034). 옛 백업 파일에는 서버 표기(`…48.34+00:00`)가
+  // 그대로 들어 있고, 아래 `mergeDecision`은 시각으로 승부를 낸다 — 표기가 섞이면 판정이
+  // 표기에 흔들린다. **같은 순간, 다른 표기**일 뿐이라 version·LWW 의미는 바뀌지 않는다.
+  const rows: CollectedRows = {
+    trips: incoming.trips.map(withCanonicalStamps),
+    moments: incoming.moments.map(withCanonicalStamps),
+    media: incoming.media.map(withCanonicalStamps),
+    expenses: incoming.expenses.map(withCanonicalStamps),
+  };
 
   const backupTotal = rows.trips.length + rows.moments.length;
   const [localTrips, localMoments] = await Promise.all([d.localTrips.toArray(), d.localMoments.toArray()]);

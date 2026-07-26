@@ -11,6 +11,8 @@
 //     대부분의 발견은 "지금 당장 문제"가 아니다. 겁주는 것은 거짓 경보만큼 나쁘다(M-0008).
 //  3) **순수 함수.** DB 접근 없이 배열만 받는다 → 유닛으로 모든 분기를 실제로 돌린다.
 
+import { compareInstants, isCanonicalInstant } from './time';
+
 export interface IdCheckRow {
   id: string;
   deletedAt: string | null;
@@ -70,7 +72,50 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const short = (id: string): string => id.slice(0, 8);
 
 /** 점검 분류 수 — 화면이 "점검 N개 분류"를 손으로 세지 않도록 여기서 파생한다. */
-export const CHECK_COUNT = 10;
+export const CHECK_COUNT = 11;
+
+/** `checkIntegrity` 안의 발견 등록 함수 — 점검을 곁 함수로 뽑을 때 그대로 넘긴다. */
+type AddFinding = (code: string, severity: Severity, title: string, detail: string, hits: string[]) => void;
+
+/**
+ * 시각 점검 두 가지. **내용(순간)과 형식(표기)을 나눈다** — 하나로 묶었다가 사고가 났다.
+ *
+ * ── M-0034 (2026-07-27 사용자 실기기) ─────────────────────────────────
+ * 예전 판정은 `r.createdAt > r.updatedAt`, 즉 **문자열 대소**였다. 그래서 서버에서 온
+ * `2026-07-26T17:29:48.34+00:00`(updatedAt)과 로컬의 `2026-07-26T17:29:48.340Z`(createdAt)를
+ * 비교해 — **같은 순간인데** `'0'`(0x30) > `'+'`(0x2B)이므로 — 사진 9건 전부를
+ * 「만든 시각이 고친 시각보다 늦음」으로 띄웠다. 데이터는 처음부터 멀쩡했다.
+ *
+ * 오탐은 "빡빡한 게이트"가 아니라 **틀린 게이트**다(§11 ③). 사용자가 무시하기 시작하면
+ * 그 지표는 죽고, 진짜 시간 역전이 왔을 때 아무도 안 본다. 그래서 둘로 나눴다:
+ *  · `TIME_INVERSION` — **순간**으로 잰다. 진짜로 앞뒤가 안 맞는 것만.
+ *  · `BAD_TIME_FORMAT` — **표기**만 본다. 순간은 맞지만 적는 법이 다른 것.
+ */
+function timeChecks(all: IdCheckRow[], add: AddFinding): void {
+  add(
+    'TIME_INVERSION',
+    'prevent',
+    '만든 시각이 고친 시각보다 늦음',
+    '기록의 시간 정보가 앞뒤가 안 맞아요. 기기 시계가 어긋났을 때 생깁니다. 지금 사용에는 지장이 없지만, 어느 쪽이 최신인지 판단할 때 헷갈릴 수 있어요.',
+    // 못 읽는 값은 `?? 0`으로 **역전이 아니라고** 본다 — 그건 아래 표기 점검의 몫이다.
+    all.filter((r) => (compareInstants(r.createdAt, r.updatedAt) ?? 0) > 0).map((r) => r.id),
+  );
+
+  // **이미 저장된 것**을 보는 런타임 지표(§10 ②). 정적 게이트는 이 부류를 원리적으로 못 잡는다 —
+  // 코드를 고쳐도 옛 표기로 박힌 행은 그대로다. `normalizeStampsOnce()`가 동기화 때 정리하므로
+  // **정상은 0건**이고, 0이 아니면 그 정리가 아직 안 돌았거나 실패한 것이다.
+  const badFormat = (r: IdCheckRow): boolean =>
+    !isCanonicalInstant(r.createdAt) ||
+    !isCanonicalInstant(r.updatedAt) ||
+    (r.deletedAt !== null && !isCanonicalInstant(r.deletedAt));
+  add(
+    'BAD_TIME_FORMAT',
+    'prevent',
+    '시각 표기가 표준형이 아님',
+    '시각이 이 앱의 표준 표기로 저장되지 않았어요. 같은 순간을 서로 다르게 적으면 어느 쪽이 최신인지 판단할 때 어긋날 수 있습니다. 동기화를 한 번 실행하면 자동으로 정리됩니다.',
+    all.filter(badFormat).map((r) => r.id),
+  );
+}
 
 /**
  * 무결성 점검. 활성 행만 대상으로 한다 — tombstone은 이미 "없는 것"이라 참조가 끊겨도 정상이다.
@@ -157,14 +202,8 @@ export function checkIntegrity(s: IntegritySnapshot): IntegrityReport {
     dup,
   );
 
-  // 6. 시간 역전 — 만든 시각이 고친 시각보다 나중.
-  add(
-    'TIME_INVERSION',
-    'prevent',
-    '만든 시각이 고친 시각보다 늦음',
-    '기록의 시간 정보가 앞뒤가 안 맞아요. 기기 시계가 어긋났을 때 생깁니다. 지금 사용에는 지장이 없지만, 어느 쪽이 최신인지 판단할 때 헷갈릴 수 있어요.',
-    all.filter((r) => r.createdAt && r.updatedAt && r.createdAt > r.updatedAt).map((r) => r.id),
-  );
+  // 6·6-B. 시각 점검 — 순간(내용)과 표기(형식)를 **나눠서** 본다. 아래 참조.
+  timeChecks(all, add);
 
   // 7. 세대(version) 이상 — 병합 판정의 기준값.
   add(

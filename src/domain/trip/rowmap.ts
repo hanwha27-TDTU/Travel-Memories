@@ -2,6 +2,7 @@
 // 메모리는 camelCase, DB 행은 snake_case. 두 표기는 이 파일의 toRow/fromRow 안에서만 만난다.
 // 다른 어떤 파일에도 trips의 snake_case 키가 나타나면 경계 위반이다.
 
+import { isoInstant, isoInstantOrNull, type WithInstants } from '../time';
 import type { LocalTrip } from '../../offline/db';
 
 /** Supabase trips 행 (snake_case — 이 파일 밖에서 사용 금지). */
@@ -43,7 +44,12 @@ export function toRow(t: LocalTrip, userId: string, device?: string): TripRow {
   };
 }
 
-export function fromRow(r: TripRow): LocalTrip {
+/**
+ * 서버 행 → 로컬 행. 시각은 **반드시 `isoInstant()`를 통과한다**(M-0034) — PostgREST는
+ * `…48.34+00:00`, JS는 `…48.340Z`로 같은 순간을 다르게 적고, 이 앱은 시각을 문자열로 비교한다.
+ * 반환형이 `WithInstants`라 날것을 넣으면 컴파일이 막는다(§7 2층).
+ */
+export function fromRow(r: TripRow): WithInstants<LocalTrip> {
   return {
     id: r.id,
     title: r.title,
@@ -51,9 +57,9 @@ export function fromRow(r: TripRow): LocalTrip {
     endDate: r.end_date ?? '',
     status: r.status,
     version: r.version,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-    deletedAt: r.deleted_at,
+    createdAt: isoInstant(r.created_at),
+    updatedAt: isoInstant(r.updated_at),
+    deletedAt: isoInstantOrNull(r.deleted_at),
     ...(r.client_operation_id ? { clientOperationId: r.client_operation_id } : {}),
   };
 }
