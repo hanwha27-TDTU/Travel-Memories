@@ -12,6 +12,7 @@ import { openDiagnosticsHub } from './diagnosticsHub';
 import { REGISTRY } from '../../app/registry.gen';
 import { GATE_DESC } from '../../app/gates';
 import { openMechChecks } from './mechChecks';
+import { PLATFORM_MAP, type PlatformRow } from '../../app/platformMap.gen';
 
 // ── 상세 패널 조립 헬퍼 ──────────────────────────────────────────────
 function h(text: string): HTMLElement {
@@ -57,6 +58,53 @@ function panel(children: HTMLElement[]): HTMLElement {
   return wrap;
 }
 
+/**
+ * **무엇이 어디서 도는가** 표 — `platformMap.gen.ts`에서 읽는다.
+ *
+ * 🔒 이 표의 내용을 여기에 **손으로 적지 않는다**(사용자 요청 2026-07-26:
+ * *"이 내용을 적을 때 손으로 적지 말고 기계화시켜서 작성하게 설계해주세요"*).
+ * 각 행은 `scripts/gen-platform-map.mjs`가 **코드를 읽어** 판정한 결과이고,
+ * `check-platform-map` 게이트가 커밋본과 코드가 어긋나면 RED를 낸다.
+ *
+ * 그래서 저장소를 옮기거나 구조를 바꾸면 이 화면이 **저절로 따라오거나, 빌드가 멈춘다.**
+ * 실제로 오늘 사진 바이트가 Supabase Storage → R2로 옮겨졌다(v0.86) — 손으로 적었다면
+ * 그 순간부터 거짓말을 했을 것이고 아무도 몰랐을 것이다.
+ */
+function platformTable(): HTMLElement {
+  const box = el('div', 'guide-plat');
+  // 서비스별로 묶는다 — "Supabase가 이렇게 많은 일을 한다"가 한눈에 보여야 하기 때문이다.
+  const order: string[] = [];
+  const byWhere = new Map<string, PlatformRow[]>();
+  for (const r of PLATFORM_MAP) {
+    if (!byWhere.has(r.where)) {
+      byWhere.set(r.where, []);
+      order.push(r.where);
+    }
+    byWhere.get(r.where)?.push(r);
+  }
+
+  for (const where of order) {
+    const rows = byWhere.get(where) ?? [];
+    const group = el('div', 'guide-plat-group');
+    const head = el('div', 'guide-plat-head');
+    head.append(
+      el('span', 'guide-plat-where', where),
+      el('span', 'guide-plat-count', `${rows.length}가지`),
+    );
+    group.appendChild(head);
+
+    for (const r of rows) {
+      const row = el('div', 'guide-plat-row');
+      const left = el('div', 'guide-plat-left');
+      left.append(el('b', 'guide-plat-what', r.what), el('small', 'guide-plat-detail', r.detail));
+      row.append(left, el('span', 'guide-plat-part', r.part));
+      group.appendChild(row);
+    }
+    box.appendChild(group);
+  }
+  return box;
+}
+
 // ── 카드/그룹 레지스트리 ─────────────────────────────────────────────
 interface GuideCard {
   icon: string;
@@ -79,6 +127,25 @@ const CONNECT_GROUP: GuideGroup = {
   title: '연결 · 설정 가이드',
   hint: '저장·사진·개발 도구를 앱에 연결하는 방법',
   cards: [
+    {
+      icon: '🗺',
+      label: '무엇이 어디서 도나',
+      hint: '앱의 각 부분이 사는 곳',
+      render: () =>
+        panel([
+          h('한눈에 보기'),
+          p('이 앱은 한 곳에서 다 돌지 않습니다. 부분마다 사는 곳이 다르고, 그래서 한 곳이 멈춰도 나머지는 삽니다.'),
+          platformTable(),
+          h('꼭 아셔야 할 것'),
+          bullets([
+            '기록의 진짜 원본은 **이 기기**에 있습니다. 인터넷이 없어도 앱은 그대로 열리고 저장됩니다.',
+            '서버는 **기기 사이를 잇는 다리**입니다 — 원본이 아니라 사본을 주고받는 곳이에요.',
+            '사진 파일만 다른 회사(Cloudflare R2)에 둡니다. 용량이 크고 오가는 양이 많아서예요.',
+            '**사진을 R2에 두어도 Supabase가 필요합니다** — 사진을 여닫는 열쇠(서명)를 거기서 발급하거든요.',
+          ]),
+          note('이 표는 손으로 적은 것이 아니라 앱 코드를 읽어 만들어집니다. 저장소나 구조가 바뀌면 표가 저절로 따라오고, 안 따라오면 배포가 멈춥니다.'),
+        ]),
+    },
     {
       icon: '🗄',
       label: 'Supabase 연결',
