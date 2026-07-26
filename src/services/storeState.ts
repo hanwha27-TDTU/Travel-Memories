@@ -81,6 +81,16 @@ export interface StoreComparison {
    * 가르는 데 쓴다. 원장에 있으면 자료는 이미 없고, 없으면 그 파일이 마지막 사본일 수 있다.
    */
   serverPurged: string[];
+  /**
+   * **앱이 관리하지 않는 항목** — 사진 저장소에서 내 폴더 밖에 있는 최상위 항목 수.
+   *
+   * 왜 필요한가(2026-07-26 사용자): 앱의 목록 조회는 보안상 **내 폴더만** 본다. 그래서
+   * 「사진 파일 0개」는 *내 폴더 기준*이지 "저장소가 비었다"가 아니다. 그 한정을 화면이
+   * 말하지 않아 사용자가 Cloudflare 콘솔을 매번 직접 열어야 했다 — 앱이 스스로 말하게 한다.
+   *
+   * `known`이 false면 개수를 **쓰지 않는다**('확인 불가'). 못 본 것을 0으로 반올림하지 않는다.
+   */
+  outside: { count: number; known: boolean };
 }
 
 /**
@@ -112,6 +122,9 @@ export interface Listing {
   ids: string[];
   foreign?: number;
   truncated?: boolean;
+  /** 내 폴더 **밖**의 최상위 항목 수. `outsideKnown`이 false면 이 값을 쓰지 않는다. */
+  outside?: number;
+  outsideKnown?: boolean;
   error?: string | undefined;
 }
 
@@ -127,11 +140,14 @@ export interface Listing {
  */
 export function unionListings(listings: Listing[]): Listing {
   const failed = listings.find((l) => l.error);
-  if (failed) return { ids: [], foreign: 0, truncated: false, error: failed.error };
+  if (failed) return { ids: [], foreign: 0, truncated: false, outside: 0, outsideKnown: false, error: failed.error };
   return {
     ids: [...new Set(listings.flatMap((l) => l.ids))],
     foreign: listings.reduce((a, l) => a + (l.foreign ?? 0), 0),
     truncated: listings.some((l) => l.truncated === true),
+    outside: listings.reduce((a, l) => a + (l.outside ?? 0), 0),
+    // **하나라도 모르면 전체를 모른다**(truncated와 같은 규율 — 부분 정보로 만든 합은 거짓말이다).
+    outsideKnown: listings.length > 0 && listings.every((l) => l.outsideKnown === true),
   };
 }
 
@@ -328,7 +344,7 @@ export async function localTombstoneCount(): Promise<number> {
  * 되돌릴 때 이 파일도 고쳐야 한다(되돌리기가 환경변수 하나여야 한다는 계약이 깨진다).
  */
 export interface FilesPort {
-  list(): Promise<{ ids: string[]; foreign: number; truncated: boolean; error?: string | undefined }>;
+  list(): Promise<Listing>;
 }
 
 export async function compareStore(port: StoreStatePort, files?: FilesPort): Promise<StoreComparison> {
@@ -353,11 +369,15 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
   // → null로 두고 화면이 '확인 불가'로 말한다. 조회 실패도 같다(모르는 것을 정상으로 반올림하지 않는다).
   let fileAudit: MediaFileAudit | null = null;
   let fileAuditNote: string | null = files ? null : '이 기기의 사진 저장소가 R2가 아니라 목록을 물어볼 수 없어요';
+  let outside = { count: 0, known: false };
   if (files) {
     try {
       const [listing, rowIds] = await Promise.all([files.list(), port.mediaRowIds()]);
       if (listing.error) fileAuditNote = listing.error;
-      else fileAudit = auditMediaFiles(listing.ids, rowIds, { foreign: listing.foreign, truncated: listing.truncated });
+      else {
+        fileAudit = auditMediaFiles(listing.ids, rowIds, { foreign: listing.foreign ?? 0, truncated: listing.truncated === true });
+        outside = { count: listing.outside ?? 0, known: listing.outsideKnown === true };
+      }
     } catch (e) {
       fileAuditNote = (e as Error).message;
     }
@@ -373,6 +393,7 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
     unpropagatedPurges,
     serverTombstoned: serverTombstones,
     serverPurged,
+    outside,
   };
 }
 

@@ -108,18 +108,30 @@ export interface R2Listing {
   foreign: number;
   /** 페이지 상한에 걸려 **다 못 봤다**. true면 "고아 0건"이라 말하면 안 된다. */
   truncated: boolean;
+  /**
+   * **내 폴더 밖**에 있는 최상위 항목 수(다른 폴더 + 폴더에 안 든 파일). 개수만 온다 — 키는
+   * 서버가 응답에 담지 않는다. `outsideKnown`이 false면 이 값은 의미가 없다('확인 불가').
+   */
+  outside: number;
+  outsideKnown: boolean;
   error?: string;
 }
 
 export async function r2ListObjects(client: JourneyClient): Promise<R2Listing> {
   const r = await callSign(client, 'list', null);
-  if (r.error) return { ids: [], foreign: 0, truncated: false, error: explainR2Error(r.error) };
-  const d = r.data as ({ ids?: unknown; foreign?: unknown; truncated?: unknown } & SignResult) | null;
-  if (!d || !Array.isArray(d.ids)) return { ids: [], foreign: 0, truncated: false, error: '목록 응답이 비었습니다' };
+  const empty = { ids: [], foreign: 0, truncated: false, outside: 0, outsideKnown: false };
+  if (r.error) return { ...empty, error: explainR2Error(r.error) };
+  const d = r.data as
+    | ({ ids?: unknown; foreign?: unknown; truncated?: unknown; outside?: unknown; outsideKnown?: unknown } & SignResult)
+    | null;
+  if (!d || !Array.isArray(d.ids)) return { ...empty, error: '목록 응답이 비었습니다' };
   return {
     ids: (d.ids as unknown[]).filter((x): x is string => typeof x === 'string'),
     foreign: typeof d.foreign === 'number' ? d.foreign : 0,
     truncated: d.truncated === true,
+    // 옛 버전 함수가 배포돼 있으면 이 필드가 없다 → **0이 아니라 '모른다'**로 둔다.
+    outside: typeof d.outside === 'number' ? d.outside : 0,
+    outsideKnown: d.outsideKnown === true,
   };
 }
 

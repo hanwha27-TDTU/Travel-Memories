@@ -16,7 +16,7 @@ import { describe, it, expect } from 'vitest';
 import { auditMediaFiles, unionListings } from '../../src/services/storeState';
 import { storeHeadline, classifyOrphanFiles } from '../../src/ui/panels/diagnostics';
 import type { Level } from '../../src/ui/panels/verdict';
-import { parseListXml, mediaIdOfKey, xmlUnescape, presign, LIST_MAX_PAGES } from '../../supabase/functions/media-sign/index';
+import { parseListXml, mediaIdOfKey, xmlUnescape, presign, LIST_MAX_PAGES, countOutside } from '../../supabase/functions/media-sign/index';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const B = 'bbbbbbbb-2222-4222-8222-222222222222';
@@ -285,5 +285,56 @@ describe('⑧ 기록 없는 사진 파일을 **치울 것과 건드리면 안 �
 
   it('원장이 비면 **아무것도 치울 수 없다**(모르는 것을 지워도 되는 것으로 반올림하지 않는다)', () => {
     expect(classifyOrphanFiles([A, B, C], [])).toEqual({ leftover: [], unexplained: [A, B, C] });
+  });
+});
+
+describe('⑨ **내 폴더 밖**에 무엇이 있는지 앱이 스스로 안다 (2026-07-26 사용자 요청)', () => {
+  // 사용자: *"니가 객체목록을 보게 하려면 내가 어케 해야해?"* — 스크린샷을 수백 장 찍고 있었다.
+  // 앱의 목록 조회는 `prefix = 내 사용자 id`로 고정이라 「사진 파일 0개」는 *내 폴더 기준*이고
+  // "버킷이 비었다"가 아니다. 그 한정을 화면이 말하지 않아 매번 콘솔을 직접 열어야 했다.
+  //
+  // 잠그는 것: ① 최상위 폴더 목록을 읽는다 ② **개수만** 센다(키는 담지 않는다)
+  //           ③ 내 폴더는 빼고 센다 ④ 다 못 봤으면 0이라고 말하지 않는다(호출부 계약).
+  const MINE = 'c9ff5188-51a7-4c01-b653-b6e1d73d0790/';
+  const xml = (body: string): string => `<?xml version="1.0"?><ListBucketResult>${body}</ListBucketResult>`;
+
+  it('최상위 폴더(CommonPrefixes)를 읽어낸다', () => {
+    const p = parseListXml(xml(`<CommonPrefixes><Prefix>${MINE}</Prefix></CommonPrefixes><CommonPrefixes><Prefix>other/</Prefix></CommonPrefixes>`));
+    expect(p.prefixes).toEqual([MINE, 'other/']);
+  });
+
+  it('내 폴더는 빼고 센다 — 내 것만 있으면 0이다', () => {
+    const p = parseListXml(xml(`<CommonPrefixes><Prefix>${MINE}</Prefix></CommonPrefixes>`));
+    expect(countOutside(p, MINE)).toBe(0);
+  });
+
+  it('남의 폴더가 있으면 개수로 잡는다', () => {
+    const p = parseListXml(xml(`<CommonPrefixes><Prefix>${MINE}</Prefix></CommonPrefixes><CommonPrefixes><Prefix>zzz/</Prefix></CommonPrefixes>`));
+    expect(countOutside(p, MINE)).toBe(1);
+  });
+
+  it('폴더에 안 든 최상위 파일도 센다(예전 테스트 업로드가 여기 남는다)', () => {
+    const p = parseListXml(xml(`<Contents><Key>stray.txt</Key></Contents><CommonPrefixes><Prefix>${MINE}</Prefix></CommonPrefixes>`));
+    expect(countOutside(p, MINE)).toBe(1);
+  });
+
+  it('둘 다 있으면 더한다', () => {
+    const p = parseListXml(xml(`<Contents><Key>a.txt</Key></Contents><Contents><Key>b.txt</Key></Contents><CommonPrefixes><Prefix>zzz/</Prefix></CommonPrefixes>`));
+    expect(countOutside(p, MINE)).toBe(3);
+  });
+
+  it('아무것도 없으면 0이다', () => {
+    expect(countOutside(parseListXml(xml('')), MINE)).toBe(0);
+  });
+
+  it('최상위가 잘렸으면 다음 토큰이 남는다 — 호출부는 이때 "확인 불가"로 둔다', () => {
+    const p = parseListXml(xml('<IsTruncated>true</IsTruncated><NextContinuationToken>t1</NextContinuationToken>'));
+    expect(p.nextToken).toBe('t1');
+  });
+
+  it('폴더 목록을 읽어도 **키는 남기지 않는다** — 응답에 담는 것은 숫자뿐이다', () => {
+    // countOutside의 반환 타입이 number라는 것 자체가 계약이다(키를 흘릴 자리가 없다).
+    const p = parseListXml(xml(`<CommonPrefixes><Prefix>secret-user-id/</Prefix></CommonPrefixes>`));
+    expect(typeof countOutside(p, MINE)).toBe('number');
   });
 });

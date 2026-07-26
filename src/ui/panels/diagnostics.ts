@@ -620,10 +620,7 @@ export async function storeStateProbe(): Promise<Verdict> {
   // `unionListings`는 저장소가 하나여도 그대로 쓴다 — "못 읽으면 개수를 세지 않는다"는 규칙이
   // 거기 있고, 저장소가 하나든 둘이든 그 규칙은 같기 때문이다.
   const filesPort = {
-    list: async (): Promise<{ ids: string[]; foreign: number; truncated: boolean; error?: string | undefined }> => {
-      const u2 = unionListings([await r2ListObjects(c)]);
-      return { ids: u2.ids, foreign: u2.foreign ?? 0, truncated: u2.truncated === true, error: u2.error };
-    },
+    list: async () => unionListings([await r2ListObjects(c)]),
   };
   const cmp = await compareStore(storeStateRemote(c), filesPort);
 
@@ -751,6 +748,29 @@ export async function storeStateProbe(): Promise<Verdict> {
         : {}),
     });
   }
+
+  // ── 앱이 관리하지 않는 항목 ────────────────────────────────────────
+  // 왜(2026-07-26 사용자 *"니가 객체목록을 보게 하려면 내가 어케 해야해?"* — 스크린샷을 수백 장
+  // 찍고 있었다): 위의 사진 파일 대조는 보안상 **내 폴더만** 본다. 그래서 「사진 파일 0개」는
+  // *내 폴더 기준*이지 "저장소가 비었다"가 아니다. 그 한정을 화면이 말하지 않아, 사용자가
+  // Cloudflare 콘솔을 직접 열어 확인하고 그 결과를 사진으로 찍어 보내야 했다.
+  //
+  // 이제 서버가 **개수 하나**를 함께 준다(키는 안 준다). 앱이 자기 시야의 경계를 스스로 말한다.
+  metrics.push({
+    label: '앱이 관리하지 않는 항목',
+    actual: cmp.outside.known ? `${cmp.outside.count}개` : '확인 못 함',
+    expected: '0개',
+    // 못 봤으면 정상이 아니라 '확인 불가'다(비타협 원칙 #4).
+    level: !cmp.outside.known ? 'unknown' : cmp.outside.count ? 'todo' : 'ok',
+    ...(!cmp.outside.known
+      ? { meaning: '사진 저장소 최상위를 확인하지 못했어요. 앱은 자기 폴더만 보므로, 그 밖은 지금 판단할 수 없습니다.' }
+      : cmp.outside.count
+        ? {
+            meaning:
+              '사진 저장소에 이 앱이 만들지 않은 폴더·파일이 있어요. **앱은 손대지 않습니다** — 다른 앱이나 옛 테스트 자료일 수 있으니 Cloudflare에서 직접 확인하세요.',
+          }
+        : {}),
+  });
 
   // ── 전파되지 않은 영구삭제 ─────────────────────────────────────────
   // 내가 지웠다고 믿는데(로컬 표식) 서버엔 tombstone으로 남은 것. 로컬 표식 때문에 휴지통에도
@@ -969,15 +989,20 @@ async function currentUserSafe(): Promise<{ id: string } | null> {
  * 이 함수 하나가 두 곳에 쓰인다 — 허브 홈의 배지·총괄 줄, 그리고 요약 복사 도구. 롤업 규칙을
  * 두 번 쓰면 허브는 '정상'인데 요약은 '문제'인 화면이 언젠가 나온다(SSOT — 규칙을 두 번 쓰지 않는다).
  */
-export async function rollup(): Promise<{ level: Level; per: { id: string; label: string; level: Level; headline: string }[] }> {
+export async function rollup(): Promise<{
+  level: Level;
+  per: { id: string; label: string; level: Level; headline: string; metrics: Metric[] }[];
+}> {
   const per = await Promise.all(
     CORE_TOOLS.map(async (t) => {
       try {
         const v = await t.probe();
-        return { id: t.id, label: t.label, level: v.level, headline: v.headline };
+        // 지표까지 들고 온다 — 요약 복사가 이걸 그대로 쓴다. 도구를 새로 만들면 **자동으로**
+        // 요약에 들어간다(§7 2층: 다음 형제가 손대지 않아도 따라오게).
+        return { id: t.id, label: t.label, level: v.level, headline: v.headline, metrics: v.metrics };
       } catch {
         // 판정을 못 했으면 '정상'이 아니라 '확인 불가'다 — 미검사를 통과로 적지 않는다(원칙 #4).
-        return { id: t.id, label: t.label, level: 'unknown' as Level, headline: '확인하지 못했어요' };
+        return { id: t.id, label: t.label, level: 'unknown' as Level, headline: '확인하지 못했어요', metrics: [] };
       }
     }),
   );
@@ -1004,7 +1029,13 @@ async function summaryText(): Promise<string> {
   return [
     `[Bugeon Journey 진단 요약] ${env.clock.nowIso}`,
     `총괄 판정: ${roll.level}`,
-    ...roll.per.map((p) => `  ${p.level.padEnd(7)} ${p.label} — ${p.headline}`),
+    // 판정 한 줄 **아래에 지표까지** 붙인다(2026-07-26 사용자: 확인할 때마다 화면을 사진으로
+    // 찍어 보내야 했다 — "수백 장은 찍은 거 같아"). 요약에 숫자가 없으면 복사해 봐야 소용이
+    // 없고, 결국 다시 사진을 찍게 된다. 개인정보는 그대로 안 담는다(진단 §6 — 개수와 판정만).
+    ...roll.per.flatMap((p) => [
+      `  ${p.level.padEnd(7)} ${p.label} — ${p.headline}`,
+      ...p.metrics.map((m) => `      ${m.level.padEnd(7)} ${m.label}: 지금 ${m.actual} / 정상 ${m.expected}`),
+    ]),
     `--- 환경 ---`,
     `앱 ${env.app.version} · base ${env.app.base} · 사진저장소 ${env.app.mediaStore}`,
     `화면 ${env.screen.w}x${env.screen.h}@${env.screen.dpr} ${env.screen.orientation} · ${env.clock.tz}(UTC${env.clock.tzOffsetMin >= 0 ? '+' : ''}${env.clock.tzOffsetMin / 60}) · ${env.device.online ? '온라인' : '오프라인'}`,
@@ -1047,7 +1078,7 @@ export async function summaryProbe(): Promise<Verdict> {
           ? '지금 해두면 좋은 일이 있어요'
           : roll.level === 'unknown'
             ? '확인하지 못한 항목이 있어요'
-            : '다섯 가지 모두 정상입니다',
+            : `${CORE_TOOLS.length}가지 모두 정상입니다`,
     because: '[복사하기]를 누르면 이 결과를 텍스트로 전달할 수 있어요. 여행 제목·사진·메모 같은 기록 내용은 담기지 않습니다.',
     metrics,
     actions: [
@@ -1152,8 +1183,8 @@ export const SUMMARY_TOOL: DiagTool = {
   id: 'summary',
   icon: '📋',
   label: '진단 요약 복사',
-  hint: '다섯 결과를 한 번에 전달',
-  lead: '위 다섯 도구의 결과를 한 덩어리 텍스트로 만듭니다.',
+  hint: '앞의 결과를 한 번에 전달',
+  lead: '위 도구들의 결과를 한 덩어리 텍스트로 만듭니다.',
   probe: summaryProbe,
 };
 
