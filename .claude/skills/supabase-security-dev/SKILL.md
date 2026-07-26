@@ -86,6 +86,7 @@ ROLLBACK;   -- 프로덕션 무변경
 | 클라가 서버에 없는 컬럼을 밀어 조용히 깨짐 | 클라↔서버 스키마 드리프트 | `check-schema-parity`(rowmap 필드 ⊆ 서버 컬럼) |
 | `SECURITY DEFINER` 함수 search_path 경고 | 권한 상승 경로 | `search_path=''` 고정 |
 | 사진 tombstone 후 Storage 객체가 고아로 남음 | 행 삭제와 바이트 삭제 시점 분리 | 소유자 폴더격리 DELETE 정책 + tombstone 반영 후 최선노력 스윕 |
+| **Storage 버킷은 SQL로 못 지운다**(2026-07-26) | `storage.protect_delete()` 트리거가 `delete from storage.buckets`를 막는다("Use the Storage API instead" — 고아 객체 사고 방지). 마이그레이션 **전체가 롤백**된다 | 버킷 행 삭제는 대시보드/Storage API(사용자 몫 — service_role 키는 안 쓴다). **정책 4종을 drop하면 목적은 달성된다** — RLS는 기본 거부라 정책이 없으면 아무도 못 읽고 못 쓴다. 껍데기만 남는다 |
 | **새 테이블에 GRANT 누락 → 앱이 permission denied**(M-0020) | RLS와 GRANT를 같은 층으로 오인 + 검증을 superuser로 수행 | `check-migration-grants` 게이트(18번째) + §4에 "superuser 검증은 검증이 아니다" 명문화 |
 | **공유 프로젝트 백업 복원이 프로젝트 단위** | 한 앱 복원 = 다른 앱도 롤백 | ADR-0020에 위험으로 문서화. **복구 전 상호 확인 필수**. (메디컬 합류 시 재검토 — `docs/STORAGE_R2_PROPOSAL.md`) |
 
