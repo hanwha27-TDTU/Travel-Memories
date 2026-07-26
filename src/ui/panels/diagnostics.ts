@@ -32,6 +32,7 @@ import {
   unionListings,
   DOMAIN_LABEL,
   type StoreComparison,
+  type MediaFileAudit,
 } from '../../services/storeState';
 import { r2ListObjects, r2DeleteMany, r2AbortMultipart } from '../../services/r2';
 import {
@@ -75,14 +76,27 @@ function bytes(n: number | null): string {
 }
 
 /** 접힌 출처용 표 — 목록·원자료는 전부 이 형태로 내려간다. */
-function table(rows: [string, string][]): HTMLElement {
+/**
+ * 근거 표. **비었을 때 무슨 뜻인지는 부르는 쪽이 말한다** — `whenEmpty`는 선택이 아니다.
+ *
+ * 왜 필수인가(2026-07-27 사용자 지적): 예전엔 비면 「없음」 한 단어만 찍었다. 그래서
+ * 접힌 제목은 *「사진 파일 9개(2.1 MB) · 기록 9개」*인데 펼치면 **「없음」**이었다 —
+ * 사용자가 물었다: *"사진파일 9개라고 적혀있는데 밑에 '없음' 이건 뭘 의미?"*
+ *
+ * 제목은 **가진 것**을 세고 표는 **어긋난 것**을 담는데, 그 한정을 아무도 말하지 않았다.
+ * M-0028과 같은 형태다(문장이 한정을 생략하면 사용자는 전부를 다룬다고 읽는다).
+ *
+ * 타입으로 강제하는 이유(§7 2층): 다음 사람이 새 근거 표를 추가할 때 **빠뜨릴 수 없게**.
+ * 산문으로 "빈 문구를 적으세요"라고 두면 언젠가 또 「없음」이 된다.
+ */
+function table(rows: [string, string][], whenEmpty: string): HTMLElement {
   const t = el('div', 'vd-src-table');
   for (const [k, v] of rows) {
     const r = el('div', 'vd-src-row');
     r.append(el('span', 'vd-src-k', k), el('span', 'vd-src-v', v));
     t.appendChild(r);
   }
-  if (!rows.length) t.appendChild(el('p', 'vd-src-empty', '없음'));
+  if (!rows.length) t.appendChild(el('p', 'vd-src-empty', whenEmpty));
   return t;
 }
 
@@ -263,7 +277,7 @@ export async function syncProbe(): Promise<Verdict> {
             ['영구삭제 표식', String(d.purgedMarks)],
             ['대기열 종류별', countMap(d.queue.byType)],
             ['대기열 상태별', countMap(d.queue.byState)],
-          ]),
+          ], '셀 것이 없어요'),
       },
       {
         // 잘랐으면 잘랐다고 라벨에 적는다 — 조용한 절단은 "전부 봤다"로 읽힌다.
@@ -277,7 +291,7 @@ export async function syncProbe(): Promise<Verdict> {
               ],
             ),
             ...(d.itemsOmitted ? ([['…', `외 ${d.itemsOmitted}건은 화면에서 생략했어요(전체는 [진단 요약 복사]에 담깁니다)`]] as [string, string][]) : []),
-          ]),
+          ], '설명이 필요한 항목이 없어요 — 지운 것과 보낼 목록이 모두 맞습니다'),
       },
     ],
     context: [{ label: '사진 저장소', value: d.mediaStore === 'r2' ? 'Cloudflare R2' : 'Supabase Storage' }],
@@ -373,7 +387,11 @@ export async function integrityProbe(): Promise<Verdict> {
     evidence: [
       {
         label: `발견 전체 ${r.findings.length}종 (기술 코드 포함)`,
-        build: () => table(r.findings.map((f) => [`${f.code} ×${f.count}`, `${f.title} — 예: ${f.samples.join(', ')}`])),
+        build: () =>
+          table(
+            r.findings.map((f) => [`${f.code} ×${f.count}`, `${f.title} — 예: ${f.samples.join(', ')}`]),
+            '걸린 것이 없어요 — 검사한 기준을 모두 통과했습니다',
+          ),
       },
     ],
     context: [{ label: '참고 항목', value: `${r.bySeverity.info}종(정상 범위)` }],
@@ -432,7 +450,14 @@ export async function environmentProbe(): Promise<Verdict> {
     metrics,
     actions: [],
     evidence: [
-      { label: '기능 지원 전체', build: () => table(Object.entries(env.features).map(([k, ok]) => [k, ok ? '지원' : '미지원'])) },
+      {
+        label: '기능 지원 전체',
+        build: () =>
+          table(
+            Object.entries(env.features).map(([k, ok]) => [k, ok ? '지원' : '미지원']),
+            '확인한 기능이 없어요 — 이 브라우저에서 조회하지 못했습니다',
+          ),
+      },
       {
         label: '화면·서비스워커·브라우저',
         build: () =>
@@ -440,7 +465,7 @@ export async function environmentProbe(): Promise<Verdict> {
             ['화면', `${env.screen.w}×${env.screen.h} · ${env.screen.orientation} · 배율 ${env.screen.dpr}`],
             ['서비스워커', env.sw.supported ? (env.sw.controlled ? '동작 중(캐시 사용)' : '지원하나 미제어') : '미지원'],
             ['브라우저', env.device.ua],
-          ]),
+          ], '이 브라우저 정보를 읽지 못했어요'),
       },
     ],
     context: [
@@ -476,7 +501,11 @@ export function errorProbe(): Promise<Verdict> {
       ? [
           {
             label: '오류 전체',
-            build: () => table(errs.map((e) => [`${e.kind} · ${e.at.slice(11, 19)}`, `${e.message}${e.where ? ` ← ${e.where}` : ''}`])),
+            build: () =>
+              table(
+                errs.map((e) => [`${e.kind} · ${e.at.slice(11, 19)}`, `${e.message}${e.where ? ` ← ${e.where}` : ''}`]),
+                '기록된 오류가 없어요',
+              ),
           },
         ]
       : [],
@@ -826,6 +855,41 @@ function storeActions(i: StoreActionsInput): Action[] {
   ];
 }
 
+/**
+ * 「사진 파일 N개 · 기록 M개 — 짝이 안 맞는 것은?」 근거 표.
+ *
+ * 제목이 **표의 내용을 예고해야** 한다(2026-07-27 사용자 지적). 예전엔 제목이 *"9개 · 9개"*인데
+ * 펼치면 **「없음」**이었다 — 제목은 *가진 것*을 세고 표는 *어긋난 것*을 담는데 그 한정을
+ * 아무도 말하지 않았다. 형제인 「서버에 남는 표식 N건 — 왜 남나요?」는 제목에 질문을 달아
+ * 내용을 예고한다. 같은 어휘로 맞춘다(§7 사용자 대면 대칭).
+ *
+ * 총 바이트를 여기서 말하는 이유: 2026-07-26에 사용자가 대시보드의 「버킷 크기 2.87MB」와
+ * 앱의 「사진 파일 0개」를 대조하지 못해 콘솔을 반복해서 열었다.
+ */
+function fileAuditEvidence(fa: MediaFileAudit, totalBytes: number): { label: string; build: () => HTMLElement } {
+  return {
+    label:
+      `사진 파일 ${fa.files}개(${bytes(totalBytes)}) · 기록 ${fa.rows}개` +
+      `${fa.truncated ? ' (다 못 봄)' : ''} — 짝이 안 맞는 것은?`,
+    build: () => {
+      const rows: [string, string][] = [];
+      // 목록에 상한을 둔다 — 여행 사진 앱이라 수백 장이 정상이고, 상한이 없으면 수리 버튼이
+      // 목록 뒤로 밀려 진단 도구가 스스로 수리 경로를 막는다(진단 §5.2).
+      const show = (ids: string[], what: string): void => {
+        for (const id of ids.slice(0, FILE_ID_CAP)) rows.push([id.slice(0, 8), what]);
+        // 조용히 자르지 않는다 — 자른 것은 잘랐다고 적는다(진단 §5.3).
+        if (ids.length > FILE_ID_CAP) rows.push(['…', `${what} 외 ${ids.length - FILE_ID_CAP}건 생략`]);
+      };
+      show(fa.orphans, '기록 없는 파일');
+      show(fa.missing, '파일 없는 기록');
+      if (fa.foreign) rows.push(['(형식 밖)', `${fa.foreign}개 — 이 앱이 만들지 않은 이름의 파일이에요`]);
+      if (fa.truncated) rows.push(['⚠', '사진이 많아 목록을 다 보지 못했어요 — 위 개수는 확인한 범위까지입니다']);
+      // 「없음」 한 단어로 두지 않는다 — **무엇이 없는지**를 말한다.
+      return table(rows, `짝이 안 맞는 것이 없어요 — 파일 ${fa.files}개와 기록 ${fa.rows}개가 모두 1:1로 맞습니다`);
+    },
+  };
+}
+
 export async function storeStateProbe(): Promise<Verdict> {
   const c = supabase();
   const u = c ? await currentUserSafe() : null;
@@ -1121,33 +1185,9 @@ export async function storeStateProbe(): Promise<Verdict> {
               '이 번호가 없으면, 아직 사정을 모르는 다른 기기가 자기 사본을 다시 올려 되살아납니다. 서버는 이 번호를 보고 재등록을 **거부**합니다. 제목·메모·위치·금액은 서버에서 사라졌습니다.',
             ],
             ['사진 파일은?', '영구삭제 시점에 서버 사진 파일도 함께 지웁니다(위 개수에 안 잡힙니다).'],
-          ]),
+          ], '서버에 남은 표식이 없어요'),
       },
-      ...(fa
-        ? [
-            {
-              // 목록에 상한을 둔다 — 여행 사진 앱이라 수백 장이 정상이고, 상한이 없으면
-              // 수리 버튼이 목록 뒤로 밀려 진단 도구가 스스로 수리 경로를 막는다(진단 §5.2).
-              // 총 바이트를 **여기서 말한다.** 2026-07-26에 사용자가 대시보드의 「버킷 크기
-              // 2.87MB」와 앱의 「사진 파일 0개」를 대조하지 못해 콘솔을 반복해서 열었다.
-              // 앱이 자기 합계를 말하면 그 대조를 화면 안에서 끝낼 수 있다.
-              label: `사진 파일 ${fa.files}개(${bytes(cmp.bytes)}) · 기록 ${fa.rows}개${fa.truncated ? ' (다 못 봄)' : ''}`,
-              build: () => {
-                const rows: [string, string][] = [];
-                const show = (ids: string[], what: string): void => {
-                  for (const id of ids.slice(0, FILE_ID_CAP)) rows.push([id.slice(0, 8), what]);
-                  // 조용히 자르지 않는다 — 자른 것은 자랐다고 적는다(진단 §5.3).
-                  if (ids.length > FILE_ID_CAP) rows.push(['…', `${what} 외 ${ids.length - FILE_ID_CAP}건 생략`]);
-                };
-                show(fa.orphans, '기록 없는 파일');
-                show(fa.missing, '파일 없는 기록');
-                if (fa.foreign) rows.push(['(형식 밖)', `${fa.foreign}개 — 이 앱이 만들지 않은 이름의 파일이에요`]);
-                if (fa.truncated) rows.push(['⚠', `사진이 많아 목록을 다 보지 못했어요 — 위 개수는 확인한 범위까지입니다`]);
-                return table(rows);
-              },
-            },
-          ]
-        : []),
+      ...(fa ? [fileAuditEvidence(fa, cmp.bytes)] : []),
       {
         label: `내 기기들 ${cmp.devices.length}대`,
         build: () =>
@@ -1167,7 +1207,7 @@ export async function storeStateProbe(): Promise<Verdict> {
             ...(customDeviceName()
               ? ([['자동 감지값', `${detectDeviceLabel(readDeviceHints())} (지금은 지어 주신 이름을 씁니다)`]] as [string, string][])
               : []),
-          ]),
+          ], '아직 서버로 올린 기기가 없어요'),
       },
     ],
     context: [

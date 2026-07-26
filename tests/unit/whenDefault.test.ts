@@ -73,6 +73,20 @@ describe('① 사진이 있으면 사진이 답이다 — 앱이 아는 것을 �
     expect(g.at).toBe(local(2026, 7, 16, 9, 30));
   });
 
+  // 2026-07-27: 스크린샷·탑승권 QR처럼 EXIF가 없는 사진은 **아예 넘어오지 않는다**(화면이
+  // null을 걸러낸다). 예전엔 파일 수정시각으로 채워져 「📷 사진에서」라고 말하면서 실은
+  // *앱에 넣은 시각*을 보여줬다 — 근거를 거짓으로 대는 것이라 그 경로를 끊었다.
+  it('EXIF 없는 사진만 고르면 사진 근거를 쓰지 않는다(거짓 근거 금지)', () => {
+    const g = guessOccurredAt({
+      photoTakenAts: [], // 화면이 null을 걸러 빈 배열로 준다
+      previousOccurredAt: local(2026, 7, 16, 9, 0),
+      tripStartDate: '2026-07-16',
+      now: NOW,
+    });
+    expect(g.source).toBe('previous');
+    expect(g.label).not.toContain('사진에서');
+  });
+
   it('전부 못 읽으면 사진이 없는 것과 같다(다음 근거로 내려간다)', () => {
     const g = guessOccurredAt({
       photoTakenAts: ['x', 'y'],
