@@ -126,7 +126,10 @@ export async function storageProbe(): Promise<Verdict> {
     metrics,
     actions: [],
     evidence: [],
-    context: [{ label: '기기', value: env.device.platform }],
+    // 같은 기기를 화면마다 다르게 부르지 않는다(§7 사용자 대면 대칭). `navigator.platform`은
+    // 「Linux」처럼 사용자가 자기 태블릿을 못 알아보는 값을 준다 — 「저장 상태」가 쓰는 이름표와
+    // **같은 것**을 쓴다(사용자가 지은 이름이 있으면 그게 이긴다).
+    context: [{ label: '기기', value: `${deviceLabel()} · ${shortDeviceId()}` }],
   };
   if (persisted !== true && canPersist) {
     v.actions.push({
@@ -135,9 +138,19 @@ export async function storageProbe(): Promise<Verdict> {
       hook: 'data-ask-persist',
       run: async () => {
         const ok = await requestPersist();
-        return ok
-          ? '보호가 적용됐어요. 브라우저가 임의로 지우지 않습니다.'
-          : '브라우저가 요청을 받아들이지 않았어요. 가장 확실한 보호는 [데이터 관리 › 백업]입니다.';
+        if (ok) return '보호가 적용됐어요. 브라우저가 임의로 지우지 않습니다.';
+        // ⚠️ 2026-07-26 사용자 실기기: 여기서 멈추면 **판정만 하고 행동을 못 준 것**이다
+        // (근본형 D). 브라우저가 거절한 것은 우리 잘못이 아니지만, *어떻게 하면 허락하는지*는
+        // 알려줄 수 있다 — 그게 화면이 할 일이다.
+        //
+        // Chrome은 이 권한을 요청만으로 주지 않고 **"이 사이트를 중요하게 쓰고 있는가"**로
+        // 판단한다. 가장 확실한 신호가 **홈 화면에 추가(앱으로 설치)**다. 추측이 아니라
+        // 브라우저가 공개한 기준이고, 우리가 사용자에게 시킬 수 있는 유일한 행동이다.
+        return (
+          '브라우저가 아직 허락하지 않았어요. 크롬은 "이 사이트를 중요하게 쓴다"고 판단해야 허락합니다 — ' +
+          '메뉴(⋮) → **홈 화면에 추가**로 앱처럼 설치한 뒤 다시 눌러 보세요. ' +
+          '그래도 안 되면 괜찮습니다: 가장 확실한 보호는 [데이터 관리 › 백업]으로 파일을 받아두는 것입니다.'
+        );
       },
     });
   }
@@ -1097,6 +1110,7 @@ async function summaryText(): Promise<string> {
     `앱 ${env.app.version} · base ${env.app.base} · 사진저장소 ${env.app.mediaStore}`,
     `화면 ${env.screen.w}x${env.screen.h}@${env.screen.dpr} ${env.screen.orientation} · ${env.clock.tz}(UTC${env.clock.tzOffsetMin >= 0 ? '+' : ''}${env.clock.tzOffsetMin / 60}) · ${env.device.online ? '온라인' : '오프라인'}`,
     `UA ${env.device.ua}`,
+    `platform ${env.device.platform} · 언어 ${env.device.languages}`,
     `저장 ${bytes(env.storage.usage)}/${bytes(env.storage.quota)} · persist=${String(env.storage.persisted)}`,
     `미지원 기능: ${
       Object.entries(env.features)
@@ -1104,7 +1118,7 @@ async function summaryText(): Promise<string> {
         .map(([k]) => k)
         .join(', ') || '없음'
     }`,
-    `SW ${env.sw.supported ? (env.sw.controlled ? '제어중' : '미제어') : '미지원'}`,
+    `SW ${env.sw.supported ? (env.sw.controlled ? '제어중' : '미제어') : '미지원'} · 범위 ${env.sw.scope ?? '(없음)'}`,
     `--- 동기화 ---`,
     `대기 ${sync.queue.total} (${fmt(sync.queue.byState)} / ${fmt(sync.queue.byType)})`,
     `tombstone ${fmt(sync.tombstones)} · op없는tombstone ${fmt(sync.opLessTombstones)} · 영구삭제표식 ${sync.purgedMarks}`,
