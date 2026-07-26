@@ -178,6 +178,43 @@ export async function supabaseMediaIds(
   }
 }
 
+/**
+ * **옛 저장소(Supabase Storage) 전용** 바이트 어댑터.
+ *
+ * `mediaRemote`는 `VITE_MEDIA_STORE`에 따라 R2로 갈아끼워지므로, R2가 켜진 상태에서
+ * *옛 저장소를* 읽을 방법이 없다. 이관(`mediaMigrate`)은 두 저장소를 **동시에** 만져야 하니
+ * 여기 하나를 따로 둔다. 환경변수를 보지 않는 것이 이 함수의 요점이다.
+ */
+export function supabaseBlobStore(client: JourneyClient): BlobStore {
+  const bucket = client.storage.from(MEDIA_BUCKET);
+  return {
+    async uploadDisplay(path, blob) {
+      try {
+        const r = await bucket.upload(path, blob, { upsert: true, contentType: 'image/webp' });
+        return { error: r.error?.message };
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+    },
+    async download(path) {
+      try {
+        const r = await bucket.download(path);
+        return { data: r.data ?? null, error: r.error?.message };
+      } catch (e) {
+        return { data: null, error: (e as Error).message };
+      }
+    },
+    async remove(path) {
+      try {
+        const r = await bucket.remove([path]);
+        return { error: r.error?.message };
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+    },
+  };
+}
+
 export function mediaRemote(client: JourneyClient): MediaRemote {
   const bucket = client.storage.from(MEDIA_BUCKET);
   // 바이트 3종만 어댑터 교체 가능(ADR-0024). 메타·RLS·병합 규율은 어느 쪽이든 동일하다.
