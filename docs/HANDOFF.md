@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.08<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->108<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->51<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.09<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->109<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->52<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->17<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -217,6 +217,28 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0008 · v1.09 · 동기화가 **방금 성공했는데 「판정 불가」**였던 것 (M-0035)
+
+**발단**: v1.08 배포 후 사용자 진단 요약. 하위 지표는 전부 `ok`인데 총괄이 `unknown`이었고, 끄는 것은 「자동 동기화: 지금 **마지막 성공 19:45:03** / 정상 최근에 성공 — unknown」 하나(보고서 19:46:15).
+
+**함께 확인된 것(v1.08의 read-back)**: 무결성 「**11건** 검사 · 지금확인 0 · **예방 0**」, 새 지표 `BAD_TIME_FORMAT`도 0 · 사진 클라우드 9 · 이 기기 9. **옛 표기로 박혀 있던 9건이 실제로 정리됐다**(안 돌았으면 그 자리에 9가 떴다).
+
+**원인**: 판정이 `phase === 'ok'`일 때만 `ok`. `lastOkAt`이 있으면서 `ok`가 아닌 갈래는 **`running`** 하나뿐이다. 그런데 그 갈래의 문구가 「마지막 성공 …」이라 **사용자가 판정 불가의 이유를 알 방법이 없었다** — 앱이 아는 것을 화면에 안 말한 것(§12).
+
+**근본형**: **지표의 판정 규칙이 그 지표가 묻는 질문과 어긋났다.** 질문은 「조용히 실패하고 있는가」인데 판정은 「지금 상태가 정확히 `ok`인가」를 재고 있었다.
+
+**변경**
+- `src/domain/syncStatusVerdict.ts`(신설) — 판정·문장을 **순수 함수**로. `running` + 성공 이력 있음 → `ok`(문장에 「지금 동기화 중」을 적는다), `running` + 이력 없음 → `unknown` + 해소 경로, 나머지는 그대로.
+- `src/ui/panels/diagnostics.ts` — 그 함수를 호출만 한다. `syncProbe` 144 → 133줄(`check-fn-size` 래칫이 추출을 밀었다).
+- `tests/unit/syncStatusVerdict.test.ts`(신설, 13건) — **level만이 아니라 문장도 잰다**(§10 ③).
+- `.claude/skills/diagnostics-dev/SKILL.md` §7-E · `docs/records/coding-mistakes.md` M-0035 · `scripts/brief.mjs` 라우팅.
+
+**검증**: 하네스 <!--reg:gateCount-->29<!--/reg-->개 PASS · 유닛 526건 · 옛 로직 주입 **3건 RED** · live 136/136 · build OK.
+
+**정직**: 사용자 화면이 `running`이었다는 것은 **역산**이다(그 순간의 phase를 직접 관측하지 못했다). `lastOkAt`이 있으면서 `ok`가 아닌 갈래가 그것뿐이라 다른 가능성이 없다.
 
 ---
 

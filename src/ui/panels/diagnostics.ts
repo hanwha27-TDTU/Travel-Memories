@@ -22,6 +22,7 @@ import { db } from '../../offline/db';
 import { diagnoseSync } from '../../services/diagnostics';
 import { forceRepairCascadeOps, retryFailedOps } from '../../services/sync';
 import { checkIntegrity, CHECK_COUNT } from '../../domain/integrity';
+import { autoSyncVerdict } from '../../domain/syncStatusVerdict';
 import { collectEnv, evictionRisk, requestPersist } from '../../services/envReport';
 import { recentErrors, clearErrors } from '../../app/errorLog';
 import { CHANGELOG } from '../../app/changelog';
@@ -233,26 +234,15 @@ export async function syncProbe(): Promise<Verdict> {
   ];
 
   // 자동 동기화가 **조용히 실패하고 있지 않은지** — 자동화의 가장 큰 위험이 여기다(M-0008 부류).
-  const st = syncStatus();
+  // 판정과 문장은 `domain/syncStatusVerdict.ts`의 순수 함수가 만든다 — 화면에 나가는 문장
+  // 자체가 결함일 수 있어서 유닛으로 모든 갈래를 돌려야 한다(§10 ③).
+  const av = autoSyncVerdict(syncStatus());
   metrics.push({
     label: '자동 동기화',
-    actual:
-      st.phase === 'failed'
-        ? `실패 — ${st.lastError ?? '사유 불명'}`
-        : st.phase === 'offline'
-          ? '오프라인이라 대기 중'
-          : st.phase === 'signed-out'
-            ? '로그인하지 않아 대기 중'
-            : st.lastOkAt
-              ? `마지막 성공 ${st.lastOkAt.slice(11, 19)}`
-              : '이 세션에서 아직 실행 안 됨',
+    actual: av.actual,
     expected: '최근에 성공',
-    level: st.phase === 'failed' ? 'problem' : st.phase === 'ok' ? 'ok' : 'unknown',
-    ...(st.phase === 'failed'
-      ? { meaning: '자동으로 보내려다 실패했어요. 저장한 기록은 이 기기에 안전합니다 — 연결을 확인하고 [지금 동기화]를 눌러 주세요.' }
-      : st.phase === 'signed-out'
-        ? { meaning: '로그인하면 저장·삭제할 때마다 자동으로 서버에 올라갑니다.' }
-        : {}),
+    level: av.level,
+    ...(av.meaning ? { meaning: av.meaning } : {}),
   });
 
   const level = levelFromMetrics(metrics);
