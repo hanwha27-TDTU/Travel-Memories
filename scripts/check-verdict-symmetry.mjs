@@ -103,6 +103,54 @@ export function markdownBypass(src) {
   return bad;
 }
 
+/**
+ * **빈 근거 표가 무엇이 없는지 말하는가.**
+ *
+ * 2026-07-27 사용자: *"사진파일 9개라고 적혀있는데 밑에 '없음' 이건 뭘 의미?"*
+ * 접힌 제목은 **가진 것**(파일 9개·기록 9개)을 세고, 펼친 표는 **어긋난 것**을 담는다.
+ * 그 한정을 아무도 말하지 않아서, 표가 비면 「없음」 한 단어만 남았다 — 사용자는 그게
+ * *"사진이 없다"*인지 *"문제가 없다"*인지 알 수 없다. M-0028과 같은 형태(한정 생략).
+ *
+ * `table(rows, whenEmpty)`의 두 번째 인자는 **타입이 강제**한다(§7 2층). 그런데 타입은
+ * *문자열이 있는가*만 보지 *의미가 있는가*는 못 본다 — `'없음'`을 그대로 넣으면 통과한다.
+ * 이 게이트가 그 3층이다: **무엇이 없는지 말하지 않는 빈 문구**를 잡는다.
+ */
+export function emptyTextIsMeaningless(src) {
+  const bad = [];
+  // `table(` 호출을 찾아 **괄호를 세어** 그 호출의 끝을 정확히 집는다.
+  // 정규식 하나로 `, '...' )`를 잡으면 무관한 호출까지 걸린다 — 오탐은 "빡빡한 게이트"가
+  // 아니라 **틀린 게이트**이고, 사람이 무시하기 시작하면 그 게이트는 죽는다(§2-B ③).
+  for (let i = src.indexOf('table('); i !== -1; i = src.indexOf('table(', i + 1)) {
+    // `table(`이 다른 식별자의 꼬리(예: `renderTable(`)면 건너뛴다.
+    if (i > 0 && /[\w$.]/.test(src[i - 1])) continue;
+    let depth = 0;
+    let end = -1;
+    for (let j = i + 5; j < src.length; j++) {
+      const c = src[j];
+      if (c === '(') depth++;
+      else if (c === ')') {
+        depth--;
+        if (depth === 0) { end = j; break; }
+      }
+    }
+    if (end === -1) continue;
+    const call = src.slice(i, end); // 닫는 괄호 직전까지
+    // 마지막 인자가 문자열 리터럴인가 — 아니면(변수·템플릿 조립 등) 판단하지 않는다.
+    const m = /,\s*(['"`])((?:\\.|(?!\1)[\s\S])*?)\1\s*,?\s*$/.exec(call);
+    if (!m) continue;
+    const body = m[2].trim();
+    if (!body) {
+      bad.push('빈 근거 표의 문구가 비어 있음 — 무엇이 없는지 적을 것');
+    } else if (/^(없음|없습니다|-|—|N\/A|해당\s*없음|0개|0건)$/.test(body)) {
+      bad.push(
+        `빈 근거 표의 문구가 무의미함: "${body}" → **무엇이** 없는지 적을 것` +
+          " (예: '짝이 안 맞는 것이 없어요 — 9개가 모두 1:1로 맞습니다')",
+      );
+    }
+  }
+  return bad;
+}
+
 /** 안전 렌더러가 살아 있는가 — 이게 사라지면 위 규칙 전체가 무너진다. */
 export function richTextRendererIntact(src) {
   const bad = [];
@@ -394,6 +442,21 @@ let selfTestCount = 0;
       clean: true,
     },
     { name: 'el()로 넘기는 강조 문자열은 정상', fn: () => markdownBypass(`el('p', 'x', '**이 기기**를 비웁니다');`), clean: true },
+    {
+      name: '빈 표 문구가 무엇이 없는지 말하면 정상',
+      fn: () => emptyTextIsMeaningless(`return table(rows, '짝이 안 맞는 것이 없어요 — 9개가 모두 1:1로 맞습니다');`),
+      clean: true,
+    },
+    {
+      name: "빈 표 문구가 '없음' 한 단어면 검출(실제 결함 — 2026-07-27 사용자 지적)",
+      fn: () => emptyTextIsMeaningless(`return table(rows, '없음');`),
+      clean: false,
+    },
+    {
+      name: '빈 문자열도 검출',
+      fn: () => emptyTextIsMeaningless(`return table(rows, '');`),
+      clean: false,
+    },
     {
       name: 'textContent 직접 대입 검출(실제 결함 — 별표 노출)',
       fn: () => markdownBypass(`n.textContent = '브라우저가 **앱 데이터를 지울 수 있습니다.**';`),
@@ -697,7 +760,11 @@ for (const abs of walk(join(ROOT, 'src/ui'))) {
 let scanned = 0;
 for (const abs of walk(join(ROOT, 'src'))) {
   scanned++;
-  for (const p of markdownBypass(readFileSync(abs, 'utf8'))) problems.push(`${relative(ROOT, abs)}: ${p}`);
+  const text = readFileSync(abs, 'utf8');
+  for (const p of markdownBypass(text)) problems.push(`${relative(ROOT, abs)}: ${p}`);
+  if (/\btable\(/.test(text)) {
+    for (const p of emptyTextIsMeaningless(text)) problems.push(`${relative(ROOT, abs)}: ${p}`);
+  }
 }
 
 if (problems.length) {
