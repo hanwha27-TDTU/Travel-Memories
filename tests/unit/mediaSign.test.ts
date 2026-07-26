@@ -10,11 +10,13 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { mediaStoragePath } from '../../src/domain/media/rowmap';
-import { mediaIdFromPath } from '../../src/services/r2';
+import { mediaIdFromPath, restOfPath } from '../../src/services/r2';
 
 const UID_A = '11111111-2222-4333-8444-555555555555';
 const UID_B = '99999999-8888-4777-8666-555555555555';
 const MID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+/** 경로 계산에 필요한 최소한만 — 이 검사의 관심은 경로 규약이지 사진 내용이 아니다. */
+const MEDIA = { id: MID, tripId: 'cccccccc-dddd-4eee-8fff-999999999999', takenAt: '2026-07-16T14:32:00.000Z' };
 const SECRET = 'sUpErSeCrEtR2Key0000';
 
 const ENV: Record<string, string> = {
@@ -63,13 +65,16 @@ function post(body: unknown): Request {
 }
 
 describe('경로 규약 파리티 — 어긋나면 사진을 잃는다', () => {
-  it('함수의 objectKey가 앱의 mediaStoragePath와 같은 형식이다', () => {
-    expect(fn.objectKey(UID_A, MID)).toBe(mediaStoragePath(UID_A, MID));
+  it('함수가 붙이는 폴더 + 앱이 정한 이름 = 앱이 만든 전체 경로', () => {
+    const full = mediaStoragePath(UID_A, MEDIA, '제주 여행');
+    const rest = restOfPath(full)!;
+    // 앱은 접미만 보내고, 함수가 **검증된 sub**를 앞에 붙여 같은 키를 만든다.
+    expect(fn.objectKey(UID_A, rest)).toBe(full);
   });
 
   it('mediaIdFromPath는 폴더를 버리고 mediaId만 남긴다', () => {
-    expect(mediaIdFromPath(mediaStoragePath(UID_A, MID))).toBe(MID);
-    expect(mediaIdFromPath(`${UID_B}/${MID}.webp`)).toBe(MID); // 폴더가 무엇이든 무관
+    expect(mediaIdFromPath(mediaStoragePath(UID_A, MEDIA, '제주 여행'))).toBe(MID);
+    expect(mediaIdFromPath(`${UID_B}/${MID}.webp`)).toBe(MID); // 옛 형식도 계속 읽는다
   });
 
   it('UUID가 아닌 경로는 거부한다(경로 조작 시도 포함)', () => {
@@ -79,19 +84,33 @@ describe('경로 규약 파리티 — 어긋나면 사진을 잃는다', () => {
 });
 
 describe('접근 통제 — 서버가 키를 만든다', () => {
-  it('클라이언트가 남의 폴더/키를 보내도 검증된 sub로 덮어쓴다', async () => {
-    const res = await fn.handler(post({ op: 'put', mediaId: MID, key: `${UID_B}/evil.webp`, path: '../../evil' }));
+  // 2026-07-27부터 **이름은 앱이 정한다**(여행 제목·촬영시각을 함수는 모른다).
+  // 바뀐 것은 이름뿐이고, **첫 칸이 검증된 sub라는 것**은 그대로다 — 아래 셋이 그 경계를 잰다.
+  it('접미에 남의 uid를 넣어도 그건 **내 폴더 안의 하위 폴더**가 될 뿐이다', async () => {
+    const res = await fn.handler(post({ op: 'put', path: `${UID_B}/evil.webp` }));
     expect(res.status).toBe(200);
     const j = (await res.json()) as { key: string; url: string };
-    expect(j.key).toBe(`${UID_A}/${MID}.webp`); // UID_B가 아니라 인증된 UID_A
-    expect(j.url).toContain(`/${UID_A}/${MID}.webp`);
-    expect(j.url).not.toContain(UID_B);
+    expect(j.key).toBe(`${UID_A}/${UID_B}/evil.webp`); // 남의 폴더가 아니라 내 폴더 **아래**
+    expect(j.key.startsWith(`${UID_A}/`)).toBe(true);
+    expect(j.url).toContain(`/${UID_A}/`);
   });
 
-  it('mediaId가 UUID가 아니면 서명하지 않는다', async () => {
-    const res = await fn.handler(post({ op: 'put', mediaId: 'a/../b' }));
-    expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe('bad_media_id');
+  it('상위로 올라가려는 접미는 **거부한다**(옛 판은 조용히 무시했다)', async () => {
+    for (const bad of ['../../evil.webp', 'a/../b.webp', '/x.webp', 'a/b/c.webp', 'x.txt']) {
+      const res = await fn.handler(post({ op: 'put', path: bad }));
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe('bad_media_path');
+    }
+  });
+
+  it('옛 앱이 mediaId만 보내도 받는다 — 다만 UUID가 아니면 서명하지 않는다', async () => {
+    const ok = await fn.handler(post({ op: 'put', mediaId: MID }));
+    expect(ok.status).toBe(200);
+    expect(((await ok.json()) as { key: string }).key).toBe(`${UID_A}/${MID}.webp`);
+
+    const bad = await fn.handler(post({ op: 'put', mediaId: 'a/../b' }));
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toBe('bad_media_path');
   });
 
   it('Authorization 없이는 401 — 서명 URL이 나가지 않는다', async () => {

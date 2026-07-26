@@ -54,6 +54,9 @@ export const SKILL_ROUTES = [
   { match: /^src\/services\/(sync|autoSync|purge|trips|moments|media|expenses|trash)\.ts/, skill: 'sync-offline-dev' },
   { match: /^src\/(sync|offline)\//, skill: 'sync-offline-dev' },
   { match: /^src\/domain\/\w+\/rowmap/, skill: 'sync-offline-dev' },
+  // 이름 규칙(R2 객체 키 + ZIP 폴더·파일명). 여기 한 글자가 바뀌면 **Edge Function의 파서**와
+  // 어긋나 멀쩡한 사진이 「설명할 수 없는 파일」로 뜬다 — 그 계약은 동기화 헌장에 있다.
+  { match: /^src\/domain\/media\/naming/, skill: 'sync-offline-dev' },
   { match: /^src\/services\/(backup|zip)/, skill: 'backup-restore-dev' },
   { match: /^src\/services\/(fx|expenses)/, skill: 'expense-fx-dev' },
   { match: /^src\/domain\/expense\//, skill: 'expense-fx-dev' },

@@ -1,0 +1,97 @@
+// domain/media/naming.ts — **사람이 알아볼 수 있는 이름**의 단일 진실원.
+//
+// 왜 한 곳인가(§7): 같은 규칙이 두 곳에서 필요하다 — ZIP 백업 안의 폴더·파일명과 R2 객체 키.
+// 예전엔 ZIP 쪽에만 있었고 R2는 UUID를 그대로 썼다. 두 번째 자리가 생기는 순간이 **손으로
+// 두 번 구현할 것인가**를 정하는 순간이고, 이 저장소는 그 선택에서 세 번 드리프트를 겪었다.
+// 그래서 규칙은 여기 하나뿐이고 두 쓰임새가 이걸 지난다.
+//
+// ── 사용자 요구(2026-07-27) ───────────────────────────────────────────
+// *"서버내 폴더명은 여행제목명으로 하고 저장파일명도 '날짜_시간_여행제목_고유식별아이디'로
+//   할 수 있어요? 사진 구별이 안되서"* — Cloudflare 콘솔에서 UUID만 보여 어느 사진인지
+// 알 수 없었다. 앱이 자기 저장소를 사람이 읽을 수 있게 정리하지 않아 생긴 부담이다(§12).
+//
+// ── 왜 id를 **전부** 넣는가(줄이면 안 되는 이유) ──────────────────────
+// 사용자는 "앞 5자리"를 원했지만 그럴 수 없다. **영구삭제하면 서버 행이 사라져 `storage_path`를
+// 물어볼 곳이 없다.** 그때 남은 파일이 어느 사진이었는지 아는 방법은 **파일 이름뿐**이고,
+// 그게 「영구삭제 후 남은 사진 파일」 정리가 서 있는 근거다(M-0029). 5자리로는 id를 복원할 수
+// 없다 — 접두 일치로 추측해야 하는데, 대조할 행이 이미 없으므로 추측할 대상조차 없다.
+// 그래서 하이픈만 뺀 32자를 **뒤에** 붙인다: 읽는 순서는 사람 것이 앞, 기계 것이 뒤.
+//
+// ── 왜 폴더에 여행 id 8자를 붙이는가 ──────────────────────────────────
+//  · 제목이 같은 여행 둘이 **한 폴더에 섞이지 않는다.**
+//  · **제목을 바꿔도 폴더가 갈라지지 않는다** — id는 안 변하므로 폴더도 안 변한다.
+// 그래도 `제주여행__c9ff5188`은 목록에서 그냥 읽힌다. ZIP 백업이 이미 쓰던 규칙이다.
+
+/** 객체 키·ZIP 경로에서 위험한 문자를 걷어낸다. 잘라내되 **빈 문자열은 만들지 않는다**(호출부가 대체어를 준다). */
+export function fsSafe(s: string, max = 40): string {
+  return (s || '')
+    .replace(/[/\\:*?"<>|]/g, '')
+    .replace(/\s+/g, '_')
+    .replace(/^\.+|\.+$/g, '')
+    .slice(0, max)
+    .trim();
+}
+
+/** id에서 하이픈을 뺀 소문자 hex. 32자(uuid) 또는 그보다 짧게 자른 접두. */
+function hex(id: string, len = 32): string {
+  return id.replace(/-/g, '').toLowerCase().slice(0, len);
+}
+
+/**
+ * 여행 폴더명: `제주여행__c9ff5188`.
+ *
+ * **제목이 바뀌어도 이 값은 안 바뀐다** — 뒷자리가 id에서 오기 때문이다. 그래서 여행 이름을
+ * 고쳐도 이미 올라간 사진이 흩어지지 않는다(R2에는 '이름 바꾸기'가 없어서, 흩어지면 복사·
+ * 되읽기·삭제라는 최고 위험 연산으로만 되돌릴 수 있다 — `sync-offline-dev` §2-B).
+ */
+export function tripFolderName(title: string | null | undefined, tripId: string): string {
+  const base = fsSafe(title || '', 60) || '여행';
+  return `${base}__${hex(tripId, 8)}`;
+}
+
+/** ISO → { date:'YYYYMMDD', time:'HHMM' }. **사용자 로컬 시각** 기준(check-timezone 대상). 파싱 불가면 0으로. */
+export function stampFromISO(iso: string | null | undefined): { date: string; time: string } {
+  const t = iso ? Date.parse(iso) : NaN;
+  if (Number.isNaN(t)) return { date: '00000000', time: '0000' };
+  const d = new Date(t);
+  const p = (n: number, w = 2): string => String(n).padStart(w, '0');
+  return {
+    date: `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`,
+    time: `${p(d.getHours())}${p(d.getMinutes())}`,
+  };
+}
+
+/**
+ * **R2 객체 이름**(확장자 제외): `20260716_1432_제주여행__<하이픈 뺀 32자>`.
+ *
+ * 뒤 32자는 장식이 아니라 **계약**이다 — `mediaIdOfKey`(Edge Function)가 이걸 되읽어 어느
+ * 사진인지 판정한다. 그 둘이 어긋나면 멀쩡한 사진이 「설명할 수 없는 파일」로 보이고, 앱은
+ * 그걸 문제로 띄운다. 두 함수는 **다른 배포 단위**(브라우저 / Deno)에 살아서 손으로 맞출 수
+ * 없으므로, `tests/unit/mediaNaming.test.ts`가 **왕복**으로 잠근다.
+ */
+export function mediaObjectName(
+  takenAt: string | null | undefined,
+  tripTitle: string | null | undefined,
+  mediaId: string,
+): string {
+  const { date, time } = stampFromISO(takenAt);
+  const t = fsSafe(tripTitle || '', 30) || '사진';
+  return `${date}_${time}_${t}__${hex(mediaId)}`;
+}
+
+/**
+ * 백업 ZIP 안의 사진 파일명(확장자·용도 제외): `날짜_시간_제목__id8`.
+ *
+ * R2 이름과 **일부러 다르다**: ZIP은 사람이 탐색기로 열어 보는 것이라 짧아야 하고, 복원은
+ * `trip.json`의 경로로 되읽으므로 id 전체가 필요 없다. R2는 그 반대다(위 머리말 참조).
+ * 서로 다른 이유를 여기 적어 두는 것이, 다음 사람이 "왜 안 통일했지?" 하고 통일하는 것을 막는다.
+ */
+export function photoFileBase(
+  takenAt: string | null | undefined,
+  title: string,
+  mediaId: string,
+): string {
+  const { date, time } = stampFromISO(takenAt);
+  const t = fsSafe(title, 30) || '사진';
+  return `${date}_${time}_${t}__${hex(mediaId, 8)}`;
+}

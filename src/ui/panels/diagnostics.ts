@@ -60,7 +60,7 @@ export const FILE_ID_CAP = 20;
  * 이 앱이 **기대하는** 사진 저장소 함수 판. 서버가 이보다 낮으면 새 지표를 믿을 수 없다.
  * 함수에 연산을 추가할 때 `FN_VERSION`과 **함께** 올린다 — 안 올리면 화면이 낡음을 못 알아본다.
  */
-export const EXPECTED_FN_VERSION = 4;
+export const EXPECTED_FN_VERSION = 5;
 
 /** 화면에 표시할 앱 버전 — changelog가 SSOT(손으로 적지 않는다). */
 const APP_VERSION = `v${CHANGELOG[0]?.version ?? '0.00'}`;

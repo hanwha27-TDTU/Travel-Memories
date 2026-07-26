@@ -2,6 +2,7 @@
 // 서버엔 표시본 메타만 간다. 원본 Blob은 로컬 전용(절약 모드·§0), GPS는 민감 PII라 미동기화(PRIVACY).
 // check-schema-parity 게이트가 MediaRow 필드 ⊆ journey.media 컬럼을 강제한다.
 
+import { tripFolderName, mediaObjectName } from './naming';
 import type { LocalMedia } from '../../offline/db';
 
 /** Supabase journey.media 행 (snake_case — 이 파일 밖에서 사용 금지). blob은 담지 않는다. */
@@ -81,7 +82,22 @@ export function fromMediaRow(r: MediaRow): MediaMeta {
   };
 }
 
-/** Storage 경로 규약: '{userId}/{mediaId}.webp'. 버킷 RLS가 첫 폴더=uid를 요구한다. */
-export function mediaStoragePath(userId: string, mediaId: string): string {
-  return `${userId}/${mediaId}.webp`;
+/**
+ * Storage 경로 규약: `{userId}/{여행폴더}/{날짜_시간_제목__id32}.webp`.
+ *
+ * **첫 칸은 반드시 userId다.** 그게 이 앱의 인가 모델 전체다 — Edge Function은 검증된 sub로
+ * `prefix`를 만들고 `key.startsWith(prefix)`가 아닌 키는 목록·삭제 어디에도 넣지 않는다.
+ * 사용자가 *"폴더명을 여행 제목으로"*라고 했을 때 여행 폴더를 **그 안**에 넣은 이유가 이것이다.
+ * 최상위를 제목으로 바꾸면 남의 파일을 못 건드리게 하는 근거가 사라진다.
+ *
+ * 이름 규칙 자체는 `domain/media/naming.ts` 한 곳에 있다(ZIP 백업과 공유).
+ */
+export function mediaStoragePath(
+  userId: string,
+  media: { id: string; tripId: string; takenAt: string | null },
+  tripTitle: string | null | undefined,
+): string {
+  const folder = tripFolderName(tripTitle, media.tripId);
+  const name = mediaObjectName(media.takenAt, tripTitle, media.id);
+  return `${userId}/${folder}/${name}.webp`;
 }

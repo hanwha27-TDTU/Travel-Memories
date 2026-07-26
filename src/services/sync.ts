@@ -442,7 +442,11 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
       await d.syncQueue.delete(op.operationId);
       continue;
     }
-    const path = mediaStoragePath(userId, media.id);
+    // **경로는 기억한 것을 쓴다.** 다시 계산하면 여행 제목이 바뀐 뒤의 재전송이 다른 키로
+    // 올라가 옛 파일이 고아로 남는다(그리고 앱은 그걸 '문제'로 띄운다). 바이트가 착지한 키가
+    // 곧 진실이므로, 처음 한 번만 만들고 그 뒤로는 저장된 값을 따른다.
+    const trip = await d.localTrips.get(media.tripId);
+    const path = media.storagePath ?? mediaStoragePath(userId, media, trip?.title ?? null);
     if (media.deletedAt === null) {
       const up = await remote.uploadDisplay(path, media.displayBlob); // 표시본만(원본 미업로드)
       if (up.error) {
@@ -466,7 +470,8 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
     const server = fromMediaRow(back.data);
     await d.transaction('rw', d.localMedia, d.syncQueue, async () => {
       const cur = await d.localMedia.get(media.id);
-      if (cur) await d.localMedia.put({ ...cur, updatedAt: server.updatedAt, version: server.version });
+      // 경로도 **같은 커밋에** 기억한다(M-0033의 교훈 — "곧 이어서 쓸 것"은 없는 것과 같다).
+      if (cur) await d.localMedia.put({ ...cur, storagePath: path, updatedAt: server.updatedAt, version: server.version });
       await d.syncQueue.delete(op.operationId);
     });
     // ⚠️ 여기서 바이트를 지우지 않는다(정책 변경 2026-07-26, 사용자 결정).

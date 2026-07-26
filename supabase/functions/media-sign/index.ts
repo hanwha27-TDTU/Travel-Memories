@@ -11,8 +11,14 @@
 //
 // 🔐 불변식
 //   1) R2 자격증명은 **여기(함수 시크릿)에만** 있다. 응답 본문·오류 메시지에 값이 나가지 않는다.
-//   2) **객체 키는 서버가 만든다.** 클라이언트는 mediaId만 보내고, 사용자 폴더는 검증된
-//      JWT의 `sub`에서 나온다 → 남의 폴더를 지정하거나 경로를 조작할 방법이 없다.
+//   2) **사용자 폴더는 서버가 만든다.** 첫 칸은 검증된 JWT의 `sub`에서만 나오므로 남의 폴더를
+//      가리킬 방법이 없다. 그 **안쪽 이름**은 앱이 정한다(2026-07-27~) — 사용자가 요구한
+//      `여행제목/날짜_시간_제목__id` 규칙을 만들려면 여행 제목과 촬영시각이 필요한데 이 함수는
+//      DB를 보지 않기 때문이다. 대신 `safeRest()`가 모양을 못박는다(깊이 2 이하·`.`/`..` 금지·
+//      제어문자 금지·`.webp`만). 즉 앱이 틀린 이름을 보내도 **자기 폴더 안에서만** 틀릴 수 있다.
+//      그건 보안이 아니라 정합의 문제이고, 그쪽은 진단의 사진 대조가 잡는다.
+//      · `deleteMany`는 한 걸음 더 간다 — **자기가 목록에서 본 키만** 지운다(클라이언트가 준
+//        문자열을 지우지 않는다). 이름이 id에서 파생되지 않게 되면서 오히려 더 좁아졌다.
 //   3) 인증은 플랫폼 `verify_jwt` 설정에 **의존하지 않는다.** 매 요청 `/auth/v1/user`로 직접
 //      확인한다(verify_jwt가 꺼진 채 배포돼도 sub 위조가 성립하지 않게).
 //   4) 삭제는 브라우저에 권한을 주지 않는다 — 이 함수가 서명하고 이 함수가 실행한다.
@@ -31,7 +37,7 @@
 //       함수 이름 `media-sign`. **이 파일 한 개**를 통째로 붙여넣는다(시크릿 4개는 앱 내
 //       가이드 참조). 편집기가 Deno 전역을 몰라 빨간 타입 경고를 내지만 배포·실행에 무해하다.
 //
-// 검사 가능성: 순수 부분(presign·objectKey·uriEncode)을 export하고 `Deno.serve`는 Deno에서만
+// 검사 가능성: 순수 부분(presign·objectKey·safeRest·uriEncode)을 export하고 `Deno.serve`는 Deno에서만
 //       호출한다 → Node/Vitest에서 이 파일을 그대로 import해 구조 불변식을 검사할 수 있다
 //       (tests/unit/mediaSign.test.ts). **서명값 자체의 정합은 실제 R2가 있어야 증명된다**
 //       (검증 사다리 3번) — 이 환경에서 통과했다고 서명이 맞다고 말하지 않는다.
@@ -163,11 +169,40 @@ export async function presign(
 }
 
 /**
- * 객체 키. 사용자 폴더는 **검증된 sub**에서만 나온다(클라이언트 입력 아님).
- * 앱의 `mediaStoragePath(userId, mediaId)`와 형식이 같아야 한다 — 유닛으로 잠근다.
+ * 객체 키의 **접미**(사용자 폴더 뒤쪽) 검증.
+ *
+ * 2026-07-27 이전엔 함수가 `{sub}/{mediaId}.webp`를 통째로 만들었다. 클라이언트가 키에 전혀
+ * 손댈 수 없다는 뜻이라 단순하고 강했다. 그런데 사용자가 *"폴더는 여행 제목, 파일명은
+ * 날짜_시간_제목_id"*를 원했고, **함수는 여행 제목도 촬영시각도 모른다**(DB를 안 본다).
+ *
+ * 그래서 권한의 경계만 남기고 이름은 앱에 넘긴다:
+ *  · **첫 칸은 여전히 검증된 sub다.** 이 값은 요청 본문에서 오지 않는다 — 남의 폴더는
+ *    원리적으로 못 만든다. 인가 모델은 그대로다.
+ *  · 그 **안쪽**만 앱이 정하되 모양을 못박는다: `폴더/파일.webp` 또는 `파일.webp`(옛 형식).
+ *    빈 칸·`.`·`..`·중첩 더 깊은 경로는 거부한다.
+ *
+ * 즉 앱이 틀린 이름을 보내도 **자기 폴더 안**에서만 틀릴 수 있다. 그건 보안이 아니라
+ * 정합의 문제이고, 그쪽은 진단의 사진 대조가 잡는다.
  */
-export function objectKey(userId: string, mediaId: string): string {
-  return `${userId}/${mediaId}.webp`;
+export function safeRest(rest: string): string | null {
+  if (typeof rest !== 'string' || rest.length === 0 || rest.length > 400) return null;
+  if (!/\.webp$/i.test(rest)) return null;
+  const parts = rest.split('/');
+  if (parts.length < 1 || parts.length > 2) return null;
+  for (const p of parts) {
+    if (p === '' || p === '.' || p === '..') return null;
+    // 제어문자·백슬래시는 키에 넣지 않는다(서명·목록 파싱이 흔들린다).
+    if (/[\u0000-\u001f\\]/.test(p)) return null;
+  }
+  return rest;
+}
+
+/**
+ * 객체 키. 사용자 폴더는 **검증된 sub**에서만 나온다(클라이언트 입력 아님).
+ * 앱의 `mediaStoragePath`와 형식이 같아야 한다 — `tests/unit/mediaNaming`이 왕복으로 잠근다.
+ */
+export function objectKey(userId: string, rest: string): string {
+  return `${userId}/${rest}`;
 }
 
 // ── 목록 조회(ListObjectsV2) ────────────────────────────────────────
@@ -189,7 +224,7 @@ export const LIST_MAX_PAGES = 10;
  *
  * 규칙: **연산을 추가하면 이 목록에 넣는다.** 넣지 않으면 클라이언트가 없는 것으로 취급한다.
  */
-export const FN_VERSION = 4;
+export const FN_VERSION = 5;
 export const FN_OPS = ['probe', 'capabilities', 'list', 'put', 'get', 'delete', 'deleteMany', 'abortMultipart'] as const;
 
 /** 한 번에 지울 수 있는 최대 개수 — 요청 하나가 무한정 길어지지 않게. */
@@ -295,8 +330,17 @@ export function parseMultipartXml(xml: string): MultipartUpload[] {
  */
 export function mediaIdOfKey(key: string): string | null {
   const last = key.split('/').pop() ?? '';
-  const id = last.replace(/\.webp$/i, '');
-  return UUID_RE.test(id) ? id : null;
+  const base = last.replace(/\.webp$/i, '');
+  // 새 형식: `날짜_시간_제목__<하이픈 뺀 32자>`. 사람이 읽는 앞부분에 `__`가 몇 번 나오든
+  // **맨 뒤 조각**만 본다(여행 제목에 밑줄이 들어갈 수 있다).
+  const tail = base.split('__').pop() ?? '';
+  if (/^[0-9a-f]{32}$/i.test(tail)) {
+    const h = tail.toLowerCase();
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+  }
+  // 옛 형식: `<uuid>.webp`. 서비스워커가 옛 앱을 잠시 살려 둘 수 있으므로 계속 받는다 —
+  // 못 읽으면 멀쩡한 사진이 「설명할 수 없는 파일」이라는 **문제**로 뜬다.
+  return UUID_RE.test(base) ? base : null;
 }
 
 // ── 인증 — 플랫폼 설정에 의존하지 않는 실제 확인 ──────────────────
@@ -335,13 +379,35 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+/**
+ * 내 폴더의 키 한 페이지를 읽는다. **실패하면 null** — 빈 배열로 반올림하지 않는다
+ * (빈 목록은 "없다"이고 null은 "모른다"이다. 둘을 섞으면 지우지도 않은 것을 지웠다고 말한다).
+ *
+ * `deleteMany`의 **선행 조회**와 **되읽기**가 이 한 곳을 쓴다 — 두 곳에 손으로 쓰면
+ * 한쪽만 고쳐지는 날이 온다(§7).
+ */
+async function listKeysOnce(env: R2Env, prefix: string): Promise<string[] | null> {
+  try {
+    const url = await presign(env, 'GET', '', Date.now(), [
+      ['list-type', '2'],
+      ['prefix', prefix],
+      ['max-keys', String(LIST_PAGE_SIZE)],
+    ]);
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    return parseListXml(await r.text()).keys;
+  } catch {
+    return null;
+  }
+}
+
 export async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
 
-  let body: { op?: unknown; mediaId?: unknown; mediaIds?: unknown };
+  let body: { op?: unknown; mediaId?: unknown; path?: unknown; mediaIds?: unknown };
   try {
-    body = (await req.json()) as { op?: unknown; mediaId?: unknown; mediaIds?: unknown };
+    body = (await req.json()) as { op?: unknown; mediaId?: unknown; path?: unknown; mediaIds?: unknown };
   } catch {
     return json({ error: 'bad_json' }, 400);
   }
@@ -495,9 +561,24 @@ export async function handler(req: Request): Promise<Response> {
     const prefix = `${userId}/`;
     const errors: { id: string; status: number }[] = [];
     let sent = 0;
+
+    // ① **먼저 목록을 읽어 실제 키를 알아낸다.** 예전엔 id로 키를 다시 만들었는데, 이제 키에
+    //    여행 제목·촬영시각이 들어가서 id만으로는 만들 수 없다. 그리고 이 편이 **더 안전하다**:
+    //    함수는 자기가 목록에서 본 키만 지운다 — 클라이언트가 준 문자열을 지우지 않는다.
+    const before = await listKeysOnce(env, prefix);
+    if (!before) return json({ error: 'r2_list_failed' }, 502);
+    const keyOfId = new Map<string, string>();
+    for (const k of before) {
+      const id = mediaIdOfKey(k);
+      if (id) keyOfId.set(id, k);
+    }
+
     for (const id of idsIn) {
+      const key = keyOfId.get(id);
+      // 목록에 없으면 이미 없는 것이다(멱등) — 실패로 세지 않는다.
+      if (!key) { sent++; continue; }
       try {
-        const url = await presign(env, 'DELETE', objectKey(userId, id), Date.now());
+        const url = await presign(env, 'DELETE', key, Date.now());
         const r = await fetch(url, { method: 'DELETE' });
         // R2는 없는 객체 삭제도 성공을 준다(멱등).
         if (r.ok || r.status === 404) sent++;
@@ -510,21 +591,12 @@ export async function handler(req: Request): Promise<Response> {
     // ③ 되읽기 — 한 번의 목록 조회로 전부 확인한다(건당 확인보다 싸고 더 정확하다).
     let stillThere: string[] = [];
     let verified = false;
-    try {
-      const url = await presign(env, 'GET', '', Date.now(), [
-        ['list-type', '2'],
-        ['prefix', prefix],
-        ['max-keys', String(LIST_PAGE_SIZE)],
-      ]);
-      const r = await fetch(url);
-      if (r.ok) {
-        const left = new Set(parseListXml(await r.text()).keys.map(mediaIdOfKey).filter((x): x is string => x !== null));
-        stillThere = idsIn.filter((id) => left.has(id));
-        verified = true;
-      }
-    } catch {
-      /* verified=false — 확인하지 못한 것을 성공으로 적지 않는다. */
-    }
+    const after = await listKeysOnce(env, prefix);
+    if (after) {
+      const left = new Set(after.map(mediaIdOfKey).filter((x): x is string => x !== null));
+      stillThere = idsIn.filter((id) => left.has(id));
+      verified = true;
+    } // null이면 verified=false — 확인하지 못한 것을 성공으로 적지 않는다.
 
     return json({ requested: idsIn.length, sent, stillThere, verified, errors, version: FN_VERSION });
   }
@@ -559,9 +631,13 @@ export async function handler(req: Request): Promise<Response> {
     return json({ aborted, failed, version: FN_VERSION });
   }
 
-  const mediaId = typeof body.mediaId === 'string' ? body.mediaId : '';
-  if (!UUID_RE.test(mediaId)) return json({ error: 'bad_media_id' }, 400);
-  const key = objectKey(userId, mediaId);
+  // 키의 **안쪽 이름**은 앱이 정한다(여행 제목·촬영시각을 함수는 모른다). 바깥 폴더는 여전히
+  // 검증된 sub다. 옛 앱(서비스워커 캐시)이 `mediaId`만 보낼 수 있으므로 그 형식도 받는다.
+  const rawPath = typeof body.path === 'string' ? body.path : '';
+  const legacyId = typeof body.mediaId === 'string' ? body.mediaId : '';
+  const rest = rawPath ? safeRest(rawPath) : UUID_RE.test(legacyId) ? `${legacyId}.webp` : null;
+  if (!rest) return json({ error: 'bad_media_path' }, 400);
+  const key = objectKey(userId, rest);
 
   try {
     if (op === 'put' || op === 'get') {
