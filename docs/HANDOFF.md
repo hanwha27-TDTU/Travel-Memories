@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.03<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->103<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->49<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.04<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->104<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->50<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->17<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -217,6 +217,27 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0006 · v1.04 · 앞 판의 복원 수정이 **반쪽이었다** (M-0033)
+
+**발단**: 같은 날 사용자 실기기 — 복원이 「복원됨 · 여행 1 · 순간 1 · 사진 10 · 비용 1 · 영구삭제했던 13건을 되살립니다」를 띄우고도 홈은 **「첫 여행을 기록해보세요」**.
+
+**실측**: 서버 행 여전히 0, 원장 **24 → 11**. 되돌리기는 **성공했고** 행은 그 전에 이미 지워졌다.
+
+**원인 둘**
+1. v1.03이 `requestUnpurge`를 행 트랜잭션 **밖**에 두었다 → `커밋(행 있음 · 의사 없음)` 창. **파일 선택 창을 닫는 순간 `visibilitychange`가 동기화를 부르므로**(`autoSync.ts`) 그 창은 실제로 밟힌다.
+2. 트리거 거부는 4xx → `classifyError`가 `'permanent'` → op이 `permanent_failed`가 되고 push가 **영원히 건너뛴다.** 원장을 나중에 풀어도 그 행은 두 번 다시 안 올라간다.
+
+**근본형**: 헌법이 이미 못박은 *"내구성 로컬 커밋(entity+operation **atomic** commit)"*을 **새로 만든 op에만** 적용하지 않았다(사후분석 근본형 H — 새로 만든 것에는 기존 규율이 자동으로 걸리지 않는다).
+
+**변경**
+- `backup.ts` — `requestUnpurge`를 `d.transaction(...)` **콜백의 반환값**으로. 밖으로 옮기면 반환 경로가 끊기므로 다음 사람이 무심코 되돌릴 수 없다(§7 2층).
+- `sync.ts` — `revivePushOps()`: `pushUnpurges`가 되돌리기에 성공한 id의 `permanent_failed`/`retryable_failed` 전파 op을 `local_only`로 되살린다. `pushUnpurges`가 다른 push보다 먼저 도므로 **같은 동기화 안에서** 바로 올라간다.
+- `tests/unit/restoreAtomicity.test.ts`(신설) — *"의사를 못 남기면 **행도 남지 않는다**"*. v1.03 배치 주입 시 **2건 RED**.
+
+**검증**: 하네스 <!--reg:gateCount-->28<!--/reg-->개 PASS(로컬 + Node 20) · 유닛 PASS(원자성 3건 신설 + 되살리기 3건) · 주입 RED 확인 · live 130/130 · build OK.
 
 ---
 

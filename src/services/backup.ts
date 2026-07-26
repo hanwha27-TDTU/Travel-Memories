@@ -117,7 +117,17 @@ export async function importMergeRows(rows: CollectedRows): Promise<ImportResult
     restoredIds.add(row.id);
   };
 
-  await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.syncQueue, d.purgedIds], async () => {
+  // ⚠️ **되돌리기 의사는 행과 같은 커밋에 들어가야 한다**(2026-07-26, v1.03의 수정이 반쪽이었다).
+  //
+  // v1.03에서 `requestUnpurge`를 이 트랜잭션 **밖**에 두었다. 그 사이가 창이었다:
+  //   커밋(행 있음 · 로컬 표식 없음 · **되돌리기 의사 없음**) → [여기서 동기화가 돌면]
+  //   → applyPurgedLedger가 보호할 근거를 못 찾고 **방금 되살린 행을 지운다.**
+  // 그 창은 이론이 아니다 — 파일 선택 창을 닫으면 `visibilitychange`가 즉시 동기화를 부르고,
+  // ZIP 해제·blob 복원은 수 초가 걸린다. 사용자 실기기에서 실제로 그렇게 사라졌다.
+  //
+  // 그래서 값을 **트랜잭션 콜백의 반환값으로** 받는다. 밖으로 옮기려면 반환 경로가 끊기므로
+  // 다음 사람이 무심코 되돌릴 수 없다(§7 2층 — 규율을 구조가 지킨다).
+  const unpurged = await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.syncQueue, d.purgedIds], async () => {
     for (const t of rows.trips) {
       if (mergeDecision(await d.localTrips.get(t.id), t) === 'take-server') {
         await d.localTrips.put(t);
@@ -146,12 +156,11 @@ export async function importMergeRows(rows: CollectedRows): Promise<ImportResult
         ec += 1;
       }
     }
+    // 서버 원장 되돌리기 의사를 **같은 커밋에** 남긴다. 여기서 바로 서버를 부르지 않는 이유:
+    // 복원은 오프라인에서도 되고 호출은 실패할 수 있는데, 그냥 넘어가면 다음 동기화가 원장을
+    // pull해 **복원한 것을 다시 지운다**(2026-07-26에 실제로 그랬다). 남겨야 재시도된다.
+    return requestUnpurge([...restoredIds]);
   });
-
-  // 서버 원장 되돌리기 의사를 **큐에 남긴다.** 여기서 바로 서버를 부르지 않는 이유:
-  // 복원은 오프라인에서도 되고 호출은 실패할 수 있는데, 그냥 넘어가면 다음 동기화가 원장을
-  // pull해 **복원한 것을 다시 지운다**(2026-07-26에 실제로 그랬다). 남겨야 재시도된다.
-  const unpurged = await requestUnpurge([...restoredIds]);
 
   return { trips: tc, moments: mc, media: mdc, expenses: ec, skippedEmptyGuard: false, unpurged };
 }

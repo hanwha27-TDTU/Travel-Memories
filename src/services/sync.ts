@@ -1056,7 +1056,35 @@ export async function pushUnpurges(remote: PurgeRemote): Promise<{ pushed: numbe
   const still = new Set(after.ids);
   const done = ops.filter((o) => !still.has(o.entityId));
   for (const o of done) await d.syncQueue.delete(o.operationId);
+  await revivePushOps(done.map((o) => o.entityId));
   return { pushed: done.length, failed: ops.length - done.length };
+}
+
+/**
+ * **원장에 막혀 죽은 전파 op을 되살린다.**
+ *
+ * 왜 필요한가: 트리거가 거부한 응답은 4xx라 `classifyError`가 **'permanent'**로 본다 →
+ * op이 `permanent_failed`가 되고 push는 그 상태를 **영원히 건너뛴다.** 그래서 나중에 원장을
+ * 되돌리는 데 성공해도 **그 행은 두 번 다시 올라가지 않는다** — 사용자에겐 여전히 아무 일도
+ * 일어나지 않는 것처럼 보인다.
+ *
+ * 그 판정은 그 순간에는 옳았다. 틀린 것은 **판정을 영구로 굳힌 것**이다: 거부의 사유가
+ * 방금 사라졌으므로 이건 재시도 가능한 실패가 된다. 사유가 사라진 것을 아는 곳이 여기뿐이라
+ * 되살리는 일도 여기서 한다(§7 — 규칙을 아는 한 곳이 책임진다).
+ *
+ * 되살리기는 **이번 동기화 안에서** 효과가 있다 — `pushUnpurges`가 다른 push보다 먼저 돌기
+ * 때문이다. 즉 원장을 푼 그 자리에서 복원한 행이 바로 올라간다.
+ */
+async function revivePushOps(ids: string[]): Promise<number> {
+  if (!ids.length) return 0;
+  const d = db();
+  const target = new Set(ids);
+  const dead = (await d.syncQueue.toArray()).filter(
+    (q) => target.has(q.entityId) && (q.state === 'permanent_failed' || q.state === 'retryable_failed'),
+  );
+  for (const q of dead) await d.syncQueue.update(q.operationId, { state: 'local_only', attempts: 0 });
+  if (dead.length) console.info(`복원: 원장에 막혀 있던 전파 작업 ${dead.length}건을 다시 큐에 넣었어요.`);
+  return dead.length;
 }
 
 export async function runSync(client: JourneyClient, userId: string): Promise<SyncResult> {
