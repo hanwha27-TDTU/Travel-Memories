@@ -18,6 +18,7 @@ const gates = [
   { name: 'check-report-fields', cmd: 'node scripts/check-report-fields.mjs' },
   { name: 'check-no-synthetic-italic', cmd: 'node scripts/check-no-synthetic-italic.mjs' },
   { name: 'check-edge-fn-ops', cmd: 'node scripts/check-edge-fn-ops.mjs' },
+  { name: 'check-node-version', cmd: 'node scripts/check-node-version.mjs' },
   { name: 'check-backup-coverage', cmd: 'node scripts/check-backup-coverage.mjs' },
   { name: 'check-blueprint', cmd: 'node scripts/check-blueprint.mjs' },
   { name: 'check-registry-gen', cmd: 'node scripts/check-registry-gen.mjs' },

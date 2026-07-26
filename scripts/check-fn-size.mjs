@@ -12,10 +12,9 @@
 // 이 게이트가 **못** 보는 것: 짧다고 좋은 코드는 아니다. 길이는 대리 지표일 뿐이고,
 // 진짜 질문은 "여기서 순수 로직을 뽑아낼 수 있는가"다. 그건 사람이 판단한다.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { globSync } from 'node:fs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -98,7 +97,24 @@ export function topLevelFunctions(source) {
   if (b.lines !== 7) throw new Error(`SELF-TEST 실패: b 길이 오산(${b.lines} ≠ 7) — 중첩 블록을 끝으로 착각.`);
 })();
 
-const files = globSync('src/**/*.ts', { cwd: ROOT }).sort();
+/**
+ * src 아래 모든 `.ts`를 모은다. **`fs.globSync`를 쓰지 않는다** — 그건 Node 22+ API인데 CI는 Node를
+ * 따로 핀하므로, 로컬(22)에서는 통과하고 CI(20)에서는 **게이트가 실행조차 못 하고 죽었다**
+ * (2026-07-26, 배포 2회 연속 실패). 돌지 못하는 게이트는 없는 게이트보다 나쁘다 —
+ * harness가 FAIL을 내므로 그 뒤 모든 배포가 막힌다.
+ *
+ * 표준 `readdirSync`만 쓴다. 이 저장소의 게이트는 **가장 낮은 지원 Node에서 돌아야 한다.**
+ */
+function collectTs(dir) {
+  const out = [];
+  for (const e of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
+    const rel = `${dir}/${e.name}`;
+    if (e.isDirectory()) out.push(...collectTs(rel));
+    else if (e.name.endsWith('.ts')) out.push(rel);
+  }
+  return out;
+}
+const files = collectTs('src').sort();
 const problems = [];
 const seen = new Set();
 
