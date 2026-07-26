@@ -45,7 +45,9 @@ description: Supabase·보안·RLS 개발 프롬프트 — supabase/migrations/*
 
 1. **먼저 읽는다**: `list_tables`로 현재 구조 확인. 추측으로 쓰지 않는다.
 2. 파일은 **추가 전용** `NNNN_설명.sql`. 과거 마이그레이션을 수정하지 않는다.
-3. 새 테이블이면 한 세트로: 테이블 + **소유자 RLS 4종(select/insert/update)** + `is_allowed()` 결합 + 복합 FK + `set_updated_at` 트리거 + 좀비 트리거.
+3. 새 테이블이면 한 세트로: 테이블 + **`grant … to authenticated`** + **소유자 RLS 4종(select/insert/update)** + `is_allowed()` 결합 + 복합 FK + `set_updated_at` 트리거 + 좀비 트리거.
+   - **GRANT를 RLS와 헷갈리지 마라(M-0020).** 둘은 **다른 층**이다: GRANT는 *"이 역할이 이 테이블에 접근이나 할 수 있는가"*, RLS는 *"그중 어느 행을 볼 수 있는가"*. RLS만 쓰고 GRANT를 잊으면 정책이 아무리 옳아도 앱은 `permission denied`를 받는다. 실제로 `purged_ids`가 그 상태로 배포됐고, 진단 화면이 통째로 빨갛게 뜨고 **영구삭제가 서버에 반영되지 않았다.**
+   - 게이트 `check-migration-grants`가 이제 이걸 막는다(새 테이블에 GRANT·`is_allowed()`가 없으면 RED). 제외하려면 `NO_GRANT_REQUIRED`에 **근거를 적는다.**
 4. **적용 전에 공격검사를 쓴다**(§4). 정책보다 테스트를 먼저 쓰면 빠뜨린 술어가 드러난다.
 5. 적용 후: **advisor 확인**(신규 이슈 0) + **프로덕션 행 수 무변경** 확인.
 6. 클라이언트 쪽 `rowmap.ts`와 `check-schema-parity`의 `ROW_TO_TABLE`을 같은 변경에서 맞춘다.
@@ -53,6 +55,10 @@ description: Supabase·보안·RLS 개발 프롬프트 — supabase/migrations/*
 ## 4. RLS 공격검사 레시피 (이게 "검증했다"의 기준)
 
 **문서를 읽고 통과라 하지 않는다. 실제로 남이 되어 보고 막히는지 확인한다.**
+
+> 🔴 **superuser로 확인한 것은 검증이 아니다(M-0020).** MCP·SQL 편집기의 기본 역할은 GRANT도 RLS도 **우회한다** — 앱이 쓰는 역할이 아니다. 실제로 `purged_ids` 배포 후 트리거 실효를 superuser로 확인해 "통과"라 보고했는데, 앱은 그 테이블에 접근조차 못 하는 상태였다. **아래처럼 `set local role authenticated` + 실제 JWT 클레임으로 돌린 것만 검증이다.**
+>
+> 픽스처 주의: `is_allowed()`는 JWT의 **email**을 허용목록과 대조한다. 가짜 이메일을 쓰면 0건이 나오고 그걸 결함으로 오진하게 된다 — 이메일은 손으로 적지 말고 `select email from journey.allowed_users limit 1`로 **읽어서** 쓴다(실제로 이 오진을 한 번 했다).
 
 ```sql
 BEGIN;
@@ -80,6 +86,7 @@ ROLLBACK;   -- 프로덕션 무변경
 | 클라가 서버에 없는 컬럼을 밀어 조용히 깨짐 | 클라↔서버 스키마 드리프트 | `check-schema-parity`(rowmap 필드 ⊆ 서버 컬럼) |
 | `SECURITY DEFINER` 함수 search_path 경고 | 권한 상승 경로 | `search_path=''` 고정 |
 | 사진 tombstone 후 Storage 객체가 고아로 남음 | 행 삭제와 바이트 삭제 시점 분리 | 소유자 폴더격리 DELETE 정책 + tombstone 반영 후 최선노력 스윕 |
+| **새 테이블에 GRANT 누락 → 앱이 permission denied**(M-0020) | RLS와 GRANT를 같은 층으로 오인 + 검증을 superuser로 수행 | `check-migration-grants` 게이트(18번째) + §4에 "superuser 검증은 검증이 아니다" 명문화 |
 | **공유 프로젝트 백업 복원이 프로젝트 단위** | 한 앱 복원 = 다른 앱도 롤백 | ADR-0020에 위험으로 문서화. **복구 전 상호 확인 필수**. (메디컬 합류 시 재검토 — `docs/STORAGE_R2_PROPOSAL.md`) |
 
 ## 6. 검증 레시피 (정직한 완료)
