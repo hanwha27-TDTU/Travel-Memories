@@ -490,6 +490,24 @@
   border: 1px solid var(--line); border-radius: var(--radius-medium);
   background: var(--bg); color: var(--ink); font: inherit; font-size: 0.95rem;
 }
+/* ── 발생 시각 필드 (생성·편집 공용, 2026-07-27) ─────────────────────────
+   소급 입력이 주 흐름이라 접지 않고 항상 펼쳐 둔다. 근거 줄은 값이 어디서 왔는지 말하고,
+   경고 줄은 여행 기간 밖일 때만 나타난다 — **기간 안이면 사라진다(침묵이 정상).** */
+.when-field { display: flex; flex-direction: column; gap: 4px; }
+.when-input { width: 100%; }
+.when-note {
+  margin: 0; font-size: 0.74rem; color: var(--ink-soft);
+  /* 근거는 보조 정보다 — 값보다 작고 조용하게. 다만 **숨기지는 않는다**(추측임을 알아야 한다). */
+}
+.when-note[hidden] { display: none; }
+.when-warn {
+  margin: 0; padding: 4px 10px;
+  font-size: 0.74rem; font-weight: 700;
+  /* 토큰을 쓴다 — 하드코딩 색은 디자인 감사에서 위반이다. 경고지만 겁주지 않는 톤(§5.10). */
+  color: var(--color-warning); background: var(--bg-2);
+  border-radius: var(--radius-pill); align-self: flex-start;
+}
+.when-warn[hidden] { display: none; }
 .edit-dates { display: flex; align-items: center; gap: var(--space-2); }
 .edit-dates .edit-input { flex: 1; min-width: 0; }
 .edit-sep { color: var(--ink-soft); font-weight: 700; }

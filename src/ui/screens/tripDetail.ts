@@ -9,6 +9,8 @@ import {
   softDeleteTripLocalFirst,
   restoreTripLocalFirst,
 } from '../../services/trips';
+import { guessOccurredAt, outsideTripWarning, type WhenGuess } from '../../domain/moment/whenDefault';
+import { readPhotoMeta } from '../../services/media';
 import {
   createMomentLocalFirst,
   listMoments,
@@ -252,6 +254,118 @@ function coverIndex(id: string): number {
   return h % 3;
 }
 
+/**
+ * **발생 시각 필드** — 입력칸 + 근거 한 줄 + 여행 기간 밖 경고.
+ *
+ * 생성 폼과 편집 폼이 **이 한 곳**을 쓴다(§7). 예전엔 편집에만 시각 칸이 있고 생성엔 없어서,
+ * 소급 입력이 주 흐름인 사용자가 *"저장하고 → 다시 열어서 → 고친다"*를 매번 해야 했다.
+ * 두 폼에 손으로 각각 만들면 그 비대칭이 다시 자란다.
+ *
+ * 규율 둘:
+ *  · **근거를 말한다.** 앱이 값을 골라 줬으면 무엇을 보고 골랐는지 화면에 적는다 —
+ *    안 적으면 사용자는 그게 추측인지 모르고, 틀렸을 때 고칠 생각을 못 한다.
+ *  · **사용자가 손댄 값을 덮지 않는다.** 시각을 고친 뒤 사진을 더 고르면 추측이 다시
+ *    돌지만, 그때 사용자의 입력을 밀어내면 그건 앱이 사용자를 이기는 것이다.
+ */
+interface WhenField {
+  el: HTMLElement;
+  /** 현재 값(ISO). 비었거나 무효면 undefined. */
+  value(): string | undefined;
+  /** 고른 사진에서 추측해 채운다. 사용자가 이미 손댔으면 **아무 일도 하지 않는다**. */
+  suggestFromFiles(files: File[]): Promise<void>;
+  /** 값을 그대로 넣고 근거 줄은 비운다(편집 폼 — 이미 정해진 값이라 추측이 아니다). */
+  set(iso: string): void;
+}
+
+function buildWhenField(
+  trip: { startDate: string | null; endDate: string | null } | null,
+  /** 이 여행에서 가장 늦은 순간의 시각 — 사진이 없을 때 물려받는다. 편집 폼은 넘기지 않는다. */
+  latestMomentAt: () => string | null = () => null,
+): WhenField {
+  const wrap = el('div', 'when-field');
+  const input = el('input', 'edit-input when-input') as HTMLInputElement;
+  input.type = 'datetime-local';
+  input.setAttribute('aria-label', '발생 시각');
+  const note = el('p', 'when-note', '');
+  const warn = el('p', 'when-warn', '');
+  warn.setAttribute('role', 'status');
+  wrap.append(input, note, warn);
+
+  let touched = false;
+  const refreshWarn = (): void => {
+    const iso = fromLocalInputValue(input.value);
+    const w = iso ? outsideTripWarning(iso, trip?.startDate ?? null, trip?.endDate ?? null) : null;
+    warn.textContent = w ?? '';
+    warn.hidden = w === null; // 기간 안이면 **사라진다**(침묵이 정상)
+  };
+  // 사용자가 한 번이라도 고치면 그 뒤로 추측이 값을 건드리지 않는다.
+  input.addEventListener('input', () => {
+    touched = true;
+    note.textContent = '';
+    note.hidden = true;
+    refreshWarn();
+  });
+  refreshWarn();
+
+  const apply = (g: WhenGuess): void => {
+    if (touched) return;
+    input.value = toLocalInputValue(g.at);
+    note.textContent = g.label;
+    note.hidden = false;
+    refreshWarn();
+  };
+
+  return {
+    el: wrap,
+    value: () => fromLocalInputValue(input.value),
+    async suggestFromFiles(files) {
+      // 앞 256KB만 읽는다 — 9장을 고른 순간 전체를 읽으면 수십 MB가 한꺼번에 뜬다(저메모리 기기).
+      const photoTakenAts = await Promise.all(files.map(async (f) => (await readPhotoMeta(f)).takenAt));
+      apply(
+        guessOccurredAt({
+          photoTakenAts,
+          previousOccurredAt: latestMomentAt(),
+          tripStartDate: trip?.startDate ?? null,
+          now: new Date().toISOString(),
+        }),
+      );
+    },
+    set(iso) {
+      input.value = toLocalInputValue(iso);
+      note.textContent = '';
+      note.hidden = true;
+      refreshWarn();
+    },
+  };
+}
+
+/**
+ * **감정 선택 줄** — 생성 폼과 편집 폼이 같은 구현을 쓴다(§7).
+ * 같은 위젯을 두 곳에 손으로 만들면 한쪽만 고쳐지는 날이 온다.
+ */
+function buildEmotionRow(initial: string): { el: HTMLElement; value(): string; reset(): void } {
+  let picked = initial;
+  const row = el('div', 'emo-row');
+  row.setAttribute('role', 'group');
+  row.setAttribute('aria-label', '감정 선택(선택)');
+  const buttons = new Map<string, HTMLButtonElement>();
+  const sync = (): void => {
+    for (const [key, btn] of buttons) btn.setAttribute('aria-pressed', String(key === picked));
+  };
+  for (const e of EMOTIONS) {
+    const b = el('button', 'emo', e) as HTMLButtonElement;
+    b.type = 'button';
+    b.addEventListener('click', () => {
+      picked = picked === e ? '' : e;
+      sync();
+    });
+    buttons.set(e, b);
+    row.appendChild(b);
+  }
+  sync();
+  return { el: row, value: () => picked, reset: () => { picked = initial; sync(); } };
+}
+
 /** ISO(UTC) → datetime-local 입력값('YYYY-MM-DDTHH:mm', 로컬시각). */
 function toLocalInputValue(iso: string): string {
   const d = new Date(iso);
@@ -369,26 +483,13 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     input.required = true;
     input.setAttribute('aria-label', '순간 한 줄 기록');
 
-    let picked = '';
-    const emoRow = el('div', 'emo-row');
-    emoRow.setAttribute('role', 'group');
-    emoRow.setAttribute('aria-label', '감정 선택(선택)');
-    const emoButtons = new Map<string, HTMLButtonElement>();
-    for (const e of EMOTIONS) {
-      const b = el('button', 'emo', e) as HTMLButtonElement;
-      b.type = 'button';
-      b.setAttribute('aria-pressed', 'false');
-      b.addEventListener('click', () => {
-        picked = picked === e ? '' : e;
-        for (const [key, btn] of emoButtons) btn.setAttribute('aria-pressed', String(key === picked));
-      });
-      emoButtons.set(e, b);
-      emoRow.appendChild(b);
-    }
+    const emotion = buildEmotionRow('');
 
     const placeField = buildPlaceField({ name: '', lat: null, lng: null });
 
     // 사진 선택(원본은 기기에 보관·압축본은 파생, §0). label 안에 input을 넣어 접근성 확보.
+    /** 이 여행에서 가장 늦은 순간의 발생 시각. `refresh()`가 채운다. */
+    let latestMomentAt: string | null = null;
     const photoInput = el('input', 'moment-photo-input') as HTMLInputElement;
     photoInput.type = 'file';
     photoInput.accept = 'image/*';
@@ -442,6 +543,8 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         photoPreview.appendChild(cell);
       }
       photoPreview.appendChild(clearAllPhotos);
+      // 사진이 바뀌면 시각 추측도 따라간다 — 사진이 가장 강한 근거다.
+      void whenField.suggestFromFiles(files);
     }
 
     clearAllPhotos.addEventListener('click', () => setFiles([]));
@@ -462,7 +565,11 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const save = el('button', 'btn-primary', '순간 저장') as HTMLButtonElement;
     save.type = 'submit';
 
-    form.append(input, emoRow, placeField.el, moneyRow, photoLabel, photoPreview, save);
+    // 발생 시각 — **소급 입력이 주 흐름**이라(사용자 2026-07-27) 접어 두지 않고 항상 보인다.
+    const whenField = buildWhenField(trip, () => latestMomentAt);
+    void whenField.suggestFromFiles([]); // 사진 전에도 근거를 보여준다(직전 순간 / 여행 시작일)
+
+    form.append(input, emotion.el, whenField.el, placeField.el, moneyRow, photoLabel, photoPreview, save);
     compose.appendChild(form);
 
     const note = el('p', 'sync-note', '');
@@ -519,6 +626,8 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         listMediaByTrip(trip!.id),
         listExpensesByTrip(trip!.id),
       ]);
+      // 목록은 최신순이 아닐 수 있어 최댓값을 고른다.
+      latestMomentAt = moments.reduce<string | null>((mx, m) => (mx === null || m.occurredAt > mx ? m.occurredAt : mx), null);
       const byMoment = new Map<string, LocalMedia[]>();
       for (const md of media) {
         const arr = byMoment.get(md.momentId);
@@ -678,6 +787,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       const existingExpense = expenseList[0];
       const editForm = buildMomentEditForm(
         m,
+        trip,
         existingExpense,
         async (patch, expenseIntent) => {
           await updateMomentLocalFirst(m.id, patch);
@@ -834,13 +944,16 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       void (async () => {
         try {
           const placeCoords = placeField.getCoords();
+          const occurredAt = whenField.value();
           const moment = await createMomentLocalFirst({
             tripId: trip!.id,
             title: input.value,
-            emotion: picked,
+            emotion: emotion.value(),
             placeName: placeField.getName(),
             placeLat: placeCoords?.lat ?? null,
             placeLng: placeCoords?.lng ?? null,
+            // 비었으면 넘기지 않는다 — 서비스가 `now`로 채운다(계약을 두 곳에 쓰지 않는다).
+            ...(occurredAt ? { occurredAt } : {}),
           });
           // 비용(선택): 금액이 유효하면 순간에 딸린 비용으로 저장.
           const amountVal = parseAmount(amountIn.value);
@@ -862,12 +975,11 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           });
           input.value = '';
           placeField.reset();
-          picked = '';
+          emotion.reset();
           amountIn.value = '';
           currencyIn.value = DEFAULT_CURRENCY;
           // 미리보기 URL 회수 + 개수 문구까지 한 번에(초기화 경로를 두 개 만들지 않는다).
           setFiles([]);
-          for (const btn of emoButtons.values()) btn.setAttribute('aria-pressed', 'false');
           setNote(note, '✅ 저장됨', 'ok', null); // 정상 — 조용하게(침묵이 정상이므로 갈 곳도 안 만든다)
           await refresh();
           await trySync(); // 로그인 시 서버로 전송(순간). 사진은 후속(3b).
@@ -1040,6 +1152,8 @@ async function processPhotosIntoMoment(
 
 function buildMomentEditForm(
   m: LocalMoment,
+  /** 여행 기간 — 기간 밖 경고에 쓴다(생성 폼과 같은 필드·같은 문장, §7). */
+  trip: { startDate: string | null; endDate: string | null } | null,
   existingExpense: LocalExpense | undefined,
   onSave: (
     patch: {
@@ -1064,22 +1178,7 @@ function buildMomentEditForm(
   titleIn.required = true;
   titleIn.setAttribute('aria-label', '순간 한 줄 기록');
 
-  let picked = m.emotion;
-  const emoRow = el('div', 'emo-row');
-  emoRow.setAttribute('role', 'group');
-  emoRow.setAttribute('aria-label', '감정 선택(선택)');
-  const emoButtons = new Map<string, HTMLButtonElement>();
-  for (const e of EMOTIONS) {
-    const b = el('button', 'emo', e) as HTMLButtonElement;
-    b.type = 'button';
-    b.setAttribute('aria-pressed', String(e === picked));
-    b.addEventListener('click', () => {
-      picked = picked === e ? '' : e;
-      for (const [key, btn] of emoButtons) btn.setAttribute('aria-pressed', String(key === picked));
-    });
-    emoButtons.set(e, b);
-    emoRow.appendChild(b);
-  }
+  const emotion = buildEmotionRow(m.emotion); // 생성 폼과 같은 위젯(§7)
 
   const placeField = buildPlaceField({ name: m.placeName, lat: m.placeLat ?? null, lng: m.placeLng ?? null });
 
@@ -1102,10 +1201,9 @@ function buildMomentEditForm(
   const currencyIn = currencySelect(existingExpense ? existingExpense.originalCurrency : DEFAULT_CURRENCY);
   moneyRow.append(amountIn, currencyIn);
 
-  const timeIn = el('input', 'edit-input') as HTMLInputElement;
-  timeIn.type = 'datetime-local';
-  timeIn.value = toLocalInputValue(m.occurredAt);
-  timeIn.setAttribute('aria-label', '발생 시각');
+  // 이미 정해진 값이므로 `set()`(추측이 아니라 근거 줄은 비운다).
+  const timeField = buildWhenField(trip);
+  timeField.set(m.occurredAt);
 
   const row = el('div', 'edit-actions');
   const save = el('button', 'btn-primary', '저장') as HTMLButtonElement;
@@ -1118,7 +1216,7 @@ function buildMomentEditForm(
   panel.append(
     el('label', 'edit-label', '한 줄 기록'),
     titleIn,
-    emoRow,
+    emotion.el,
     el('label', 'edit-label', '장소'),
     placeField.el,
     el('label', 'edit-label', '메모'),
@@ -1126,7 +1224,7 @@ function buildMomentEditForm(
     el('label', 'edit-label', '비용'),
     moneyRow,
     el('label', 'edit-label', '발생 시각'),
-    timeIn,
+    timeField.el,
     row,
   );
 
@@ -1144,13 +1242,13 @@ function buildMomentEditForm(
       occurredAt?: string;
     } = {
       title: titleIn.value,
-      emotion: picked,
+      emotion: emotion.value(),
       placeName: placeField.getName(),
       placeLat: placeCoords?.lat ?? null,
       placeLng: placeCoords?.lng ?? null,
       note: noteIn.value,
     };
-    const occ = fromLocalInputValue(timeIn.value);
+    const occ = timeField.value();
     if (occ !== undefined) patch.occurredAt = occ;
     const expenseIntent = { amount: parseAmount(amountIn.value), currency: currencyIn.value };
     void onSave(patch, expenseIntent).catch(() => {

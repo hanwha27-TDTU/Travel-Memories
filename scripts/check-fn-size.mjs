@@ -27,7 +27,7 @@ const LIMIT = 120;
  */
 const LEGACY = {
   'src/ui/photoEditor.ts::openPhotoEditor': 766,
-  'src/ui/screens/tripDetail.ts::renderTripDetail': 614,
+  'src/ui/screens/tripDetail.ts::renderTripDetail': 612,
   'src/ui/panels/diagnostics.ts::storeStateProbe': 351,
   'src/ui/photoViewer.ts::openPhotoViewer': 258,
   'src/ui/screens/home.ts::renderHome': 235,
@@ -40,7 +40,7 @@ const LEGACY = {
   'src/domain/integrity.ts::checkIntegrity': 139,
   'src/ui/screens/r2Setup.ts::openR2Setup': 138,
   'src/ui/screens/researchNote.ts::openResearchNote': 126,
-  'src/ui/screens/tripDetail.ts::buildMomentEditForm': 122,
+  'src/ui/screens/tripDetail.ts::buildMomentEditForm': 108,
   'src/ui/panels/verdict.ts::renderTool': 121,
 };
 
