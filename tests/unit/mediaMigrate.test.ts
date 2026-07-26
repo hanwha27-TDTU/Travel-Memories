@@ -181,3 +181,35 @@ describe('⑤ 결과 문장', () => {
     expect(s).toContain('이미 옮겨져');
   });
 });
+
+describe('⑥ 되읽기 결과를 **화면에 말한다** (2026-07-26 사용자 실기기에서 드러난 구멍)', () => {
+  // 처음엔 `8장 옮김.`만 내보냈다. 그건 **업로드 성공**을 뜻하지 "새 저장소에 실제로 있다"가
+  // 아니다. 도구는 안에서 되읽어 확인해 놓고 그 결과를 화면에 안 알려줬다 — 그런데 사용자가
+  // 다음에 누를 버튼은 **되돌릴 수 없다.** 확인을 사용자가 볼 수 없으면 없는 것과 같다.
+  it('전부 확인되면 그렇게 말한다 — 정리해도 되는 근거가 화면에 있어야 한다', async () => {
+    const s = describeMigration(await migrateMediaBytes(fake([A, B])));
+    expect(s).toContain('2장 모두 확인');
+  });
+
+  it('일부만 확인되면 몇 장인지 말하고, 확인된 것만 정리된다고 알린다', async () => {
+    const f = fake([A, B, C], [], {
+      download: (id) => (id === C ? Promise.resolve({ blob: null, error: 'x' }) : Promise.resolve({ blob: blob() })),
+    });
+    const s = describeMigration(await migrateMediaBytes(f));
+    expect(s).toContain('3장 중 2장 확인');
+    expect(s).toContain('확인된 것만');
+  });
+
+  it('하나도 확인 안 되면 **정리하지 말라고 경고한다**', async () => {
+    const f = fake([A, B], [], { upload: () => Promise.resolve({}) }); // 올렸다지만 새 저장소엔 없음
+    const s = describeMigration(await migrateMediaBytes(f));
+    expect(s).toContain('확인된 것이 없어요');
+    expect(s).toContain('정리하지 마세요');
+  });
+
+  it('정리까지 끝낸 뒤에도 확인 수가 사라지지 않는다(지운 것도 확인된 것이다)', async () => {
+    const s = describeMigration(await migrateMediaBytes(fake([A, B]), true));
+    expect(s).toContain('옛 파일 2개 정리');
+    expect(s).toContain('2장 모두 확인');
+  });
+});

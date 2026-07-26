@@ -137,7 +137,14 @@ export async function migrateMediaBytes(
   };
 }
 
-/** 결과를 사람이 읽는 한 문장으로. 화면 세 곳이 각자 문장을 짓지 않게 여기 한 곳(§7). */
+/**
+ * 결과를 사람이 읽는 한 문장으로. 화면 세 곳이 각자 문장을 짓지 않게 여기 한 곳(§7).
+ *
+ * **되읽기 결과를 반드시 말한다**(2026-07-26 사용자 실기기에서 드러난 구멍). 처음엔 `8장 옮김.`
+ * 만 내보냈는데, 그건 **업로드 성공**을 뜻하지 "새 저장소에 실제로 있다"가 아니다. 도구는 안에서
+ * 되읽어 확인해 놓고 **그 결과를 화면에 알려주지 않았다** — 그런데 사용자가 다음에 누를 버튼은
+ * **되돌릴 수 없다.** 확인했다는 사실을 사용자가 볼 수 없으면, 그 확인은 없는 것과 같다.
+ */
 export function describeMigration(r: MigrateReport): string {
   if (r.errors.length && !r.total) return `옮기지 못했어요 — ${r.errors[0]}`;
   if (!r.total) return '옛 저장소에 남은 사진이 없어요.';
@@ -146,8 +153,18 @@ export function describeMigration(r: MigrateReport): string {
   if (r.already) parts.push(`${r.already}장은 이미 옮겨져 있었어요`);
   if (r.removed) parts.push(`옛 파일 ${r.removed}개 정리`);
   if (r.failed) parts.push(`${r.failed}장 실패`);
+
+  // 되읽기로 **실제로 새 저장소에 있는 것이 확인된** 수. 정리 버튼이 지울 대상과 정확히 같다.
+  const confirmed = r.removed + r.safeToRemove;
+  const check =
+    confirmed === r.total
+      ? ` 새 저장소에서 ${confirmed}장 모두 확인했어요.`
+      : confirmed
+        ? ` 새 저장소에서 ${r.total}장 중 ${confirmed}장 확인했어요 — 확인된 것만 정리됩니다.`
+        : ' ⚠️ 새 저장소에서 확인된 것이 없어요 — 옛 파일을 정리하지 마세요.';
+
   // 실패가 있으면 **다시 눌러도 된다**고 말해준다 — 멱등이라는 사실을 사용자가 알아야 재시도한다.
   const tail = r.failed ? ' 다시 눌러도 안전해요(이미 옮긴 것은 건너뜁니다).' : '';
   const why = r.errors.length ? ` 사유: ${r.errors.join(' / ')}` : '';
-  return `${parts.join(' · ') || '옮길 것이 없었어요'}.${tail}${why}`;
+  return `${parts.join(' · ') || '옮길 것이 없었어요'}.${check}${tail}${why}`;
 }
