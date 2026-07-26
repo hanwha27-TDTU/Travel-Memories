@@ -786,6 +786,25 @@ check('진단 도구: 폰 세로 가로 넘침 0', Boolean(tool) && tool.overflo
 // 앞 검사가 상세 화면을 열어 둔 상태다 — 허브로 돌아가야 카드가 존재한다.
 await page.locator('.guide-back').first().click().catch(() => {});
 await page.waitForTimeout(500);
+// ── v0.97: 진단 요약이 **지표까지** 담는가(스크린샷 대신 붙여넣을 수 있는가) ────────
+// 왜 이 층인가(2026-07-26 사용자 "수백 장은 찍은 거 같아"): 요약에 판정 한 줄만 있으면
+// 복사해 봐야 숫자가 없어 결국 다시 사진을 찍게 된다. 실제로 만들어진 문자열을 본다.
+await page.locator('[data-tool="진단 요약 복사"]').first().click();
+await page.waitForTimeout(2000);
+// 요약은 클립보드로만 나가고 화면엔 안 보인다 → 접힌 「원문 보기」를 펼쳐 실제 문자열을 읽는다.
+// (복사가 막힌 브라우저에서 사용자가 쓰는 경로도 이것이라, 이 경로가 곧 사용자의 경로다.)
+await page.evaluate(() => {
+  for (const d of document.querySelectorAll('.vd-evidence')) {
+    if ((d.querySelector('.vd-evidence-sum')?.textContent || '').includes('원문')) d.open = true;
+  }
+});
+await page.waitForTimeout(1500);
+const summaryTxt = await page.evaluate(() => document.querySelector('.vd-pre')?.textContent ?? '');
+check('진단 요약: 지표의 「지금 / 정상」이 글로 들어간다(사진 대신 붙여넣기)',
+  /지금 .{1,40} \/ 정상 /.test(summaryTxt), summaryTxt.slice(0, 140));
+await page.locator('.guide-back').first().click().catch(() => {});
+await page.waitForTimeout(500);
+
 await page.locator('[data-tool="저장 상태 · 기기별 현황"]').first().click();
 await page.waitForTimeout(900);
 const store = await page.evaluate(() => {

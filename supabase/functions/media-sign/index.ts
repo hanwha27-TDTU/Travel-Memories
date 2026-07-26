@@ -18,6 +18,9 @@
 //   4) 삭제는 브라우저에 권한을 주지 않는다 — 이 함수가 서명하고 이 함수가 실행한다.
 //   5) **목록의 범위도 서버가 못박는다.** prefix는 검증된 sub에서만 나오고, 요청 본문의
 //      prefix/delimiter/bucket은 읽지도 않는다. 목록 서명 URL은 브라우저로 나가지 않는다.
+//      · 2026-07-26 추가: 내 폴더 **밖**을 최상위 한 번만 훑어 **개수 하나**(`outside`)를
+//        돌려준다. 키는 응답에 담지 않는다 — 앱이 알아야 할 것은 "내가 못 보는 자리에
+//        뭔가 있다"까지이고, 그 이상은 Cloudflare 콘솔의 몫이다(최소 노출).
 //
 // 배포: Supabase 대시보드 › Edge Functions › Deploy a new function › Via Editor,
 //       함수 이름 `media-sign`. **이 파일 한 개**를 통째로 붙여넣는다(시크릿 4개는 앱 내
@@ -183,6 +186,11 @@ export function xmlUnescape(s: string): string {
 
 export interface ListPage {
   keys: string[];
+  /**
+   * `delimiter=/`로 조회했을 때 서버가 접어서 돌려주는 **최상위 폴더들**(`CommonPrefixes`).
+   * 폴더 안을 열어보지 않고 "내 폴더 말고 뭐가 더 있나"를 한 번의 요청으로 알 수 있다.
+   */
+  prefixes: string[];
   /** 서버가 준 다음 페이지 토큰(없으면 끝). */
   nextToken: string | null;
 }
@@ -199,9 +207,28 @@ export function parseListXml(xml: string): ListPage {
   for (const m of xml.matchAll(/<Contents>[\s\S]*?<Key>([\s\S]*?)<\/Key>[\s\S]*?<\/Contents>/g)) {
     keys.push(xmlUnescape(m[1] ?? ''));
   }
+  const prefixes: string[] = [];
+  for (const m of xml.matchAll(/<CommonPrefixes>[\s\S]*?<Prefix>([\s\S]*?)<\/Prefix>[\s\S]*?<\/CommonPrefixes>/g)) {
+    prefixes.push(xmlUnescape(m[1] ?? ''));
+  }
   const truncated = /<IsTruncated>\s*true\s*<\/IsTruncated>/i.test(xml);
   const tok = xml.match(/<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/);
-  return { keys, nextToken: truncated && tok ? xmlUnescape(tok[1] ?? '') : null };
+  return { keys, prefixes, nextToken: truncated && tok ? xmlUnescape(tok[1] ?? '') : null };
+}
+
+/**
+ * **내 폴더 밖에 몇 개가 있나** — 개수만 센다. 순수 함수라 유닛이 직접 돌린다.
+ *
+ * 왜 개수만인가(2026-07-26 사용자 요청): 진단이 「사진 파일 0개」라고 말할 때 그건
+ * *"내 폴더에는 0개"*라는 뜻이지 "버킷이 비었다"가 아니다. 그 한정을 화면이 말하지 않아
+ * 사용자가 대시보드를 직접 열어 확인해야 했다(M-0028과 같은 결함 — 문장이 한정을 생략).
+ *
+ * 그렇다고 남의 키를 응답에 담을 이유는 없다. **"몇 개가 더 있다"까지가 앱이 알아야 할
+ * 전부**이고, 그 이상은 Cloudflare 콘솔의 몫이다. 최소 노출 원칙.
+ */
+export function countOutside(page: ListPage, myPrefix: string): number {
+  // 최상위 파일(폴더에 안 든 것) + 내 것이 아닌 폴더.
+  return page.keys.length + page.prefixes.filter((p) => p !== myPrefix).length;
 }
 
 /**
@@ -312,8 +339,39 @@ export async function handler(req: Request): Promise<Response> {
     } catch {
       return json({ error: 'r2_list_failed' }, 502);
     }
+    // ── 내 폴더 **밖**에 무엇이 있나 — 개수만 ──────────────────────
+    // 왜 필요한가(2026-07-26 사용자): 위 목록은 `prefix`로 내 폴더만 본다. 그래서 앱이
+    // 「사진 파일 0개」라고 말해도 그건 *내 폴더 기준*이고, 버킷 전체가 비었다는 뜻이 아니다.
+    // 사용자는 그 차이를 확인하려고 Cloudflare 콘솔을 매번 직접 열어야 했다.
+    //
+    // 🔐 경계는 그대로다: **키를 돌려주지 않는다.** `delimiter=/`로 최상위만 접어서 받아
+    //    "내 것이 아닌 폴더 수 + 최상위 파일 수"라는 **숫자 하나**만 응답에 담는다.
+    //    요청 본문의 prefix/delimiter/bucket은 여전히 읽지 않는다.
+    //
+    // 조회에 실패하면 0이 아니라 **'모른다'**로 둔다 — 못 본 것을 정상으로 반올림하지 않는다.
+    let outside = 0;
+    let outsideKnown = false;
+    try {
+      const url = await presign(env, 'GET', '', Date.now(), [
+        ['list-type', '2'],
+        ['delimiter', '/'],
+        ['max-keys', String(LIST_PAGE_SIZE)],
+      ]);
+      const r = await fetch(url);
+      if (r.ok) {
+        const page = parseListXml(await r.text());
+        // 다음 페이지가 남았다면 최상위가 1000개를 넘는다는 뜻 — 그건 "다 봤다"가 아니다.
+        if (page.nextToken === null) {
+          outside = countOutside(page, prefix);
+          outsideKnown = true;
+        }
+      }
+    } catch {
+      /* outsideKnown=false 로 남긴다 — 화면이 '확인 불가'라고 말한다. */
+    }
+
     // 키 전체가 아니라 mediaId만 돌려준다(폴더=uid는 다시 담지 않는다).
-    return json({ ids, foreign, truncated, count: ids.length });
+    return json({ ids, foreign, truncated, count: ids.length, outside, outsideKnown });
   }
 
   const mediaId = typeof body.mediaId === 'string' ? body.mediaId : '';
