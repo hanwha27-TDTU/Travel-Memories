@@ -50,9 +50,17 @@ export function collect() {
   const changelog = readFileSync(join(ROOT, 'src/app/changelog.ts'), 'utf8');
   const research = readFileSync(join(ROOT, 'src/app/researchLog.ts'), 'utf8');
 
+  // 최신 버전 = CHANGELOG의 첫 항목(changelog.ts의 APP_VERSION과 같은 사실).
+  // 여기서 파생하는 이유: 홈 화면이 버전 한 줄 때문에 CHANGELOG 전문(80KB)을 첫 로드에
+  // 끌고 오지 않게 하려면 changelog.ts를 정적으로 import하면 안 된다. 손편집 중복이
+  // 아니라 생성물이므로 check-registry-gen이 드리프트를 RED로 잡는다.
+  const appVersion = changelog.match(/version:\s*'([^']+)'/)?.[1] ?? '';
+  if (!appVersion) throw new Error('gen-registry: changelog.ts에서 최신 version을 찾지 못했습니다.');
+
   return {
     gates,
     gateCount: gates.length,
+    appVersion,
     agentCount: countFiles('.claude/agents', '.md'),
     // 디렉터리 수가 아니라 실제 SKILL.md 수를 센다(빈 폴더·잡파일에 흔들리지 않게).
     skillCount: readdirSync(join(ROOT, '.claude/skills'), { withFileTypes: true }).filter(
@@ -78,6 +86,8 @@ export const REGISTRY = {
 ${gateLines}
   ] as const,
   gateCount: ${reg.gateCount},
+  /** 최신 앱 버전(정본: src/app/changelog.ts의 첫 항목). 첫 로드 화면은 이걸 읽는다. */
+  appVersion: '${reg.appVersion}',
   agentCount: ${reg.agentCount},
   skillCount: ${reg.skillCount},
   screenCount: ${reg.screenCount},

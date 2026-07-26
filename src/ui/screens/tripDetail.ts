@@ -35,8 +35,9 @@ import { CURRENCIES, DEFAULT_CURRENCY, currencyLabel, formatMoney, sumByCurrency
 import { convertAmount, formatRate, fxDateFor, fxKey, unitRate, type FxRateTable } from '../../domain/expense/fx';
 import { ensureTable, fxBase, todayDate } from '../../services/fx';
 import { momentCoord } from '../../domain/place/geojson';
-import { openMapView, openMapPicker, type MapPoint } from './mapView';
-import { openDiagnosticsHub } from './diagnosticsHub';
+// 보조 화면은 반드시 lazyScreens를 거친다(정적 import 금지 — check-lazy-screens).
+import { openMapView, openMapPicker, openDiagnosticsHub } from '../lazyScreens';
+import type { MapPoint } from './mapView';
 import { searchPlaces } from '../../services/geocode';
 
 /** 장소 입력 + 🔍 검색(Nominatim) + 결과 선택. 결과 텍스트는 textContent로만(외부 데이터·XSS 방지). */
@@ -314,7 +315,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const mapBtn = el('button', 'hero-map', '🗺 지도') as HTMLButtonElement;
     mapBtn.type = 'button';
     mapBtn.setAttribute('aria-label', '이 여행의 지도 보기');
-    mapBtn.addEventListener('click', () => openMapView(trip!.title, locatedPoints));
+    mapBtn.addEventListener('click', () => void openMapView(trip!.title, locatedPoints));
 
     const heroInfo = el('div', 'detail-hero-info');
     const period = trip.startDate
@@ -1129,7 +1130,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         } catch (err) {
           // 저장 실패야말로 갈 곳이 필요하다 — 무엇이 막혔는지는 「동기화 상태」가 말한다.
           setNote(note, `저장 실패: ${err instanceof Error ? err.message : String(err)}`, 'error', {
-            go: () => openDiagnosticsHub('sync'),
+            go: () => void openDiagnosticsHub('sync'),
             label: '동기화 상태 열기',
           });
         } finally {

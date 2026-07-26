@@ -23,10 +23,11 @@ import {
 } from '../../services/auth';
 import { requestSync } from '../../services/autoSync';
 import { el, setNote, type NoteAction } from '../dom';
-import { openDiagnosticsHub } from './diagnosticsHub';
-import { openDataManager } from './dataManager';
-import { openAboutApp } from './aboutApp';
-import { APP_VERSION } from '../../app/changelog';
+// 보조 화면은 반드시 lazyScreens를 거친다(정적 import 금지 — check-lazy-screens).
+import { openDiagnosticsHub, openDataManager, openAboutApp } from '../lazyScreens';
+// 버전은 생성물에서 읽는다. changelog.ts를 직접 import하면 CHANGELOG 전문(80KB)이
+// 첫 로드 번들에 딸려 온다(registry.gen.ts는 check-registry-gen이 동기화를 강제).
+import { REGISTRY } from '../../app/registry.gen';
 import {
   SEASONS,
   SEASON_LABEL,
@@ -177,13 +178,13 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
 
   const wrap = el('main', 'screen screen-home');
   const header = el('header', 'app-header');
-  // 제목 + 버전 배지(누르면 개발자 정보). 버전은 changelog SSOT에서 읽는다.
+  // 제목 + 버전 배지(누르면 개발자 정보). 버전은 changelog SSOT의 생성물에서 읽는다.
   const titleRow = el('div', 'app-title-row');
   titleRow.appendChild(el('h1', 'app-title', '🧳 Bugeon Journey'));
-  const verBadge = el('button', 'app-version', `v${APP_VERSION}`) as HTMLButtonElement;
+  const verBadge = el('button', 'app-version', `v${REGISTRY.appVersion}`) as HTMLButtonElement;
   verBadge.type = 'button';
-  verBadge.setAttribute('aria-label', `버전 ${APP_VERSION} · 개발자 정보 열기`);
-  verBadge.addEventListener('click', () => openAboutApp());
+  verBadge.setAttribute('aria-label', `버전 ${REGISTRY.appVersion} · 개발자 정보 열기`);
+  verBadge.addEventListener('click', () => void openAboutApp());
   titleRow.appendChild(verBadge);
   header.appendChild(titleRow);
   const controls = buildControls();
@@ -191,7 +192,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   dataBtn.type = 'button';
   dataBtn.setAttribute('aria-label', '데이터 관리 열기 — 백업·복원·휴지통·가이드');
   // onChanged: 복원·휴지통 조작 후 홈 목록·통계를 즉시 갱신(refresh는 아래에서 선언·호이스팅).
-  dataBtn.addEventListener('click', () => openDataManager({ onChanged: () => void refresh() }));
+  dataBtn.addEventListener('click', () => void openDataManager({ onChanged: () => void refresh() }));
   controls.appendChild(dataBtn);
   const authArea = el('div', 'auth-area');
   controls.appendChild(authArea); // 계절·테마 컨트롤과 같은 액션 행에 배치
@@ -377,10 +378,10 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
     //                    진단으로 보내면 오히려 멀어진다.
     //  · 동기화됨(ok)  → **목적지 없음.** 정상은 침묵이어야 한다(진단 §5.1). 여기에 알약과
     //                    셰브론을 붙이면 아무 할 일 없는 상태가 화면에서 제일 시끄러워진다.
-    const toSync: NoteAction = { go: () => openDiagnosticsHub('sync'), label: '동기화 상태 열기' };
+    const toSync: NoteAction = { go: () => void openDiagnosticsHub('sync'), label: '동기화 상태 열기' };
     if (!isConfigured()) {
       setNote(status, `📴 로컬 저장 모드 · 대기 ${pending}건`, 'info', {
-        go: () => openDiagnosticsHub('environment'),
+        go: () => void openDiagnosticsHub('environment'),
         label: '환경·기능 열기',
       });
     } else if (user) {
