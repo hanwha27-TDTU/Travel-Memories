@@ -20,14 +20,16 @@
 import { el } from '../dom';
 import { db } from '../../offline/db';
 import { diagnoseSync } from '../../services/diagnostics';
-import { forceRepairCascadeOps, retryFailedOps, supabaseMediaIds } from '../../services/sync';
+import { forceRepairCascadeOps, retryFailedOps, supabaseMediaIds, supabaseBlobStore } from '../../services/sync';
+import { migrateMediaBytes, describeMigration } from '../../services/mediaMigrate';
 import { checkIntegrity, CHECK_COUNT } from '../../domain/integrity';
 import { collectEnv, evictionRisk, requestPersist } from '../../services/envReport';
 import { recentErrors, clearErrors } from '../../app/errorLog';
 import { CHANGELOG } from '../../app/changelog';
 import { syncStatus, requestSync } from '../../services/autoSync';
 import { compareStore, storeStateRemote, unionListings, DOMAIN_LABEL } from '../../services/storeState';
-import { r2ListObjects, mediaStoreKind } from '../../services/r2';
+import { mediaStoragePath } from '../../domain/media/rowmap';
+import { r2ListObjects, mediaStoreKind, r2BlobStore } from '../../services/r2';
 import { PURGE_DOMAINS } from '../../services/purge';
 import { supabase } from '../../services/supabase/client';
 import { deviceLabel, shortDeviceId } from '../../app/deviceId';
@@ -515,9 +517,12 @@ export async function storeStateProbe(): Promise<Verdict> {
   //
   // 종류 판단은 여기(합성 지점)서 하고 storeState에는 **모양만** 넘긴다 — storeState가
   // 저장소 종류를 알게 되면 되돌리기가 환경변수 하나라는 계약이 깨진다.
+  // 옛 저장소에 남은 수는 **이관 진행 상황**이라 따로 들고 있어야 지표를 만들 수 있다.
+  let oldStoreCount: number | null = null;
   const filesPort = {
     list: async (): Promise<{ ids: string[]; foreign: number; truncated: boolean; error?: string | undefined }> => {
       const sb = await supabaseMediaIds(c, u.id);
+      oldStoreCount = sb.error ? null : sb.ids.length;
       // 합치는 규칙(한쪽이라도 못 읽으면 통째로 확인 불가)은 `unionListings` 한 곳에 있다.
       const parts = mediaStoreKind() === 'r2' ? [await r2ListObjects(c), sb] : [sb];
       const u2 = unionListings(parts);
@@ -585,8 +590,39 @@ export async function storeStateProbe(): Promise<Verdict> {
     });
   }
 
+  // ── 옛 저장소 이관 진행 ──────────────────────────────────────────
+  // R2로 옮기는 중에만 의미가 있다. 옛 저장소를 아직 쓰고 있으면 남아 있는 게 정상이라
+  // 지표로 만들지 않는다(정상을 문제로 보이게 하지 않는다).
+  if (mediaStoreKind() === 'r2') {
+    metrics.push({
+      label: '옛 저장소에 남은 사진',
+      actual: oldStoreCount === null ? '확인 못 함' : `${oldStoreCount}개`,
+      expected: '0개',
+      // '문제'가 아니라 '할 일'이다 — 사진은 멀쩡히 있고, 옮기기만 하면 된다(§5.10).
+      level: oldStoreCount === null ? 'unknown' : oldStoreCount > 0 ? 'todo' : 'ok',
+      ...(oldStoreCount
+        ? { meaning: '사진은 안전합니다. 새 저장소로 옮기면 한 곳에서 관리돼요. 아래 [옛 저장소 사진 옮기기]를 눌러 주세요.' }
+        : {}),
+    });
+  }
+
   const level = levelFromMetrics(metrics);
   const behind = cmp.devices.filter((d) => !d.isThis && cmp.lastCloudWriteAt && d.lastPushAt < cmp.lastCloudWriteAt);
+
+  /** 이관 포트 — 저장소 두 곳을 동시에 쥔다. 경로 규약은 `mediaStoragePath` 한 곳에서 나온다. */
+  const migratePorts = {
+    oldIds: () => supabaseMediaIds(c, u.id),
+    newIds: async (): Promise<{ ids: string[]; error?: string | undefined }> => {
+      const r = await r2ListObjects(c);
+      return r.error ? { ids: [], error: r.error } : { ids: r.ids };
+    },
+    download: async (id: string): Promise<{ blob: Blob | null; error?: string | undefined }> => {
+      const r = await supabaseBlobStore(c).download(mediaStoragePath(u.id, id));
+      return { blob: r.data, error: r.error };
+    },
+    upload: (id: string, blob: Blob) => r2BlobStore(c).uploadDisplay(mediaStoragePath(u.id, id), blob),
+    removeOld: (id: string) => supabaseBlobStore(c).remove(mediaStoragePath(u.id, id)),
+  };
 
   // ── 판정 문장은 **무엇이 문제인지**를 말해야 한다 ────────────────────────────
   // 실제 사고(2026-07-26 사용자 실기기): 사진 파일 지표를 추가한 뒤에도 판정 문장이
@@ -614,9 +650,35 @@ export async function storeStateProbe(): Promise<Verdict> {
           : '기기 이름은 무언가를 저장·수정해 서버로 올릴 때 찍혀요. 아직 그 뒤로 올린 것이 없습니다.',
     metrics,
     actions: [
+      // 옮길 것이 있을 때만 보인다 — 할 일이 없으면 버튼도 없다(침묵이 정상).
+      ...(mediaStoreKind() === 'r2' && oldStoreCount
+        ? [
+            {
+              label: '옛 저장소 사진 옮기기',
+              primary: true,
+              hook: 'data-migrate-media',
+              run: async (): Promise<string> => {
+                // 복사만 한다. 지우는 것은 **다음 버튼**의 일이다(영구삭제와 같은 2단계 규율).
+                const r = await migrateMediaBytes(migratePorts, false);
+                return describeMigration(r);
+              },
+            },
+            // 옛 파일 정리는 **확인된 것만** 지운다 — 되읽기를 통과한 id에만 삭제가 간다.
+            // 콘솔에서 손으로 지우는 것보다 안전한 이유가 그것이다.
+            {
+              label: '옮긴 뒤 옛 파일 정리',
+              primary: false,
+              hook: 'data-cleanup-old-media',
+              run: async (): Promise<string> => {
+                const r = await migrateMediaBytes(migratePorts, true);
+                return describeMigration(r);
+              },
+            },
+          ]
+        : []),
       {
         label: '지금 동기화',
-        primary: level !== 'ok',
+        primary: level !== 'ok' && !oldStoreCount,
         hook: 'data-store-sync',
         run: async () => {
           await requestSync('저장 상태 확인');
