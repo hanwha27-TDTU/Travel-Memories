@@ -18,13 +18,6 @@ export interface TripRow {
   deleted_at: string | null;
   client_operation_id: string | null;
   /**
-   * 영구삭제 표식(ADR-0027) — 어느 기기에서 휴지통을 비운 시각.
-   *
-   * **선택 필드다.** toRow()는 이 키를 절대 담지 않는다 — 담으면 평범한 upsert가 다른 기기의
-   * 영구삭제를 `null`로 덮어써 지운 것이 되살아난다. 읽기 전용으로만 쓴다(pull이 본다).
-   */
-  purged_at?: string | null;
-  /**
    * 마지막으로 이 행을 **올린 기기**(`라벨#짧은id`). 진단의 "기기별 현황"이 이걸 읽는다.
    *
    * 서버 컬럼은 처음부터 있었지만 클라이언트가 한 번도 쓰지 않아 늘 비어 있었다(2026-07-26 발견).

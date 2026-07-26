@@ -36,12 +36,16 @@ export interface StoreComparison {
   /** 서버에서 본 가장 최근 올림 시각. */
   lastCloudWriteAt: string | null;
   /**
-   * 서버에 **표식만 남은** 행 수 — 지운 것(tombstone)과 영구삭제한 것(purged).
+   * 서버에 남은 **표식**의 수 — 성격이 완전히 다른 둘을 나눠 센다.
    *
-   * 왜 이걸 보여주는가(2026-07-26 사용자 혼란): 영구삭제해도 서버 행은 **일부러 남긴다**
-   * (ADR-0027 — 행을 지우면 그 사실을 모르는 기기가 사본을 다시 올려 좀비가 된다).
-   * 그런데 앱이 그 사실을 한 번도 말하지 않아, 사용자가 Supabase를 직접 열어 보고
-   * "안 지워졌다"고 판단할 수밖에 없었다. **앱이 스스로 설명하게 한다.**
+   *  · `tombstoned` — 휴지통에 있는 행. **자료가 그대로 있다**(복원하면 돌아온다).
+   *  · `purged` — 영구삭제 원장(`journey.purged_ids`)의 줄 수. **자료는 없다.**
+   *    id·소유자·시각만 남고 제목·메모·좌표·금액은 서버에서 사라졌다(ADR-0030).
+   *    이 줄이 남는 이유는 오직 하나 — 사정 모르는 다른 기기가 사본을 다시 올리는 것을
+   *    서버가 거부하기 위해서다.
+   *
+   * 왜 보여주는가(2026-07-26 사용자 혼란): 앱이 서버 상태를 한 번도 말하지 않아,
+   * 사용자가 Supabase를 직접 열어 보고 판단할 수밖에 없었다. **앱이 스스로 설명하게 한다.**
    */
   remnants: { tombstoned: number; purged: number };
 }
@@ -66,8 +70,7 @@ export function storeStateRemote(client: JourneyClient): StoreStatePort {
         const r = await client
           .from(DOMAIN_PURGE[d].remoteTable)
           .select('id', { count: 'exact', head: true })
-          .is('deleted_at', null)
-          .is('purged_at', null);
+          .is('deleted_at', null);
         if (r.error) throw new Error(`${DOMAIN_PURGE[d].remoteTable} 개수 조회 실패: ${r.error.message}`);
         out[d] = r.count ?? 0;
       }
@@ -89,24 +92,20 @@ export function storeStateRemote(client: JourneyClient): StoreStatePort {
     },
     async remnantCounts() {
       let tombstoned = 0;
-      let purged = 0;
       for (const d of PURGE_DOMAINS) {
         const t = await client
           .from(DOMAIN_PURGE[d].remoteTable)
           .select('id', { count: 'exact', head: true })
-          .not('deleted_at', 'is', null)
-          .is('purged_at', null);
+          .not('deleted_at', 'is', null);
         if (t.error) throw new Error(`${DOMAIN_PURGE[d].remoteTable} 지움 개수 조회 실패: ${t.error.message}`);
         tombstoned += t.count ?? 0;
-
-        const p = await client
-          .from(DOMAIN_PURGE[d].remoteTable)
-          .select('id', { count: 'exact', head: true })
-          .not('purged_at', 'is', null);
-        if (p.error) throw new Error(`${DOMAIN_PURGE[d].remoteTable} 영구삭제 개수 조회 실패: ${p.error.message}`);
-        purged += p.count ?? 0;
       }
-      return { tombstoned, purged };
+
+      // 영구삭제된 것은 **행이 없다**(ADR-0030). 남은 건 id 원장 한 줄뿐이라 도메인별로 셀 수
+      // 없고, 셀 필요도 없다 — 사용자가 알고 싶은 건 "자료가 남았나"이고 답은 항상 아니오다.
+      const p = await client.from('purged_ids').select('id', { count: 'exact', head: true });
+      if (p.error) throw new Error(`영구삭제 원장 조회 실패: ${p.error.message}`);
+      return { tombstoned, purged: p.count ?? 0 };
     },
   };
 }

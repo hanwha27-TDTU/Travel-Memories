@@ -1,14 +1,20 @@
-// tests/unit/purgePropagation.test.ts — 영구삭제가 **모든 기기에서** 사라지는가(ADR-0027).
+// tests/unit/purgePropagation.test.ts — 영구삭제가 **모든 기기에서** 사라지는가(ADR-0030).
 //
 // 사용자 지적(2026-07-26): "다른 기기에서 휴지통을 비웠으면 연동기기에서도 사라져 있어야 되는
 // 거 아닌가요?" — 맞다. ADR-0025는 영구삭제를 기기별로 뒀고 그래서 다른 기기 휴지통에 남았다.
+//
+// 이어서(같은 날): "의도를 가지고 삭제하는건데 서버에 왜 살려두나요? 자료를.. 2번 이상 클릭으로
+// 삭제한거라면 영원히 복구가 안되도록 기록줄까지도 삭제시켜야 되는게 맞는거 아닌가요?"
+// → ADR-0030. 서버 행을 **하드 삭제**하고 id 원장만 남긴다. 좀비는 원장+트리거가 막는다.
 //
 // 이 검사가 잠그는 불변식(전부 실제 사고 형태에서 역산했다):
 //  ① 영구삭제는 **네 도메인 전부**에 전파 op를 만든다 — 한 종류만 빠지면 그 종류가 다른 기기에
 //     남는다(M-0006과 같은 형태의 재발 방지).
 //  ② 전파 op는 **도메인 push 루프가 건드리면 안 된다** — 로컬 행이 이미 없어서 "고아 작업"으로
 //     조용히 폐기되고, 그러면 전파가 영영 일어나지 않는다. 이게 가장 위험한 함정이다.
-//  ③ 서버가 알려준 영구삭제를 받으면 로컬 행을 **하드 삭제하고 표식을 남긴다**(멱등).
+//  ②-b **순서가 곧 안전이다** — 사진 경로·자식 id는 지우기 **전에** 읽고, 원장은 지우기 **전에**
+//     적는다. 뒤집히면 각각 "R2 고아 파일"과 "다른 기기가 다시 올림"이 된다.
+//  ③ 서버 원장이 알려준 영구삭제를 받으면 로컬 행을 **하드 삭제하고 표식을 남긴다**(멱등).
 //  ④ 등록부가 네 도메인을 모두 덮는다 — 빠지면 컴파일 오류지만, 개수도 실행으로 확인한다.
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -17,7 +23,7 @@ import { db } from '../../src/offline/db';
 import { createTripLocalFirst, softDeleteTripLocalFirst, purgeTripPermanently } from '../../src/services/trips';
 import { createMomentLocalFirst } from '../../src/services/moments';
 import {
-  applyRemotePurge,
+  applyPurgedLedger,
   purgedIdSet,
   purgeDomainOf,
   purgeOpType,
@@ -92,106 +98,170 @@ describe('② 전파 op를 도메인 push 루프가 삼키지 않는다 (가장 
   });
 });
 
-describe('② 전파 push — 서버에 표식을 찍고 read-back으로 확인한다', () => {
-  const okRemote = (): PurgeRemote & { marked: string[]; families: string[] } => {
-    const marked: string[] = [];
-    const families: string[] = [];
-    return {
-      marked,
-      families,
-      mark: (domain, id) => {
-        marked.push(`${domain}:${id}`);
-        return Promise.resolve({});
-      },
-      readBack: () => Promise.resolve({ found: true, purgedAt: '2026-07-26T00:00:00.000Z' }),
-      markFamily: (tripId) => {
-        families.push(tripId);
-        return Promise.resolve({});
-      },
-      unmarkedInFamily: () => Promise.resolve({ count: 0 }),
-      familyMediaPaths: () => Promise.resolve({ paths: [] }),
-    };
+/**
+ * 정상 동작하는 가짜 서버. **호출 순서를 기록한다** — 이 검사의 절반은 순서에 관한 것이다.
+ *
+ * 기본값은 전부 "성공·아무것도 안 남음"이고, 개별 검사가 필요한 것만 덮어쓴다.
+ * 이렇게 하지 않으면 포트에 메서드가 하나 늘 때마다 가짜를 열 곳에서 손으로 고쳐야 하고,
+ * 그 손 중복이 바로 이 저장소가 반복해 온 결함의 형태다(§7).
+ */
+function fakePurge(over: Partial<PurgeRemote> = {}): PurgeRemote & { calls: string[]; ledger: string[]; deleted: string[] } {
+  const calls: string[] = [];
+  const ledger: string[] = [];
+  const deleted: string[] = [];
+  const base: PurgeRemote = {
+    ledgerAdd: (ids) => {
+      calls.push('ledgerAdd');
+      ledger.push(...ids);
+      return Promise.resolve({});
+    },
+    ledgerHas: () => {
+      calls.push('ledgerHas');
+      return Promise.resolve({ found: true });
+    },
+    ledgerAll: () => Promise.resolve({ ids: [] }),
+    familyIds: () => {
+      calls.push('familyIds');
+      return Promise.resolve({ ids: [] });
+    },
+    familyMediaPaths: () => {
+      calls.push('familyMediaPaths');
+      return Promise.resolve({ paths: [] });
+    },
+    mediaPath: () => {
+      calls.push('mediaPath');
+      return Promise.resolve({ path: null });
+    },
+    hardDelete: (domain, id) => {
+      calls.push('hardDelete');
+      deleted.push(`${domain}:${id}`);
+      return Promise.resolve({});
+    },
+    hardDeleteFamily: (tripId) => {
+      calls.push('hardDeleteFamily');
+      deleted.push(`family:${tripId}`);
+      return Promise.resolve({});
+    },
+    stillThere: () => {
+      calls.push('stillThere');
+      return Promise.resolve({ found: false });
+    },
+    remainingInFamily: () => {
+      calls.push('remainingInFamily');
+      return Promise.resolve({ count: 0 });
+    },
   };
+  return { ...base, ...over, calls, ledger, deleted };
+}
 
-  it('성공하면 작업이 큐에서 사라진다', async () => {
-    const { tripId } = await deletedTripWithChild();
+describe('② 전파 push — 서버 행을 지우고 원장에 id만 남긴다 (ADR-0030)', () => {
+  it('성공하면 작업이 큐에서 사라지고, 여행·순간 행이 모두 지워진다', async () => {
+    const { tripId, momentId } = await deletedTripWithChild();
     await purgeTripPermanently(tripId);
-    const remote = okRemote();
+    const remote = fakePurge();
 
     const r = await pushPurges(remote);
     expect(r.pushed).toBe(2);
     expect(r.failed).toBe(0);
-    expect(remote.marked.some((m) => m.startsWith('trip:'))).toBe(true);
-    expect(remote.marked.some((m) => m.startsWith('moment:'))).toBe(true);
+    expect(remote.deleted).toContain(`trip:${tripId}`);
+    expect(remote.deleted).toContain(`moment:${momentId}`);
+    expect(remote.ledger).toContain(tripId);
+    expect(remote.ledger).toContain(momentId);
     expect((await db().syncQueue.toArray()).filter((o) => o.operationType === 'purge')).toEqual([]);
+  });
+
+  // 순서 검사는 **작업 하나**로 돌린다. 여러 op가 섞이면 앞 op의 삭제가 뒤 op의 조회보다
+  // 앞서는 게 정상인데, 그걸 위반으로 읽으면 게이트가 거짓말을 한다(순서 계약은 op 단위다).
+  it('원장을 **지우기 전에** 적는다 — 뒤집히면 그 틈에 다른 기기가 사본을 다시 올린다', async () => {
+    const trip = await createTripLocalFirst({ title: '자식 없는 여행' });
+    await softDeleteTripLocalFirst(trip.id);
+    await db().syncQueue.clear();
+    await purgeTripPermanently(trip.id);
+    const remote = fakePurge();
+    await pushPurges(remote);
+
+    const ledger = remote.calls.indexOf('ledgerAdd');
+    const del = remote.calls.findIndex((c) => c.startsWith('hardDelete'));
+    expect(ledger).toBeGreaterThanOrEqual(0);
+    expect(del).toBeGreaterThanOrEqual(0);
+    expect(ledger).toBeLessThan(del);
+  });
+
+  it('사진 경로·자식 id를 **지우기 전에** 읽는다 — 행이 사라지면 경로도 사라진다', async () => {
+    const trip = await createTripLocalFirst({ title: '자식 없는 여행' });
+    await softDeleteTripLocalFirst(trip.id);
+    await db().syncQueue.clear();
+    await purgeTripPermanently(trip.id);
+    const remote = fakePurge();
+    await pushPurges(remote);
+
+    const del = remote.calls.findIndex((c) => c.startsWith('hardDelete'));
+    expect(remote.calls.indexOf('familyMediaPaths')).toBeLessThan(del);
+    expect(remote.calls.indexOf('familyIds')).toBeLessThan(del);
+  });
+
+  it('여행 purge는 서버에만 있는 자식 id까지 원장에 담는다 (M-0016과 같은 사각지대)', async () => {
+    const { tripId } = await deletedTripWithChild();
+    await purgeTripPermanently(tripId);
+    const ghost = '99999999-9999-4999-8999-999999999999'; // 로컬엔 없고 서버에만 있는 사진
+    const remote = fakePurge({ familyIds: () => Promise.resolve({ ids: [ghost] }) });
+    await pushPurges(remote);
+    expect(remote.ledger).toContain(ghost);
+    expect(remote.deleted).toContain(`family:${tripId}`);
   });
 
   it('서버에 행이 없으면(한 번도 동기화 안 된 기록) 완료로 본다 — 영원히 큐에 남지 않게', async () => {
     const { tripId } = await deletedTripWithChild();
     await purgeTripPermanently(tripId);
 
-    const r = await pushPurges({
-      mark: () => Promise.resolve({}),
-      readBack: () => Promise.resolve({ found: false, purgedAt: null }),
-      markFamily: () => Promise.resolve({}),
-      unmarkedInFamily: () => Promise.resolve({ count: 0 }),
-      familyMediaPaths: () => Promise.resolve({ paths: [] }),
-    });
+    const r = await pushPurges(fakePurge({ stillThere: () => Promise.resolve({ found: false }) }));
     expect(r.pushed).toBe(2);
     expect((await db().syncQueue.toArray()).filter((o) => o.operationType === 'purge')).toEqual([]);
   });
 
-  it('서버 오류면 작업을 남긴다 — 다음 동기화에서 다시 시도한다', async () => {
+  it('원장 기록이 실패하면 **아무것도 지우지 않고** 작업을 남긴다', async () => {
     const { tripId } = await deletedTripWithChild();
     await purgeTripPermanently(tripId);
 
-    const r = await pushPurges({
-      mark: () => Promise.resolve({ error: '네트워크 실패' }),
-      readBack: () => Promise.resolve({ found: false, purgedAt: null }),
-      markFamily: () => Promise.resolve({}),
-      unmarkedInFamily: () => Promise.resolve({ count: 0 }),
-      familyMediaPaths: () => Promise.resolve({ paths: [] }),
-    });
+    const remote = fakePurge({ ledgerAdd: () => Promise.resolve({ error: '네트워크 실패' }) });
+    const r = await pushPurges(remote);
+    expect(r.failed).toBe(2);
+    expect(remote.deleted).toEqual([]); // 원장 없이 지우면 좀비가 돌아온다
+    expect((await db().syncQueue.toArray()).filter((o) => o.operationType === 'purge').length).toBe(2);
+  });
+
+  it('원장 read-back이 비면 지우지 않는다 — 성공 응답이 아니라 되읽어 확인한다', async () => {
+    const { tripId } = await deletedTripWithChild();
+    await purgeTripPermanently(tripId);
+
+    const remote = fakePurge({ ledgerHas: () => Promise.resolve({ found: false }) });
+    const r = await pushPurges(remote);
+    expect(r.failed).toBe(2);
+    expect(remote.deleted).toEqual([]);
+  });
+
+  it('삭제 오류면 작업을 남긴다 — 다음 동기화에서 다시 시도한다', async () => {
+    const { tripId } = await deletedTripWithChild();
+    await purgeTripPermanently(tripId);
+
+    const r = await pushPurges(fakePurge({ hardDelete: () => Promise.resolve({ error: '네트워크 실패' }) }));
     expect(r.failed).toBe(2);
     expect((await db().syncQueue.toArray()).filter((o) => o.operationType === 'purge').length).toBe(2);
   });
-});
 
-
-describe('② 서버 기준 가족 쓸기 — 로컬에 없는 자식도 표식을 받는다 (실제 결함)', () => {
-  // 실제 사고(2026-07-26): 여행 "R2 테스트"를 영구삭제했더니 여행·순간엔 purged_at이 찍혔는데
-  // **사진만 안 찍혔다.** purgeTripPermanently가 자식을 로컬 Dexie에서만 찾는데, tombstone된
-  // 사진은 그 기기에 로컬 행이 없을 수 있다(pullMedia가 비파괴 규율로 건너뛴다).
-  // 그 사진은 어느 기기에서도 영구삭제되지 않고 서버에 영영 남는다.
-  it('여행 purge는 markFamily로 서버 자식까지 쓸어 담는다', async () => {
+  it('되읽었더니 행이 남아 있으면 완료로 치지 않는다', async () => {
     const { tripId } = await deletedTripWithChild();
     await purgeTripPermanently(tripId);
-    const families: string[] = [];
-    const r = await pushPurges({
-      mark: () => Promise.resolve({}),
-      readBack: () => Promise.resolve({ found: true, purgedAt: '2026-07-26T00:00:00.000Z' }),
-      markFamily: (t) => {
-        families.push(t);
-        return Promise.resolve({});
-      },
-      unmarkedInFamily: () => Promise.resolve({ count: 0 }),
-      familyMediaPaths: () => Promise.resolve({ paths: [] }),
-    });
-    expect(r.failed).toBe(0);
-    expect(families).toEqual([tripId]); // 여행에 대해 **한 번** 호출
+
+    const r = await pushPurges(fakePurge({ stillThere: () => Promise.resolve({ found: true }) }));
+    expect(r.failed).toBe(2);
   });
 
-  it('가족에 표식 못 받은 행이 남으면 완료로 치지 않는다(read-back)', async () => {
+  it('가족에 행이 남으면 완료로 치지 않는다(read-back) — 조용히 넘기면 그 사진은 영영 남는다', async () => {
     const { tripId } = await deletedTripWithChild();
     await purgeTripPermanently(tripId);
-    const r = await pushPurges({
-      mark: () => Promise.resolve({}),
-      readBack: () => Promise.resolve({ found: true, purgedAt: '2026-07-26T00:00:00.000Z' }),
-      markFamily: () => Promise.resolve({}),
-      familyMediaPaths: () => Promise.resolve({ paths: [] }),
-      unmarkedInFamily: () => Promise.resolve({ count: 1 }), // 사진 하나가 안 찍힘
-      // → 실패로 남겨 다음 동기화에서 다시 시도한다. 조용히 완료 처리하면 그 사진은 영영 남는다.
-    });
+
+    const r = await pushPurges(fakePurge({ remainingInFamily: () => Promise.resolve({ count: 1 }) }));
     expect(r.failed).toBeGreaterThan(0);
     const left = (await db().syncQueue.toArray()).filter((o) => o.entityType === purgeOpType('trip'));
     expect(left.length).toBe(1);
@@ -200,40 +270,24 @@ describe('② 서버 기준 가족 쓸기 — 로컬에 없는 자식도 표식�
   it('자식(순간·사진) purge는 가족 쓸기를 하지 않는다 — 여행 단위로 한 번만', async () => {
     const { tripId } = await deletedTripWithChild();
     await purgeTripPermanently(tripId);
-    const families: string[] = [];
-    await pushPurges({
-      mark: () => Promise.resolve({}),
-      readBack: () => Promise.resolve({ found: true, purgedAt: '2026-07-26T00:00:00.000Z' }),
-      markFamily: (t) => {
-        families.push(t);
-        return Promise.resolve({});
-      },
-      unmarkedInFamily: () => Promise.resolve({ count: 0 }),
-      familyMediaPaths: () => Promise.resolve({ paths: [] }),
-    });
-    expect(families.length).toBe(1); // 순간 op가 있어도 가족 쓸기는 여행에서만
+    const remote = fakePurge();
+    await pushPurges(remote);
+    expect(remote.calls.filter((c) => c === 'hardDeleteFamily').length).toBe(1);
   });
 });
-
 
 describe('② 사진 바이트는 **영구삭제 때만** 지운다 (정책 2026-07-26)', () => {
   // 사용자 결정: "휴지통에 있는 동안은 서버에 남겨둔다."
   // 예전에는 삭제(휴지통행) 즉시 서버 사진을 지워서, 휴지통에 있는 동안 이미 사진이 없었다.
   // 복원은 "사본을 가진 기기가 다시 올리는" 방식이라 그 기기가 없으면 사진이 영영 안 돌아왔다 —
   // 휴지통이 사진에 대해서는 휴지통이 아니었다(비타협 원칙 #1과 어긋남).
-  const purgeRemoteOk = (paths: string[]): PurgeRemote => ({
-    mark: () => Promise.resolve({}),
-    readBack: () => Promise.resolve({ found: true, purgedAt: '2026-07-26T00:00:00.000Z' }),
-    markFamily: () => Promise.resolve({}),
-    unmarkedInFamily: () => Promise.resolve({ count: 0 }),
-    familyMediaPaths: () => Promise.resolve({ paths }),
-  });
+  const withPaths = (paths: string[]): PurgeRemote => fakePurge({ familyMediaPaths: () => Promise.resolve({ paths }) });
 
   it('영구삭제 push가 서버에서 받은 경로의 바이트를 지운다', async () => {
     const { tripId } = await deletedTripWithChild();
     await purgeTripPermanently(tripId);
     const removed: string[] = [];
-    const r = await pushPurges(purgeRemoteOk(['u/a.webp', 'u/b.webp']), {
+    const r = await pushPurges(withPaths(['u/a.webp', 'u/b.webp']), {
       remove: (p) => {
         removed.push(p);
         return Promise.resolve({});
@@ -243,20 +297,20 @@ describe('② 사진 바이트는 **영구삭제 때만** 지운다 (정책 2026
     expect(removed.sort()).toEqual(['u/a.webp', 'u/b.webp']);
   });
 
-  it('바이트 삭제가 실패해도 표식 작업을 되돌리지 않는다 — 잉여 파일은 기억 손실이 아니다', async () => {
+  it('바이트 삭제가 실패해도 작업을 되돌리지 않는다 — 잉여 파일은 기억 손실이 아니다', async () => {
     const { tripId } = await deletedTripWithChild();
     await purgeTripPermanently(tripId);
-    const r = await pushPurges(purgeRemoteOk(['u/a.webp']), {
+    const r = await pushPurges(withPaths(['u/a.webp']), {
       remove: () => Promise.resolve({ error: '네트워크 실패' }),
     });
-    expect(r.failed).toBe(0); // 행 표식은 이미 durable
+    expect(r.failed).toBe(0); // 행 삭제는 이미 끝났고 되읽어 확인했다
     expect((await db().syncQueue.toArray()).filter((o) => o.operationType === 'purge')).toEqual([]);
   });
 
-  it('바이트 포트를 안 주면 파일은 건드리지 않는다(행 표식만)', async () => {
+  it('바이트 포트를 안 주면 파일은 건드리지 않는다(행 삭제만)', async () => {
     const { tripId } = await deletedTripWithChild();
     await purgeTripPermanently(tripId);
-    const r = await pushPurges(purgeRemoteOk(['u/a.webp'])); // bytes 생략
+    const r = await pushPurges(withPaths(['u/a.webp'])); // bytes 생략
     expect(r.failed).toBe(0);
   });
 });
@@ -310,27 +364,45 @@ describe('② 삭제(휴지통행)는 서버 사진을 지우지 않는다', () 
   });
 });
 
-describe('③ 서버가 알려준 영구삭제를 이 기기에 적용한다', () => {
+describe('③ 서버 원장이 알려준 영구삭제를 이 기기에 적용한다', () => {
   it('로컬 행을 하드 삭제하고 표식을 남긴다', async () => {
     const trip = await createTripLocalFirst({ title: '다른 기기에서 비운 여행' });
     expect(await db().localTrips.get(trip.id)).toBeDefined();
 
-    const applied = await applyRemotePurge('trip', trip.id);
-    expect(applied).toBe(true);
+    expect(await applyPurgedLedger([trip.id])).toBe(1);
     expect(await db().localTrips.get(trip.id)).toBeUndefined();
     expect((await purgedIdSet()).has(trip.id)).toBe(true);
   });
 
+  it('종류를 몰라도 네 테이블을 모두 훑어 지운다 — 원장은 id만 담기 때문이다', async () => {
+    const trip = await createTripLocalFirst({ title: '가족 여행' });
+    const moment = await createMomentLocalFirst({ tripId: trip.id, title: 'x', occurredAt: '2026-07-01T00:00:00.000Z' });
+
+    expect(await applyPurgedLedger([trip.id, moment.id])).toBe(2);
+    expect(await db().localTrips.get(trip.id)).toBeUndefined();
+    expect(await db().localMoments.get(moment.id)).toBeUndefined();
+  });
+
   it('멱등 — 두 번째 호출은 아무 일도 하지 않는다', async () => {
     const trip = await createTripLocalFirst({ title: 'x' });
-    expect(await applyRemotePurge('trip', trip.id)).toBe(true);
-    expect(await applyRemotePurge('trip', trip.id)).toBe(false);
+    expect(await applyPurgedLedger([trip.id])).toBe(1);
+    expect(await applyPurgedLedger([trip.id])).toBe(0);
   });
 
   it('로컬에 없는 id여도 표식은 남긴다 — 나중에 pull이 되살리지 못하게', async () => {
     const ghost = '00000000-1111-4222-8333-444444444444';
-    expect(await applyRemotePurge('media', ghost)).toBe(true);
+    expect(await applyPurgedLedger([ghost])).toBe(1);
     expect((await purgedIdSet()).has(ghost)).toBe(true);
+  });
+
+  it('빈 목록이면 아무 일도 하지 않는다', async () => {
+    expect(await applyPurgedLedger([])).toBe(0);
+  });
+
+  it("종류를 모르면 'unknown'으로 적는다 — 거짓 종류를 지어내지 않는다(원칙 #4)", async () => {
+    const ghost = '00000000-2222-4222-8333-555555555555';
+    await applyPurgedLedger([ghost]);
+    expect((await db().purgedIds.get(ghost))?.entityType).toBe('unknown');
   });
 });
 

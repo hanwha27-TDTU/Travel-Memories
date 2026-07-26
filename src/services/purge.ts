@@ -8,10 +8,14 @@
 // 맞다. ADR-0025는 영구삭제를 **기기별**로 뒀다 — 한 기기에서 비워도 다른 기기 휴지통엔 그대로
 // 남았다. 1인 사용 앱에서 '영구'가 이 기기만을 뜻하면 그건 영구삭제가 아니라 숨김이다.
 //
-// 그때 서버 행 하드 삭제(B안)를 기각한 근거 — *"그 사실을 모르는 다른 기기가 자기 사본을 다시
-// 올려 좀비를 만든다"* — 는 지금도 유효하다. 하지만 거기서 멈춘 게 틀렸다: **"서버 행을 지우지
-// 않는다"와 "다른 기기에 알리지 않는다"는 별개인데** 한 묶음으로 처리했다. 행은 tombstone으로
-// 남기고 **의도(`purged_at`)만 실어 보내면** 두 가지를 동시에 얻는다(ADR-0027).
+// 이어서(같은 날): *"의도를 가지고 삭제하는건데 서버에 왜 살려두나요? 자료를.. 2번 이상 클릭으로
+// 삭제한거라면 영원히 복구가 안되도록 기록줄까지도 삭제시켜야 되는게 맞는거 아닌가요?"*
+//
+// 이것도 맞다. 서버 행 하드 삭제를 두 번(ADR-0025·0027) 기각한 근거는 **오직 하나**였다 —
+// *"그 사실을 모르는 다른 기기가 자기 사본을 다시 올려 좀비를 만든다."* 그런데 그 목적은
+// "행을 남긴다"가 아니라 **"서버가 재삽입을 거부한다"**로 푸는 게 옳다. `journey.purged_ids`
+// 원장 + BEFORE INSERT 트리거(마이그레이션 0012)가 그 일을 한다. 그러면 자료를 살려둘 이유가
+// 사라진다 — 서버엔 **id·소유자·시각만** 남고 제목·메모·좌표·금액은 실제로 없어진다(ADR-0030).
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // 왜 "도메인별 함수"가 아니라 등록부 하나인가 (CLAUDE.md §7)
@@ -59,7 +63,8 @@ export const DOMAIN_PURGE: Record<PurgeDomain, DomainPurge> = {
   },
   media: {
     // 사진 바이트(표시본·썸네일 blob)는 **로컬 행에 붙어 있으므로** 행을 지우면 함께 사라진다.
-    // 원격 바이트는 삭제(tombstone) 단계에서 이미 지워진다 — 영구삭제 사전조건이 그걸 보장한다.
+    // 원격 바이트는 `pushPurges`가 지운다 — 삭제(휴지통행) 때가 아니라 **영구삭제 때만**이다
+    // (정책 2026-07-26: 휴지통에 있는 동안은 남겨 둬야 어느 기기에서 복원해도 사진이 돌아온다).
     table: () => db().localMedia as unknown as Table<{ id: string }, string>,
     remoteTable: 'media',
     hasRemoteBytes: true,
@@ -121,4 +126,37 @@ export async function applyRemotePurge(domain: PurgeDomain, id: string): Promise
   if (!(await d.purgedIds.get(id))) throw new Error(`영구삭제 표식 확인 실패: ${domain} ${id}`);
   if (await table.get(id)) throw new Error(`영구삭제 확인 실패: ${domain} 행이 남아 있음 ${id}`);
   return true;
+}
+
+/**
+ * 서버 **원장**에서 받은 id들을 이 기기에 적용한다(ADR-0030).
+ *
+ * 원장은 **id만** 담는다 — 자료를 서버에 남기지 않는 것이 목적이므로 종류도 안 담는다.
+ * 그래서 어느 도메인인지 모른 채 받아, **네 테이블을 모두 훑어** 지운다. 등록부를 도는 구조라
+ * 새 도메인이 생기면 자동으로 따라온다(§7 — 다음 형제가 자동으로 따라오는가).
+ *
+ * 멱등: 이미 표식이 있는 id는 건너뛴다.
+ * @returns 이번에 새로 치운 id 수.
+ */
+export async function applyPurgedLedger(ids: string[]): Promise<number> {
+  const d = db();
+  const known = await purgedIdSet();
+  const fresh = ids.filter((id) => !known.has(id));
+  if (!fresh.length) return 0;
+
+  const now = new Date().toISOString();
+  const tables = PURGE_DOMAINS.map((dm) => DOMAIN_PURGE[dm].table());
+  await d.transaction('rw', [d.purgedIds, ...tables], async () => {
+    for (const id of fresh) {
+      // 종류를 모르므로 전부 훑는다. 없는 테이블에서의 delete는 무해하다.
+      // entityType은 표식용 라벨일 뿐이라 'unknown'으로 둔다 — 거짓 종류를 적지 않는다(원칙 #4).
+      await d.purgedIds.put({ id, entityType: 'unknown', purgedAt: now });
+      for (const t of tables) await t.delete(id);
+    }
+  });
+
+  for (const id of fresh) {
+    if (!(await d.purgedIds.get(id))) throw new Error(`영구삭제 표식 확인 실패: ${id}`);
+  }
+  return fresh.length;
 }
