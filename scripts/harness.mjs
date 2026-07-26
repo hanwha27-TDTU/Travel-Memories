@@ -15,6 +15,7 @@ const gates = [
   { name: 'check-self-eval', cmd: 'node scripts/check-self-eval.mjs' },
   { name: 'check-schema-parity', cmd: 'node scripts/check-schema-parity.mjs' },
   { name: 'check-migration-grants', cmd: 'node scripts/check-migration-grants.mjs' },
+  { name: 'check-report-fields', cmd: 'node scripts/check-report-fields.mjs' },
   { name: 'check-backup-coverage', cmd: 'node scripts/check-backup-coverage.mjs' },
   { name: 'check-blueprint', cmd: 'node scripts/check-blueprint.mjs' },
   { name: 'check-registry-gen', cmd: 'node scripts/check-registry-gen.mjs' },
