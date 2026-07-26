@@ -469,6 +469,26 @@ export function errorProbe(): Promise<Verdict> {
  * 정직함: 개수가 다르다고 결함이 아니다 — 대개 "아직 안 올렸다/안 받았다"이고 동기화로 풀린다.
  * 그래서 판정은 '문제'가 아니라 **'할 일'**이다. 진짜 실패는 [동기화 상태] 도구가 따로 말한다.
  */
+/**
+ * 「저장 상태」의 판정 한 문장. **순수 함수**라 유닛이 모든 갈래를 직접 돌린다.
+ *
+ * 왜 뽑아냈나(실제 사고 2026-07-26, 사용자 실기기): 사진 파일 지표를 추가한 뒤에도 문장이
+ * `클라우드와 다른 항목이 1가지 있어요`로 나왔다. 개수 대조는 **전부 정상**이었고 진짜 문제는
+ * 사진 파일이었는데 — **문장이 엉뚱한 곳을 가리켰다.** 문구는 지표가 개수 대조뿐이던 시절에
+ * 쓰였고, 지표를 늘리면서 문장을 안 고쳤다(낡은 전제의 화석 — M-0006의 형태).
+ *
+ * 진단 도구의 제1 규율(§8)은 "판정한다"인데, **엉뚱한 것을 판정하면 관측보다 나쁘다** —
+ * 사용자를 틀린 곳으로 보낸다. 그래서 문장을 손으로 쓰지 않고 **무리별 개수에서 만든다.**
+ */
+export function storeHeadline(level: Level, countBad: number, fileBad: number): string {
+  if (level === 'ok') return '이 기기는 클라우드와 같습니다';
+  if (countBad && fileBad) return `클라우드와 다른 항목 ${countBad}가지, 사진 파일 문제 ${fileBad}가지가 있어요`;
+  if (countBad) return `클라우드와 다른 항목이 ${countBad}가지 있어요`;
+  if (fileBad) return `사진 파일에 확인할 것이 ${fileBad}가지 있어요`;
+  // 어느 무리에도 안 잡혔는데 정상도 아니다 = 대조 자체를 못 했다(확인 불가).
+  return '지금은 클라우드와 대조하지 못했어요';
+}
+
 export async function storeStateProbe(): Promise<Verdict> {
   const c = supabase();
   const u = c ? await currentUserSafe() : null;
@@ -506,7 +526,7 @@ export async function storeStateProbe(): Promise<Verdict> {
   };
   const cmp = await compareStore(storeStateRemote(c), filesPort);
 
-  const metrics: Metric[] = PURGE_DOMAINS.map((d) => {
+  const countMetrics: Metric[] = PURGE_DOMAINS.map((d) => {
     const { cloud, local } = cmp.counts[d];
     const same = cloud === local;
     return {
@@ -524,6 +544,9 @@ export async function storeStateProbe(): Promise<Verdict> {
           }),
     };
   });
+
+  // 개수 대조와 파일 대조를 **한 배열에 담되 경계를 기억한다** — 판정 문장이 둘을 구분해야 한다.
+  const metrics: Metric[] = [...countMetrics];
 
   // ── 사진 파일 대조 ──────────────────────────────────────────────
   // 두 방향을 **한 숫자로 합치지 않는다.** 사용자가 할 일이 정반대이기 때문이다
@@ -565,16 +588,30 @@ export async function storeStateProbe(): Promise<Verdict> {
   const level = levelFromMetrics(metrics);
   const behind = cmp.devices.filter((d) => !d.isThis && cmp.lastCloudWriteAt && d.lastPushAt < cmp.lastCloudWriteAt);
 
+  // ── 판정 문장은 **무엇이 문제인지**를 말해야 한다 ────────────────────────────
+  // 실제 사고(2026-07-26 사용자 실기기): 사진 파일 지표를 추가한 뒤에도 판정 문장이
+  // `클라우드와 다른 항목이 1가지 있어요`라고 나왔다. 그런데 개수 대조는 **전부 정상**이었고
+  // 실제 문제는 사진 파일이었다 — **문장이 엉뚱한 곳을 가리켰다.**
+  //
+  // 원인: 문장이 `metrics` 전체를 세는데, 그 문구는 지표가 개수 대조뿐이던 시절에 쓰였다.
+  // 지표를 늘리면서 문장은 그대로 뒀다 — 낡은 전제가 화석으로 남는 M-0006의 형태다.
+  // 그래서 이제 **어느 무리가 문제인지 보고 문장을 고른다.**
+  const countBad = countMetrics.filter((m) => m.level !== 'ok').length;
+  const fileBad = metrics.slice(countMetrics.length).filter((m) => m.level !== 'ok').length;
+  const headline = storeHeadline(level, countBad, fileBad);
+
   return {
     level,
-    headline:
-      level === 'ok'
-        ? '이 기기는 클라우드와 같습니다'
-        : `클라우드와 다른 항목이 ${metrics.filter((m) => m.level !== 'ok').length}가지 있어요`,
+    headline,
     because:
       cmp.devices.length > 1
         ? `기기 ${cmp.devices.length}대가 이 계정에 기록을 올렸어요.${behind.length ? ` 그중 ${behind.length}대는 최신본보다 오래됐습니다.` : ''}`
-        : '아직 이 기기에서만 올렸어요.',
+        : cmp.devices.length === 1
+          ? '아직 이 기기에서만 올렸어요.'
+          // 0대는 "기기가 없다"가 아니라 **"이름표를 붙이기 시작한 뒤로 올린 적이 없다"**이다.
+          // 기기 이름은 push할 때만 서버에 찍히므로, 최근에 저장·수정한 적이 없으면 비어 있다.
+          // 이걸 그냥 "0대"로 두면 사용자가 연동이 끊겼다고 오해한다(§5.9 — 말할 수 있는 것만).
+          : '기기 이름은 무언가를 저장·수정해 서버로 올릴 때 찍혀요. 아직 그 뒤로 올린 것이 없습니다.',
     metrics,
     actions: [
       {
@@ -635,7 +672,7 @@ export async function storeStateProbe(): Promise<Verdict> {
                   `${d.label}${d.isThis ? ' (이 기기)' : ''}`,
                   `마지막으로 올림 ${d.lastPushAt.replace('T', ' ').slice(0, 19)}`,
                 ])
-              : [['(없음)', '아직 이 계정으로 올린 기록이 없어요']],
+              : [['(없음)', '기기 이름은 서버로 올릴 때 찍혀요. 저장·수정을 한 번 하면 여기에 나타납니다.']],
           ),
       },
     ],
