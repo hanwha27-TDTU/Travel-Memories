@@ -118,9 +118,21 @@ describe('접근 통제 — 서버가 키를 만든다', () => {
   });
 
   it('알 수 없는 op은 거부한다', async () => {
-    const res = await fn.handler(post({ op: 'list', mediaId: MID }));
+    // 옛 예시는 'list'였다 — 2026-07-26에 실제 op이 되면서 이 검사가 502를 받고 RED가 됐다.
+    // 검사가 잡아준 게 맞다: "알 수 없는 op"의 예시는 **실제로 없는 이름**이어야 한다.
+    const res = await fn.handler(post({ op: 'exfiltrate', mediaId: MID }));
     expect(res.status).toBe(400);
   });
+
+  it('list는 mediaId 없이도 받는다 — 대신 prefix를 서버가 만든다', async () => {
+    // 여기서 502가 나오는 것은 **정상**이다: 인증·op 분기를 통과해 R2 fetch까지 갔고,
+    // 이 환경엔 R2가 없어 거기서 멈춘다. 400(bad_media_id)이면 분기가 잘못된 것이다.
+    const res = await fn.handler(post({ op: 'list' }));
+    expect(res.status).not.toBe(400);
+  });
+
+  // "요청 본문의 prefix를 읽지도 않는가"는 **소스 구조**의 불변식이라 게이트가 본다
+  // (check-verdict-symmetry의 `listPrefixIsServerBuilt`). 유닛은 런타임 동작만 맡는다.
 });
 
 describe('서명 URL의 형태와 비밀 유출 방지', () => {

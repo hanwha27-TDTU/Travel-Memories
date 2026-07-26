@@ -230,6 +230,41 @@ export function noDroppedPurgedAtColumn(files) {
   return bad;
 }
 
+/**
+ * **목록 조회의 범위는 서버가 못박는다**(supabase-security-dev §2.8, 2026-07-26 신설).
+ *
+ * 단건 op(put/get/delete)는 키를 서버가 만들어 남의 폴더를 못 가리킨다. 그런데 목록은
+ * **prefix 하나로 버킷 전체가 열린다** — R2엔 RLS가 없으므로 이 한 줄이 마지막 벽이다.
+ * 그래서 요청 본문의 prefix/delimiter/bucket을 **무시가 아니라 아예 파싱하지 않는다**:
+ * 파싱해 두면 다음 사람이 언젠가 쓰게 되고, 그 순간 벽이 사라진다.
+ *
+ * 목록 서명 URL을 브라우저로 내보내는 것도 막는다 — 그 URL 자체가 "이 접두사 아래 전부"다.
+ */
+export function listPrefixIsServerBuilt(fnSrc) {
+  const bad = [];
+  const body = fnSrc.match(/if \(op === 'list'\)[\s\S]*?\n  \}/);
+  if (!body) return ['media-sign에 list op이 없음 — 진단이 서버 사진 목록을 물어볼 수 없다'];
+  const src = body[0];
+
+  if (!/const prefix = `\$\{userId\}\//.test(src)) {
+    bad.push("list의 prefix가 `${userId}/`가 아님 — 남의 폴더가 열릴 수 있다");
+  }
+  // 주석을 걷어낸 뒤 본다(주석의 '하지 마라'를 위반으로 읽지 않게 — 실제로 겪은 오탐이다).
+  const code = fnSrc.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  for (const f of ['prefix', 'delimiter', 'bucket']) {
+    if (new RegExp(`body\\.${f}\\b`).test(code) || new RegExp(`\\b${f}\\?:\\s*unknown`).test(code)) {
+      bad.push(`요청 본문에서 ${f}를 파싱함 — 목록 범위를 클라이언트가 정하게 된다`);
+    }
+  }
+  // 목록 URL은 함수가 쓰고 버린다. 응답에 실어 보내면 접두사 전체 권한이 브라우저로 나간다.
+  if (/return json\(\s*\{[^}]*\burl\b/.test(src)) {
+    bad.push('list 응답에 서명 URL이 담김 — 접두사 전체 권한이 브라우저로 나간다');
+  }
+  // 잘렸으면 잘렸다고 말해야 한다. 안 그러면 그 위의 "고아 0건" 판정이 거짓말이 된다.
+  if (!/truncated/.test(src)) bad.push('list가 truncated를 보고하지 않음 — 다 못 봤는데 "없다"로 읽힌다');
+  return bad;
+}
+
 // ── 검사 H: 오버레이/모달 계약 ───────────────────────────────────────────────
 /**
  * 실제 사고(2026-07-26, 사용자 실기기 가로 태블릿): 사진 편집 모달의 **상하가 잘리고 여백이
@@ -343,6 +378,8 @@ export function noDirectRunSync(files) {
 }
 
 // ── 셀프테스트: 알려진 실패가 RED로 잡히는지(게이트 비공허, CLAUDE.md §4) ──
+/** 셀프테스트 통과 수 — **손으로 세지 않는다.** 아래 로그가 이 값을 읽는다. */
+let selfTestCount = 0;
 {
   const cases = [
     { name: '정상 지표 통과', fn: () => metricsMissingExpected(`const m = { label: 'a', actual: '1', expected: '0', level: 'ok' };`), clean: true },
@@ -485,6 +522,51 @@ export function noDirectRunSync(files) {
       clean: true,
     },
     {
+      name: '목록 prefix가 서버 것이면 정상',
+      fn: () => listPrefixIsServerBuilt(`if (op === 'list') {
+    const prefix = \`\${userId}/\`;
+    const truncated = false;
+    return json({ ids, foreign, truncated, count: ids.length });
+  }`),
+      clean: true,
+    },
+    {
+      name: '본문 prefix를 파싱하면 검출(버킷 전체가 열리는 실제 위험)',
+      fn: () =>
+        listPrefixIsServerBuilt(
+          `const b = body.prefix;
+if (op === 'list') {
+    const prefix = b ?? \`\${userId}/\`;
+    const truncated = false;
+    return json({ ids, truncated });
+  }`,
+        ),
+      clean: false,
+    },
+    {
+      name: '목록 서명 URL을 응답에 담으면 검출',
+      fn: () =>
+        listPrefixIsServerBuilt(
+          `if (op === 'list') {
+    const prefix = \`\${userId}/\`;
+    const truncated = false;
+    return json({ url, ids, truncated });
+  }`,
+        ),
+      clean: false,
+    },
+    {
+      name: 'truncated 미보고 검출(다 못 봤는데 "없다"로 읽힘)',
+      fn: () =>
+        listPrefixIsServerBuilt(
+          `if (op === 'list') {
+    const prefix = \`\${userId}/\`;
+    return json({ ids, count: ids.length });
+  }`,
+        ),
+      clean: false,
+    },
+    {
       name: '오버레이 계약 정상',
       fn: () =>
         overlayContract(
@@ -558,6 +640,7 @@ export function noDirectRunSync(files) {
     console.error(`check-verdict-symmetry: 셀프테스트 실패 — 게이트가 공허함: ${broken.map((c) => c.name).join(', ')}`);
     process.exit(2);
   }
+  selfTestCount = cases.length;
 }
 
 // ── 실제 검사 ───────────────────────────────────────────────────────────────
@@ -573,6 +656,10 @@ for (const p of overlayContract(read('src/ui/styles/app.css'))) problems.push(`s
 for (const p of semanticTintContrast(read('src/ui/styles/app.css'))) problems.push(`src/ui/styles/app.css: ${p}`);
 
 for (const p of purgeOrderContract(read('src/services/sync.ts'))) problems.push(`src/services/sync.ts: ${p}`);
+{
+  const rel = 'supabase/functions/media-sign/index.ts';
+  for (const p of listPrefixIsServerBuilt(read(rel))) problems.push(`${rel}: ${p}`);
+}
 for (const p of runSyncAppliesLedger(read('src/services/sync.ts'))) problems.push(`src/services/sync.ts: ${p}`);
 // 손으로 고른 목록이 아니라 **src 전체**에 건다 — 하나만 조용히 남는 게 이 저장소의 최빈 결함군이다.
 {
@@ -618,4 +705,4 @@ if (problems.length) {
   console.error('check-verdict-symmetry: 진단 판정 계약 위반 — 도구 간 대칭이 깨졌다.');
   process.exit(1);
 }
-console.log(`check-verdict-symmetry: OK (셀프테스트 37건 통과 · 강조 렌더러 온전 · src ${scanned}개 파일 우회 0 · guide-card 화면 ${cardFiles}곳 계약 준수 · 지표 기대값·도구 필드 정상)`);
+console.log(`check-verdict-symmetry: OK (셀프테스트 ${selfTestCount}건 통과 · 강조 렌더러 온전 · src ${scanned}개 파일 우회 0 · guide-card 화면 ${cardFiles}곳 계약 준수 · 지표 기대값·도구 필드 정상)`);

@@ -48,6 +48,57 @@ export interface StoreComparison {
    * 사용자가 Supabase를 직접 열어 보고 판단할 수밖에 없었다. **앱이 스스로 설명하게 한다.**
    */
   remnants: { tombstoned: number; purged: number };
+  /** 서버 사진 기록↔파일 대조. **조회할 수 없으면 null** — 정상이 아니라 '확인 불가'다. */
+  fileAudit: MediaFileAudit | null;
+  /** 대조를 못 한 이유(사람이 읽는 한 줄). 대조에 성공했으면 null. */
+  fileAuditNote: string | null;
+}
+
+/**
+ * **사진 파일 대조** — 서버 기록과 서버 파일이 짝이 맞는가(2026-07-26 신설).
+ *
+ * 두 방향은 성격이 완전히 다르다. 한 숫자로 합치면 사용자가 할 일이 정반대인 둘이 섞인다
+ * (진단 §4의 "대기 중인 작업 3건"이 정확히 그 실수였다):
+ *  · `orphans` — 파일은 있는데 **기록이 없다.** 잉여 파일이다. 기억은 안전하고 용량만 먹는다.
+ *  · `missing` — 기록은 있는데 **파일이 없다.** 다른 기기가 그 사진을 영영 못 받는다 —
+ *    이쪽이 **기억 손실 위험**이라 훨씬 무겁다.
+ */
+export interface MediaFileAudit {
+  /** 서버에 파일이 있는 사진 수(우리 형식만). */
+  files: number;
+  /** 서버 기록 중 저장 경로를 가진 수. */
+  rows: number;
+  /** 기록 없는 파일의 사진 id. */
+  orphans: string[];
+  /** 파일 없는 기록의 사진 id. */
+  missing: string[];
+  /** 우리 형식이 아닌 키의 수. */
+  foreign: number;
+  /** 목록을 다 못 봤다 — true면 `orphans`가 0이어도 "없다"고 말하면 안 된다. */
+  truncated: boolean;
+}
+
+/**
+ * 대조 자체는 **순수 함수**다 — 유닛이 네트워크 없이 모든 경계를 직접 돌린다.
+ * (동기화 결정 로직을 `sync/merge.ts`로 뽑아낸 것과 같은 이유 — LESSONS §6.)
+ */
+export function auditMediaFiles(
+  fileIds: string[],
+  rowIds: string[],
+  opts: { foreign?: number; truncated?: boolean } = {},
+): MediaFileAudit {
+  const files = new Set(fileIds);
+  const rows = new Set(rowIds);
+  return {
+    files: files.size,
+    rows: rows.size,
+    orphans: [...files].filter((id) => !rows.has(id)),
+    // 목록이 잘렸으면 "파일이 없다"고 단정할 수 없다 — 뒤쪽 페이지에 있을 수 있다.
+    // 모르는 것을 문제로 반올림하지 않는다(비타협 원칙 #4). 판정은 호출부가 unknown으로 낸다.
+    missing: opts.truncated ? [] : [...rows].filter((id) => !files.has(id)),
+    foreign: opts.foreign ?? 0,
+    truncated: opts.truncated === true,
+  };
 }
 
 /** 원격 포트 — 네트워크 격리(테스트에서 fake 주입). */
@@ -58,6 +109,14 @@ export interface StoreStatePort {
   deviceStamps(): Promise<{ stamp: string; at: string }[]>;
   /** 서버에 표식만 남은 행 — 지움(tombstone) / 영구삭제(purged). 둘은 성격이 다르므로 나눠 센다. */
   remnantCounts(): Promise<{ tombstoned: number; purged: number }>;
+  /**
+   * 저장 경로를 가진 서버 사진 기록의 id들.
+   *
+   * **tombstone된 것도 포함한다** — ADR-0029 이후 휴지통에 있는 동안 파일은 서버에 남아 있고,
+   * 그래야 어느 기기에서 복원해도 사진이 돌아온다. 활성만 세면 휴지통 사진이 전부 "고아"로
+   * 잘못 잡힌다(라벨이 말할 수 있는 것만 말하게 한다 — 진단 §5.9).
+   */
+  mediaRowIds(): Promise<string[]>;
 }
 
 export function storeStateRemote(client: JourneyClient): StoreStatePort {
@@ -107,6 +166,11 @@ export function storeStateRemote(client: JourneyClient): StoreStatePort {
       if (p.error) throw new Error(`영구삭제 원장 조회 실패: ${p.error.message}`);
       return { tombstoned, purged: p.count ?? 0 };
     },
+    async mediaRowIds() {
+      const r = await client.from('media').select('id').not('storage_path', 'is', null);
+      if (r.error) throw new Error(`사진 기록 조회 실패: ${r.error.message}`);
+      return ((r.data ?? []) as { id: string }[]).map((x) => x.id);
+    },
   };
 }
 
@@ -138,7 +202,16 @@ export async function localActiveCounts(): Promise<Record<PurgeDomain, number>> 
   return { trip: alive(trips), moment: alive(moments), media: alive(media), expense: alive(expenses) };
 }
 
-export async function compareStore(port: StoreStatePort): Promise<StoreComparison> {
+/**
+ * 파일 목록 포트 — R2 어댑터를 그대로 받지 않고 **필요한 모양만** 받는다.
+ * storeState가 R2를 import하면 저장소 종류를 아는 게 되고, 그러면 Supabase Storage로
+ * 되돌릴 때 이 파일도 고쳐야 한다(되돌리기가 환경변수 하나여야 한다는 계약이 깨진다).
+ */
+export interface FilesPort {
+  list(): Promise<{ ids: string[]; foreign: number; truncated: boolean; error?: string | undefined }>;
+}
+
+export async function compareStore(port: StoreStatePort, files?: FilesPort): Promise<StoreComparison> {
   const [cloud, local, stamps, remnants] = await Promise.all([
     port.activeCounts(),
     localActiveCounts(),
@@ -149,7 +222,21 @@ export async function compareStore(port: StoreStatePort): Promise<StoreCompariso
   for (const d of PURGE_DOMAINS) counts[d] = { cloud: cloud[d], local: local[d] };
   const devices = foldDevices(stamps, shortDeviceId(deviceId()));
   const lastCloudWriteAt = stamps.reduce<string | null>((m, r) => (m === null || r.at > m ? r.at : m), null);
-  return { counts, devices, lastCloudWriteAt, remnants };
+
+  // 파일 대조는 **선택**이다. 포트가 없으면(Supabase Storage 경로 등) 못 한 것이지 정상이 아니다
+  // → null로 두고 화면이 '확인 불가'로 말한다. 조회 실패도 같다(모르는 것을 정상으로 반올림하지 않는다).
+  let fileAudit: MediaFileAudit | null = null;
+  let fileAuditNote: string | null = files ? null : '이 기기의 사진 저장소가 R2가 아니라 목록을 물어볼 수 없어요';
+  if (files) {
+    try {
+      const [listing, rowIds] = await Promise.all([files.list(), port.mediaRowIds()]);
+      if (listing.error) fileAuditNote = listing.error;
+      else fileAudit = auditMediaFiles(listing.ids, rowIds, { foreign: listing.foreign, truncated: listing.truncated });
+    } catch (e) {
+      fileAuditNote = (e as Error).message;
+    }
+  }
+  return { counts, devices, lastCloudWriteAt, remnants, fileAudit, fileAuditNote };
 }
 
 /** 사람이 읽는 도메인 이름 — 화면이 손으로 다시 적지 않게 여기 한 곳. */
