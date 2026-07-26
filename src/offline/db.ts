@@ -106,7 +106,12 @@ export interface SyncQueueItem {
 export interface PurgedId {
   /** 영구삭제된 엔티티 id(여행·순간·사진·비용 모두 같은 목록에 담는다). */
   id: string;
-  entityType: 'trip' | 'moment' | 'media' | 'expense';
+  /**
+   * 어느 도메인이었는가. **`'unknown'`은 거짓이 아니라 사실이다** — 서버 원장(ADR-0030)은
+   * id만 담으므로(자료를 남기지 않는 것이 목적) 다른 기기가 알려준 영구삭제는 종류를 모른다.
+   * 모르는 것을 아는 척 적지 않는다(비타협 원칙 #4).
+   */
+  entityType: 'trip' | 'moment' | 'media' | 'expense' | 'unknown';
   purgedAt: string;
 }
 

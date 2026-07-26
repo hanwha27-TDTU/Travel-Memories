@@ -158,40 +158,76 @@ export function legacyRows(src, banned) {
   return banned.filter((c) => src.includes(`'${c}`) || src.includes(` ${c}'`)).map((c) => `옛 나열형 클래스 '${c}' 사용 — 판정 렌더러(renderTool)를 우회하고 있다`);
 }
 
-// ── 검사 F: 네 pull이 **전부** 원격 영구삭제를 적용하는가 ────────────────────
+// ── 검사 F: 영구삭제의 **순서 계약** (ADR-0030) ─────────────────────────────
 /**
- * 삭제 결함의 최빈 형태는 "형제 넷 중 하나만 조용히 빠짐"이다(M-0006·M-0007·M-0012).
- * 영구삭제 전파(ADR-0027)도 같은 함정을 갖는다 — pull 하나가 `purged_at`을 안 보면 그 도메인만
- * 다른 기기에 남는다. 도메인 목록을 손으로 적지 않고 **purge.ts의 등록부에서 뽑아** 대조한다.
+ * 영구삭제는 되돌릴 수 없는 유일한 경로다. 여기선 "무엇을 하는가"보다 **"어떤 순서로 하는가"**가
+ * 안전을 결정하고, 순서는 코드를 훑어봐선 틀린 줄 모른다 — 그래서 게이트가 본다.
+ *
+ *  · 원장(`ledgerAdd`)을 **지우기 전에** 적어야 한다. 뒤집히면 그 틈에 밀린 편집을 가진 다른
+ *    기기가 자기 사본을 다시 올려 좀비가 된다(ADR-0027이 하드 삭제를 기각했던 바로 그 이유).
+ *  · 사진 경로(`familyMediaPaths`·`mediaPath`)와 자식 id(`familyIds`)는 **지우기 전에** 읽어야
+ *    한다. 행이 사라지면 경로도 사라지고, 그러면 R2에 고아 파일이 영영 남는다.
  */
-export function pullsApplyRemotePurge(syncSrc, purgeSrc) {
+export function purgeOrderContract(syncSrc) {
   const bad = [];
-  const m = purgeSrc.match(/export const PURGE_DOMAINS = \[([^\]]+)\]/);
-  if (!m) return ['purge.ts에서 PURGE_DOMAINS를 찾지 못함 — 등록부가 사라졌다'];
-  const domains = [...m[1].matchAll(/'([a-z]+)'/g)].map((x) => x[1]);
-  if (domains.length === 0) return ['PURGE_DOMAINS가 비어 있음'];
-  for (const d of domains) {
-    if (!new RegExp(`applyRemotePurge\\(\\s*'${d}'`).test(syncSrc)) {
-      bad.push(`pull이 '${d}' 도메인의 원격 영구삭제를 적용하지 않음 — 그 종류만 다른 기기에 남는다`);
-    }
+  const body = syncSrc.match(/export async function pushPurges\([\s\S]*?\n\}/);
+  if (!body) return ['sync.ts에서 pushPurges를 찾지 못함 — 영구삭제 경로가 사라졌다'];
+  const src = body[0];
+  const at = (needle) => src.indexOf(needle);
+  const del = Math.min(
+    ...['remote.hardDelete(', 'remote.hardDeleteFamily('].map(at).filter((i) => i !== -1),
+    Infinity,
+  );
+  if (del === Infinity) return ['pushPurges가 서버 행을 지우지 않음 — 영구삭제가 표식만 남기던 옛 동작이다'];
+
+  const ledger = at('remote.ledgerAdd(');
+  if (ledger === -1) bad.push('pushPurges가 원장에 적지 않음 — 다른 기기가 영구삭제를 배울 길이 없다');
+  else if (ledger > del) bad.push('원장 기록이 행 삭제 **뒤**에 있음 — 그 틈에 다른 기기가 사본을 다시 올린다');
+
+  for (const q of ['remote.familyMediaPaths(', 'remote.mediaPath(', 'remote.familyIds(']) {
+    const i = at(q);
+    if (i === -1) bad.push(`pushPurges가 ${q}…)를 부르지 않음 — 지운 뒤엔 알 수 없는 정보다`);
+    else if (i > del) bad.push(`${q}…) 가 행 삭제 **뒤**에 있음 — 행이 사라지면 그 값도 사라진다`);
   }
-  // purged_at 검사가 purged.has() 보다 **앞**에 와야 한다(표식이 없는 기기가 여기서 처음 알게 되므로).
-  const firstPurgedAt = syncSrc.indexOf('r.purged_at');
-  const firstHas = syncSrc.indexOf('purged.has(r.id)');
-  if (firstPurgedAt === -1) bad.push('pull에 purged_at 검사가 없음');
-  else if (firstHas !== -1 && firstPurgedAt > firstHas) {
-    bad.push('purged_at 검사가 purged.has() 뒤에 있음 — 표식이 없는 기기가 영구삭제를 못 배운다');
+
+  // read-back — 성공 응답이 아니라 **되읽어** 확인한다(데이터 안전 불변식).
+  for (const q of ['remote.stillThere(', 'remote.remainingInFamily(', 'remote.ledgerHas(']) {
+    if (at(q) === -1) bad.push(`pushPurges에 read-back ${q}…)가 없음 — 200 응답을 완료로 믿는다`);
   }
   return bad;
 }
 
-/** toRow가 purged_at을 담으면 평범한 upsert가 다른 기기의 영구삭제를 null로 덮어쓴다. */
-export function toRowNeverSendsPurgedAt(src) {
-  const m = src.match(/export function to\w*Row\([\s\S]*?\n\}/);
-  if (!m) return [];
-  return /purged_at/.test(m[0])
-    ? ['toRow()가 purged_at을 담음 — 평범한 upsert가 다른 기기의 영구삭제를 되살린다']
-    : [];
+/**
+ * 다른 기기의 영구삭제는 **원장으로만** 배운다 — 서버 행이 없으므로 pull은 그 사실을 볼 수 없다.
+ * `runSync`가 원장을 적용하지 않으면 지운 여행이 그 기기 휴지통에 영원히 남는다.
+ */
+export function runSyncAppliesLedger(syncSrc) {
+  const body = syncSrc.match(/export async function runSync\([\s\S]*?\n\}/);
+  if (!body) return ['sync.ts에서 runSync를 찾지 못함'];
+  const bad = [];
+  if (!/applyPurgedLedger\(/.test(body[0])) {
+    bad.push('runSync가 applyPurgedLedger를 부르지 않음 — 다른 기기의 영구삭제를 영영 못 배운다');
+  }
+  if (!/ledgerAll\(/.test(body[0])) bad.push('runSync가 서버 원장을 읽지 않음');
+  return bad;
+}
+
+/**
+ * `purged_at` **컬럼**은 마이그레이션 0012에서 사라졌다(ADR-0030). 남아 있는 참조는 주석이
+ * 아니라 **런타임 오류**다 — PostgREST가 없는 컬럼을 400으로 되돌린다. 실제로 이 전환에서
+ * `storeState.ts`가 그 상태로 남을 뻔했다. 원장 테이블(`purged_ids`)의 자기 컬럼은 예외다.
+ */
+export function noDroppedPurgedAtColumn(files) {
+  const bad = [];
+  for (const [rel, src] of files) {
+    for (const line of src.split('\n')) {
+      if (!/purged_at/.test(line)) continue;
+      if (/^\s*(\/\/|\*|\/\*)/.test(line)) continue; // 주석은 역사 기록이라 남겨 둔다
+      if (/purged_ids/.test(line)) continue; // 원장 자신의 컬럼
+      bad.push(`${rel}: 사라진 컬럼 purged_at을 조회함 — 서버가 400으로 거절한다`);
+    }
+  }
+  return bad;
 }
 
 // ── 검사 H: 오버레이/모달 계약 ───────────────────────────────────────────────
@@ -373,40 +409,80 @@ export function noDirectRunSync(files) {
     { name: '옛 나열형 클래스 없음', fn: () => legacyRows(`el('div', 'vd-metric')`, ['r2-row', 'se-item']), clean: true },
     { name: '옛 나열형 클래스 검출(렌더러 우회)', fn: () => legacyRows(`el('div', 'r2-row')`, ['r2-row', 'se-item']), clean: false },
     {
-      name: '네 pull이 모두 원격 영구삭제 적용',
+      name: '영구삭제 순서 계약 정상(원장·조회가 삭제보다 앞)',
       fn: () =>
-        pullsApplyRemotePurge(
-          `if (r.purged_at) applyRemotePurge('trip', x); purged.has(r.id);
-           applyRemotePurge('moment', x); applyRemotePurge('media', x); applyRemotePurge('expense', x);`,
-          `export const PURGE_DOMAINS = ['trip', 'moment', 'media', 'expense'] as const;`,
+        purgeOrderContract(
+          `export async function pushPurges(remote, bytes) {
+             await remote.familyIds(x); await remote.familyMediaPaths(x); await remote.mediaPath(x);
+             await remote.ledgerAdd(ids); await remote.ledgerHas(x);
+             await remote.hardDeleteFamily(x); await remote.hardDelete(d, x);
+             await remote.stillThere(d, x); await remote.remainingInFamily(x);
+}`,
         ),
       clean: true,
     },
     {
-      name: '한 도메인만 빠진 것을 검출(최빈 결함군)',
+      name: '원장이 삭제 뒤에 있으면 검출(좀비가 돌아오는 창)',
       fn: () =>
-        pullsApplyRemotePurge(
-          `if (r.purged_at) applyRemotePurge('trip', x); purged.has(r.id);
-           applyRemotePurge('moment', x); applyRemotePurge('media', x);`,
-          `export const PURGE_DOMAINS = ['trip', 'moment', 'media', 'expense'] as const;`,
+        purgeOrderContract(
+          `export async function pushPurges(remote, bytes) {
+             await remote.familyIds(x); await remote.familyMediaPaths(x); await remote.mediaPath(x);
+             await remote.hardDeleteFamily(x); await remote.hardDelete(d, x);
+             await remote.ledgerAdd(ids); await remote.ledgerHas(x);
+             await remote.stillThere(d, x); await remote.remainingInFamily(x);
+}`,
         ),
       clean: false,
     },
     {
-      name: '순서 역전 검출(표식 없는 기기가 영구삭제를 못 배움)',
+      name: '사진 경로 조회가 삭제 뒤에 있으면 검출(R2 고아 파일)',
       fn: () =>
-        pullsApplyRemotePurge(
-          `purged.has(r.id); if (r.purged_at) applyRemotePurge('trip', x);
-           applyRemotePurge('moment', x); applyRemotePurge('media', x); applyRemotePurge('expense', x);`,
-          `export const PURGE_DOMAINS = ['trip'] as const;`,
+        purgeOrderContract(
+          `export async function pushPurges(remote, bytes) {
+             await remote.familyIds(x); await remote.ledgerAdd(ids); await remote.ledgerHas(x);
+             await remote.hardDeleteFamily(x); await remote.hardDelete(d, x);
+             await remote.familyMediaPaths(x); await remote.mediaPath(x);
+             await remote.stillThere(d, x); await remote.remainingInFamily(x);
+}`,
         ),
       clean: false,
     },
-    { name: 'toRow가 purged_at을 안 담으면 정상', fn: () => toRowNeverSendsPurgedAt(`export function toRow(t, u) {\n  return { id: t.id, deleted_at: t.deletedAt };\n}`), clean: true },
     {
-      name: 'toRow가 purged_at을 담으면 검출(영구삭제를 덮어쓰는 경로)',
-      fn: () => toRowNeverSendsPurgedAt(`export function toRow(t, u) {\n  return { id: t.id, purged_at: null };\n}`),
+      name: 'read-back 누락 검출(200 응답을 완료로 믿음)',
+      fn: () =>
+        purgeOrderContract(
+          `export async function pushPurges(remote, bytes) {
+             await remote.familyIds(x); await remote.familyMediaPaths(x); await remote.mediaPath(x);
+             await remote.ledgerAdd(ids); await remote.ledgerHas(x);
+             await remote.hardDeleteFamily(x); await remote.hardDelete(d, x);
+}`,
+        ),
       clean: false,
+    },
+    {
+      name: 'runSync가 원장을 적용하면 정상',
+      fn: () => runSyncAppliesLedger(`export async function runSync(c, u) {\n  const l = await p.ledgerAll();\n  await applyPurgedLedger(l.ids);\n}`),
+      clean: true,
+    },
+    {
+      name: 'runSync가 원장을 안 읽으면 검출(다른 기기가 영영 못 배움)',
+      fn: () => runSyncAppliesLedger(`export async function runSync(c, u) {\n  await pullTrips(r);\n}`),
+      clean: false,
+    },
+    {
+      name: '사라진 purged_at 컬럼 참조 없음',
+      fn: () => noDroppedPurgedAtColumn([['a.ts', `.is('deleted_at', null)`]]),
+      clean: true,
+    },
+    {
+      name: '사라진 purged_at 컬럼 참조 검출(서버가 400으로 거절)',
+      fn: () => noDroppedPurgedAtColumn([['a.ts', `.is('purged_at', null);`]]),
+      clean: false,
+    },
+    {
+      name: '원장 테이블 자신의 컬럼은 예외',
+      fn: () => noDroppedPurgedAtColumn([['a.ts', `from('purged_ids').select('id, purged_at')`]]),
+      clean: true,
     },
     {
       name: '오버레이 계약 정상',
@@ -496,11 +572,12 @@ for (const p of legacyRows(read(NO_LEGACY_ROWS.file), NO_LEGACY_ROWS.banned)) pr
 for (const p of overlayContract(read('src/ui/styles/app.css'))) problems.push(`src/ui/styles/app.css: ${p}`);
 for (const p of semanticTintContrast(read('src/ui/styles/app.css'))) problems.push(`src/ui/styles/app.css: ${p}`);
 
-for (const p of pullsApplyRemotePurge(read('src/services/sync.ts'), read('src/services/purge.ts'))) {
-  problems.push(`src/services/sync.ts: ${p}`);
-}
-for (const rel of ['src/domain/trip/rowmap.ts', 'src/domain/moment/rowmap.ts', 'src/domain/media/rowmap.ts', 'src/domain/expense/rowmap.ts']) {
-  for (const p of toRowNeverSendsPurgedAt(read(rel))) problems.push(`${rel}: ${p}`);
+for (const p of purgeOrderContract(read('src/services/sync.ts'))) problems.push(`src/services/sync.ts: ${p}`);
+for (const p of runSyncAppliesLedger(read('src/services/sync.ts'))) problems.push(`src/services/sync.ts: ${p}`);
+// 손으로 고른 목록이 아니라 **src 전체**에 건다 — 하나만 조용히 남는 게 이 저장소의 최빈 결함군이다.
+{
+  const all = walk(join(ROOT, 'src')).map((abs) => [relative(ROOT, abs), readFileSync(abs, 'utf8')]);
+  for (const p of noDroppedPurgedAtColumn(all)) problems.push(p);
 }
 
 // 동기화 배선은 **모든 화면 파일**에 건다(손으로 고르지 않는다 — 그게 M-0012의 원인이었다).

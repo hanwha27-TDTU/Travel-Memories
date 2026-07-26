@@ -314,7 +314,8 @@ export class PendingSyncError extends Error {
  *  1) **사전 조건** — 이 여행·자식에 대기 중인 op가 하나라도 있으면 거부한다(PendingSyncError).
  *     op가 없다 = tombstone이 이미 서버에 반영됐다는 뜻이므로, 서버에 활성 행이 남는 갈래가 사라진다.
  *  2) **영구삭제 표식** — 지운 id를 `purgedIds`에 남기고 pull이 그 id를 건너뛴다.
- *     서버 행은 tombstone으로 **남겨 둔다**(다른 기기 전파용) — 하드 삭제하지 않는다(§0).
+ *     서버 행은 `pushPurges`가 **하드 삭제**한다(ADR-0030) — 자료를 남기지 않는다. 좀비는
+ *     서버 원장(`journey.purged_ids`) + BEFORE INSERT 트리거가 막는다(§0의 유일한 예외).
  *
  * 되돌릴 수 없다. tombstone된 여행에만 적용한다.
  */
@@ -344,7 +345,7 @@ export async function purgeTripPermanently(id: string): Promise<void> {
     ...expenses.map((e) => ({ id: e.id, domain: 'expense' as const })),
   ];
   const marks: PurgedId[] = purgeMarks(targets, now);
-  // ③ **다른 기기에도 알린다**(ADR-0027) — 서버 행에 purged_at을 찍는 작업을 큐에 넣는다.
+  // ③ **서버에서 실제로 지운다**(ADR-0030) — 서버 행을 하드 삭제하는 작업을 큐에 넣는다.
   //    이게 없으면 영구삭제가 이 기기에서만 일어나 다른 기기 휴지통엔 그대로 남는다
   //    (사용자 지적 2026-07-26: "다른 기기에서 휴지통을 비웠으면 연동기기에서도 사라져야").
   const purgeOps: SyncQueueItem[] = targets.map((t) => ({
