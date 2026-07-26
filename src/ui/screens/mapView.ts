@@ -8,6 +8,7 @@
 
 import { el } from '../dom';
 import { toFeatureCollection, type LocatedPoint } from '../../domain/place/geojson';
+import { localDateTime } from '../../domain/time';
 
 export interface MapPoint extends LocatedPoint {
   placeName: string;
@@ -40,12 +41,6 @@ function downloadBlob(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function timeLabel(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
-
 /** 팝업/목록에 쓰는 순간 카드(DOM 노드 — 문자열 보간 없음). objectUrls에 썸네일 URL 적재. */
 function pointNode(p: MapPoint, objectUrls: string[]): HTMLElement {
   const box = el('div', 'map-pop');
@@ -58,7 +53,7 @@ function pointNode(p: MapPoint, objectUrls: string[]): HTMLElement {
     box.appendChild(img);
   }
   box.appendChild(el('p', 'map-pop-title', p.title));
-  const meta = timeLabel(p.occurredAt);
+  const meta = localDateTime(p.occurredAt);
   if (p.placeName) box.appendChild(el('p', 'map-pop-meta', `📍 ${p.placeName}`));
   if (meta) box.appendChild(el('p', 'map-pop-meta', meta));
   return box;

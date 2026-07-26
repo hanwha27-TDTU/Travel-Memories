@@ -21,8 +21,7 @@ import {
   listMediaByTrip,
   softDeleteMediaLocalFirst,
   restoreMediaLocalFirst,
-  reeditMediaLocalFirst,
-  rotateMediaLocalFirst,
+  // 회전·재편집은 전체보기 뷰어(ui/photoViewer.ts)가 소유한다 — 여기선 부르지 않는다.
 } from '../../services/media';
 import {
   createExpenseLocalFirst,
@@ -194,6 +193,8 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
   };
 }
 import { openPhotoEditor, type EditorResult } from '../photoEditor';
+import { openPhotoViewer } from '../photoViewer';
+import { localTime } from '../../domain/time';
 import { groupMomentsByDay, type DayGroup } from '../../domain/moment/timeline';
 import { requestSync } from '../../services/autoSync';
 import type { Route } from '../../app/router';
@@ -249,12 +250,6 @@ function coverIndex(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i += 1) h = (h * 31 + id.charCodeAt(i)) >>> 0;
   return h % 3;
-}
-
-function timeLabel(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 /** ISO(UTC) → datetime-local 입력값('YYYY-MM-DDTHH:mm', 로컬시각). */
@@ -632,7 +627,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     function buildMomentCard(m: LocalMoment, mediaList: LocalMedia[], expenseList: LocalExpense[]): HTMLElement {
       const item = el('div', 'tl-item');
       item.appendChild(el('span', 'tl-node'));
-      const t = timeLabel(m.occurredAt);
+      const t = localTime(m.occurredAt);
       if (t) item.appendChild(el('div', 'tl-time', t));
       const card = el('article', 'moment-card');
       const head = el('div', 'moment-head');
@@ -799,7 +794,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           img.src = url;
           img.alt = '여행 사진';
           img.loading = 'lazy';
-          img.addEventListener('click', () => openViewer(mediaList, mdIdx));
+          img.addEventListener('click', () => openPhotoViewer(mediaList, mdIdx, refresh));
           const pdel = el('button', 'photo-del', '✕') as HTMLButtonElement;
           pdel.type = 'button';
           pdel.setAttribute('aria-label', '이 사진 삭제');
@@ -832,256 +827,6 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     }
 
     // 뷰어: 순간의 사진 묶음을 넘겨보며(◀▶·방향키·스와이프) 회전·재편집한다.
-    function openViewer(list: LocalMedia[], startIndex: number): void {
-      let idx = Math.max(0, Math.min(startIndex, list.length - 1));
-      let current = list[idx]!;
-      let currentUrl = URL.createObjectURL(current.displayBlob);
-      const overlay = el('div', 'photo-viewer');
-      overlay.setAttribute('role', 'dialog');
-      overlay.setAttribute('aria-label', '사진 보기');
-      const img = el('img') as HTMLImageElement;
-      img.src = currentUrl;
-      img.alt = '여행 사진';
-      img.draggable = false; // 스와이프가 브라우저 이미지 드래그로 새지 않게
-      // 사진 자체를 탭했을 땐 닫지 않는다(확대해 보려다 실수로 닫히는 것 방지 — 배경 탭·✕·Esc로만 닫기).
-      img.addEventListener('click', (e) => e.stopPropagation());
-      const counter = el('span', 'photo-viewer-count', `${idx + 1} / ${list.length}`);
-      counter.hidden = list.length <= 1;
-
-      const close = () => {
-        overlay.remove();
-        URL.revokeObjectURL(currentUrl);
-        document.removeEventListener('keydown', keys); // 어떤 경로로 닫혀도 리스너 잔류 없음
-      };
-      // ── 확대/이동(기기 최적화): 더블탭·핀치·휠로 확대, 끌어서 이동. scale=1이면 스와이프로 넘기기. ──
-      const MAX_ZOOM = 5;
-      let scale = 1;
-      let tx = 0;
-      let ty = 0;
-      function applyTransform(animate = false): void {
-        img.style.transition = animate ? 'transform .16s ease' : 'none';
-        img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
-        img.classList.toggle('is-zoomed', scale > 1.01);
-      }
-      function clampPan(): void {
-        // 확대된 이미지가 화면 밖으로 완전히 빠지지 않도록(약간의 여유 포함) 이동 범위를 제한.
-        const mx = Math.max(0, (img.clientWidth * scale - window.innerWidth) / 2 + 24);
-        const my = Math.max(0, (img.clientHeight * scale - window.innerHeight) / 2 + 24);
-        tx = Math.max(-mx, Math.min(mx, tx));
-        ty = Math.max(-my, Math.min(my, ty));
-      }
-      // 화면점(px,py)을 고정한 채 목표 배율로 확대/축소(휠·핀치·더블탭 공통).
-      function zoomAround(px: number, py: number, target: number, animate = false): void {
-        const vcx = window.innerWidth / 2;
-        const vcy = window.innerHeight / 2;
-        const lx = (px - vcx - tx) / scale;
-        const ly = (py - vcy - ty) / scale;
-        scale = Math.max(1, Math.min(MAX_ZOOM, target));
-        tx = px - vcx - scale * lx;
-        ty = py - vcy - scale * ly;
-        if (scale <= 1.001) {
-          scale = 1;
-          tx = 0;
-          ty = 0;
-        }
-        clampPan();
-        applyTransform(animate);
-      }
-      function resetZoom(): void {
-        scale = 1;
-        tx = 0;
-        ty = 0;
-        applyTransform();
-      }
-
-      function show(next: number): void {
-        idx = (next + list.length) % list.length; // 끝에서 처음으로 순환
-        current = list[idx]!;
-        const newUrl = URL.createObjectURL(current.displayBlob);
-        img.src = newUrl;
-        URL.revokeObjectURL(currentUrl);
-        currentUrl = newUrl;
-        counter.textContent = `${idx + 1} / ${list.length}`;
-        resetZoom(); // 다음 사진은 항상 꽉 맞춤에서 시작
-      }
-      function keys(e: KeyboardEvent): void {
-        if (e.key === 'Escape') close();
-        else if (e.key === 'ArrowLeft' && list.length > 1) show(idx - 1);
-        else if (e.key === 'ArrowRight' && list.length > 1) show(idx + 1);
-        else if ((e.key === '0' || e.key === 'Escape') && scale > 1) resetZoom();
-      }
-
-      // 포인터: 1개 = 스와이프(확대 전) 또는 팬(확대 중), 2개 = 핀치 줌.
-      const pts = new Map<number, { x: number; y: number }>();
-      let pinchStart: { dist: number; scale: number } | null = null;
-      let dragStart: { x: number; y: number; tx: number; ty: number; moved: boolean } | null = null;
-      let lastTap = 0;
-      let lastTapX = 0;
-      let lastTapY = 0;
-      const dist2 = (): number => {
-        const [a, b] = [...pts.values()];
-        return Math.hypot(a!.x - b!.x, a!.y - b!.y);
-      };
-      const mid2 = (): { x: number; y: number } => {
-        const [a, b] = [...pts.values()];
-        return { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 };
-      };
-      img.addEventListener('pointerdown', (e) => {
-        pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-        try {
-          img.setPointerCapture(e.pointerId);
-        } catch {
-          /* 합성/종료 포인터 캡처 불가 시에도 추적은 계속 */
-        }
-        if (pts.size === 2) {
-          pinchStart = { dist: dist2(), scale };
-          dragStart = null;
-        } else {
-          dragStart = { x: e.clientX, y: e.clientY, tx, ty, moved: false };
-        }
-      });
-      img.addEventListener('pointermove', (e) => {
-        if (!pts.has(e.pointerId)) return;
-        pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-        if (pinchStart && pts.size === 2) {
-          const m = mid2();
-          zoomAround(m.x, m.y, (pinchStart.scale * dist2()) / pinchStart.dist);
-          return;
-        }
-        if (dragStart && scale > 1) {
-          // 확대 중 → 팬(이동)
-          tx = dragStart.tx + (e.clientX - dragStart.x);
-          ty = dragStart.ty + (e.clientY - dragStart.y);
-          dragStart.moved = true;
-          clampPan();
-          applyTransform();
-        }
-      });
-      function endPointer(e: PointerEvent): void {
-        pts.delete(e.pointerId);
-        if (pinchStart && pts.size < 2) pinchStart = null;
-        if (pts.size > 0) return;
-        // 마지막 포인터가 떨어짐: 더블탭 / 스와이프 판정(확대 전에만).
-        const ds = dragStart;
-        dragStart = null;
-        if (!ds) return;
-        const dx = e.clientX - ds.x;
-        const dy = e.clientY - ds.y;
-        const isTap = Math.abs(dx) < 12 && Math.abs(dy) < 12 && !ds.moved;
-        if (isTap) {
-          const now = e.timeStamp;
-          if (now - lastTap < 320 && Math.hypot(e.clientX - lastTapX, e.clientY - lastTapY) < 40) {
-            // 더블탭: 확대 토글(탭 지점 기준)
-            lastTap = 0;
-            zoomAround(e.clientX, e.clientY, scale > 1 ? 1 : 2.5, true);
-          } else {
-            lastTap = now;
-            lastTapX = e.clientX;
-            lastTapY = e.clientY;
-          }
-          return;
-        }
-        // 확대 전 좌우 스와이프로 넘기기(세로 이동이 크면 무시).
-        if (scale <= 1 && list.length > 1 && Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-          show(dx < 0 ? idx + 1 : idx - 1);
-        }
-      }
-      img.addEventListener('pointerup', endPointer);
-      img.addEventListener('pointercancel', endPointer);
-      // 데스크톱: 휠(또는 트랙패드 핀치=ctrl+wheel)로 커서 기준 확대.
-      img.addEventListener(
-        'wheel',
-        (e) => {
-          e.preventDefault();
-          const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
-          zoomAround(e.clientX, e.clientY, scale * Math.exp(-dy * 0.0018));
-        },
-        { passive: false },
-      );
-
-      // 회전 — 눕혀 보이는 사진을 90°(시계방향) 돌려 세운다. 원본 불변(§0), 표시본만 갱신·영구 저장.
-      const rotateBtn = el('button', 'photo-viewer-rotate', '↻ 회전') as HTMLButtonElement;
-      rotateBtn.type = 'button';
-      rotateBtn.setAttribute('aria-label', '사진 90도 회전');
-      rotateBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (rotateBtn.disabled) return;
-        rotateBtn.disabled = true;
-        void (async () => {
-          try {
-            const updated = await rotateMediaLocalFirst(current.id);
-            list[idx] = updated; // 넘겨보기 목록에도 회전 반영
-            current = updated;
-            const newUrl = URL.createObjectURL(updated.displayBlob);
-            img.src = newUrl;
-            URL.revokeObjectURL(currentUrl);
-            currentUrl = newUrl;
-            await refresh(); // 뒤 목록 썸네일도 세워진 방향으로 갱신
-          } catch {
-            /* 회전 실패는 뷰어 유지 */
-          } finally {
-            rotateBtn.disabled = false;
-          }
-        })();
-      });
-      const closeBtn = el('button', 'photo-viewer-close', '✕') as HTMLButtonElement;
-      closeBtn.type = 'button';
-      closeBtn.setAttribute('aria-label', '닫기');
-      closeBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        close();
-      });
-
-      // 재편집 — 저장된 사진을 편집기로 다시 연다. 원본에서 파생(비파괴), 이전 편집을 이어서 조정.
-      const editPhotoBtn = el('button', 'photo-viewer-edit', '✎ 편집') as HTMLButtonElement;
-      editPhotoBtn.type = 'button';
-      editPhotoBtn.setAttribute('aria-label', '이 사진 편집');
-      editPhotoBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        editPhotoBtn.disabled = true;
-        void (async () => {
-          try {
-            const r = await openPhotoEditor(
-              current.originalBlob,
-              timeLabel(current.takenAt) || '사진 편집',
-              current.editState ? { initialState: current.editState } : {},
-            );
-            if (r.action === 'apply') {
-              await reeditMediaLocalFirst(current.id, r.blob ?? current.originalBlob, r.state);
-              await refresh();
-              close();
-              return;
-            }
-          } catch {
-            /* 편집 취소·실패는 뷰어 유지 */
-          }
-          editPhotoBtn.disabled = false;
-        })();
-      });
-
-      overlay.append(img, counter, editPhotoBtn, rotateBtn, closeBtn);
-      if (list.length > 1) {
-        const prevBtn = el('button', 'photo-viewer-nav photo-viewer-prev', '‹') as HTMLButtonElement;
-        prevBtn.type = 'button';
-        prevBtn.setAttribute('aria-label', '이전 사진');
-        prevBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          show(idx - 1);
-        });
-        const nextBtn = el('button', 'photo-viewer-nav photo-viewer-next', '›') as HTMLButtonElement;
-        nextBtn.type = 'button';
-        nextBtn.setAttribute('aria-label', '다음 사진');
-        nextBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          show(idx + 1);
-        });
-        overlay.append(prevBtn, nextBtn);
-      }
-      overlay.addEventListener('click', close); // 배경 탭으로도 닫기
-      document.addEventListener('keydown', keys);
-      document.body.appendChild(overlay);
-    }
-
     form.addEventListener('submit', (ev) => {
       ev.preventDefault();
       save.disabled = true;

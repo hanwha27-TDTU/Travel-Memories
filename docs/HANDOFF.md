@@ -31,7 +31,7 @@
 | 비상 복구 체계(하네스 게이트·복원 드릴·좀비 트리거·DR 감사관) | ✅ | `scripts/harness.mjs`, `docs/DISASTER_RECOVERY.md`, `.claude/agents/disaster-recovery-guardian.md` |
 | 개발자정보·버전·연구노트(해시체인)·가이드 화면 | ✅ | `app/{changelog,researchLog,hashchain}.ts`, `ui/screens/guide.ts` |
 
-**하네스 게이트**: SSOT=`scripts/harness.mjs`, 현재 **<!--reg:gateCount-->25<!--/reg-->개**. **개수도 목록도 여기 손으로 적지 않는다** — `src/app/registry.gen.ts`(자동 생성, `check-registry-gen`이 드리프트 차단)에서 파생하고 개발자 정보→설계 개요도/가이드가 그 목록과 한 줄 설명을 그대로 표시한다. 목록을 눈으로 보려면 `npm run harness` 또는 `src/app/registry.gen.ts`를 열면 된다.
+**하네스 게이트**: SSOT=`scripts/harness.mjs`, 현재 **<!--reg:gateCount-->26<!--/reg-->개**. **개수도 목록도 여기 손으로 적지 않는다** — `src/app/registry.gen.ts`(자동 생성, `check-registry-gen`이 드리프트 차단)에서 파생하고 개발자 정보→설계 개요도/가이드가 그 목록과 한 줄 설명을 그대로 표시한다. 목록을 눈으로 보려면 `npm run harness` 또는 `src/app/registry.gen.ts`를 열면 된다.
 
 > **이 문단에 게이트 이름을 나열하지 마세요.** 예전엔 12개가 나열돼 있었고 실제가 23개가 될
 > 때까지 아무도 못 고쳤다 — 새 AI가 "여기부터 읽는다"고 지정된 바로 그 자리에서, 존재하는
@@ -163,7 +163,7 @@
 ```
 npm ci
 git config core.hooksPath .githooks   # commit-msg hook 활성
-npm run harness                        # Required 게이트 전체 (현재 <!--reg:gateCount-->25<!--/reg-->개 — 목록은 scripts/harness.mjs, 손편집 나열 금지 M-0001; 이 숫자는 gen-registry가 자동 갱신·check-doc-counts가 대조)
+npm run harness                        # Required 게이트 전체 (현재 <!--reg:gateCount-->26<!--/reg-->개 — 목록은 scripts/harness.mjs, 손편집 나열 금지 M-0001; 이 숫자는 gen-registry가 자동 갱신·check-doc-counts가 대조)
 npm run build                          # base=/Travel-Memories/ 정적 빌드
 npm run dev                            # 홈 화면 확인 (선택)
 ```
