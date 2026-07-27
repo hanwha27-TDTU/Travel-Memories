@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.11<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->111<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->54<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.12<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->112<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->55<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->18<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -26,6 +26,8 @@
 | 🟡 트리거 함수 `block_purged_reinsert()`가 anon에게 RPC 노출 | journey가 노출 스키마라서. 직접 호출은 Postgres가 거부하므로 실害 0 | EXECUTE 회수. **회수해도 트리거가 도는 것을 `BEGIN…ROLLBACK`으로 먼저 실증** |
 | 🟡 **헌장 불변식이 문서에만 있고 서버가 어겼다** — `SECURITY DEFINER` 함수 둘이 `search_path='journey, public'` | 조항 1층뿐이었다. **참조가 전부 스키마 한정이라 실害가 0이었고, 그래서 더 오래 살았다** | `search_path=''` 복구 + `check-migration-grants`에 3층(`auditDefinerSearchPath`) |
 | 🟡 (부산물) 정책 6개만 역할이 `public`(0013·0015가 `to authenticated` 누락) | 형제 12개는 좁혀져 있었다 — §7 최빈 형태 | 18개 전부 재작성 + 게이트가 누락을 RED |
+
+**배포까지 하고 나서 하나 더 나왔다(v1.12)**: `ci.yml`을 고치는데 `npm run brief`가 **읽을 문서를 하나도 주지 않았다.** `SKILL_ROUTES`에 `.github/workflows/`가 없었고 `check-skill-routing`은 **`src/`만 훑고 있었다** — 게이트의 *"모든 파일이 라우팅에 걸린다"* 조항이 **자기가 안 보는 영역에 대해서는 공허**했던 것이다. 하필 배포 경로는 틀리면 전부가 막히는 자리다(M-0031). 라우팅 추가 + 게이트 스캔 영역을 `SCAN` 배열로 넓히고(실제 파일 주입 RED 확인) 헌장에 **§2-H(배포 경로)**를 신설했다. 같은 파일에서 게이트가 셀프테스트 수를 손으로 박아 둔 것도 함께 걷어냈다.
 
 **advisor를 다룰 때의 교훈(가장 크다)**: **경고문이 같아도 처방이 정반대일 수 있다.** 셋이 같은 「Signed-In Users Can Execute SECURITY DEFINER Function」을 받았는데 — `block_purged_reinsert()`는 회수해도 되고, `unpurge_ids()`는 회수하면 **복원이 막히고**(M-0032 재발), 🔴 **`is_allowed()`는 회수하면 앱이 죽는다**(RLS 정책 식은 호출자 권한으로 평가된다). 권고문을 그대로 따랐으면 사고였다. 표는 `docs/SECURITY.md` 상단에 있다 — **거기가 정본이다.**
 

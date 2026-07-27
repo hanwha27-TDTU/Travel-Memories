@@ -73,6 +73,12 @@ export const SKILL_ROUTES = [
   { match: /^src\/services\/(supabase|auth|r2)/, skill: 'supabase-security-dev' },
   { match: /^supabase\//, skill: 'supabase-security-dev' },
   { match: /^scripts\//, skill: 'gates-mechanization-dev' },
+  // 배포 경로. 2026-07-27에 `ci.yml`을 고치는데 브리핑이 **읽을 문서를 하나도 안 줬다** —
+  // 이 표에 없었고 게이트는 `src/`만 훑고 있었다. 그런데 여기는 틀리면 **전부가 막히는**
+  // 자리다(M-0031: 게이트가 CI에서만 죽어 배포가 2회 연속 실패). 게이트 헌장의 §2-D(CI Node)
+  // ·§2-G(선택 게이트가 어디서 도는가)·§2-H(배포 그린 확인)가 정확히 이 파일들의 규율이다.
+  // 배포 계약 자체의 정본은 `docs/DEPLOYMENT.md`이고 헌장이 그리로 보낸다.
+  { match: /^\.github\/workflows\//, skill: 'gates-mechanization-dev' },
   { match: /^src\/app\/(registry|blueprint|gates|hashchain)/, skill: 'gates-mechanization-dev' },
   { match: /^src\/app\/router/, skill: 'ui-responsive-dev' },
   { match: /^src\/domain\/moment\//, skill: 'sync-offline-dev' },
