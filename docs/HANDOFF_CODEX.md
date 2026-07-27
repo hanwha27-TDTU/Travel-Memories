@@ -28,8 +28,52 @@
 이건 예의가 아니라 **결함 예방 장치**다. 이 저장소의 사고 대부분은 "규칙이 적혀 있었는데
 안 읽었거나, 읽고도 적용 안 함"이었다.
 
+### 환경 준비 (이게 없으면 앱이 안 뜬다)
+
 ```bash
 npm ci
+```
+
+🔴 **검증만 할 거면 `.env`를 만들지 마라.** 이건 직관과 반대라 반드시 읽어야 한다:
+
+| 상태 | `npm run live` 결과 |
+|---|---|
+| `.env` **없음** | **155/155 PASS** ← CI가 도는 상태이고, 이게 기준이다 |
+| `.env` 있음(실제 Supabase URL) | **148/155** — 7건 실패 |
+
+**왜**: `.env`가 있으면 앱이 Supabase에 접속을 시도하는데, 개발 샌드박스는 `*.supabase.co`를
+차단한다 → 콘솔 에러가 나고, 상태 줄이 「📴 로컬 저장 모드」(조치 가능) 대신
+「🔒 로그인하면…」으로 갈려 그 줄을 재는 검사 6건이 함께 무너진다.
+**앱의 결함이 아니라 환경 때문이다.** CI에도 `.env`가 없어서 CI는 통과한다.
+
+> 이 함정은 실제로 이 인계서 초안이 만들었다. 초안은 `cp .env.example .env`를 시켰고,
+> 그대로 따라 하니 148/155가 나왔다. **인계서를 그대로 실행해 보지 않았으면 몰랐을 것이다.**
+
+앱을 **실제로 띄워 로그인·동기화까지 보려면** 그때 `.env`를 만든다:
+
+```bash
+cp .env.example .env        # 실제 값이 예시 파일에 들어 있다(publishable 키는 공개 안전)
+npm run dev
+```
+
+`.env.example`이 담는 것 — **전부 브라우저에 나가도 되는 값만**이다:
+
+| 변수 | 용도 |
+|---|---|
+| `VITE_SUPABASE_URL` | Supabase 프로젝트(**Travel&Accounting** — 회계 앱과 공유, ADR-0020) |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | anon/publishable 키. **service_role은 절대 금지** |
+| `VITE_MAP_STYLE_URL` | 비워도 된다(기본 OSM 래스터 스타일을 쓴다) |
+
+> 🔴 **R2 자격증명은 여기 없다.** 그건 **Supabase Edge Function Secrets에만** 존재하고
+> 브라우저는 `media-sign` 함수가 발급하는 5분짜리 서명 URL만 받는다. `.env`에 R2 키를
+> 넣으려는 충동이 들면 그건 설계를 잘못 읽은 것이다.
+
+`.env`는 커밋 금지다(`.gitignore`에 있다). `check-secret-leak` 게이트가 JWT payload를
+디코드해 role까지 판정하므로, 실수로 secret 키를 넣으면 harness가 RED가 된다.
+
+### 착수
+
+```bash
 npm run brief <고칠 파일들>      # ← 이것부터. 어느 문서를 읽어야 하는지 알려준다
 ```
 
@@ -39,8 +83,9 @@ npm run brief <고칠 파일들>      # ← 이것부터. 어느 문서를 읽�
 3. **형제 목록** — 이 변경이 걸려야 할 대상 전부(§7)
 4. **그 영역에서 과거에 낸 실수** (`docs/records/coding-mistakes.md`)
 
-> ⚠️ **스킬 문서를 건너뛰지 마라.** `sync-offline-dev`는 208줄, `supabase-security-dev`는
-> 271줄이다. 길지만, 거기 적힌 것을 모르고 동기화를 만지면 **사용자의 기억이 조용히 사라진다.**
+> ⚠️ **스킬 문서를 건너뛰지 마라.** 길다(수백 줄). 하지만 거기 적힌 것을 모르고 동기화를
+> 만지면 **사용자의 기억이 조용히 사라진다.** 특히 `sync-offline-dev`와
+> `supabase-security-dev`는 이 저장소의 최고 위험 표면을 다룬다.
 
 ### 검증 명령
 
@@ -59,6 +104,12 @@ npm run live         # verify-editor-live: 헤드리스 브라우저 검사 (bui
 > npx vitest run 2>&1 | grep 'Tests '     # 유닛 수
 > node scripts/verify-editor-live.mjs | tail -1   # 라이브 검사 수
 > ```
+>
+> **같은 이유로 줄 번호·줄 수도 박지 않는다.** 이 문서 초안은 `AGENTS.md:93`과
+> 「스킬 문서 208줄」을 적었는데, 바로 그날 내가 두 파일을 고쳐 **93 → 117, 208 → 249**로
+> 어긋났다. 위치는 내용으로 가리켜라(`AGENTS.md`의 「Git / 협업」 절).
+> 예외: `src/ui/panels/diagnostics.ts`의 `EXPECTED_FN_VERSION`처럼 **고칠 때 반드시
+> 눈에 띄어야 하는 상수**는 파일명 + 심볼명으로 가리킨다(줄 번호 없이).
 
 `npm run live`는 **`dist`가 소스보다 낡으면 스스로 멈춘다**(exit 2). 낡은 번들을 재면
 검사가 공허해지기 때문이다. 반드시 `npm run build` 다음에 돌린다.
@@ -224,7 +275,7 @@ pushUnpurges → pushPending(trips) → pushPendingMoments
    - 빈-클라우드 가드 · read-back 후에만 큐 op 제거
 6. **R2 바이트** — `media-sign` **v6**: `safeRest()`가 지금 **`.webp`만** 받는다.
    오디오 확장자(`.webm`/`.m4a`/`.ogg`/`.mp4`) 허용 + `mediaIdOfKey`도 함께 + `FN_VERSION` 6
-   + 앱의 `EXPECTED_FN_VERSION` 6 (`src/ui/panels/diagnostics.ts:64`)
+   + 앱의 `EXPECTED_FN_VERSION` 6 (`src/ui/panels/diagnostics.ts`)
    - `naming.ts`에 `audioObjectName`(32자 전체 id — `mediaObjectName`과 같은 규율) 추가
 7. **게이트 정리**
    - `scripts/check-domain-symmetry.mjs`의 `NO_OP_REQUIRED`에서 `softDeleteAudio`·
@@ -278,7 +329,7 @@ M-0023이 정확히 이 형태였다 — *사용자는 "됐다"고 믿고, 서�
 
 > **한도가 풀리면 가장 먼저 할 일**: CI를 한 번 돌려 그린을 확인하고 배포한다.
 > 그 전까지 v1.17·v1.18은 **"완료"가 아니라 "병합됨 · 배포 대기"**다
-> (`AGENTS.md:93` — *완료 = 병합이 아니라 배포 그린 확인*).
+> (`AGENTS.md`의 「Git / 협업」 — *완료 = 병합이 아니라 배포 그린 확인*).
 
 ### CI가 막혔을 때의 대체 검증 (실제로 이렇게 했다)
 
@@ -286,11 +337,19 @@ M-0023이 정확히 이 형태였다 — *사용자는 "됐다"고 믿고, 서�
 커밋 안 된 파일·lock 문제를 잡는다. 그래서 이렇게 재현했다:
 
 ```bash
-git clone --branch <branch> <repo> /tmp/ciclone && cd /tmp/ciclone
+# <작업폴더>를 clone한다 — 원격이 아니라 **로컬 저장소**를 복제해야
+# "커밋된 것"과 "작업트리"의 차이가 드러난다(그게 CI가 잡는 부류다).
+git clone --branch <브랜치> <작업폴더> /tmp/ciclone && cd /tmp/ciclone
+# ⚠️ .env를 만들지 않는다 — CI와 같은 상태여야 한다(위 「환경 준비」의 표 참조)
 npm ci && npm run harness && npm run build
-PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node scripts/verify-editor-live.mjs
-diff -rq --exclude=.git --exclude=node_modules --exclude=dist <원본> .   # 커밋 누락 확인
+node scripts/verify-editor-live.mjs
+# 커밋 누락 확인 — 출력이 비어야 한다
+diff -rq --exclude=.git --exclude=node_modules --exclude=dist --exclude=.env <작업폴더> .
 ```
+
+> ⚠️ 위 명령의 **브라우저 경로는 환경마다 다르다.** 이 세션에서는 Playwright 브라우저가
+> `/opt/pw-browsers`에 미리 깔려 있어 `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`를 앞에
+> 붙였다. 당신 환경에 없으면 `npx playwright install chromium`을 먼저 한다.
 
 **이건 CI가 아니다.** 대체물이라고 정직하게 적고, 한도가 풀리면 진짜 CI를 돌린다.
 
@@ -299,7 +358,7 @@ diff -rq --exclude=.git --exclude=node_modules --exclude=dist <원본> .   # 커
 - harness Required 게이트 전부 통과 (측정 시점 31개)
 - 유닛 전부 통과 (측정 시점 637개 / 47개 파일)
 - 라이브 렌더 155/155 통과
-- 소스 78개 `.ts` 파일
+- 소스 `.ts` 파일 수는 `find src -name '*.ts' | wc -l`로 잰다
 
 ### 사용자가 확인 대기 중인 것 (실기기 — 배포 후)
 
