@@ -10,8 +10,7 @@ import {
   bakeToCanvas,
   freshEdit,
   isIdentity,
-  resolveWindow,
-  rotatedDims,
+  screenToGeo,
   rotateHeals90,
   flipHealsH,
   rotateFreeCrop90,
@@ -463,14 +462,11 @@ export async function openPhotoEditor(
         const rect = preview.getBoundingClientRect();
         const u = (e.clientX - rect.left) / rect.width;
         const v = (e.clientY - rect.top) / rect.height;
-        const rd = rotatedDims(w, h, state.rotate90);
-        const win = resolveWindow(rd.w, rd.h, state);
+        // ⚠️ 여기서 좌표를 손으로 계산하지 않는다(2026-07-27). 예전엔 `rotatedDims`(rd) 기준으로
+        // 직접 계산했는데 bake는 `gd`(원근 펴기 후) 기준으로 재투영한다 — **원근 펴기를 적용한 뒤
+        // 잡티를 찍으면 엉뚱한 곳에 찍혔다.** 이제 bake와 같은 순수 함수를 지난다(§7 2층).
         pushHistory();
-        state.heals.push({
-          x: (win.x + u * win.w) / rd.w,
-          y: (win.y + v * win.h) / rd.h,
-          r: ((brushPct / 100) * win.w) / rd.w, // 화면 체감 크기 유지
-        });
+        state.heals.push(screenToGeo(u, v, w, h, state, brushPct));
         // 탭 지점에 적용 반경을 잠깐 보여준다(지름 = 반경(brushPct% of 폭) × 2).
         showBrushDot(e.clientX - rect.left, e.clientY - rect.top, (brushPct / 50) * rect.width, 400);
         repaint();

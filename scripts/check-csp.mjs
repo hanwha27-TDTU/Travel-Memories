@@ -24,6 +24,9 @@ const REQUIRED = {
     'https://*.r2.cloudflarestorage.com',
   ],
   'worker-src': ['blob:'],           // MapLibre GL blob: 워커
+  // 오디오 노트 재생(2026-07-27). **없으면 default-src 'self'로 폴백해 blob: 소리가 차단된다** —
+  // img-src에는 blob:이 있는데 media-src만 빠져 있던 §7 비대칭이었고, 이 게이트도 그걸 안 봤다.
+  'media-src': ['blob:'],
   'img-src': ['data:', 'blob:', 'https://*.supabase.co', 'https://tile.openstreetmap.org'],
   'object-src': ["'none'"],
   'base-uri': ["'self'"],
@@ -62,7 +65,7 @@ function checkHtml(html) {
 }
 
 // ── 셀프테스트: 알려진 실패 주입이 RED로 잡히는지 확인(게이트 비공허, CLAUDE.md §4) ──
-const GOOD = `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: https://*.supabase.co https://tile.openstreetmap.org; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://tile.openstreetmap.org https://nominatim.openstreetmap.org https://cdn.jsdelivr.net https://*.currency-api.pages.dev https://api.frankfurter.dev https://*.r2.cloudflarestorage.com; worker-src 'self' blob:; script-src 'self'; object-src 'none'; base-uri 'self'" />`;
+const GOOD = `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: https://*.supabase.co https://tile.openstreetmap.org; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://tile.openstreetmap.org https://nominatim.openstreetmap.org https://cdn.jsdelivr.net https://*.currency-api.pages.dev https://api.frankfurter.dev https://*.r2.cloudflarestorage.com; worker-src 'self' blob:; media-src 'self' blob:; script-src 'self'; object-src 'none'; base-uri 'self'" />`;
 const selfCases = [
   { name: '정상 CSP 통과', html: GOOD, expectClean: true },
   { name: 'wss 누락 검출', html: GOOD.replace(' wss://*.supabase.co', ''), expectClean: false },
@@ -70,6 +73,8 @@ const selfCases = [
   // R2 누락은 "사진 업로드·내려받기만" 조용히 죽는 부류라 별도 케이스로 잠근다(ADR-0024).
   { name: 'R2 connect-src 누락 검출', html: GOOD.replace(' https://*.r2.cloudflarestorage.com', ''), expectClean: false },
   { name: 'unsafe-eval 검출', html: GOOD.replace("script-src 'self'", "script-src 'self' 'unsafe-eval'"), expectClean: false },
+  // 오디오 노트 재생이 조용히 막히는 것을 잡는다(media-src가 없으면 default-src로 폴백).
+  { name: 'media-src blob: 누락 검출', html: GOOD.replace(" media-src 'self' blob:;", ''), expectClean: false },
   { name: 'CSP 부재 검출', html: '<meta charset="UTF-8" />', expectClean: false },
 ];
 const brokenSelf = selfCases.filter((c) => (checkHtml(c.html).length === 0) !== c.expectClean);

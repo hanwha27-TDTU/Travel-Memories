@@ -36,7 +36,40 @@ const UTF8 = new TextEncoder();
 const DOS_DATE = 0x0021;
 
 /** store 모드 ZIP Blob 생성. 시각은 결정적으로 0(재현성·프라이버시). */
+/**
+ * **이 라이터가 담을 수 있는 한계** — ZIP64 미지원(2026-07-27 명시).
+ *
+ * 크기·오프셋 필드가 전부 `setUint32`(4 GiB)이고 엔트리 수는 `setUint16`(65,535)이다.
+ * 넘으면 **오류가 아니라 잘못된 값이 기록된다** — 열리는 것처럼 보이다가 복원에서 깨지는
+ * **조용한 손상**이다. 사진 규모에서는 닿을 수 없어 지금까지 문제가 아니었지만,
+ * "백업은 마지막 방어선"이라는 지위에 비해 한계가 어디에도 적혀 있지 않았다(§10 ②).
+ *
+ * 그래서 **넘으면 만들지 않고 거절한다.** 침묵 절삭·조용한 손상보다 명시적 실패가 낫다
+ * (비타협 원칙 #4). 이 한계를 늘리려면 ZIP64 확장 필드가 필요하고, 그건 별도 과제다.
+ */
+export const ZIP_MAX_TOTAL_BYTES = 0xffff_ffff; // 4 GiB - 1 (uint32 상한)
+export const ZIP_MAX_ENTRIES = 0xffff; // 65,535 (uint16 상한)
+
+/** 담을 수 있는가. 못 담으면 **사람이 읽는 이유**를 준다(개수·크기를 숫자로 밝힌다). */
+export function zipCapacityError(entries: { name: string; data: { length: number } }[]): string | null {
+  if (entries.length > ZIP_MAX_ENTRIES) {
+    return `파일이 너무 많아요(${entries.length.toLocaleString()}개). 이 형식은 ${ZIP_MAX_ENTRIES.toLocaleString()}개까지 담을 수 있어요.`;
+  }
+  // 로컬 헤더·중앙 디렉터리도 자리를 먹지만, 한계 판정은 **바이트 합**으로 충분히 보수적이다.
+  const total = entries.reduce((n, e) => n + e.data.length, 0);
+  if (total > ZIP_MAX_TOTAL_BYTES) {
+    const gb = (total / 1024 ** 3).toFixed(1);
+    return `백업이 너무 커요(${gb}GB). 이 형식은 4GB까지 담을 수 있어요 — 여행을 나눠서 백업해 주세요.`;
+  }
+  return null;
+}
+
 export function zipStore(entries: ZipEntry[]): Blob {
+  // **조용한 손상 대신 명시적 실패.** 여기서 막지 않으면 uint32/uint16이 넘쳐 잘못된 값이
+  // 기록되고, 그 파일은 "받아졌다"고 보이다가 복원할 때 깨진다 — 백업에서 가장 나쁜 실패다.
+  const cap = zipCapacityError(entries);
+  if (cap) throw new Error(cap);
+
   const locals: Uint8Array[] = [];
   const centrals: Uint8Array[] = [];
   let offset = 0;

@@ -8,10 +8,19 @@ describe('blueprint selfCheck', () => {
     expect(c.gaps).toEqual([]);
     expect(c.score).toBe(100);
     expect(c.got).toBe(c.total);
-    // 3개 점검 그룹, 각 그룹 total = 실장 도메인 수(4)
-    const built = SOURCES.filter((s) => s.implemented).length;
-    expect(built).toBe(4);
-    for (const g of c.groups) expect(g.total).toBe(built);
+    // 실장 도메인 수는 **손으로 적지 않는다** — 도메인이 늘 때마다 이 숫자가 낡는다(M-0001).
+    // 대신 관계를 잰다: 실장 도메인은 하나 이상이고, 서버로 안 가는 것은 **이유가 있어야** 한다.
+    const built = SOURCES.filter((s) => s.implemented);
+    expect(built.length).toBeGreaterThan(0);
+    for (const s of built) {
+      // 서버 배선이 없는데 이유도 없으면 그건 결함이다(§7 — 이유 없는 제외 금지).
+      if (!s.hasSync) expect(s.localOnlyReason, `${s.label}에 localOnlyReason이 없다`).toBeTruthy();
+    }
+    // 그룹 분모는 **서버로 가는 도메인 수**다(로컬 전용은 rowmap·sync 분모에서 빠진다).
+    const synced = built.filter((s) => !s.localOnlyReason).length;
+    for (const g of c.groups) {
+      expect(g.total === synced || g.total === built.length).toBe(true);
+    }
   });
 
   it('로드맵(계획 도메인)은 감점이 아니라 정직한 예정으로 표시', () => {

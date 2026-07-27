@@ -40,6 +40,7 @@ selected_non_durable
 ```
 
 - **저장공간 사전점검(preflight)**: 앱 시작·대량 선택 전 `navigator.storage.estimate()`로 여유를 확인하고, 적절 시점에 `navigator.storage.persist()`를 요청한다.
+  - **구현**: `domain/media/quota.ts`의 `quotaVerdict()`를 `addPhotoToMoment` 맨 앞에서 부른다(2026-07-27). 그전까지 이 계약은 **문서에만 있었고** `estimate()`는 표시용으로만 쓰였다. 브라우저가 quota를 모르면 **막지 않는다**(미지원 기기에서 앱을 못 쓰게 되면 안 된다).
 - **분할 수용(partial acceptance)**: quota가 부족하면 일부만 `staged`로 수용하고 나머지는 `quota_blocked`로 남긴다. 전량 수용을 강제하지 않는다.
 - **명시적 거부**: 인식 못 하는 입력·손상·초과 파일은 침묵 기본값 없이 명시적으로 거부한다(LESSONS §3).
 

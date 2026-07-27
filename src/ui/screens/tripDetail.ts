@@ -2,6 +2,9 @@
 // 자유 텍스트는 textContent만 사용. 서버 동기화(순간)는 후속 — 지금은 이 기기에 내구성 저장.
 
 import { el, setNote } from '../dom';
+import { audioChip, recordButton } from '../audioNote';
+import { listAudioByTrip, addAudioToMoment, softDeleteAudio } from '../../services/audio';
+import type { LocalAudio } from '../../offline/db';
 import { showUndoToast } from '../toast';
 import {
   getTrip,
@@ -377,6 +380,61 @@ function toLocalInputValue(iso: string): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+/**
+ * 소리 칩을 칩 줄에 붙인다. **사진 격자가 아니라 칩 줄**이다 — 격자는 훑는 곳인데
+ * 소리는 재생해야 내용을 알아서 훑기를 나쁘게 한다. 장소·비용과 같은 한 줄 정보다(§7 화면 대칭).
+ */
+function appendAudioChips(chips: HTMLElement, list: LocalAudio[], refresh: () => void): void {
+  for (const a of list) {
+    chips.appendChild(
+      audioChip(a, () => {
+        void softDeleteAudio(a.id).then(() => refresh());
+      }),
+    );
+  }
+}
+
+/**
+ * 🎙 녹음 버튼 — 저장까지 책임진다. 결과 문장을 `status` 요소에 그대로 쓴다.
+ *
+ * 실패를 **조용히 넘기지 않는다**: 저장 공간 부족·형식 미지원·너무 짧은 녹음은 전부 사람이
+ * 읽는 문장으로 나온다(§12 — 앱이 아는 것을 말하지 않으면 사용자가 대신 알아내야 한다).
+ * 그리고 성공 문장이 **어디에 저장됐는지**를 말한다 — 오디오는 서버에 안 가므로 그 사실이
+ * 사용자에게 보여야 한다(계층이 ①③ 둘뿐이라는 것은 앱이 아는 정보다).
+ */
+function buildRecordButton(
+  momentId: string,
+  tripId: string,
+  status: HTMLElement,
+  refresh: () => void,
+): HTMLButtonElement {
+  return recordButton((r) => {
+    void (async () => {
+      try {
+        await addAudioToMoment({ momentId, tripId }, r.blob, r.seconds, r.mime);
+        status.textContent = '소리를 저장했어요 · 이 기기와 백업 파일에 보관됩니다';
+        refresh();
+      } catch (e) {
+        status.textContent = e instanceof Error ? e.message : '녹음을 저장하지 못했어요';
+      }
+    })();
+  });
+}
+
+/**
+ * 순간 id로 묶는다. 사진·비용·소리가 **같은 모양의 코드 세 벌**을 갖고 있어서 하나로 뽑았다
+ * (`check-fn-size` 래칫이 밀어 준 추출 — 게이트가 설계를 밀어 준 또 한 번).
+ */
+function groupByMoment<T extends { momentId: string }>(rows: T[]): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const r of rows) {
+    const arr = map.get(r.momentId);
+    if (arr) arr.push(r);
+    else map.set(r.momentId, [r]);
+  }
+  return map;
+}
+
 /** datetime-local 입력값(로컬시각) → ISO(UTC). 빈/무효는 undefined(변경 안 함). */
 function fromLocalInputValue(v: string): string | undefined {
   if (!v) return undefined;
@@ -630,18 +688,10 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         listExpensesByTrip(trip!.id),
       ]);
       latestMomentAt = latestOccurredAt(moments); // 순수 함수 — 비교는 순간으로(M-0034)
-      const byMoment = new Map<string, LocalMedia[]>();
-      for (const md of media) {
-        const arr = byMoment.get(md.momentId);
-        if (arr) arr.push(md);
-        else byMoment.set(md.momentId, [md]);
-      }
-      const expByMoment = new Map<string, LocalExpense[]>();
-      for (const ex of expenses) {
-        const arr = expByMoment.get(ex.momentId);
-        if (arr) arr.push(ex);
-        else expByMoment.set(ex.momentId, [ex]);
-      }
+      const audioAll = await listAudioByTrip(trip!.id);
+      const audioByMoment = groupByMoment(audioAll);
+      const byMoment = groupByMoment(media);
+      const expByMoment = groupByMoment(expenses);
       // 위치가 있는 순간(사진 EXIF GPS) → 지도 포인트.
       locatedPoints = [];
       for (const m of moments) {
@@ -662,7 +712,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           locatedPoints.push(point);
         }
       }
-      renderTimeline(moments, byMoment, expByMoment);
+      renderTimeline(moments, byMoment, expByMoment, audioByMoment);
       const groups = groupMomentsByDay(moments, trip!.startDate || undefined);
       statRow.innerHTML = '';
       statRow.append(
@@ -714,6 +764,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       moments: LocalMoment[],
       byMoment: Map<string, LocalMedia[]>,
       expByMoment: Map<string, LocalExpense[]>,
+      audioByMoment: Map<string, LocalAudio[]>,
     ): void {
       resetUrls();
       timeline.innerHTML = '';
@@ -729,13 +780,13 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         timeline.appendChild(el('h3', 'day-head', dayHeaderLabel(g)));
         const items = el('div', 'timeline');
         for (const m of g.items) {
-          items.appendChild(buildMomentCard(m, byMoment.get(m.id) ?? [], expByMoment.get(m.id) ?? []));
+          items.appendChild(buildMomentCard(m, byMoment.get(m.id) ?? [], expByMoment.get(m.id) ?? [], audioByMoment.get(m.id) ?? []));
         }
         timeline.appendChild(items);
       }
     }
 
-    function buildMomentCard(m: LocalMoment, mediaList: LocalMedia[], expenseList: LocalExpense[]): HTMLElement {
+    function buildMomentCard(m: LocalMoment, mediaList: LocalMedia[], expenseList: LocalExpense[], audioList: LocalAudio[]): HTMLElement {
       const item = el('div', 'tl-item');
       item.appendChild(el('span', 'tl-node'));
       const t = localTime(m.occurredAt);
@@ -767,7 +818,8 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       addPhotoLabel.append(document.createTextNode('📷 사진 추가 '), addPhotoInput);
       const addProgress = el('span', 'moment-addphoto-note muted small');
       addProgress.setAttribute('role', 'status');
-      addPhotoWrap.append(addPhotoLabel, addProgress);
+      // 🎙 소리 남기기 — 사진 추가와 **같은 줄**에 둔다(둘 다 "이 순간에 뭔가 더하기"다).
+      addPhotoWrap.append(addPhotoLabel, buildRecordButton(m.id, trip!.id, addProgress, refresh), addProgress);
       addPhotoInput.addEventListener('change', () => {
         const files = addPhotoInput.files ? Array.from(addPhotoInput.files) : [];
         if (!files.length) return;
@@ -853,9 +905,10 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       });
 
       if (m.note) card.appendChild(el('p', 'moment-note', m.note));
-      if (m.placeName || expenseList.length) {
+      if (m.placeName || expenseList.length || audioList.length) {
         const chips = el('div', 'chips');
         if (m.placeName) chips.appendChild(el('span', 'chip gps', `📍 ${m.placeName}`));
+        appendAudioChips(chips, audioList, refresh);
         // 환율 상세(탭하면 펼쳐짐) — 툴팁(title)은 모바일에서 안 보이므로 실제 패널로 보여준다.
         const fxDetail = el('div', 'fx-detail');
         fxDetail.hidden = true;

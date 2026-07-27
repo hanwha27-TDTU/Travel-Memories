@@ -58,6 +58,41 @@ export function isEmptyCloudAnomaly(serverRowCount: number, localActiveCount: nu
 }
 
 /**
+ * **재시도 대기 시간**(ms) — `docs/SYNC_PROTOCOL.md:31`의 계약을 코드로 옮긴 것.
+ *
+ * ⚠️ 2026-07-27까지 이 함수가 **없었다.** 계약은 문서에 5초/15초/60초/5분/15분으로 적혀
+ * 있었는데 `markFail`은 `attempts`를 증가만 시키고 **아무도 읽지 않았다**(grep 0건).
+ * 그래서 실패한 op이 `autoSync`의 트리거(`online`·`visibilitychange`·5분 주기)마다
+ * **즉시 재시도**됐다 — 화면을 오갈 때마다 같은 요청이 다시 나간다.
+ *
+ * jitter는 여러 기기·여러 op이 **같은 순간에 몰리는 것**을 흩는다(thundering herd).
+ * 주입 가능하게 둔 이유는 검사의 결정성 때문이다(그레인의 고정 시드와 같은 규율).
+ *
+ * @param attempts 지금까지의 실패 횟수(1부터). 0 이하는 1로 본다.
+ * @param rand 0..1 난수. 기본 `Math.random` — 검사는 고정값을 넣는다.
+ */
+export const RETRY_SCHEDULE_MS = [5_000, 15_000, 60_000, 300_000, 900_000] as const;
+
+export function retryDelayMs(attempts: number, rand: () => number = Math.random): number {
+  const i = Math.min(Math.max(1, Math.floor(attempts)), RETRY_SCHEDULE_MS.length) - 1;
+  const base = RETRY_SCHEDULE_MS[i]!;
+  // ±20% jitter. 하한을 base의 80%로 두어 "계약보다 빨리 재시도"가 나오지 않게 한다.
+  return Math.round(base * (0.8 + rand() * 0.4));
+}
+
+/**
+ * **지금 이 op을 시도해도 되는가.** `nextRetryAt`이 없으면(옛 항목·첫 시도) 항상 참이다 —
+ * 모르는 것을 "대기"로 반올림하면 옛 큐가 영영 안 나간다.
+ */
+export function isRetryDue(op: { nextRetryAt?: string }, nowIso: string): boolean {
+  if (!op.nextRetryAt) return true;
+  const t = Date.parse(op.nextRetryAt);
+  const now = Date.parse(nowIso);
+  if (Number.isNaN(t) || Number.isNaN(now)) return true; // 못 읽는 값으로 막지 않는다
+  return now >= t;
+}
+
+/**
  * 오류 분류: 재시도 가능(네트워크·일시) vs 영구(검증·권한).
  * status undefined = 네트워크 미도달 → 재시도. 401/403 = 인증/권한 → 영구(사용자 개입).
  */

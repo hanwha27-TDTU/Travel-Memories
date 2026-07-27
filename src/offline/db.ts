@@ -81,6 +81,36 @@ export interface LocalExpense extends SyncMeta {
   note: string; // 메모(선택)
 }
 
+/**
+ * **오디오 노트** — 순간에 붙는 짧은 녹음(≤60초). 소리와 말을 회수한다.
+ *
+ * ── 왜 별도 테이블인가 (§7 2층) ───────────────────────────────────────
+ * `LocalMedia`에 `audioBlob?` 필드를 붙이는 방법도 있었지만 **그러면 안 된다.**
+ * `check-backup-coverage`는 **테이블 단위**로 본다(`db.ts`의 `Table<...>` 선언을 뽑는다) —
+ * 필드를 추가하면 테이블 목록이 그대로라 게이트가 **GREEN인 채로** 백업에서 조용히 빠진다.
+ * 별도 테이블이면 게이트가 **자동으로** 걸린다. "다음 형제가 자동으로 따라오는가"에 예다.
+ *
+ * `SyncMeta`를 상속하므로 tombstone·version·LWW·좀비 차단 규율을 **자동 승계**한다
+ * (`mergeDecision`은 `SyncMeta`만 참조한다 — 서버 동기화를 붙일 때 그대로 쓰인다).
+ *
+ * ── 계층(DISASTER_RECOVERY) ───────────────────────────────────────────
+ * MVP에서 오디오는 **①로컬 + ③백업**에 산다. 서버 동기화(②)는 후속이다 —
+ * 이는 **원본 사진과 똑같은 계약**이고(`DISASTER_RECOVERY.md:79`), 그래서 두 계층이
+ * 확보된다. 한 계층만 남는 설계는 비타협 원칙 #1 위반이라 하지 않았다.
+ */
+export interface LocalAudio extends SyncMeta {
+  momentId: string;
+  tripId: string;
+  /** 녹음 바이트(원본 그대로 — 재인코딩하지 않는다). */
+  blob: Blob;
+  /** 실제 저장된 형식(`audio/webm;codecs=opus` 등). 재생 `type` 힌트에 쓴다. */
+  mime: string;
+  /** 길이(초). 화면 칩 `🔊 0:14`가 읽는다. */
+  durationSec: number;
+  /** 녹음한 시각(ISO). `occurredAt`이 아니라 **만든 시각**이다. */
+  recordedAt: string;
+}
+
 // 환율 표(FxRateTable) 로컬 캐시 — **파생·재취득 가능한 공개 데이터**이지 사용자의 기억이 아니다.
 // 그래서 동기화하지 않고 백업에도 담지 않는다(syncQueue와 같은 성격 — check-backup-coverage 제외 목록).
 // 과거 날짜의 기준환율은 확정값이라 한 번 받으면 안 바뀐다 → 캐시가 표시 안정성을 보장한다.
@@ -107,6 +137,17 @@ export interface SyncQueueItem {
   state: string;
   attempts: number;
   createdAt: string;
+  /**
+   * **이 시각 전에는 다시 시도하지 않는다**(ISO). 지수 백오프의 저장 형태.
+   *
+   * 2026-07-27까지 `attempts`는 **증가만 하고 아무도 읽지 않았다** — `SYNC_PROTOCOL.md:31`이
+   * 5초/15초/60초/5분/15분+jitter를 계약으로 적어 뒀는데 코드에 백오프가 없었다.
+   * 사진 크기에서는 무해했지만, `autoSync`가 `online`·`visibilitychange`·5분 주기로 도는 탓에
+   * 실패한 op이 **화면을 오갈 때마다 즉시 재시도**된다(대용량이면 그 자체가 공격이 된다).
+   *
+   * 인덱스가 아니라 **값**이다(Dexie 스키마 변경 불필요). 없으면 "지금 시도 가능"으로 읽는다.
+   */
+  nextRetryAt?: string;
 }
 
 // 영구삭제 표식(A안, ADR 예정) — "이 기기에서 영구히 치운 것"의 목록.
@@ -138,6 +179,7 @@ export class JourneyDB extends Dexie {
   localMoments!: Table<LocalMoment, string>;
   localMedia!: Table<LocalMedia, string>;
   localExpenses!: Table<LocalExpense, string>;
+  localAudio!: Table<LocalAudio, string>;
   localFxRates!: Table<LocalFxRate, string>;
   purgedIds!: Table<PurgedId, string>;
   syncQueue!: Table<SyncQueueItem, string>;
@@ -172,6 +214,11 @@ export class JourneyDB extends Dexie {
     // v6: 영구삭제 표식. pull이 이 id를 건너뛰어 "지운 것이 되살아나는" 부활을 막는다.
     this.version(6).stores({
       purgedIds: 'id, entityType, purgedAt',
+    });
+    // v7: 오디오 노트(≤60초). 순간·여행 관계키로 조회. Blob 저장이라 인덱스는 관계키만.
+    // **기존 버전을 고치지 않고 새 version을 추가한다**(버전 체인 규율 — sync-offline SKILL §0).
+    this.version(7).stores({
+      localAudio: 'id, momentId, tripId, updatedAt',
     });
   }
 }

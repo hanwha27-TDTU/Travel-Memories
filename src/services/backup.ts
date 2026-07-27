@@ -16,7 +16,7 @@
 //  - 빈-데이터 가드: 백업이 비었는데 로컬에 활성 데이터가 있으면 로컬을 지우지 않는다.
 //  - 사진 원본은 읽기만 하고 수정하지 않는다(§0). 고아 행(부모 없는 순간/사진/비용)도 유실 없이 담는다.
 
-import { db, type LocalTrip, type LocalMoment, type LocalMedia, type LocalExpense, type SyncMeta } from '../offline/db';
+import { db, type LocalTrip, type LocalMoment, type LocalMedia, type LocalExpense, type LocalAudio, type SyncMeta } from '../offline/db';
 import { mergeDecision, isEmptyCloudAnomaly } from '../sync/merge';
 import { zipStore, unzip, looksLikeZip, type ZipEntry } from './zip';
 import { encryptBytes, decryptBytes, isEncryptedEnvelope } from './backupCrypto';
@@ -24,7 +24,8 @@ import { requestUnpurge } from './purge';
 // 시각 표기의 SSOT — 서버 경계(rowmap)와 **같은 함수**를 쓴다(§7: 규율은 한 곳에 구현한다).
 import { withCanonicalStamps } from '../domain/time';
 // 이름 규칙은 **한 곳**에서 온다 — ZIP 폴더·파일명과 R2 객체 키가 같은 규율을 쓴다(§7).
-import { tripFolderName as tripFolder, photoFileBase } from '../domain/media/naming';
+import { tripFolderName as tripFolder, photoFileBase, stampFromISO } from '../domain/media/naming';
+import { extForAudioMime } from '../domain/audio/note';
 
 export { photoFileBase, stampFromISO } from '../domain/media/naming';
 
@@ -37,6 +38,8 @@ export interface CollectedRows {
   moments: LocalMoment[];
   media: LocalMedia[];
   expenses: LocalExpense[];
+  /** 오디오 노트(≤60초). 서버에 안 가므로 **백업이 두 번째 계층**이다 — 빠지면 계층이 하나뿐이다. */
+  audio: LocalAudio[];
 }
 
 export interface BackupStats {
@@ -44,6 +47,7 @@ export interface BackupStats {
   moments: number;
   media: number;
   expenses: number;
+  audio: number;
 }
 
 export interface ImportResult {
@@ -51,6 +55,8 @@ export interface ImportResult {
   moments: number;
   media: number;
   expenses: number;
+  /** 복원된 오디오 노트 수. 화면이 「소리 N개」로 말한다(조용히 넘기지 않는다). */
+  audio: number;
   skippedEmptyGuard: boolean;
   /**
    * 서버 영구삭제 원장에서 **되돌리기를 요청한 건수**(복원이 되살린 id 중 새로 큐에 올린 수).
@@ -60,7 +66,7 @@ export interface ImportResult {
 }
 
 function statsOf(rows: CollectedRows): BackupStats {
-  return { trips: rows.trips.length, moments: rows.moments.length, media: rows.media.length, expenses: rows.expenses.length };
+  return { trips: rows.trips.length, moments: rows.moments.length, media: rows.media.length, expenses: rows.expenses.length, audio: rows.audio.length };
 }
 
 // ═══════════════ db 접근층: 모든 사용자 데이터 테이블을 여기서만 읽고/병합한다 ═══════════════
@@ -70,13 +76,14 @@ function statsOf(rows: CollectedRows): BackupStats {
 /** export 수집: 전 테이블(tombstone 포함)을 로컬에서 읽는다. */
 export async function exportCollectRows(): Promise<CollectedRows> {
   const d = db();
-  const [trips, moments, media, expenses] = await Promise.all([
+  const [trips, moments, media, expenses, audio] = await Promise.all([
     d.localTrips.toArray(),
     d.localMoments.toArray(),
     d.localMedia.toArray(),
     d.localExpenses.toArray(),
+    d.localAudio.toArray(),
   ]);
-  return { trips, moments, media, expenses };
+  return { trips, moments, media, expenses, audio };
 }
 
 /**
@@ -93,6 +100,7 @@ export async function importMergeRows(incoming: CollectedRows): Promise<ImportRe
     moments: incoming.moments.map(withCanonicalStamps),
     media: incoming.media.map(withCanonicalStamps),
     expenses: incoming.expenses.map(withCanonicalStamps),
+    audio: (incoming.audio ?? []).map(withCanonicalStamps),
   };
 
   const backupTotal = rows.trips.length + rows.moments.length;
@@ -101,13 +109,14 @@ export async function importMergeRows(incoming: CollectedRows): Promise<ImportRe
     localTrips.filter((t) => t.deletedAt === null).length +
     localMoments.filter((m) => m.deletedAt === null).length;
   if (isEmptyCloudAnomaly(backupTotal, localActive)) {
-    return { trips: 0, moments: 0, media: 0, expenses: 0, skippedEmptyGuard: true, unpurged: 0 };
+    return { trips: 0, moments: 0, media: 0, expenses: 0, audio: 0, skippedEmptyGuard: true, unpurged: 0 };
   }
 
   let tc = 0;
   let mc = 0;
   let mdc = 0;
   let ec = 0;
+  let ac = 0;
   // 복원한 행은 **서버로도 전파돼야** 한다. op를 만들지 않으면 그 기억은 이 기기에만 남고
   // 다른 기기·서버에 영영 닿지 않는다(재해 복구의 절반이 빠진 상태). 2026-07-25 감사 F2.
   /** 이번 복원이 되살린 id들 — 서버 원장에서도 빼야 한다(아래 requestUnpurge). */
@@ -142,7 +151,7 @@ export async function importMergeRows(incoming: CollectedRows): Promise<ImportRe
   //
   // 그래서 값을 **트랜잭션 콜백의 반환값으로** 받는다. 밖으로 옮기려면 반환 경로가 끊기므로
   // 다음 사람이 무심코 되돌릴 수 없다(§7 2층 — 규율을 구조가 지킨다).
-  const unpurged = await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.syncQueue, d.purgedIds], async () => {
+  const unpurged = await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.syncQueue, d.purgedIds], async () => {
     for (const t of rows.trips) {
       if (mergeDecision(await d.localTrips.get(t.id), t) === 'take-server') {
         await d.localTrips.put(t);
@@ -171,13 +180,22 @@ export async function importMergeRows(incoming: CollectedRows): Promise<ImportRe
         ec += 1;
       }
     }
+    // 오디오 노트 — **서버로 안 가므로 op를 만들지 않는다**(그래서 `enqueue`를 쓰지 않는다).
+    // 대신 같은 `mergeDecision`(LWW+tombstone)을 지나 병합 규율은 형제와 동일하다.
+    // 이 비대칭은 의도적이고, 그 이유가 `services/audio.ts` 머리주석과 NO_OP_REQUIRED에 있다.
+    for (const a of rows.audio) {
+      if (mergeDecision(await d.localAudio.get(a.id), a) === 'take-server') {
+        await d.localAudio.put(a);
+        ac += 1;
+      }
+    }
     // 서버 원장 되돌리기 의사를 **같은 커밋에** 남긴다. 여기서 바로 서버를 부르지 않는 이유:
     // 복원은 오프라인에서도 되고 호출은 실패할 수 있는데, 그냥 넘어가면 다음 동기화가 원장을
     // pull해 **복원한 것을 다시 지운다**(2026-07-26에 실제로 그랬다). 남겨야 재시도된다.
     return requestUnpurge([...restoredIds]);
   });
 
-  return { trips: tc, moments: mc, media: mdc, expenses: ec, skippedEmptyGuard: false, unpurged };
+  return { trips: tc, moments: mc, media: mdc, expenses: ec, audio: ac, skippedEmptyGuard: false, unpurged };
 }
 
 // ═══════════════ 순수 직렬화층: base64 · blob 유틸(FileReader 미사용 — Node/브라우저 공통) ═══════════════
@@ -215,6 +233,9 @@ async function blobBytes(blob: Blob): Promise<Uint8Array<ArrayBuffer>> {
 
 // ═══════════════════════ 형식 1: 단일 JSON (순수 직렬화) ═══════════════════════
 
+/** 오디오 노트의 백업 표현 — blob은 data URL 문자열로. 사진(MediaExport)과 같은 형태. */
+type AudioExport = Omit<LocalAudio, 'blob'> & { blobB64: string };
+
 type MediaExport = Omit<LocalMedia, 'originalBlob' | 'displayBlob' | 'thumbBlob'> & {
   originalB64: string;
   displayB64: string;
@@ -229,6 +250,8 @@ export interface BackupFile {
   trips: LocalTrip[];
   moments: LocalMoment[];
   media: MediaExport[];
+  /** 오디오 노트. 옛 백업 파일에는 없다(하위호환 — 없으면 빈 배열로 읽는다). */
+  audio?: AudioExport[];
   expenses: LocalExpense[];
 }
 
@@ -240,6 +263,13 @@ export async function serializeJson(rows: CollectedRows): Promise<string> {
     const { originalBlob: _o, displayBlob: _d, thumbBlob: _t, ...rest } = m;
     mediaOut.push({ ...rest, originalB64: o, displayB64: di, thumbB64: t });
   }
+  // 오디오도 같은 규율로 담는다 — **빠지면 계층이 ①밖에 안 남는다**(서버에 안 가므로).
+  const audioOut: AudioExport[] = [];
+  for (const a of rows.audio) {
+    const b64 = await blobToDataUrl(a.blob);
+    const { blob: _b, ...rest } = a;
+    audioOut.push({ ...rest, blobB64: b64 });
+  }
   const file: BackupFile = {
     app: BACKUP_APP_TAG,
     backupVersion: BACKUP_VERSION,
@@ -249,6 +279,7 @@ export async function serializeJson(rows: CollectedRows): Promise<string> {
     moments: rows.moments,
     media: mediaOut,
     expenses: rows.expenses,
+    audio: audioOut,
   };
   return JSON.stringify(file);
 }
@@ -269,11 +300,17 @@ export function deserializeJson(text: string): CollectedRows {
     const { originalB64, displayB64, thumbB64, ...rest } = me;
     return { ...rest, originalBlob: b64ToBlob(originalB64), displayBlob: b64ToBlob(displayB64), thumbBlob: b64ToBlob(thumbB64) };
   });
+  // 옛 백업 파일에는 audio가 없다 — 없으면 빈 배열(형식 하위호환).
+  const audio: LocalAudio[] = (Array.isArray(parsed.audio) ? parsed.audio : []).map((a) => {
+    const { blobB64, ...rest } = a;
+    return { ...rest, blob: b64ToBlob(blobB64) };
+  });
   return {
     trips: parsed.trips,
     moments: Array.isArray(parsed.moments) ? parsed.moments : [],
     media,
     expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
+    audio,
   };
 }
 
@@ -293,6 +330,8 @@ interface TripBundle {
   moments: LocalMoment[];
   media: MediaMetaEntry[];
   expenses: LocalExpense[];
+  /** 오디오 노트 메타 + ZIP 안 파일명. 소리 파일은 `audio/` 하위에 실제 파일로 넣는다. */
+  audio?: (Omit<LocalAudio, 'blob'> & { file: string })[];
 }
 
 interface ZipManifest {
@@ -336,7 +375,7 @@ export async function serializeZip(rows: CollectedRows, includeOriginals = true)
     const folder = known ? folderOf.get(tripId!)! : ORPHAN_FOLDER;
     let bundle = bundles.get(key);
     if (!bundle) {
-      bundle = { trip: known ? tripById.get(tripId!)! : null, moments: [], media: [], expenses: [] };
+      bundle = { trip: known ? tripById.get(tripId!)! : null, moments: [], media: [], expenses: [], audio: [] };
       bundles.set(key, bundle);
     }
     return { folder, bundle };
@@ -365,6 +404,16 @@ export async function serializeZip(rows: CollectedRows, includeOriginals = true)
     bundle.media.push({ ...rest, displayFile, thumbFile, originalFile });
   }
 
+  // 오디오 노트 — 사진과 **같은 규율**로 실제 파일로 넣는다(탐색기에서 바로 들을 수 있게).
+  // 이름은 `audio/<녹음시각>_<id 8자>.<ext>` — 사람이 읽을 수 있고 충돌하지 않는다.
+  for (const a of rows.audio) {
+    const { folder, bundle } = bundleFor(a.tripId ?? null);
+    const file = `audio/${stampFromISO(a.recordedAt)}_${a.id.slice(0, 8)}.${extForAudioMime(a.mime)}`;
+    entries.push({ name: `${folder}/${file}`, data: await blobBytes(a.blob) });
+    const { blob: _b, ...rest } = a;
+    bundle.audio!.push({ ...rest, file });
+  }
+
   const folders: string[] = [];
   const enc = new TextEncoder();
   for (const [key, bundle] of bundles) {
@@ -379,6 +428,7 @@ export async function serializeZip(rows: CollectedRows, includeOriginals = true)
       moments: bundle.moments,
       media: bundle.media,
       expenses: bundle.expenses,
+      audio: bundle.audio ?? [],
     };
     entries.push({ name: jsonName, data: enc.encode(JSON.stringify(payload)) });
   }
@@ -416,6 +466,7 @@ export function deserializeZip(buf: ArrayBuffer): CollectedRows {
   const moments: LocalMoment[] = [];
   const media: LocalMedia[] = [];
   const expenses: LocalExpense[] = [];
+  const audio: LocalAudio[] = [];
 
   for (const f of files) {
     const isTrip = f.name.endsWith('/trip.json');
@@ -431,6 +482,13 @@ export function deserializeZip(buf: ArrayBuffer): CollectedRows {
     }
 
     if (bundle.trip) trips.push(bundle.trip);
+    // 오디오 — 파일이 없으면 **건너뛴다**(사진과 같은 규율: 반쪽 행을 만들지 않는다).
+    for (const meta of bundle.audio ?? []) {
+      const { file, ...rest } = meta;
+      const data = byName.get(`${folder}/${file}`);
+      if (!data) continue;
+      audio.push({ ...rest, blob: new Blob([data], { type: rest.mime }) });
+    }
     if (Array.isArray(bundle.moments)) moments.push(...bundle.moments);
     if (Array.isArray(bundle.expenses)) expenses.push(...bundle.expenses);
 
@@ -446,7 +504,7 @@ export function deserializeZip(buf: ArrayBuffer): CollectedRows {
       media.push({ ...rest, originalBlob, displayBlob, thumbBlob });
     }
   }
-  return { trips, moments, media, expenses };
+  return { trips, moments, media, expenses, audio };
 }
 
 // ═══════════════════════ 공개 API: db + 직렬화 + (선택)암호화 결합 ═══════════════════════
@@ -495,7 +553,7 @@ export async function importBackupAuto(
 ): Promise<ImportResult & { needsPassphrase?: boolean }> {
   let bytes = new Uint8Array(buf);
   if (isEncryptedEnvelope(bytes)) {
-    if (!passphrase) return { trips: 0, moments: 0, media: 0, expenses: 0, skippedEmptyGuard: false, unpurged: 0, needsPassphrase: true };
+    if (!passphrase) return { trips: 0, moments: 0, media: 0, expenses: 0, audio: 0, skippedEmptyGuard: false, unpurged: 0, needsPassphrase: true };
     const plain = await decryptBytes(bytes, passphrase); // 실패 시 throw(암호 틀림)
     bytes = plain;
   }
