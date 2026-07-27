@@ -434,6 +434,16 @@
   background: var(--bg-2); color: var(--ink-soft);
 }
 .chip.gps { background: color-mix(in srgb, var(--sem-sky) 15%, transparent); color: var(--sem-sky-ink); }
+/* 누를 수 있는 칩(장소 → 지도). **모양은 형제 칩과 똑같이 두고** 버튼 기본 장식만 지운다 —
+   칩 줄에서 어떤 것은 span이고 어떤 것은 button이라는 사실이 화면에 드러나면 안 된다(§7). */
+button.chip { border: 0; font-family: inherit; }
+.chip-tap { cursor: pointer; }
+.chip-tap:hover { background: color-mix(in srgb, var(--sem-sky) 26%, transparent); }
+.chip-tap:focus-visible { outline: 2px solid var(--sem-sky-ink); outline-offset: 2px; }
+
+/* 바깥 지도(구글)로 나가는 자리 — 앱 지도 **안**에 둔다. 주(主)는 앱 지도다. */
+.map-ext { display: flex; flex-direction: column; gap: var(--space-1); align-items: flex-start; padding: var(--space-3) var(--space-4) 0; }
+.map-ext-note { margin: 0; }
 .chip.money { background: color-mix(in srgb, var(--sem-teal) 15%, transparent); color: var(--sem-teal-ink); }
 
 /* ===== 소리 칩 =====

@@ -74,6 +74,9 @@ export const SKILL_ROUTES = [
   { match: /^src\/services\/(fx|expenses)/, skill: 'expense-fx-dev' },
   { match: /^src\/domain\/expense\//, skill: 'expense-fx-dev' },
   { match: /^src\/(services\/geocode|domain\/place)/, skill: 'map-place-dev' },
+  // 바깥 지도(구글)로 나가는 동의 상태. 위치가 **기기 밖으로 나가는** 유일한 경로라 규율은
+  // 장소 헌장에 있다(PRIVACY「개인자료 기본 비공개」의 예외를 사용자 확인으로 다루는 자리).
+  { match: /^src\/services\/externalMapConsent/, skill: 'map-place-dev' },
   { match: /^src\/ui\/screens\/mapView/, skill: 'map-place-dev' },
   { match: /^src\/services\/(supabase|auth|r2)/, skill: 'supabase-security-dev' },
   { match: /^supabase\//, skill: 'supabase-security-dev' },

@@ -17,6 +17,7 @@
 // 타입은 `import type`으로만 가져온다(빌드에서 지워져 런타임 비용 0).
 
 import type { MapPoint } from './screens/mapView';
+import type { PlaceLike } from '../domain/place/externalMap';
 
 /** 진단 도구 허브. `toolId`를 주면 해당 도구를 펼친 채로 연다. */
 export async function openDiagnosticsHub(toolId?: string): Promise<void> {
@@ -37,9 +38,13 @@ export async function openAboutApp(): Promise<void> {
 }
 
 /** 여행 지도 보기. MapLibre 자체는 mapView 안에서 한 번 더 지연 로드된다. */
-export async function openMapView(tripTitle: string, points: MapPoint[]): Promise<void> {
+export async function openMapView(
+  tripTitle: string,
+  points: MapPoint[],
+  focusPlace?: PlaceLike,
+): Promise<void> {
   const m = await import('./screens/mapView');
-  m.openMapView(tripTitle, points);
+  m.openMapView(tripTitle, points, focusPlace);
 }
 
 /**

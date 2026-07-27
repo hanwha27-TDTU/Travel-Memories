@@ -835,6 +835,88 @@ check(
   `${widthBefore.toFixed(1)} → ${playState.w.toFixed(1)}`,
 );
 
+// ── v1.18: 위치 칩 → 앱 지도 → (선택) 구글 지도 ──
+// 사용자 요청(2026-07-27): *"위치 칩을 클릭하면 지도가 뜨도록 하고 그 지도는 구글지도로 연동"*
+// 결정: 칩은 **앱 지도**를 연다(비공개·오프라인). 구글은 그 안에서 한 번 더 눌러 간다.
+// 여기서 재는 것은 **배선**이다 — 순수 함수(URL·문장)는 tests/unit/externalMap.test.ts가 잰다.
+//
+// 장소가 달린 순간을 Dexie에 직접 만들어 앱이 스스로 칩을 그리게 한다(오디오와 같은 규율).
+const placeSeed = await page.evaluate(async () => {
+  const put = (m) => new Promise((resolve, reject) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction('localMoments', 'readwrite');
+      tx.objectStore('localMoments').put(m);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+  const pick = await new Promise((resolve, reject) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const tx = req.result.transaction('localMoments', 'readonly');
+      const all = tx.objectStore('localMoments').getAll();
+      all.onsuccess = () => resolve(all.result.filter((m) => m.deletedAt === null).pop());
+      all.onerror = () => reject(all.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+  if (!pick) return null;
+  await put({ ...pick, placeName: '김포국제공항', placeLat: 37.5583, placeLng: 126.7906 });
+  return pick.id;
+});
+check('위치 칩: 픽스처 주입(좌표 있는 장소)', Boolean(placeSeed), String(placeSeed));
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForSelector('.chip.gps', { timeout: 10000 });
+await page.evaluate(() => document.querySelector('.chip.gps')?.scrollIntoView({ block: 'center' }));
+await page.waitForTimeout(150);
+const chipIsButton = await page.evaluate(() => {
+  const c = document.querySelector('.chip.gps');
+  return c ? { tag: c.tagName, tappable: c.classList.contains('chip-tap'), label: c.getAttribute('aria-label') } : null;
+});
+check(
+  '위치 칩: 누를 수 있는 버튼이다(span이면 아무 일도 안 일어난다)',
+  chipIsButton?.tag === 'BUTTON' && chipIsButton.tappable === true,
+  JSON.stringify(chipIsButton),
+);
+check('위치 칩: 무엇을 하는 버튼인지 이름이 있다(스크린리더)', /지도/.test(chipIsButton?.label ?? ''), String(chipIsButton?.label));
+
+await page.locator('.chip.gps').first().click();
+await page.waitForSelector('.map-overlay', { timeout: 10000 });
+check('위치 칩: 탭하면 앱 지도가 열린다', true, 'map-overlay');
+
+const ext = await page.evaluate(() => {
+  const b = document.querySelector('.map-ext-btn');
+  return b ? { text: b.textContent, note: document.querySelector('.map-ext-note')?.textContent ?? null } : null;
+});
+check('지도 안에 「구글지도로 열기」가 있다(칩이 곧바로 밖으로 나가지 않는다)', /구글지도/.test(ext?.text ?? ''), String(ext?.text));
+
+// 좌표가 있는 장소이므로 「이름으로 찾았다」 단서는 **없어야** 한다(있으면 거짓 경보다).
+check('좌표가 있으면 「이름으로 찾음」 단서를 달지 않는다', ext?.note === null, String(ext?.note));
+
+// 클릭이 **새 창으로** 나가는지 — 같은 탭을 뺏으면 사용자가 앱을 잃는다.
+// 실제 구글 접속은 하지 않는다(샌드박스·외부 네트워크). window.open을 가로채 인자만 잰다.
+const opened = await page.evaluate(async () => {
+  const calls = [];
+  const real = window.open;
+  window.open = (url, target, feat) => { calls.push({ url, target, feat }); return null; };
+  try {
+    localStorage.setItem('bugeon:externalMapOk', '1'); // 확인 창은 별도로 검증(여기선 배선만)
+    document.querySelector('.map-ext-btn').click();
+    await new Promise((r) => setTimeout(r, 100));
+  } finally { window.open = real; }
+  return calls[0] ?? null;
+});
+check('구글 링크가 Maps URLs 형식이다(api=1 · 키 없음)', /^https:\/\/www\.google\.com\/maps\/search\/\?api=1&query=/.test(opened?.url ?? ''), String(opened?.url));
+check('구글 링크에 API 키가 붙지 않는다', !/key=/i.test(opened?.url ?? ''), String(opened?.url));
+check('구글은 **새 창**으로 연다(앱을 잃지 않게)', opened?.target === '_blank', String(opened?.target));
+check('noreferrer로 앱 주소가 함께 새지 않는다(PRIVACY)', /noreferrer/.test(opened?.feat ?? ''), String(opened?.feat));
+
+await page.locator('.map-close').click();
+await page.waitForTimeout(200);
+
 // ── v0.53: 넓은 화면(태블릿 가로·데스크톱) 레이아웃 ──
 // 문제였던 것: 본문이 780px 고정이라 2000px대 태블릿에서 가운데만 쓰고 양옆이 비었다.
 // 계약: ①어느 폭에서도 가로 넘침 0 ②1100px 이상에서 [기록 폼 | 타임라인] 2단 ③그 미만은 세로.

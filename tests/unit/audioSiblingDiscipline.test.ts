@@ -80,13 +80,13 @@ describe('① cascade — 부모가 사라지면 소리도 함께 사라진다',
   it('순간 삭제가 지운 소리 id를 **돌려준다**(실행취소가 정확히 그것만 되살리도록)', async () => {
     const { momentId, audioId } = await seed();
     const r = await softDeleteMomentLocalFirst(momentId);
-    expect(r.deletedAudioIds).toEqual([audioId]);
+    expect(r.audioIds).toEqual([audioId]);
   });
 
   it('순간 되살리기는 소리도 되살린다 — 되살릴 수 없는 삭제는 계약 위반이다', async () => {
     const { momentId, audioId } = await seed();
     const r = await softDeleteMomentLocalFirst(momentId);
-    await restoreMomentLocalFirst(momentId, r.deletedMediaIds, r.deletedExpenseIds, r.deletedAudioIds);
+    await restoreMomentLocalFirst(momentId, r);
     expect((await audioRow(audioId))!.deletedAt).toBeNull();
   });
 
@@ -264,5 +264,43 @@ describe('⑤ 무결성 — 안 보는 것을 「0건」이라 말하지 않는�
     const before = checkIntegrity({ ...(await loadIntegritySnapshot()), audio: [] }).checked;
     const after = checkIntegrity(await loadIntegritySnapshot()).checked;
     expect(after).toBe(before + 1);
+  });
+});
+
+// ⚠️ 2026-07-27에 **추가된 무리**. 위 ①이 서비스 계층은 잠갔는데, 화면이 그 서비스를
+// **반쪽으로 부르고 있었다**: `const { deletedMediaIds } = await softDelete…` 로 사진만
+// 꺼내 넘겼고, 선택적 매개변수의 기본값 `[]`가 나머지를 **조용히 삼켰다**(M-0007의 재발).
+// 그래서 서비스 유닛은 전부 통과하는데 **실제 실행취소는 비용·소리를 안 되살렸다.**
+//
+// 교훈: 계약을 타입으로 잠갔으면 **호출부도 그 타입을 통과하게** 만들어야 한다. 여기서는
+// `MomentChildren` 묶음이 그 일을 한다 — 삭제가 돌려주는 것과 복원이 받는 것이 같은 타입이라
+// 손으로 고를 기회 자체가 없다. 아래 검사는 그 계약이 살아 있는지를 **행으로** 확인한다.
+describe('⑥ 실행취소는 **딸린 것 전부**를 데려온다 (M-0007 재발 방지)', () => {
+  it('🔴 순간 삭제→복원이 사진·비용·소리를 **한 번에** 되살린다', async () => {
+    const { tripId, momentId, audioId } = await seed();
+    const d = db();
+    const now = new Date().toISOString();
+    const expenseId = crypto.randomUUID();
+    const mediaId = crypto.randomUUID();
+    await d.localExpenses.put({
+      id: expenseId, tripId, momentId, originalAmount: 1000, originalCurrency: 'KRW',
+      note: '', occurredAt: now, createdAt: now, updatedAt: now, deletedAt: null, version: 1,
+    } as never);
+    await d.localMedia.put({
+      id: mediaId, tripId, momentId, mime: 'image/webp', width: 4, height: 4,
+      originalBlob: new Blob(['o']), displayBlob: new Blob(['d']), thumbBlob: new Blob(['t']),
+      takenAt: now, createdAt: now, updatedAt: now, deletedAt: null, version: 1,
+    } as never);
+
+    const children = await softDeleteMomentLocalFirst(momentId);
+    // 삭제는 셋 다 담아야 한다 — 여기서 빠지면 복원은 시작도 못 한다.
+    expect(children.mediaIds).toEqual([mediaId]);
+    expect(children.expenseIds).toEqual([expenseId]);
+    expect(children.audioIds).toEqual([audioId]);
+
+    await restoreMomentLocalFirst(momentId, children);
+    expect((await d.localMedia.get(mediaId))!.deletedAt).toBeNull();
+    expect((await d.localExpenses.get(expenseId))!.deletedAt).toBeNull(); // ← 옛 결함이 남기던 자리
+    expect((await d.localAudio.get(audioId))!.deletedAt).toBeNull(); // ← 그리고 여기
   });
 });

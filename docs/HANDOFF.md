@@ -8,9 +8,9 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.16<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->116<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->55<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.18<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->118<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->55<!--/reg-->개).
 
-> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->18<!--/reg-->개 적용(`supabase/migrations/` 전부).
+> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->19<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
 
 ### 🕐 직전 세션에서 무슨 일이 있었나 (2026-07-27 · 새 AI는 이것부터)
@@ -262,6 +262,49 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0011 · v1.16~v1.18 · **사용자 실기기가 다시 세 번 잡았다** (M-0041·M-0042)
+
+**발단**: v1.15 배포 후 사용자가 실기기에서 확인하며 남긴 두 마디와 한 질문.
+
+| 사용자가 한 말 | 드러난 것 |
+|---|---|
+| *"칩 디자인이 조잡하네요"* | `.chip`이 flex가 아니어서 ✕가 둘째 줄로 밀렸다 — 소리 칩 **51.3px** vs 형제 **29.3px** (M-0041) |
+| *"이미 녹음된 걸 삭제할 땐 바로 삭제가 되네요"* | 사진에는 있던 실행취소가 **소리에만 없었다** (M-0041) |
+| *"위치 칩을 클릭하면 지도가… 구글지도로 연동 가능한가요?"* | 가능·무료(Maps URLs는 키가 없다). **그리고 그 코드를 읽다 M-0042를 찾았다** |
+
+**M-0042가 이번 판의 진짜 소득이다.** 위치 칩 옆 코드를 정독하다(§9 2단계) 발견했다:
+`tripDetail`이 `const { deletedMediaIds } = await softDeleteMomentLocalFirst(...)`로 **사진만
+꺼내** 넘겼고, 선택적 매개변수의 기본값 `[]`가 나머지를 삼켰다 — **순간을 지우고 실행취소하면
+비용·소리가 안 돌아왔다.** 순간이 활성으로 돌아오므로 휴지통에도 안 보여 복구 경로가 사라진다.
+
+이건 **M-0007과 같은 결함인데 형제 한쪽만 안 고쳐진 것**이다. 그때 여행 쪽은 `TripChildren`
+묶음 타입으로 컴파일 오류화했고 그 처방이 옳다는 것도 증명됐는데, **순간 쪽에는 적용하지
+않았다.** §7이 요구하는 *"형제 목록을 적고 전부에 적용하라"*를 그때 하지 않았고, 그 자리는
+이후 아무 게이트도 묻지 않았다. → `MomentChildren`으로 같은 처방을 적용했다.
+
+**위치 칩 설계(사용자 결정)**: 칩 → **앱 지도**(비공개·오프라인) → 그 안에서 「🌐 구글지도로
+열기」. 구글로 좌표가 나가는 것은 이 앱이 하지 않던 일이라 **처음 한 번 고지** + `noreferrer`.
+좌표가 없으면 이름으로 검색하되 **그렇다고 화면에 밝힌다**(안 밝히면 앱이 엉뚱한 곳을 그
+장소라고 우기는 셈이다). 순수 함수로 분리해 **문장까지 유닛으로** 잰다(§10 ③).
+
+**검증**: 31게이트 · 유닛 **663** · live **137 → 155**. 주입 RED: 배포됐던 칩 상태(h=51.3 재현)
+5건 · 칩을 span으로 1건 · `noreferrer` 제거 1건 · 옛 시그니처 3건.
+
+**이번에 게이트가 나를 세 번 막았다(전부 옳았다)**:
+1. `check-fn-size` 래칫 — 주석을 지우는 대신 `parentChecks`·`emptyState`를 뽑았고 결과가 더 나았다.
+2. `check-skill-routing` — 새 파일(`externalMapConsent.ts`)이 「먼저 읽을 문서」를 안 가졌다고 막았다.
+3. **라이브 검사가 실행을 거부했다** — 주입 실험 중 `tsc`가 막아 빌드가 실패했는데 옛 dist가
+   남아 있었다. *"dist가 소스보다 79초 낡았습니다"*(exit 2). 낡은 번들을 재는 검사는 공허하다.
+
+**정직한 한계**: 실제 구글 접속은 **하지 않았다**(샌드박스 외부 네트워크). `window.open`을
+가로채 **인자만** 검증했다 — URL 형식·`_blank`·`noreferrer`까지가 자동층이고, 구글이 그 좌표를
+제대로 여는지는 실기기 확인이다. *"세련돼 보이는가"*도 기계가 판정하지 못한다.
+
+**다음 사람에게**: 영상(`docs/VIDEO_PROPOSAL.md`)은 **결정 대기**다 — 오디오를 먼저 하고
+배포한 뒤 정하기로 했고, 오디오는 v1.15~v1.18로 마무리됐다.
 
 ---
 
