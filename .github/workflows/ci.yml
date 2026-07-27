@@ -27,3 +27,36 @@ jobs:
         run: npm run harness
       - name: Build
         run: npm run build
+
+  # 라이브 렌더 — **이 앱에서 유일하게 도는 런타임 검출층**(CLAUDE.md §10).
+  #
+  # 왜 별도 job인가: 이 검사는 브라우저 바이너리를 받아야 하므로 harness job보다 느리고,
+  # 설치 실패는 앱의 결함이 아니다. 섞어 두면 "브라우저를 못 받아서 빨간불"이 반복되며
+  # 사람이 빨간불을 무시하기 시작한다 — 그 순간 게이트는 죽는다(gates 헌장 §2-B ③).
+  #
+  # 왜 CI에 있어야 하는가: 2026-07-27 건강진단 전까지 이 검사는 harness에도 CI에도 없어서
+  # **전역 playwright를 가진 사람이 기억해서 손으로** 돌려야만 돌았다. 조항(1층)은 "완료의
+  # 정의"에 적혀 있었지만 구조(2층)가 없었고, 직전 세션의 M-0037이 정확히 이 검사에서 났다.
+  # 여기서 도는 순간 "다음 사람이 이 규칙을 몰라도 지켜지는가?"의 답이 예가 된다(§7).
+  #
+  # 배포(deploy-pages)에는 걸지 않았다: 같은 커밋을 이 워크플로가 이미 재고, 배포 경로에
+  # 브라우저 설치를 끼우면 배포 지연·실패 표면이 넓어진다. **대신 여기 빨간불을 방치하지 않는다**
+  # — 병합 후 결론 확인은 M-0031이 남긴 의무다(merge 성공 ≠ 배포·검사 성공).
+  live-render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+      - run: npm ci
+      # 브라우저는 lock에 없다(바이너리라서). 판은 devDependency의 playwright가 정한다.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      # 반드시 build가 먼저다 — `verify-editor-live`는 `dist`를 잰다. 그리고 **낡은 dist를
+      # 재면 검사가 공허해지므로**(M-0037) 스크립트가 스스로 신선도를 확인하고 멈춘다.
+      - name: Build
+        run: npm run build
+      - name: Live render gates
+        run: npm run live

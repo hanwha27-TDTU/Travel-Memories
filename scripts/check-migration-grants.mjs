@@ -149,7 +149,110 @@ export function auditMigrations(files) {
   return problems;
 }
 
+/**
+ * 정책의 **최종 정의**만 모은다.
+ *
+ * 마이그레이션은 추가 전용이라 옛 정의가 파일에 그대로 남아 있다 — 전체를 훑어 위반을 세면
+ * 역사를 결함으로 신고하는 **오탐**이 된다(§2-B ③). 같은 이름의 정책이 여러 번 재정의되면
+ * 파일 순서상 **마지막 것이 서버의 현실**이므로 그것만 판정 대상이다.
+ */
+export function latestPolicyDefs(files) {
+  const out = new Map();
+  const re =
+    /create\s+policy\s+(\w+)\s+on\s+journey\.(\w+)\b([\s\S]*?)(?=;\s*(?:create|drop|grant|alter|comment|revoke|$))/gi;
+  for (const [rel, src] of files) {
+    for (const m of stripSql(src).matchAll(re)) {
+      out.set(`${m[2].toLowerCase()}.${m[1].toLowerCase()}`, { rel, body: m[3] ?? '' });
+    }
+  }
+  return out;
+}
+
+/** 스칼라 서브쿼리로 감싼 호출을 지운 뒤에도 **맨 호출**이 남는가. */
+function bareCallRemains(body, callRe) {
+  return new RegExp(callRe, 'i').test(body.replace(new RegExp(`\\(\\s*select\\s+${callRe}\\s*\\)`, 'gi'), ''));
+}
+
+/**
+ * **정책 선언의 모양**을 잠근다(2026-07-27 건강진단 · advisor `auth_rls_initplan` 18건).
+ *
+ * 세 가지를 본다. 셋 다 "지금은 무해한데 조용히 어긋나는" 부류라 사람 눈으로는 안 잡힌다:
+ *
+ *  ① `auth.uid()`·`is_allowed()`를 **행마다** 재평가하지 않는가.
+ *     둘 다 STABLE이므로 `(select …)`로 감싸면 Postgres가 InitPlan으로 끌어올려 **질의당
+ *     1회**만 평가한다. 술어의 뜻은 바뀌지 않는다 — 바뀌는 것은 횟수뿐이다. `is_allowed()`는
+ *     테이블을 조회하는 함수라, 감싸지 않으면 사진 N장에 조회가 N번 붙는다.
+ *  ② 초대제가 결합돼 있는가(형제 전부가 지키는 계약 — 헌장 §2 불변식 #2).
+ *  ③ 역할이 `authenticated`로 좁혀져 있는가.
+ *     0013·0015가 `to authenticated`를 빠뜨려 정책 6개만 `public`이었다. anon은 GRANT가
+ *     없고 `auth.uid()`가 NULL이라 실害는 없었지만, **이유 없는 비대칭은 결함처럼 보이고
+ *     다음 사람이 반대 방향으로 통일한다**(§7).
+ */
+export function auditPolicyShape(files) {
+  const problems = [];
+  for (const [key, p] of latestPolicyDefs(files)) {
+    if (bareCallRemains(p.body, 'auth\\.uid\\(\\s*\\)'))
+      problems.push(
+        `${p.rel}: 정책 ${key} 가 auth.uid()를 행마다 재평가한다 — (select auth.uid())로 감싼다(뜻은 같고 질의당 1회가 된다)`,
+      );
+    if (bareCallRemains(p.body, 'journey\\.is_allowed\\(\\s*\\)'))
+      problems.push(
+        `${p.rel}: 정책 ${key} 가 is_allowed()를 행마다 재평가한다 — (select journey.is_allowed())로 감싼다`,
+      );
+    if (!/is_allowed\s*\(/i.test(p.body))
+      problems.push(`${p.rel}: 정책 ${key} 에 초대제(is_allowed())가 없다 — 허용목록 밖 사용자가 이 경로로 들어온다`);
+    if (!/\bto\s+authenticated\b/i.test(p.body))
+      problems.push(`${p.rel}: 정책 ${key} 에 'to authenticated'가 없다 — 역할이 public이 되어 형제 정책과 어긋난다`);
+  }
+  return problems;
+}
+
+/**
+ * **`SECURITY DEFINER` 함수의 search_path가 빈 문자열로 고정돼 있는가**(헌장 §2 불변식 #5).
+ *
+ * 이 규칙은 헌장에 **처음부터 적혀 있었다.** 그런데 `block_purged_reinsert()`(0012)와
+ * `unpurge_ids()`(0017)는 `journey, public`으로 태어났고, 2026-07-27 건강진단까지 아무도
+ * 몰랐다. 참조를 전부 스키마로 한정해 두어 실害는 없었지만 — **불변식이 깨진 채로 있으면
+ * 다음 사람이 그것을 기준으로 삼는다.** 조항(1층)만 있고 기계 검사(3층)가 없던 자리다.
+ *
+ * 최종 상태로 판정한다: 마지막 `create`가 정하고, 뒤따르는 `alter … set search_path`가 덮는다.
+ */
+export function auditDefinerSearchPath(files) {
+  const state = new Map();
+  for (const [rel, src] of files) {
+    const clean = stripSql(src);
+    for (const m of clean.matchAll(/create\s+(?:or\s+replace\s+)?function\s+journey\.(\w+)\s*\([^)]*\)([\s\S]*?)\bas\s+\$/gi)) {
+      const head = m[2] ?? '';
+      state.set(m[1].toLowerCase(), {
+        rel,
+        definer: /security\s+definer/i.test(head),
+        searchPath: (head.match(/set\s+search_path\s*(?:=|to)\s*([^\s;]+)/i) ?? [])[1] ?? null,
+      });
+    }
+    for (const m of clean.matchAll(
+      /alter\s+function\s+journey\.(\w+)\s*\([^)]*\)\s*set\s+search_path\s*(?:=|to)\s*([^\s;]+)/gi,
+    )) {
+      const cur = state.get(m[1].toLowerCase());
+      if (cur) Object.assign(cur, { searchPath: m[2], rel });
+    }
+  }
+  const problems = [];
+  for (const [name, s] of state) {
+    if (!s.definer) continue;
+    if (s.searchPath !== "''")
+      problems.push(
+        `${s.rel}: SECURITY DEFINER 함수 journey.${name}() 의 search_path가 ${s.searchPath ?? '미설정'} — ''로 고정한다(권한 상승 경로 차단, 헌장 §2 불변식 #5)`,
+      );
+  }
+  return problems;
+}
+
 // ── 셀프테스트: 알려진 실패가 RED로 잡히는지(게이트 비공허, CLAUDE.md §4) ──
+/** 계약을 전부 지키는 정책 표본. 셀프테스트 기준은 **살아 있는 파일이 아니라 인라인 표본**이다
+ *  — 실제 파일을 기준으로 삼으면 그 파일이 바뀔 때 셀프테스트가 조용히 뜻을 바꾼다. */
+const POLICY_GOOD =
+  `create policy p on journey.foo for select to authenticated using ((select auth.uid()) = user_id and (select journey.is_allowed()));`;
+
 let selfTestCount = 0;
 {
   const OK = [
@@ -261,6 +364,88 @@ let selfTestCount = 0;
       fn: () => (Object.keys(NO_GRANT_REQUIRED).length ? [] : ['비었음']),
       clean: true,
     },
+    // ── 정책 모양(2026-07-27) ──
+    {
+      name: '감싼 정책은 정상',
+      fn: () => auditPolicyShape([['x.sql', POLICY_GOOD]]),
+      clean: true,
+    },
+    {
+      name: '맨 auth.uid()는 RED',
+      fn: () =>
+        auditPolicyShape([
+          ['x.sql', `create policy p on journey.foo for select to authenticated using (auth.uid() = user_id and (select journey.is_allowed()));`],
+        ]),
+      clean: false,
+    },
+    {
+      name: '맨 is_allowed()는 RED',
+      fn: () =>
+        auditPolicyShape([
+          ['x.sql', `create policy p on journey.foo for select to authenticated using ((select auth.uid()) = user_id and journey.is_allowed());`],
+        ]),
+      clean: false,
+    },
+    {
+      name: "'to authenticated' 누락은 RED(역할이 public이 된다)",
+      fn: () =>
+        auditPolicyShape([
+          ['x.sql', `create policy p on journey.foo for select using ((select auth.uid()) = user_id and (select journey.is_allowed()));`],
+        ]),
+      clean: false,
+    },
+    {
+      name: '초대제 누락은 RED',
+      fn: () =>
+        auditPolicyShape([
+          ['x.sql', `create policy p on journey.foo for select to authenticated using ((select auth.uid()) = user_id);`],
+        ]),
+      clean: false,
+    },
+    {
+      // 마이그레이션은 추가 전용이다 — 옛 정의를 결함으로 신고하면 그 게이트는 오탐으로 죽는다.
+      name: '옛 정의가 파일에 남아 있어도 **최신**이 옳으면 정상(역사 오탐 방지)',
+      fn: () =>
+        auditPolicyShape([
+          ['0001.sql', `create policy p on journey.foo for select using (auth.uid() = user_id);`],
+          ['0018.sql', POLICY_GOOD],
+        ]),
+      clean: true,
+    },
+    {
+      name: '반대로 **최신**이 틀리면 옛것이 옳아도 RED',
+      fn: () =>
+        auditPolicyShape([
+          ['0001.sql', POLICY_GOOD],
+          ['0018.sql', `create policy p on journey.foo for select to authenticated using (auth.uid() = user_id and (select journey.is_allowed()));`],
+        ]),
+      clean: false,
+    },
+    // ── SECURITY DEFINER search_path(2026-07-27) ──
+    {
+      name: "search_path=''로 태어난 DEFINER 함수는 정상",
+      fn: () => auditDefinerSearchPath([['x.sql', `create or replace function journey.f() returns boolean language sql security definer set search_path = '' as $$ select true $$;`]]),
+      clean: true,
+    },
+    {
+      name: 'search_path가 journey,public인 DEFINER 함수는 RED',
+      fn: () => auditDefinerSearchPath([['x.sql', `create or replace function journey.f() returns trigger language plpgsql security definer set search_path = journey, public as $$ begin return new; end $$;`]]),
+      clean: false,
+    },
+    {
+      name: '나중 alter가 고쳤으면 정상(최종 상태로 판정)',
+      fn: () =>
+        auditDefinerSearchPath([
+          ['0012.sql', `create or replace function journey.f() returns trigger language plpgsql security definer set search_path = journey, public as $$ begin return new; end $$;`],
+          ['0018.sql', `alter function journey.f() set search_path = '';`],
+        ]),
+      clean: true,
+    },
+    {
+      name: 'SECURITY DEFINER가 아니면 대상이 아니다(오탐 방지)',
+      fn: () => auditDefinerSearchPath([['x.sql', `create or replace function journey.f() returns trigger language plpgsql set search_path = journey as $$ begin return new; end $$;`]]),
+      clean: true,
+    },
   ];
   const broken = cases.filter((c) => (c.fn().length === 0) !== c.clean);
   if (broken.length) {
@@ -283,10 +468,12 @@ for (const rel of ['src/services/sync.ts', 'src/services/purge.ts']) {
 const problems = [
   ...auditMigrations(files),
   ...deleteOpsAreGranted(srcFiles, files.map(([, t]) => t).join('\n')),
+  ...auditPolicyShape(files),
+  ...auditDefinerSearchPath(files),
 ];
 if (problems.length) {
   for (const p of problems) console.error(`  ✗ ${p}`);
-  console.error('check-migration-grants: 새 테이블에 권한·초대제가 빠졌다 — 앱은 permission denied를 받는다.');
+  console.error('check-migration-grants: 서버 계약(권한·초대제·정책 모양·함수 search_path)이 어긋났다.');
   process.exit(1);
 }
 console.log(
