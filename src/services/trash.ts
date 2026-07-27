@@ -237,5 +237,5 @@ export async function restoreTrashedChild(domain: ChildDomain, id: string): Prom
   const audio = (await d.localAudio.where('momentId').equals(id).toArray())
     .filter((a) => a.deletedAt !== null)
     .map((a) => a.id);
-  await restoreMomentLocalFirst(id, media, expenses, audio);
+  await restoreMomentLocalFirst(id, { mediaIds: media, expenseIds: expenses, audioIds: audio });
 }

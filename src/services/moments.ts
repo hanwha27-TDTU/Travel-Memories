@@ -128,6 +128,27 @@ export async function updateMomentLocalFirst(id: string, patch: UpdateMomentPatc
 }
 
 /**
+ * 순간과 함께 tombstone된 자식 id 묶음. **복원은 이 묶음을 통째로 받는다.**
+ *
+ * ⚠️ 결함 이력(2026-07-27, M-0007의 **재발**): 예전 시그니처는
+ * `restoreMomentLocalFirst(id, mediaIds, expenseIds = [], audioIds = [])`였고, 화면이
+ * `const { deletedMediaIds } = await softDelete…` 로 **사진만 꺼내 넘겼다.** 선택적
+ * 매개변수의 기본값이 그 누락을 **조용히 삼켜** 컴파일도 통과했다 — 타임라인에서 순간을
+ * 지우고 실행취소하면 사진만 돌아오고 **비용·소리는 영영 tombstone으로 남았다**(순간이
+ * 활성으로 돌아오므로 휴지통에도 안 보여 복구 경로가 사라진다).
+ *
+ * M-0007에서 여행 쪽은 `TripChildren` 묶음 타입으로 이 부류를 컴파일 오류화했는데
+ * **순간 쪽만 옛 모양으로 남아 있었다** — 형제 비대칭(§7). 같은 처방을 여기에도 적용한다:
+ * 삭제가 돌려주는 것과 복원이 받는 것이 **같은 타입**이라 그대로 넘기면 되고, 자식 종류가
+ * 늘면 컴파일러가 모든 호출부를 데려온다.
+ */
+export interface MomentChildren {
+  mediaIds: string[];
+  expenseIds: string[];
+  audioIds: string[];
+}
+
+/**
  * 순간 삭제 — 하드 삭제 금지(§0): deletedAt tombstone. version+1로 LWW에서 이기게 하고,
  * 이 순간에 달린 활성 **사진·비용·소리**도 같은 트랜잭션에서 함께 tombstone한다(고아가
  * 통계를 속이지 않도록). 되살리기(undo)가 정확히 그것들만 복원하도록 id 목록을 반환한다.
@@ -137,9 +158,7 @@ export async function updateMomentLocalFirst(id: string, patch: UpdateMomentPatc
  * 전제를 붙들고** 있었다 — M-0006과 같은 부류다. 지금 op를 만들지 않는 것은 소리뿐이고,
  * 그 이유는 그 자리(아래 루프)에 적혀 있다.
  */
-export async function softDeleteMomentLocalFirst(
-  id: string,
-): Promise<{ deletedMediaIds: string[]; deletedExpenseIds: string[]; deletedAudioIds: string[] }> {
+export async function softDeleteMomentLocalFirst(id: string): Promise<MomentChildren> {
   const d = db();
   const cur = await d.localMoments.get(id);
   if (!cur || cur.deletedAt !== null) throw new Error('순간을 찾을 수 없습니다.');
@@ -168,9 +187,9 @@ export async function softDeleteMomentLocalFirst(
   const expenses = (await d.localExpenses.where('momentId').equals(id).toArray()).filter((e) => e.deletedAt === null);
   // 오디오도 **형제다** — 순간이 사라지면 함께 사라져야 한다(§7 대칭이 기본값).
   const audio = (await d.localAudio.where('momentId').equals(id).toArray()).filter((a) => a.deletedAt === null);
-  const deletedMediaIds = media.map((m) => m.id);
-  const deletedExpenseIds = expenses.map((e) => e.id);
-  const deletedAudioIds = audio.map((a) => a.id);
+  const mediaIds = media.map((m) => m.id);
+  const expenseIds = expenses.map((e) => e.id);
+  const audioIds = audio.map((a) => a.id);
 
   await d.transaction('rw', d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.syncQueue, async () => {
     await d.localMoments.put(tombstoned);
@@ -198,7 +217,7 @@ export async function softDeleteMomentLocalFirst(
   if (!back || back.deletedAt === null) {
     throw new Error('내구성 커밋 확인 실패: 삭제 read-back 불일치');
   }
-  return { deletedMediaIds, deletedExpenseIds, deletedAudioIds };
+  return { mediaIds, expenseIds, audioIds };
 }
 
 /**
@@ -206,12 +225,8 @@ export async function softDeleteMomentLocalFirst(
  * updatedAt=now로 삭제를 이긴다(다른 기기가 이미 삭제를 본 경우에도 LWW로 복원이 승리).
  * 삭제 시 함께 tombstone된 사진(mediaIds)도 같은 트랜잭션에서 복원한다.
  */
-export async function restoreMomentLocalFirst(
-  id: string,
-  mediaIds: string[],
-  expenseIds: string[] = [],
-  audioIds: string[] = [],
-): Promise<LocalMoment> {
+export async function restoreMomentLocalFirst(id: string, children: MomentChildren): Promise<LocalMoment> {
+  const { mediaIds, expenseIds, audioIds } = children;
   const d = db();
   const cur = await d.localMoments.get(id);
   if (!cur) throw new Error('순간을 찾을 수 없습니다.');

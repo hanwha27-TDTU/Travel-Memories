@@ -901,11 +901,11 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         delBtn.disabled = true;
         void (async () => {
           try {
-            const { deletedMediaIds } = await softDeleteMomentLocalFirst(m.id);
+            const children = await softDeleteMomentLocalFirst(m.id);
             await refresh();
             void trySync();
             showUndoToast('순간을 삭제했어요', async () => {
-              await restoreMomentLocalFirst(m.id, deletedMediaIds);
+              await restoreMomentLocalFirst(m.id, children); // 묶음 통째로(손으로 고르면 빠뜨린다 — M-0007)
               await refresh();
               void trySync();
             });
