@@ -51,7 +51,10 @@ export function fromMomentRow(r: MomentRow): WithInstants<LocalMoment> {
   return {
     id: r.id,
     tripId: r.trip_id,
-    occurredAt: r.occurred_at ?? '',
+    // ⚠️ **발생 시각도 서버에서 온다** — M-0034를 고칠 때 이 줄을 빠뜨렸다(자기점검 2026-07-27).
+    // 타임라인 정렬이 `(a.occurredAt || a.createdAt).localeCompare(...)`로 **문자열 비교**를 하므로
+    // 표기가 섞이면 같은 순간의 순서가 표기에 흔들린다. 비어 있으면(`''`) 그대로 둔다.
+    occurredAt: isoInstant(r.occurred_at ?? ''),
     title: r.title,
     note: r.note,
     emotion: r.emotion,

@@ -265,6 +265,27 @@ export function runSyncAppliesLedger(syncSrc) {
  * 아니라 **런타임 오류**다 — PostgREST가 없는 컬럼을 400으로 되돌린다. 실제로 이 전환에서
  * `storeState.ts`가 그 상태로 남을 뻔했다. 원장 테이블(`purged_ids`)의 자기 컬럼은 예외다.
  */
+/**
+ * **`CHECK_COUNT`가 실제 점검 수와 맞는가** (자기점검 2026-07-27).
+ *
+ * 화면은 「기록 N건을 **11가지 기준**으로 확인했어요」라고 말한다. 그 숫자는 `integrity.ts`에
+ * 손으로 적힌 상수인데, 진짜 값은 **`add()` 호출 수**다. 두 곳에 같은 사실이 있으면 드리프트는
+ * 시간 문제다 — M-0001이 정확히 그 부류였고("15종"·"123"), 이번에 10 → 11로 손으로 고치면서도
+ * 게이트를 안 만들었다. 다음 사람이 점검을 하나 더하고 상수를 잊으면 **앱이 거짓말을 한다.**
+ *
+ * 손으로 세지 않고 코드에서 뽑는다 — 그게 이 저장소가 카운트를 다루는 방식이다.
+ */
+export function checkCountMatches(src) {
+  const declared = src.match(/CHECK_COUNT\s*=\s*(\d+)/);
+  if (!declared) return ['integrity.ts에 CHECK_COUNT 선언이 없음'];
+  // 발견을 등록하는 호출만 센다(`add(` 정의부·타입은 열 0이 아니라 잡히지 않는다).
+  const actual = (src.match(/^\s{2,4}add\(\s*$/gm) ?? []).length;
+  if (actual === 0) return ['integrity.ts에서 add() 호출을 못 셈 — 게이트가 공허해진다'];
+  return Number(declared[1]) === actual
+    ? []
+    : [`CHECK_COUNT=${declared[1]}인데 실제 점검은 ${actual}개 — 화면이 「${declared[1]}가지 기준」이라고 거짓말한다`];
+}
+
 export function noDroppedPurgedAtColumn(files) {
   const bad = [];
   for (const [rel, src] of files) {
@@ -570,6 +591,21 @@ let selfTestCount = 0;
       clean: false,
     },
     {
+      name: 'CHECK_COUNT가 실제 점검 수와 맞으면 통과',
+      fn: () => checkCountMatches('export const CHECK_COUNT = 2;\n  add(\n  );\n  add(\n  );\n'),
+      clean: true,
+    },
+    {
+      name: 'CHECK_COUNT 드리프트 검출(점검을 늘리고 상수를 안 고침)',
+      fn: () => checkCountMatches('export const CHECK_COUNT = 1;\n  add(\n  );\n  add(\n  );\n'),
+      clean: false,
+    },
+    {
+      name: 'add()를 못 세면 공허를 스스로 신고',
+      fn: () => checkCountMatches('export const CHECK_COUNT = 3;\n'),
+      clean: false,
+    },
+    {
       name: '사라진 purged_at 컬럼 참조 없음',
       fn: () => noDroppedPurgedAtColumn([['a.ts', `.is('deleted_at', null)`]]),
       clean: true,
@@ -724,6 +760,7 @@ for (const p of purgeOrderContract(read('src/services/sync.ts'))) problems.push(
   for (const p of listPrefixIsServerBuilt(read(rel))) problems.push(`${rel}: ${p}`);
 }
 for (const p of runSyncAppliesLedger(read('src/services/sync.ts'))) problems.push(`src/services/sync.ts: ${p}`);
+for (const p of checkCountMatches(read('src/domain/integrity.ts'))) problems.push(`src/domain/integrity.ts: ${p}`);
 // 손으로 고른 목록이 아니라 **src 전체**에 건다 — 하나만 조용히 남는 게 이 저장소의 최빈 결함군이다.
 {
   const all = walk(join(ROOT, 'src')).map((abs) => [relative(ROOT, abs), readFileSync(abs, 'utf8')]);

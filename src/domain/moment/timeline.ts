@@ -2,7 +2,7 @@
 // UI가 아니라 여기서 날짜 그룹핑·정렬·Day 번호를 결정한다(tests/unit에서 직접 검증).
 
 import type { LocalMoment } from '../../offline/db';
-import { localDate } from '../time';
+import { localDate, compareInstants } from '../time';
 
 export interface DayGroup {
   /** YYYY-MM-DD */
@@ -45,7 +45,12 @@ export function groupMomentsByDay(moments: LocalMoment[], tripStartDate?: string
       const items = byDate
         .get(date)!
         .slice()
-        .sort((a, b) => (a.occurredAt || a.createdAt).localeCompare(b.occurredAt || b.createdAt));
+        // ⚠️ **순간으로 비교한다 — 문자열 대소가 아니라**(M-0034·자기점검 2026-07-27).
+        // 예전엔 `localeCompare`였다. 표기를 경계에서 정규화하도록 고쳤지만 **비교까지 바꾸지
+        // 않으면 방어선이 하나뿐**이고, 옛 표기가 한 줄만 남아도 순서가 흔들린다.
+        // `mergeDecision`은 이미 `compareInstants`를 쓰는데 여기만 문자열이었다 — §7 비대칭.
+        // 못 읽는 값은 0(동률)으로 두고 아래 안정 정렬에 맡긴다: 지어낸 순서를 만들지 않는다.
+        .sort((a, b) => compareInstants(a.occurredAt || a.createdAt, b.occurredAt || b.createdAt) ?? 0);
       let dayNumber: number | null = null;
       if (!Number.isNaN(start)) {
         const d = Date.parse(`${date}T00:00:00Z`);

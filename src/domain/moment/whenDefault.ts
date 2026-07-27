@@ -21,7 +21,7 @@
 // 틀렸을 때 알아챈다(비타협 원칙 #4 — 모르는 것을 정상으로 반올림하지 않는다).
 // 그래서 이 함수는 시각만이 아니라 **`source`와 사람이 읽는 라벨**을 함께 돌려준다.
 
-import { localDate, localTime } from '../time';
+import { localDate, localTime, compareInstants } from '../time';
 
 /** 시각을 어디서 가져왔는가. 화면이 이 값으로 아이콘·문구를 고른다. */
 export type WhenSource = 'photo' | 'previous' | 'tripStart' | 'now';
@@ -52,6 +52,24 @@ export interface WhenInput {
 export function humanWhen(iso: string): string {
   const d = localDate(iso);
   return d ? `${d} ${localTime(iso)}` : '(시각 없음)';
+}
+
+/**
+ * 이 여행에서 **가장 늦은 발생 시각** — 다음 순간의 기본값이 물려받을 값(우선순위 2).
+ *
+ * 순수 함수로 뽑은 이유가 둘이다. ①`renderTripDetail` 안의 한 줄이면 유닛이 못 닿는다
+ * (§10 ③ — M-0022가 그 자리였다). ②비교를 **순간으로** 해야 하는데(M-0034), 그 규율이
+ * 화면 코드에 흩어져 있으면 다음 사람이 무심코 `>`로 되돌린다.
+ *
+ * 목록은 정렬돼 있지 않을 수 있으므로 최댓값을 고른다. 못 읽는 값은 이기지 못한다.
+ */
+export function latestOccurredAt(moments: { occurredAt: string }[]): string | null {
+  let best: string | null = null;
+  for (const m of moments) {
+    if (Number.isNaN(Date.parse(m.occurredAt))) continue; // 지어낸 값이 기준이 되지 않게
+    if (best === null || (compareInstants(m.occurredAt, best) ?? 0) > 0) best = m.occurredAt;
+  }
+  return best;
 }
 
 /** 유효한 ISO만 남긴다. 파싱 안 되는 값은 **버린다** — 지어낸 시각으로 정렬하지 않는다. */

@@ -74,7 +74,9 @@ export function fromMediaRow(r: MediaRow): WithInstants<MediaMeta> {
     storagePath: r.storage_path,
     width: r.width,
     height: r.height,
-    takenAt: r.taken_at ?? '',
+    // ⚠️ **촬영 시각도 서버에서 온다** — M-0034를 고칠 때 이 줄을 빠뜨렸다(자기점검 2026-07-27).
+    // 이 값은 R2 객체 이름의 앞부분이 되고 사진 정렬에도 쓰인다. 비어 있으면(`''`) 그대로 둔다.
+    takenAt: isoInstant(r.taken_at ?? ''),
     bytesDisplay: r.bytes_display,
     version: r.version,
     createdAt: isoInstant(r.created_at),

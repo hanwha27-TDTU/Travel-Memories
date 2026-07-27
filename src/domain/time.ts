@@ -67,7 +67,23 @@ export function isCanonicalInstant(s: string): boolean {
 }
 
 /**
- * 행의 시각 3종(`createdAt`·`updatedAt`·`deletedAt`)을 정규 표기로 다시 쓴다.
+ * 이 행이 가진 **모든 시각 필드**의 이름. `…At`으로 끝나고 값이 빈 문자열이 아닌 문자열.
+ *
+ * ⚠️ **목록을 손으로 적지 않는다**(자기점검 2026-07-27). 처음엔 `createdAt`·`updatedAt`·
+ * `deletedAt` 셋을 박아 뒀고, 그래서 `occurredAt`(순간의 발생 시각)·`takenAt`(사진 촬영 시각)이
+ * **정리에서도 진단에서도 빠졌다.** 손으로 적은 목록은 적은 사람의 사각지대를 그대로 갖는다.
+ * 이제 새 시각 필드가 생기면 정리·진단이 **자동으로 따라온다**(§7의 세 번째 질문).
+ *
+ * `deletedAt: null`(tombstone 없음)과 `''`(모름)은 대상이 아니다 — 없는 시각을 지어내지 않는다.
+ */
+export function instantFieldsOf(row: object): string[] {
+  return Object.entries(row)
+    .filter(([k, v]) => k.endsWith('At') && typeof v === 'string' && v !== '')
+    .map(([k]) => k);
+}
+
+/**
+ * 행의 **모든 시각 필드**를 정규 표기로 다시 쓴다.
  * **같은 순간, 다른 표기**일 뿐이므로 version·LWW 의미가 바뀌지 않는다 — 그래서 이 변환은
  * 사용자 편집이 아니고 sync op를 만들지 않는다.
  *
@@ -75,10 +91,10 @@ export function isCanonicalInstant(s: string): boolean {
  *  · 백업 복원(`importMergeRows`) — 옛 백업 파일에 옛 표기가 들어 있다.
  *  · 로컬 1회 정리(`normalizeStampsOnce`) — **이미 저장된** 행은 코드를 고쳐도 안 바뀐다(§10 ②).
  */
-export function withCanonicalStamps<T extends { createdAt: string; updatedAt: string; deletedAt: string | null }>(
-  row: T,
-): T {
-  return { ...row, createdAt: isoInstant(row.createdAt), updatedAt: isoInstant(row.updatedAt), deletedAt: isoInstantOrNull(row.deletedAt) };
+export function withCanonicalStamps<T extends object>(row: T): T {
+  const out = { ...row } as Record<string, unknown>;
+  for (const k of instantFieldsOf(row)) out[k] = isoInstant(out[k] as string);
+  return out as T;
 }
 
 /**

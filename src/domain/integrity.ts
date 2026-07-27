@@ -11,7 +11,7 @@
 //     대부분의 발견은 "지금 당장 문제"가 아니다. 겁주는 것은 거짓 경보만큼 나쁘다(M-0008).
 //  3) **순수 함수.** DB 접근 없이 배열만 받는다 → 유닛으로 모든 분기를 실제로 돌린다.
 
-import { compareInstants, isCanonicalInstant } from './time';
+import { compareInstants, isCanonicalInstant, instantFieldsOf } from './time';
 
 export interface IdCheckRow {
   id: string;
@@ -104,10 +104,12 @@ function timeChecks(all: IdCheckRow[], add: AddFinding): void {
   // **이미 저장된 것**을 보는 런타임 지표(§10 ②). 정적 게이트는 이 부류를 원리적으로 못 잡는다 —
   // 코드를 고쳐도 옛 표기로 박힌 행은 그대로다. `normalizeStampsOnce()`가 동기화 때 정리하므로
   // **정상은 0건**이고, 0이 아니면 그 정리가 아직 안 돌았거나 실패한 것이다.
+  // 필드 목록을 손으로 적지 않는다 — `instantFieldsOf`가 행에서 뽑는다(자기점검 2026-07-27).
+  // 예전엔 `createdAt`·`updatedAt`·`deletedAt` 셋만 봐서, 순간의 `occurredAt`과 사진의
+  // `takenAt`이 옛 표기로 남아 있어도 **앱이 「0건」이라고 말했다** — 지표가 자기 시야의
+  // 경계를 밝히지 않은 셈이다(§7-C의 세 번째 거짓말).
   const badFormat = (r: IdCheckRow): boolean =>
-    !isCanonicalInstant(r.createdAt) ||
-    !isCanonicalInstant(r.updatedAt) ||
-    (r.deletedAt !== null && !isCanonicalInstant(r.deletedAt));
+    instantFieldsOf(r).some((k) => !isCanonicalInstant((r as unknown as Record<string, string>)[k] as string));
   add(
     'BAD_TIME_FORMAT',
     'prevent',

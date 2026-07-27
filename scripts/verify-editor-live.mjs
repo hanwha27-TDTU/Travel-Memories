@@ -592,9 +592,30 @@ await page.waitForSelector('.pe-overlay', { timeout: 10000 });
 await page.getByRole('button', { name: '원본 사용', exact: true }).click();
 await page.waitForSelector('.pe-overlay', { state: 'detached' });
 await page.waitForTimeout(600);
-await page.locator('.photo-thumb').last().click();
+// ⚠️ **`.photo-thumb`의 last()가 방금 넣은 사진이라고 가정하지 않는다**(자기점검 2026-07-27).
+//
+// 이 검사는 흔들렸다 — 실측 4회 중 3회 실패. 처음엔 "레이아웃 대기가 짧아서"라고 **확인 없이
+// 단정**했는데, 계측해 보니 실패할 때마다 값이 **똑같이 `600×400`**이었다. 지터라면 값이
+// 달라야 한다. `naturalWidth`를 찍어 보니 답이 나왔다:
+//
+//   통과: nat=1600x1200 (방금 넣은 wide.jpg)   실패: nat=600x400 (**앞 단계의 다른 사진**)
+//
+// 크기 계산이 틀린 게 아니라 **다른 사진을 열고 있었다.** `.photo-thumb`는 여행 전체의
+// 썸네일이고(이 시점 4장), 그 순서는 사진 정렬에 달렸다 — 같은 순간에 넣은 캔버스 사진들은
+// 시각이 겹쳐 순서가 갈릴 수 있다. 셀렉터가 틀린 것을 집고 있었다(§4가 말하는 "셀렉터 불일치").
+//
+// 그래서 **방금 만든 순간의 카드 안**에서 고른다 — 전역 정렬과 무관해진다.
+// 그리고 **위치가 아니라 정체로** 집는다. `.moment-card`의 last()도 못 믿는다 —
+// v1.06부터 순간의 기본 발생 시각이 「사진의 EXIF → 직전 순간 → 여행 시작일」이라
+// **방금 만든 순간이 목록의 끝에 오지 않는다.** 순서를 바꾸는 기능 변경이 검사의 숨은
+// 전제("최신 = 마지막")를 무효로 만든 것이다. 제목으로 찾으면 정렬과 무관해진다.
+await page.locator('.moment-card', { hasText: '가로 사진 태블릿 검증' }).locator('.photo-thumb').first().click();
 await page.waitForSelector('.photo-viewer');
-await page.waitForTimeout(300);
+// 그리고 시간이 아니라 **조건**을 기다린다(고정 sleep은 조건이 아니라 희망이다).
+await page.waitForFunction(() => {
+  const im = document.querySelector('.photo-viewer img');
+  return !!im && im.complete && im.naturalWidth > 0 && im.getBoundingClientRect().height > 0;
+}, { timeout: 10000 });
 const fit = await page.evaluate(() => {
   const im = document.querySelector('.photo-viewer img');
   const r = im.getBoundingClientRect();

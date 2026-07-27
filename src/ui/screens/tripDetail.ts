@@ -9,7 +9,7 @@ import {
   softDeleteTripLocalFirst,
   restoreTripLocalFirst,
 } from '../../services/trips';
-import { guessOccurredAt, outsideTripWarning, type WhenGuess } from '../../domain/moment/whenDefault';
+import { guessOccurredAt, outsideTripWarning, latestOccurredAt, type WhenGuess } from '../../domain/moment/whenDefault';
 import { readPhotoMeta } from '../../services/media';
 import {
   createMomentLocalFirst,
@@ -629,8 +629,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         listMediaByTrip(trip!.id),
         listExpensesByTrip(trip!.id),
       ]);
-      // 목록은 최신순이 아닐 수 있어 최댓값을 고른다.
-      latestMomentAt = moments.reduce<string | null>((mx, m) => (mx === null || m.occurredAt > mx ? m.occurredAt : mx), null);
+      latestMomentAt = latestOccurredAt(moments); // 순수 함수 — 비교는 순간으로(M-0034)
       const byMoment = new Map<string, LocalMedia[]>();
       for (const md of media) {
         const arr = byMoment.get(md.momentId);
