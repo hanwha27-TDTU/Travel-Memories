@@ -12,7 +12,7 @@ import { toMomentRow, fromMomentRow, type MomentRow } from '../domain/moment/row
 import { toExpenseRow, fromExpenseRow, type ExpenseRow } from '../domain/expense/rowmap';
 import { toMediaRow, fromMediaRow, mediaStoragePath, type MediaRow } from '../domain/media/rowmap';
 import { compressForStorage } from '../media/compress';
-import { mergeDecision, isEmptyCloudAnomaly, classifyError } from '../sync/merge';
+import { mergeDecision, isEmptyCloudAnomaly, classifyError, retryDelayMs, isRetryDue } from '../sync/merge';
 import type { JourneyClient } from './supabase/client';
 import { r2BlobStore } from './r2';
 import { deviceStamp } from '../app/deviceId';
@@ -188,10 +188,21 @@ export function mediaRemote(client: JourneyClient): MediaRemote {
 
 async function markFail(op: SyncQueueItem, status: number | undefined): Promise<void> {
   const kind = classifyError(status);
+  const attempts = (op.attempts ?? 0) + 1;
   await db().syncQueue.update(op.operationId, {
     state: kind === 'retryable' ? 'retryable_failed' : 'permanent_failed',
-    attempts: (op.attempts ?? 0) + 1,
+    attempts,
+    // **다음 시도 시각을 적는다**(2026-07-27). 예전엔 `attempts`만 올리고 아무도 읽지 않아,
+    // 실패한 op이 `autoSync` 트리거(online·visibilitychange·5분 주기)마다 **즉시** 재시도됐다.
+    // 계약은 `docs/SYNC_PROTOCOL.md:31`에 처음부터 있었다 — 코드가 따라가지 않았을 뿐이다.
+    nextRetryAt: new Date(Date.now() + retryDelayMs(attempts)).toISOString(),
   });
+}
+
+/** 지금 밀어도 되는 op만 남긴다(백오프 대기 중인 것은 이번 회차에 건너뛴다). */
+function dueOps(items: SyncQueueItem[]): SyncQueueItem[] {
+  const now = new Date().toISOString();
+  return items.filter((q) => isRetryDue(q, now));
 }
 
 /**
@@ -201,8 +212,10 @@ async function markFail(op: SyncQueueItem, status: number | undefined): Promise<
  */
 export async function pushPending(remote: TripsRemote, userId: string): Promise<{ pushed: number; failed: number }> {
   const d = db();
-  const items = (await d.syncQueue.orderBy('createdAt').toArray()).filter(
-    (q) => q.state === 'local_only' || q.state === 'retryable_failed',
+  const items = dueOps(
+    (await d.syncQueue.orderBy('createdAt').toArray()).filter(
+      (q) => q.state === 'local_only' || q.state === 'retryable_failed',
+    ),
   );
   let pushed = 0;
   let failed = 0;
@@ -282,8 +295,10 @@ export async function pushPendingMoments(
   userId: string,
 ): Promise<{ pushed: number; failed: number }> {
   const d = db();
-  const items = (await d.syncQueue.orderBy('createdAt').toArray()).filter(
-    (q) => q.state === 'local_only' || q.state === 'retryable_failed',
+  const items = dueOps(
+    (await d.syncQueue.orderBy('createdAt').toArray()).filter(
+      (q) => q.state === 'local_only' || q.state === 'retryable_failed',
+    ),
   );
   let pushed = 0;
   let failed = 0;
@@ -357,8 +372,10 @@ export async function pushPendingExpenses(
   userId: string,
 ): Promise<{ pushed: number; failed: number }> {
   const d = db();
-  const items = (await d.syncQueue.orderBy('createdAt').toArray()).filter(
-    (q) => q.state === 'local_only' || q.state === 'retryable_failed',
+  const items = dueOps(
+    (await d.syncQueue.orderBy('createdAt').toArray()).filter(
+      (q) => q.state === 'local_only' || q.state === 'retryable_failed',
+    ),
   );
   let pushed = 0;
   let failed = 0;
@@ -432,8 +449,10 @@ export async function pullExpenses(remote: ExpensesRemote): Promise<{ pulled: nu
  */
 export async function pushPendingMedia(remote: MediaRemote, userId: string): Promise<{ pushed: number; failed: number }> {
   const d = db();
-  const items = (await d.syncQueue.orderBy('createdAt').toArray()).filter(
-    (q) => q.state === 'local_only' || q.state === 'retryable_failed',
+  const items = dueOps(
+    (await d.syncQueue.orderBy('createdAt').toArray()).filter(
+      (q) => q.state === 'local_only' || q.state === 'retryable_failed',
+    ),
   );
   let pushed = 0;
   let failed = 0;

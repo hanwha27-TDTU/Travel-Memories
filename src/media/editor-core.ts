@@ -268,6 +268,49 @@ export function cropWindow(
   return { x: cx - w / 2, y: cy - h / 2, w, h };
 }
 
+/**
+ * **기하 공간(gd) 크기** — 좌표 계약의 단일 진실원.
+ *
+ * `heals`·`freeCrop`의 0..1 좌표가 어느 공간의 것인지를 정하는 함수다. `quad`(원근 펴기)가
+ * 있으면 **펴기까지 적용된** 크기이고, 없으면 회전 후 크기(rd)와 같다.
+ *
+ * ⚠️ 이 함수가 생긴 이유(2026-07-27 이식 명세 작성 중 발견): bake는 gd로 재투영하는데
+ * **편집기 UI는 탭 좌표를 rd 기준으로 기록**하고 있었다(`quadOutputDims`를 부르지도 않았다).
+ * `quad`가 없으면 두 값이 같아 지금까지 안 드러났고, **원근 펴기 후 잡티를 찍으면 어긋났다.**
+ * 규율을 두 곳에 손으로 구현한 §7 드리프트다 — 이제 양쪽이 이 함수 하나를 지난다.
+ */
+export function geoDims(srcW: number, srcH: number, s: Pick<EditState, 'rotate90' | 'quad'>): { w: number; h: number } {
+  const rd = rotatedDims(srcW, srcH, s.rotate90);
+  return s.quad ? quadOutputDims(s.quad, rd.w, rd.h) : rd;
+}
+
+/**
+ * 미리보기 화면의 상대 좌표(u,v ∈ 0..1) → **기하 공간 정규화 좌표**.
+ *
+ * 미리보기는 크롭 창을 꽉 채워 그리므로, 화면 비율을 창 안 위치로 되돌린 뒤 gd로 정규화한다.
+ * bake의 heal 재투영(`(hp.x*gd.w - win.x)/win.w * outW`)의 **정확한 역함수**다 — 그래서
+ * 두 식은 반드시 같은 `geoDims`/`resolveWindow`를 지나야 한다.
+ *
+ * @param brushPct 잡티 브러시 크기(창 폭 대비 %). 주면 반경 `r`도 함께 계산한다.
+ */
+export function screenToGeo(
+  u: number,
+  v: number,
+  srcW: number,
+  srcH: number,
+  s: EditState,
+  brushPct?: number,
+): { x: number; y: number; r: number } {
+  const gd = geoDims(srcW, srcH, s);
+  const win = resolveWindow(gd.w, gd.h, s);
+  return {
+    x: (win.x + u * win.w) / gd.w,
+    y: (win.y + v * win.h) / gd.h,
+    // 반경은 "창 폭 대비 비율" → 화면 체감 크기가 해상도와 무관하게 유지된다.
+    r: brushPct === undefined ? 0 : ((brushPct / 100) * win.w) / gd.w,
+  };
+}
+
 /** 결정적 PRNG(mulberry32). 그레인이 미리보기 갱신마다 어른거리지 않게 고정 시드로 쓴다. */
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
@@ -295,7 +338,7 @@ export function bakeToCanvas(
   //    필요한 배율(scale)로 축소해 그린다(결과 픽셀은 동일 경로·동일 창).
   //    기하 공간(gd) = 원근 펴기(quad) 적용 후 크기 — heals·freeCrop·창은 모두 이 공간 기준.
   const rd = rotatedDims(srcW, srcH, s.rotate90);
-  const gd = s.quad ? quadOutputDims(s.quad, rd.w, rd.h) : rd;
+  const gd = geoDims(srcW, srcH, s); // ← 화면→상태 변환(screenToGeo)과 **같은 함수**를 지난다
   const win = resolveWindow(gd.w, gd.h, s);
   const scale = Math.min(1, maxEdge / Math.max(win.w, win.h));
 

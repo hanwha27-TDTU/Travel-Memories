@@ -26,7 +26,7 @@ const LIMIT = 120;
  * 항목을 지우는 것은 자유 — LIMIT 아래로 내려왔다는 뜻이다.
  */
 const LEGACY = {
-  'src/ui/photoEditor.ts::openPhotoEditor': 766,
+  'src/ui/photoEditor.ts::openPhotoEditor': 763,
   'src/ui/screens/tripDetail.ts::renderTripDetail': 611,
   'src/ui/panels/diagnostics.ts::storeStateProbe': 327,
   'src/ui/photoViewer.ts::openPhotoViewer': 258,

@@ -4,6 +4,7 @@
 // 클라우드 업로드(압축본·썸네일)는 후속(3b).
 
 import { db, type LocalMedia, type SyncQueueItem } from '../offline/db';
+import { quotaVerdict, estimateLocalBytes, type StorageEstimateLike } from '../domain/media/quota';
 import { readJpegExif } from '../media/exif';
 import { compressForStorage } from '../media/compress';
 import type { EditState } from '../media/editor-core';
@@ -66,6 +67,17 @@ export interface PhotoMeta {
  * 두 곳이 서로 다르게 읽으면 *사진 파일은 7/16인데 그 사진이 달린 순간은 7/27*이 된다 —
  * 앱이 자기 안에서 다른 말을 하는 상태다(2026-07-27 사용자가 실제로 밟았다).
  */
+/** 브라우저 저장 현황(미지원이면 null — 추측하지 않는다). */
+async function readStorageEstimate(): Promise<StorageEstimateLike> {
+  try {
+    if (!navigator.storage?.estimate) return { usage: null, quota: null };
+    const e = await navigator.storage.estimate();
+    return { usage: e.usage ?? null, quota: e.quota ?? null };
+  } catch {
+    return { usage: null, quota: null };
+  }
+}
+
 /**
  * **촬영시각을 무엇으로 정하는가** — 순수 함수라 유닛이 모든 갈래를 직접 돌린다(§10 ③).
  *
@@ -116,6 +128,14 @@ export async function addPhotoToMoment(
   editState?: EditState,
 ): Promise<LocalMedia> {
   if (!target.momentId || !target.tripId) throw new Error('순간 정보가 없습니다.');
+
+  // 0) **저장 공간 사전점검**(2026-07-27). `MEDIA_PIPELINE.md:42-43`이 계약으로 적어 뒀는데
+  //    인테이크에 없었다. quota를 넘기면 Dexie 쓰기가 실패하는데, 그건 사진만이 아니라
+  //    **그 시점부터 순간·비용 같은 텍스트 기억의 저장까지** 막는다(원칙 #1의 조용한 위반).
+  //    모르는 브라우저에서는 막지 않는다 — 판정은 `quotaVerdict`가 순수 함수로 한다.
+  const est = await readStorageEstimate();
+  const q = quotaVerdict(estimateLocalBytes(file.size), est);
+  if (!q.allow) throw new Error(q.message);
 
   // 1) EXIF 먼저(압축 전) — `readPhotoMeta` 한 곳에서. 화면의 시각 추측도 **같은 함수**를 쓴다.
   const meta = await readPhotoMeta(file);

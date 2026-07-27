@@ -51,6 +51,7 @@ const gates = [
   { name: 'check-doc-counts', cmd: 'node scripts/check-doc-counts.mjs' },
   { name: 'check-timezone', cmd: 'node scripts/check-timezone.mjs' },
   { name: 'check-instant-normalization', cmd: 'node scripts/check-instant-normalization.mjs' },
+  { name: 'check-exif-strip-on-share', cmd: 'node scripts/check-exif-strip-on-share.mjs' },
   { name: 'unit-tests', cmd: 'npm run -s test' },
   // 유일한 런타임 층 — 실제 Chromium이 `dist`를 열어 화면·서비스워커·폰트를 잰다.
   // 전제(playwright + 최신 dist)가 없으면 SKIP, 돌았는데 위반이면 FAIL(위 계약 참조).

@@ -107,6 +107,17 @@ export interface SyncQueueItem {
   state: string;
   attempts: number;
   createdAt: string;
+  /**
+   * **이 시각 전에는 다시 시도하지 않는다**(ISO). 지수 백오프의 저장 형태.
+   *
+   * 2026-07-27까지 `attempts`는 **증가만 하고 아무도 읽지 않았다** — `SYNC_PROTOCOL.md:31`이
+   * 5초/15초/60초/5분/15분+jitter를 계약으로 적어 뒀는데 코드에 백오프가 없었다.
+   * 사진 크기에서는 무해했지만, `autoSync`가 `online`·`visibilitychange`·5분 주기로 도는 탓에
+   * 실패한 op이 **화면을 오갈 때마다 즉시 재시도**된다(대용량이면 그 자체가 공격이 된다).
+   *
+   * 인덱스가 아니라 **값**이다(Dexie 스키마 변경 불필요). 없으면 "지금 시도 가능"으로 읽는다.
+   */
+  nextRetryAt?: string;
 }
 
 // 영구삭제 표식(A안, ADR 예정) — "이 기기에서 영구히 치운 것"의 목록.
