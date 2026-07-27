@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.13<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->113<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->55<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.14<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->114<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->55<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->18<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -246,6 +246,7 @@ npm run dev                            # 홈 화면 확인 (선택)
 ```
 
 **다음 작업 후보**(v0.40 이후 — 앞선 Phase 기록에서 "후속"으로 남긴 것들):
+- ✅ **오디오 노트 구현 완료**(v1.14) — SPEC S-01이 MVP로 지정했는데 미구현이던 항목. `localAudio` **별도 테이블**(Dexie v7) · 칩 줄 `🔊 0:14` 인라인 재생 · 60초 상한 · CSP `media-src` 추가. **로컬+백업 두 계층**(서버 동기화는 후속 — `blueprint.ts`의 `localOnlyReason`에 이유). 유닛 16건(백업 왕복 주입 RED 확인).
 - 🆕 **사진 편집기 이식 명세** — `docs/PHOTO_EDITOR_PORTING.md`(2026-07-27). 메디컬 앱 이식용 **자족 명세**: 좌표계 3공간(rd/gd/정규화)·bake 순서·픽셀 수식·UI 상태기계·결함 등록부·검증 레시피. **외부 의존성 0**이라 `pixelops.ts`+`editor-core.ts` 573줄 복사로 알고리즘 층이 끝난다.
   - 🔴 **작성 중 미수정 결함 발견**: 잡티 탭이 `rd` 공간에 기록되는데 bake는 `gd`로 재투영한다(`photoEditor.ts:466` vs `editor-core.ts:348`). `quad` 없으면 같아서 안 드러났고, **원근 펴기 후 잡티를 찍으면 어긋난다.** 편집기 헌장 §4에도 기록. 처방은 `screenToGeo()` 순수 함수 추출.
 - 🆕 **동영상 지원 설계안** — `docs/VIDEO_PROPOSAL.md`(2026-07-27, 도메인 에이전트 4종 조사 + 실측 대조). **결론: MVP 반려**(SPEC이 이미 2차로 배치) · **오디오 노트를 먼저**(SPEC S-01이 MVP로 지정했는데 미구현) · 영상은 A안(표식만)/B안(로컬 전용) 중 선택. **사용자 결정 3건 대기**(문서 §7).

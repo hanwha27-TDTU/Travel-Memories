@@ -46,7 +46,7 @@ function trip(id: string): LocalTrip {
     createdAt: '2026-07-01T00:00:00.000Z', updatedAt: '2026-07-01T00:00:00.000Z', version: 1, deletedAt: null,
   };
 }
-const rows = (): CollectedRows => ({ trips: [trip(T)], moments: [], media: [], expenses: [] });
+const rows = (): CollectedRows => ({ trips: [trip(T)], moments: [], media: [], expenses: [], audio: [] });
 
 beforeEach(async () => {
   ctl.fail = false;

@@ -67,6 +67,9 @@ export const SKILL_ROUTES = [
   { match: /^src\/domain\/media\/naming/, skill: 'sync-offline-dev' },
   // 저장 공간 사전점검 — 인테이크(media 서비스)가 부르고, 계약은 MEDIA_PIPELINE에 있다.
   { match: /^src\/domain\/media\/quota/, skill: 'photo-editor-dev' },
+  // 오디오 노트 — 새 미디어 종류다. 저장·삭제·복원·백업 규율은 동기화 헌장이 정본이고,
+  // 녹음/재생 UI 규율(자동재생 금지·동시 1개·정리 한 곳)은 그 파일 머리주석에 있다.
+  { match: /^src\/(domain\/audio|services\/audio|ui\/audioNote)/, skill: 'sync-offline-dev' },
   { match: /^src\/services\/(backup|zip)/, skill: 'backup-restore-dev' },
   { match: /^src\/services\/(fx|expenses)/, skill: 'expense-fx-dev' },
   { match: /^src\/domain\/expense\//, skill: 'expense-fx-dev' },

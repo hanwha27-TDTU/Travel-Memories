@@ -42,7 +42,7 @@ function sampleRows(): CollectedRows {
   };
   // 고아: 부모 여행이 목록에 없는 순간(완전성 — _orphans로 보존되어야 함)
   const orphanMoment: LocalMoment = { ...moment, id: 'm-orphan', tripId: 't-GONE', title: '고아 순간' };
-  return { trips: [trip, tripDeleted], moments: [moment, orphanMoment], media: [media], expenses: [expense] };
+  return { trips: [trip, tripDeleted], moments: [moment, orphanMoment], media: [media], expenses: [expense], audio: [] };
 }
 
 async function expectParity(back: CollectedRows, src: CollectedRows) {

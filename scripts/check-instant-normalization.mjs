@@ -83,7 +83,9 @@ export function backupViolations(src) {
   const tables = [...new Set([...src.matchAll(/incoming\.(\w+)/g)].map((m) => m[1]))];
   if (tables.length === 0) return ['src/services/backup.ts — 복원이 읽는 표를 찾지 못함(게이트가 공허해진다)'];
   return tables
-    .filter((t) => !new RegExp(`incoming\\.${t}\\.map\\(withCanonicalStamps\\)`).test(src))
+    // `incoming.X.map(...)`와 `(incoming.X ?? []).map(...)` 둘 다 인정한다 — 뒤 형태는 옛 백업
+    // 파일에 그 표가 없을 때의 **하위호환**이고, 정규화는 똑같이 지난다. 오탐은 틀린 게이트다(§11 ③).
+    .filter((t) => !new RegExp(`incoming\\.${t}(?:\\s*\\?\\?\\s*\\[\\])?\\s*\\)?\\.map\\(withCanonicalStamps\\)`).test(src))
     .map((t) => `src/services/backup.ts — 복원한 ${t}가 withCanonicalStamps()를 거치지 않음`);
 }
 
