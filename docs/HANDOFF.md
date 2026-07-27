@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.09<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->109<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->52<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.10<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->110<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->53<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->17<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -217,6 +217,36 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0009 · v1.10 · **셀프체크에서 나온 내 결함 넷** (M-0036)
+
+**발단**: 사용자 *"셀프체크 및 자기점검 해주세요."* — v1.08·v1.09를 「29게이트·526유닛·live 136 전부 통과」로 보고한 직후.
+
+**결과**: 넷이 나왔고 **전부 그 두 판을 만들며 내가 넣은 것**이다. 넷 다 자동층을 통과한 상태로 존재했다.
+
+| # | 결함 | 근본형 |
+|---|---|---|
+| ① | 백업 정규화 검사가 `/withCanonicalStamps/` 존재만 봄 — **import 한 줄이 만족**(호출 4개 지우고 주입해 초록 확인) | **이름이 있는 것과 불리는 것은 다르다** |
+| ② | `occurred_at`·`taken_at` 미정규화. 둘 다 서버발이고 둘 다 **문자열로 정렬**된다(`timeline.ts`) | **형제를 파일로만 세고 필드로는 안 셌다**(§7 미완) |
+| ③ | `normalizeTableStamps`가 `each` → 트랜잭션 **밖** `update` | **M-0033과 같은 부류를 그 사고를 기록한 세션에서** |
+| ④ | `CHECK_COUNT`를 10 → 11로 손편집, 기계 검증 없음 | M-0001의 카운트 드리프트 |
+
+**변경**
+- `domain/{moment,media}/rowmap.ts` — `occurred_at`·`taken_at`도 `isoInstant()` 통과
+- `scripts/check-instant-normalization.mjs` — 컬럼 목록을 **코드에서 뽑는다**(`r.*_at` 전부) · 백업은 **호출 지점**을 본다(`incoming.<표>` 파생) · 자체검사 4 → 8건
+- `services/sync.ts` — `normalizeTableStamps`를 `table.db.transaction('rw', …)`로 감쌈
+- `scripts/check-verdict-symmetry.mjs` — `checkCountMatches`(자체검사 3건 추가, 총 51건)
+- `tests/unit/instantFormat.test.ts` — 28 → 32건
+- 스킬: `sync-offline-dev` §1-E에 "형제는 필드다" · `gates-mechanization-dev` **§2-F 신설**(존재 검사로 만든 공허)
+
+**검증**: 하네스 <!--reg:gateCount-->29<!--/reg-->개 PASS · 유닛 530건 · **주입 RED 5건**(백업 호출 제거 · `occurred_at` 되돌리기 · `taken_at` 되돌리기 · `CHECK_COUNT` 드리프트 · 게이트 자체검사) · build OK · live 136/136(1회 흔들림, 아래 참조).
+
+**남긴 것(정직)**
+- 라이브 검사 `가로 태블릿: 높이 기준 맞춤`이 **7회 중 2회 흔들렸다.** 이번 변경과 무관한 레이아웃 타이밍이고 재실행하면 통과하지만, **불안정한 게이트는 그 자체로 결함**이다(§11 — 사람이 무시하기 시작하면 그 게이트는 죽는다). 다음 세션의 후보 작업.
+- `storeState`의 기기별 마지막 push 시각 비교는 **같은 서버 응답에서 온 동형 값**이라 표기가 섞이지 않는다 — 확인하고 **의도적으로 제외**했다.
+- v1.09의 `running` 갈래는 여전히 **유닛으로만** 확인됐다(사용자 화면이 그 상태로 잡힌 적이 없다).
 
 ---
 

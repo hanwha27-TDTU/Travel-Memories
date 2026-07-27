@@ -42,25 +42,49 @@ export function fromRowFunctions(source) {
   return out;
 }
 
-/** 한 파일의 위반 목록. 반환형과 본문 두 가지를 본다(하나만 보면 우회로가 남는다). */
+/**
+ * 한 파일의 위반 목록. 반환형과 본문 두 가지를 본다(하나만 보면 우회로가 남는다).
+ *
+ * ⚠️ **컬럼 목록을 손으로 적지 않는다**(자기점검 2026-07-27에 이걸로 뚫렸다).
+ * 처음엔 `created_at`·`updated_at`·`deleted_at` **셋만** 검사했다. 그래서 같은 커밋에서
+ * `occurred_at`(순간의 발생 시각)과 `taken_at`(사진 촬영 시각)을 빠뜨렸는데 **게이트가
+ * 초록이었다** — 게이트가 내 불완전한 목록을 그대로 베껴 갖고 있었기 때문이다.
+ * 둘 다 서버에서 오고 둘 다 문자열로 정렬된다(`timeline.ts`의 `localeCompare`).
+ *
+ * 이제 **본문에 나타나는 모든 `r.*_at`을 코드에서 뽑아** 검사한다. 새 시각 컬럼이 생기면
+ * 다음 형제가 자동으로 따라온다(§7의 세 번째 질문).
+ */
 export function violationsIn(source, rel) {
   const bad = [];
+  const WRAPPED = /(?:isoInstant|isoInstantOrNull)\(\s*$/;
   for (const fn of fromRowFunctions(source)) {
     if (!/\bWithInstants</.test(fn.returnType)) {
       bad.push(`${rel}::${fn.name} — 반환형이 WithInstants<…>가 아님(브랜드가 안 걸려 날것이 통과한다)`);
     }
-    for (const [col, helper] of [
-      ['created_at', 'isoInstant'],
-      ['updated_at', 'isoInstant'],
-      ['deleted_at', 'isoInstantOrNull'],
-    ]) {
-      if (!fn.body.includes(`r.${col}`)) continue; // 그 컬럼을 안 쓰는 변환이면 해당 없음
-      if (!new RegExp(`${helper}\\(\\s*r\\.${col}`).test(fn.body)) {
-        bad.push(`${rel}::${fn.name} — r.${col}이 ${helper}()를 거치지 않음`);
-      }
+    // 본문이 읽는 시각 컬럼을 **전부** 모은다 — 위치마다 따로 본다(한 곳만 감싸고 넘어가지 못하게).
+    for (const m of fn.body.matchAll(/r\.(\w+_at)\b/g)) {
+      if (WRAPPED.test(fn.body.slice(0, m.index))) continue;
+      bad.push(`${rel}::${fn.name} — r.${m[1]}이 isoInstant()/isoInstantOrNull()을 거치지 않음`);
     }
   }
   return bad;
+}
+
+/**
+ * 백업 복원이 **실제로 정규화를 호출하는가.**
+ *
+ * ⚠️ 처음엔 파일에 `withCanonicalStamps`라는 글자가 있는지만 봤다. 그러면 **import 한 줄만
+ * 남기고 호출 4개를 전부 지워도 초록**이다 — 자기점검에서 주입해 확인했다. 게이트를 만들었다는
+ * 것과 그 자리가 지켜진다는 것은 다르다(§11).
+ *
+ * 이제 `incoming.<표>`를 **코드에서 뽑아** 각각이 정규화를 거치는지 본다(새 표도 자동으로 따라온다).
+ */
+export function backupViolations(src) {
+  const tables = [...new Set([...src.matchAll(/incoming\.(\w+)/g)].map((m) => m[1]))];
+  if (tables.length === 0) return ['src/services/backup.ts — 복원이 읽는 표를 찾지 못함(게이트가 공허해진다)'];
+  return tables
+    .filter((t) => !new RegExp(`incoming\\.${t}\\.map\\(withCanonicalStamps\\)`).test(src))
+    .map((t) => `src/services/backup.ts — 복원한 ${t}가 withCanonicalStamps()를 거치지 않음`);
 }
 
 // ── 자체검사: 알려진 실패를 주입해 RED를 확인한 뒤에만 이 게이트를 믿는다(§4·§11) ──
@@ -87,6 +111,18 @@ export function fromRow(r: TripRow): WithInstants<LocalTrip> {
   // ③ 그 컬럼이 아예 없는 변환은 해당 없음(오탐 금지 — 오탐은 틀린 게이트다, §11 ③).
   const partial = 'export function fromXRow(r: XRow): WithInstants<X> {\n  return { id: r.id };\n}\n';
   if (violationsIn(partial, 'x.ts').length !== 0) throw new Error('SELF-TEST 실패: 없는 컬럼을 위반으로 잡음(오탐).');
+
+  // ④ **자기점검에서 실제로 뚫린 구멍**: 손으로 적은 3개 말고 다른 시각 컬럼.
+  const extra = good.replace('createdAt: isoInstant(r.created_at),', "occurredAt: r.occurred_at ?? '',\n    createdAt: isoInstant(r.created_at),");
+  if (violationsIn(extra, 'x.ts').length !== 1) throw new Error('SELF-TEST 실패: created/updated/deleted 밖의 시각 컬럼을 못 잡음.');
+  const extraOk = good.replace('createdAt: isoInstant(r.created_at),', "occurredAt: isoInstant(r.occurred_at ?? ''),\n    createdAt: isoInstant(r.created_at),");
+  if (violationsIn(extraOk, 'x.ts').length !== 0) throw new Error('SELF-TEST 실패: 감싼 컬럼을 위반으로 잡음(오탐).');
+
+  // ⑤ **게이트가 공허했던 그 자리**: import만 남고 호출이 사라진 경우.
+  const bkOk = "import { withCanonicalStamps } from '../domain/time';\nconst rows = { trips: incoming.trips.map(withCanonicalStamps) };";
+  if (backupViolations(bkOk).length !== 0) throw new Error('SELF-TEST 실패: 정상 백업 코드를 위반으로 잡음(오탐).');
+  const bkBad = "import { withCanonicalStamps } from '../domain/time';\nconst rows = { trips: incoming.trips };";
+  if (backupViolations(bkBad).length !== 1) throw new Error('SELF-TEST 실패: 호출이 사라진 백업을 못 잡음(게이트 공허).');
 })();
 
 function walk(dir) {
@@ -111,10 +147,7 @@ for (const file of files) {
 
 // 백업 복원은 타입이 안 걸리는 **두 번째 유입구**다(파일에서 온 행 — 옛 백업에 옛 표기가 있다).
 // 서버 경계만 막고 여기를 두면 같은 결함이 다른 문으로 다시 들어온다(§7 수평전개).
-const backup = readFileSync(join(ROOT, 'src', 'services', 'backup.ts'), 'utf8');
-if (!/withCanonicalStamps/.test(backup)) {
-  violations.push('src/services/backup.ts — 복원한 행이 withCanonicalStamps()를 거치지 않음');
-}
+violations.push(...backupViolations(readFileSync(join(ROOT, 'src', 'services', 'backup.ts'), 'utf8')));
 
 // LWW가 다시 **문자열 대소**로 돌아가지 않게 못 박는다. 이게 M-0034가 사용자에게 닿은 경로다.
 const merge = readFileSync(join(ROOT, 'src', 'sync', 'merge.ts'), 'utf8');

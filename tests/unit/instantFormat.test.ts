@@ -184,3 +184,31 @@ describe('⑤ withCanonicalStamps — 이미 저장된 행을 데려오는 변�
     expect(withCanonicalStamps(once)).toEqual(once);
   });
 });
+
+// ── 자기점검에서 나온 구멍(2026-07-27) ────────────────────────────────
+// M-0034를 고치며 `created_at`·`updated_at`·`deleted_at` **셋만** 정규화했다. 그런데 서버에서
+// 오는 시각은 그 셋이 아니다 — `occurred_at`(순간의 발생 시각)과 `taken_at`(사진 촬영 시각)이
+// 더 있고, **둘 다 문자열로 정렬된다**(`timeline.ts`의 `localeCompare`, `tripDetail`의 `>`).
+// 형제 목록을 **파일 단위**로만 뽑고 **필드 단위**로는 안 뽑은 §7 미완이었다.
+describe('⑥ 시각 컬럼을 **빠짐없이** 정규화한다 (§7 — 형제는 파일이 아니라 필드다)', () => {
+  it('순간의 발생 시각(occurred_at)도 정규 표기로 온다', () => {
+    const r = fromMomentRow({ id: U(2), user_id: U(9), trip_id: U(1), occurred_at: PG, title: '', note: '', emotion: '', place_name: '', place_lat: null, place_lng: null, version: 1, client_operation_id: null, created_at: PG, updated_at: PG, deleted_at: null });
+    expect(r.occurredAt).toBe(JS);
+  });
+
+  it('사진의 촬영 시각(taken_at)도 — R2 파일 이름의 앞부분이 여기서 나온다', () => {
+    const r = fromMediaRow({ id: U(3), user_id: U(9), moment_id: U(2), trip_id: U(1), storage_path: null, width: 1, height: 1, taken_at: PG, bytes_display: 1, source: 'user', version: 1, client_operation_id: null, created_at: PG, updated_at: PG, deleted_at: null });
+    expect(r.takenAt).toBe(JS);
+  });
+
+  it('서버가 null이면 빈 문자열 그대로(없는 시각을 지어내지 않는다)', () => {
+    const r = fromMomentRow({ id: U(2), user_id: U(9), trip_id: U(1), occurred_at: null, title: '', note: '', emotion: '', place_name: '', place_lat: null, place_lng: null, version: 1, client_operation_id: null, created_at: PG, updated_at: PG, deleted_at: null });
+    expect(r.occurredAt).toBe('');
+  });
+
+  it('타임라인 정렬이 표기에 흔들리지 않는다 — 정규화 뒤에는 같은 순간이 같은 문자열이다', () => {
+    const fromServer = isoInstant(PG);
+    const madeLocally = JS;
+    expect(fromServer.localeCompare(madeLocally)).toBe(0);
+  });
+});

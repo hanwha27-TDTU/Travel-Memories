@@ -1039,15 +1039,24 @@ export async function forceRepairCascadeOps(): Promise<{ media: number; expenses
  * blob은 건드리지 않는다 — `update()`로 시각 3칸만 다시 쓴다.
  */
 async function normalizeTableStamps(table: Table<SyncMeta & { id: string }, string>): Promise<number> {
-  const patches: { id: string; patch: Partial<SyncMeta> }[] = [];
-  // `each`는 커서라 blob을 한 행씩만 들고 있는다(사진 테이블을 통째로 메모리에 올리지 않는다).
-  await table.each((r) => {
-    const next = withCanonicalStamps(r);
-    if (next.createdAt === r.createdAt && next.updatedAt === r.updatedAt && next.deletedAt === r.deletedAt) return;
-    patches.push({ id: r.id, patch: { createdAt: next.createdAt, updatedAt: next.updatedAt, deletedAt: next.deletedAt } });
+  // ⚠️ **읽기와 쓰기가 한 트랜잭션 안이어야 한다**(자기점검 2026-07-27). 처음엔 `each`로 다
+  // 훑은 뒤 트랜잭션 **밖에서** `update`를 돌렸다. 그 사이에 복원·동기화가 같은 행을 고치면
+  // 내 `update`가 **읽던 시점의 옛 값**으로 되돌린다(읽기-수정-쓰기의 고전적 창).
+  //
+  // 이건 M-0033과 **같은 부류**다 — 이 세션에서 그 사고를 직접 기록해 놓고 같은 형태를 또
+  // 만들었다. 그리고 §1-B가 이미 말한다: *"이 함수가 `await`에서 멈춘 사이에 동기화가 돌면,
+  // 지금 커밋된 상태는 어떻게 보이는가?"* — 읽기-수정-쓰기에는 언제나 이 질문이 걸린다.
+  return table.db.transaction('rw', table, async () => {
+    const patches: { id: string; patch: Partial<SyncMeta> }[] = [];
+    // `each`는 커서라 blob을 한 행씩만 들고 있는다(사진 테이블을 통째로 메모리에 올리지 않는다).
+    await table.each((r) => {
+      const next = withCanonicalStamps(r);
+      if (next.createdAt === r.createdAt && next.updatedAt === r.updatedAt && next.deletedAt === r.deletedAt) return;
+      patches.push({ id: r.id, patch: { createdAt: next.createdAt, updatedAt: next.updatedAt, deletedAt: next.deletedAt } });
+    });
+    for (const p of patches) await table.update(p.id, p.patch);
+    return patches.length;
   });
-  for (const p of patches) await table.update(p.id, p.patch);
-  return patches.length;
 }
 
 /** 4개 테이블 전부 — 형제를 손으로 세지 않는다(§7). 고친 행 수를 돌려준다. */
