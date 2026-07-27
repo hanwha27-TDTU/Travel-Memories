@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.14<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->114<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->55<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.15<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->115<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->55<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->18<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -262,6 +262,31 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0010 · v1.15 · **오디오가 형제의 규율을 안 받고 태어났다** (M-0040)
+
+**발단**: 사용자 *"병합전 전체 백업 안에 오디오노트도 포함되어 있는지 다시 한 번 확인해보고, 전반적으로 우리가 겪었던 문제들 다시 한 번 감사하고 병합여부 결정하자."*
+
+**감사 결과**: 백업 포함은 **확인됨**(JSON·ZIP·tombstone·옛 파일 하위호환 네 경로 전부). 그러나 **병합 판정은 🔴 불가**였다 — 오디오가 형제(순간·사진·비용)가 이미 지키던 계약 **다섯 개**를 하나도 안 받고 있었다. 사용자가 *"진행하죠. 그리고 헌법에 항상 형제들은 대칭성과 공정성을 부여하는 걸로... 형제끼리 차별하면 엇나가잖아요. 현실세계에서도"*로 승인해 다섯을 고치고 헌법 §7에 그 원칙을 새겼다.
+
+**고친 다섯 (전부 「소리만 조용히 빠져 있던」 같은 형태)**
+| 자리 | 그동안 무슨 일이 났나 | 어떻게 구조로 막았나 |
+|---|---|---|
+| cascade | 순간·여행을 지워도 **소리만 활성으로 남았다** | `TripChildren.audioIds`를 **필수 필드**로 → 누락이 컴파일 오류 |
+| 휴지통·복원 | 개별로 지운 소리가 **어디에도 안 보였다**(복구 경로 소멸 = F5 재발) | `TRASH_DOMAINS` 합집합 + `CHILD_SOURCE` 등록부를 **돈다**(도메인별 손 루프 제거) |
+| 영구삭제 | 여행을 지워도 **blob이 영원히 남았다**(닿을 방법 없음) | 하드 삭제 + **되읽기 확인**을 도메인 무관하게 |
+| 저장 용량 | 「합계」가 소리만큼 **작게** 나왔다 | `StorageUsage.audioBytes`/`audioCount` + 화면에 「🔊 소리」 줄 |
+| 무결성 | 소리를 **안 보고 「0건」**이라 말했다 | `IntegritySnapshot.audio` **필수 필드** + `parentChecks()` 자식 배열 한 곳 |
+
+**진짜 원인은 하나였다.** 다섯이 *동시에* 빈 이유는 `check-domain-symmetry`가 `\w*LocalFirst` **이름**만 봤기 때문이다 — `softDeleteAudio`/`restoreAudio`는 그 접미사를 안 써서 **검사 대상에 들어오지도 않았다.** 게이트 통과가 아무것도 뜻하지 않았다.
+
+**게이트를 이름에서 행동으로 옮겼다.** 이제 *로컬 테이블에 쓰는 함수는 전부* 대상이다(검사 대상 5개 → **36개**). op를 안 만드는 함수는 `NO_OP_REQUIRED`에 **이유와 함께** 등록해야 통과한다(8건). 먼저 동사 기준으로 넓혔을 때 순수 함수 5개를 **오탐**했고 — 오탐은 틀린 게이트다(§11 ③) — 그래서 행동 기준으로 바꿨다.
+
+**검증**: 31게이트 그린 · 유닛 **641**(신설 `audioSiblingDiscipline.test.ts` 26) · live **137/137**. 다섯 결함을 **하나씩 다시 주입해 전부 RED 확인**했고, `restoreAudio`를 실제 소스에서 지워 게이트 RED도 확인했다.
+
+**정직한 한계**: 실기기 확인은 여전히 사용자 몫이다 — 휴지통에 뜬 「소리」 줄이 읽히는지, 용량 화면의 새 줄이 자연스러운지는 기계가 판정 못 한다(§10).
 
 ---
 

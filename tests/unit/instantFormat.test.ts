@@ -20,7 +20,11 @@ import { fromMomentRow } from '../../src/domain/moment/rowmap';
 import { fromMediaRow } from '../../src/domain/media/rowmap';
 import { fromExpenseRow } from '../../src/domain/expense/rowmap';
 import { mergeDecision } from '../../src/sync/merge';
-import { checkIntegrity } from '../../src/domain/integrity';
+import { checkIntegrity, type IntegritySnapshot } from '../../src/domain/integrity';
+
+/** 빈 스냅샷 위에 필요한 도메인만 얹는다 — 도메인이 늘어도 검사가 손댈 곳은 이 한 줄이다. */
+const snap = (p: Partial<IntegritySnapshot>): IntegritySnapshot =>
+  ({ trips: [], moments: [], media: [], expenses: [], audio: [], ...p });
 import { groupMomentsByDay } from '../../src/domain/moment/timeline';
 import { latestOccurredAt } from '../../src/domain/moment/whenDefault';
 
@@ -135,7 +139,7 @@ describe('③ LWW가 표기에 흔들리지 않는다 — 여기가 기억이 �
 describe('④ 진단이 **멀쩡한 것을 문제라 하지 않는다** (오탐은 틀린 게이트다 — §11 ③)', () => {
   const row = (createdAt: string, updatedAt: string) => ({ id: U(1), deletedAt: null, createdAt, updatedAt, version: 1 });
   const codes = (createdAt: string, updatedAt: string): string[] =>
-    checkIntegrity({ trips: [row(createdAt, updatedAt)], moments: [], media: [], expenses: [] }).findings.map((f) => f.code);
+    checkIntegrity(snap({ trips: [row(createdAt, updatedAt)] })).findings.map((f) => f.code);
 
   it('표기만 다른 같은 순간은 **시간 역전이 아니다**(사용자가 본 그 9건)', () => {
     expect(codes(JS, PG)).not.toContain('TIME_INVERSION');
@@ -163,7 +167,7 @@ describe('④ 진단이 **멀쩡한 것을 문제라 하지 않는다** (오탐�
 
   it('tombstone 시각의 표기도 본다(형제를 빠뜨리지 않는다)', () => {
     const r = { id: U(1), deletedAt: PG, createdAt: JS, updatedAt: JS, version: 1 };
-    const c = checkIntegrity({ trips: [r], moments: [], media: [], expenses: [] }).findings.map((f) => f.code);
+    const c = checkIntegrity(snap({ trips: [r] })).findings.map((f) => f.code);
     expect(c).toContain('BAD_TIME_FORMAT');
   });
 });
@@ -240,19 +244,19 @@ describe('⑦ 정규화·정리·판정·정렬이 **같은 필드 집합**을 �
 
   it('진단이 occurredAt의 옛 표기도 본다 — 예전엔 「0건」이라 말했다', () => {
     const m = { id: U(2), deletedAt: null, createdAt: JS, updatedAt: JS, version: 1, tripId: U(1), occurredAt: PG };
-    const c = checkIntegrity({ trips: [], moments: [m], media: [], expenses: [] }).findings.map((f) => f.code);
+    const c = checkIntegrity(snap({ moments: [m] })).findings.map((f) => f.code);
     expect(c).toContain('BAD_TIME_FORMAT');
   });
 
   it('진단이 takenAt의 옛 표기도 본다', () => {
     const md = { id: U(3), deletedAt: null, createdAt: JS, updatedAt: JS, version: 1, tripId: U(1), momentId: U(2), takenAt: PG };
-    const c = checkIntegrity({ trips: [], moments: [], media: [md], expenses: [] }).findings.map((f) => f.code);
+    const c = checkIntegrity(snap({ media: [md] })).findings.map((f) => f.code);
     expect(c).toContain('BAD_TIME_FORMAT');
   });
 
   it('전부 정규 표기면 침묵한다(§8)', () => {
     const m = { id: U(2), deletedAt: null, createdAt: JS, updatedAt: JS, version: 1, tripId: U(1), occurredAt: JS };
-    const c = checkIntegrity({ trips: [], moments: [m], media: [], expenses: [] }).findings.map((f) => f.code);
+    const c = checkIntegrity(snap({ moments: [m] })).findings.map((f) => f.code);
     expect(c).not.toContain('BAD_TIME_FORMAT');
   });
 });

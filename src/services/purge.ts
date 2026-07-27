@@ -76,6 +76,48 @@ export const DOMAIN_PURGE: Record<PurgeDomain, DomainPurge> = {
   },
 };
 
+/**
+ * **서버가 없는 도메인.** 여기 있는 것은 `PurgeDomain`이 *아니다* — 그 타입에 넣으면
+ * `remoteTable` 이름을 지어내야 하고, `storeState`·`diagnostics`·`pushPurges`가 그 이름으로
+ * Supabase에 질의해 **없는 표를 조회**한다(진단 비교층 전체가 오류로 무너진다).
+ *
+ * ⚠️ **이 분리는 "소리는 형제가 아니다"라는 뜻이 아니다**(CLAUDE.md §7, 2026-07-27:
+ * *"형제끼리 차별하면 엇나가잖아요"*). 대칭은 기본값이고, 여기 적힌 것은 **설계 단계에서
+ * 심사한 단 하나의 예외** — *서버 왕복이 없다* — 뿐이다. 그 예외의 사정거리는 정확히
+ * 「원격 표·전파 op·원장 표식」까지이고, **로컬에서 일어나는 일은 전부 같다**:
+ * 함께 tombstone되고, 휴지통에 보이고, 되살아나고, 영구삭제로 바이트가 실제로 사라진다.
+ * 그 대칭은 아래 `TRASH_DOMAINS`가 구조로 지킨다(§7 2층).
+ */
+export const LOCAL_ONLY_DOMAINS = ['audio'] as const;
+export type LocalOnlyDomain = (typeof LOCAL_ONLY_DOMAINS)[number];
+
+export const DOMAIN_LOCAL_ONLY: Record<LocalOnlyDomain, { table: () => Table<{ id: string }, string>; reason: string }> = {
+  audio: {
+    table: () => db().localAudio as unknown as Table<{ id: string }, string>,
+    reason: '오디오는 서버로 가지 않는다(services/audio.ts 머리주석·blueprint.ts localOnlyReason).',
+  },
+};
+
+/**
+ * **휴지통이 다루는 도메인 전부.** 사용자에게 보이는 층의 진실원이다.
+ *
+ * 휴지통·복원·영구삭제는 "서버에 가느냐"를 묻지 않는다 — 사용자는 *자기가 지운 것*을
+ * 보고 되살릴 뿐이다. 그래서 이 목록이 `PurgeDomain`이 아니라 **합집합**이고, 새 도메인이
+ * 어느 쪽에 생기든 아래 `Record<ChildDomain, …>`들이 컴파일 오류로 데려온다.
+ */
+export const TRASH_DOMAINS = [...PURGE_DOMAINS, ...LOCAL_ONLY_DOMAINS] as const;
+export type TrashDomain = PurgeDomain | LocalOnlyDomain;
+
+/** 이 도메인이 서버 왕복(전파 op·원장 표식)을 갖는가. 없으면 로컬 하드 삭제로 끝난다. */
+export function isLocalOnlyDomain(d: TrashDomain): d is LocalOnlyDomain {
+  return (LOCAL_ONLY_DOMAINS as readonly string[]).includes(d);
+}
+
+/** 도메인의 로컬 테이블 — 서버 유무와 무관하게 **로컬 행은 모두 있다**. */
+export function localTableOf(d: TrashDomain): Table<{ id: string }, string> {
+  return isLocalOnlyDomain(d) ? DOMAIN_LOCAL_ONLY[d].table() : DOMAIN_PURGE[d].table();
+}
+
 /** 큐에 담기는 영구삭제 작업의 entityType. 기존 push 루프(`!== 'trip'` …)가 자연히 건너뛴다. */
 export function purgeOpType(domain: PurgeDomain): string {
   return `purge:${domain}`;

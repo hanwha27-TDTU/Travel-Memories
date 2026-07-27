@@ -82,8 +82,12 @@ describe('① 고아 tombstone만 보여준다', () => {
     expect((await listTrashedChildren()).map((c) => c.label)).toEqual(['B', 'A']);
   });
 
-  it('세 도메인을 모두 다룬다 — 하나만 빠지는 게 이 저장소의 최빈 결함군이다', () => {
-    expect([...CHILD_DOMAINS].sort()).toEqual(['expense', 'media', 'moment']);
+  // ⚠️ 2026-07-27에 **셋에서 넷으로 뒤집은** 케이스다. 소리가 휴지통에 들어오면서 이 검사가
+  // 빨간불이 됐는데, 그때 할 일은 목록을 되돌리는 게 아니라 **기대값을 먼저 뒤집는 것**이다
+  // (§11 ②: 전제가 바뀌면 케이스를 먼저 뒤집는다 — 통과시키려고 로직을 되돌리지 마라).
+  // 실제로 소리는 그 전까지 휴지통 어디에도 없었고, 개별로 지우면 복구 경로가 사라졌다.
+  it('네 도메인을 모두 다룬다 — 하나만 빠지는 게 이 저장소의 최빈 결함군이다', () => {
+    expect([...CHILD_DOMAINS].sort()).toEqual(['audio', 'expense', 'media', 'moment']);
   });
 });
 

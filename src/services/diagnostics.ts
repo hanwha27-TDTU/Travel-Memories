@@ -8,6 +8,7 @@
 // 이 모듈은 **읽기 전용 집계**다(수리는 sync.ts의 재큐잉이 담당). 어떤 데이터도 바꾸지 않는다.
 
 import { db } from '../offline/db';
+import type { IntegritySnapshot } from '../domain/integrity';
 
 export interface SyncDiagnosis {
   /** 대기열 — 상태별/종류별. `local_only`만 세면 **실패가 조용히 숨는다**(옛 pendingSyncCount의 함정). */
@@ -114,4 +115,24 @@ export async function diagnoseSync(): Promise<SyncDiagnosis> {
  */
 export async function pendingOpCount(): Promise<number> {
   return db().syncQueue.count();
+}
+
+/**
+ * 무결성 점검이 볼 **로컬 스냅샷을 한 곳에서** 만든다.
+ *
+ * 왜 여기로 뽑았나(§7 2층, 2026-07-27): 이 `Promise.all([...])`는 `diagnostics.ts` 안에
+ * **두 번 손으로 적혀 있었다**(진단 카드용·요약 텍스트용). 도메인을 하나 더할 때 둘 다
+ * 고쳐야 하는 구조는 반드시 한쪽을 빠뜨린다 — 이 저장소의 삭제 결함이 전부 그 형태였다.
+ * 한 곳만 남기면 다음 형제는 **여기만 고치면 모든 소비처가 따라온다.**
+ */
+export async function loadIntegritySnapshot(): Promise<IntegritySnapshot> {
+  const d = db();
+  const [trips, moments, media, expenses, audio] = await Promise.all([
+    d.localTrips.toArray(),
+    d.localMoments.toArray(),
+    d.localMedia.toArray(),
+    d.localExpenses.toArray(),
+    d.localAudio.toArray(),
+  ]);
+  return { trips, moments, media, expenses, audio };
 }

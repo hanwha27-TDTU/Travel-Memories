@@ -18,8 +18,7 @@
 // 옛 동기화 진단 5줄 중 최상위 자격이 있는 것은 사실상 하나뿐이었다.
 
 import { el } from '../dom';
-import { db } from '../../offline/db';
-import { diagnoseSync } from '../../services/diagnostics';
+import { diagnoseSync, loadIntegritySnapshot } from '../../services/diagnostics';
 import { forceRepairCascadeOps, retryFailedOps } from '../../services/sync';
 import { checkIntegrity, CHECK_COUNT } from '../../domain/integrity';
 import { autoSyncVerdict } from '../../domain/syncStatusVerdict';
@@ -334,14 +333,7 @@ export async function syncProbe(): Promise<Verdict> {
 // ────────────────────────────────────────────────────────────────────────────
 
 export async function integrityProbe(): Promise<Verdict> {
-  const d = db();
-  const [trips, moments, media, expenses] = await Promise.all([
-    d.localTrips.toArray(),
-    d.localMoments.toArray(),
-    d.localMedia.toArray(),
-    d.localExpenses.toArray(),
-  ]);
-  const r = checkIntegrity({ trips, moments, media, expenses });
+  const r = checkIntegrity(await loadIntegritySnapshot());
   const nowFinds = r.findings.filter((f) => f.severity === 'now');
   const prevFinds = r.findings.filter((f) => f.severity === 'prevent');
 
@@ -1249,15 +1241,8 @@ export async function rollup(): Promise<{
 }
 
 async function summaryText(): Promise<string> {
-  const d = db();
-  const [trips, moments, media, expenses] = await Promise.all([
-    d.localTrips.toArray(),
-    d.localMoments.toArray(),
-    d.localMedia.toArray(),
-    d.localExpenses.toArray(),
-  ]);
   const [env, sync, roll] = await Promise.all([collectEnv(APP_VERSION), diagnoseSync(), rollup()]);
-  const integ = checkIntegrity({ trips, moments, media, expenses });
+  const integ = checkIntegrity(await loadIntegritySnapshot());
   const errs = recentErrors();
   const fmt = (o: Record<string, number>): string =>
     Object.entries(o)
