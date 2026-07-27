@@ -381,6 +381,34 @@ function toLocalInputValue(iso: string): string {
 }
 
 /**
+ * 장소 칩 — **탭하면 그 장소의 지도가 열린다.**
+ *
+ * 왜 앱 지도인가(사용자 결정 2026-07-27): 앱 지도(MapLibre+OSM)는 비공개이고 오프라인에서도
+ * 뜬다. 구글은 길찾기·스트리트뷰가 필요할 때 **거기서 한 걸음 더** 가는 곳이다. 그래서 칩은
+ * 늘 앱 지도를 열고, 「🌐 구글지도로 열기」는 그 안에 둔다 — 좌표가 조용히 밖으로 나가지 않는다.
+ *
+ * 좌표가 없어도 **누를 수 있다.** 지도는 빈 상태로 열려 "좌표가 없다"고 말하고, 이름으로
+ * 검색해 갈 길을 준다. 누를 수 없게 두면 *왜* 안 눌리는지 사용자가 알 방법이 없다(§12).
+ */
+function placeChip(m: { id: string; placeName: string; placeLat?: number | null; placeLng?: number | null }): HTMLElement {
+  const chip = el('button', 'chip gps chip-tap', `📍 ${m.placeName}`) as HTMLButtonElement;
+  chip.type = 'button';
+  chip.setAttribute('aria-label', `${m.placeName} 지도에서 보기`);
+  const lat = m.placeLat ?? null;
+  const lng = m.placeLng ?? null;
+  const place = { name: m.placeName, lat, lng };
+  chip.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const pts =
+      lat !== null && lng !== null
+        ? [{ momentId: m.id, lat, lng, title: m.placeName, occurredAt: '', placeName: m.placeName }]
+        : [];
+    void openMapView(m.placeName, pts, place);
+  });
+  return chip;
+}
+
+/**
  * 소리 칩을 칩 줄에 붙인다. **사진 격자가 아니라 칩 줄**이다 — 격자는 훑는 곳인데
  * 소리는 재생해야 내용을 알아서 훑기를 나쁘게 한다. 장소·비용과 같은 한 줄 정보다(§7 화면 대칭).
  */
@@ -918,7 +946,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       if (m.note) card.appendChild(el('p', 'moment-note', m.note));
       if (m.placeName || expenseList.length || audioList.length) {
         const chips = el('div', 'chips');
-        if (m.placeName) chips.appendChild(el('span', 'chip gps', `📍 ${m.placeName}`));
+        if (m.placeName) chips.appendChild(placeChip(m));
         appendAudioChips(chips, audioList, refresh);
         // 환율 상세(탭하면 펼쳐짐) — 툴팁(title)은 모바일에서 안 보이므로 실제 패널로 보여준다.
         const fxDetail = el('div', 'fx-detail');

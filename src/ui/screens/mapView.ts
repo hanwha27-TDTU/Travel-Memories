@@ -9,10 +9,48 @@
 import { el } from '../dom';
 import { toFeatureCollection, type LocatedPoint } from '../../domain/place/geojson';
 import { localDateTime } from '../../domain/time';
+import { externalMapTarget, externalMapConsentText, type PlaceLike } from '../../domain/place/externalMap';
+import { hasAgreedExternalMap, rememberAgreedExternalMap } from '../../services/externalMapConsent';
 
 export interface MapPoint extends LocatedPoint {
   placeName: string;
   previewBlob?: Blob; // 미리보기 이미지(표시본 ≤1600 — 썸네일보다 선명)
+}
+
+/**
+ * 「구글지도로 열기」 버튼. **없으면 만들지 않는다**(열 곳이 없으면 버튼도 없다).
+ *
+ * 왜 앱 지도 *안*에 두는가(사용자 결정 2026-07-27): 앱 지도가 주(主)다 — 비공개이고
+ * 오프라인에서도 뜬다. 구글은 길찾기·스트리트뷰가 필요할 때 **한 걸음 더 가서** 여는 곳이다.
+ * 그래서 칩을 누르면 앱 지도가 열리고, 구글은 여기서 한 번 더 누른다.
+ */
+function externalMapButton(place: PlaceLike): HTMLElement | null {
+  const t = externalMapTarget(place);
+  if (!t) return null;
+
+  const wrap = el('div', 'map-ext');
+  const btn = el('button', 'btn-ghost map-ext-btn', `🌐 ${t.label}`) as HTMLButtonElement;
+  btn.type = 'button';
+  btn.addEventListener('click', () => {
+    // 처음 한 번만 묻는다. 거절하면 **열지 않는다** — 확인이 형식이 되지 않게.
+    if (!hasAgreedExternalMap()) {
+      if (!window.confirm(externalMapConsentText(t))) return;
+      rememberAgreedExternalMap();
+    }
+    // noreferrer: 앱 주소(여행 id가 든 URL)가 Referer로 함께 새지 않게 한다.
+    // noopener는 noreferrer에 포함되지만 명시해 의도를 남긴다.
+    window.open(t.url, '_blank', 'noopener,noreferrer');
+  });
+  wrap.appendChild(btn);
+
+  // **이름으로 찾은 것이면 그렇게 말한다.** 좌표로 집은 것처럼 보이면 앱이 엉뚱한 곳을
+  // 그 장소라고 우기는 셈이 된다(§8 「모르는 것은 확인 불가다」).
+  if (t.caveat) {
+    const note = el('p', 'map-ext-note muted small');
+    note.textContent = t.caveat.replace(/\*\*/g, '');
+    wrap.appendChild(note);
+  }
+  return wrap;
 }
 
 // 기본 지도 스타일(키 불필요, 귀속표시). VITE_MAP_STYLE_URL로 교체 가능(ADR A-006).
@@ -59,8 +97,39 @@ function pointNode(p: MapPoint, objectUrls: string[]): HTMLElement {
   return box;
 }
 
-/** 지도 모달을 연다. 위치가 있는 순간(points)을 지도/목록으로 보여준다. */
-export function openMapView(tripTitle: string, points: MapPoint[]): void {
+/**
+ * 위치가 하나도 없을 때의 안내.
+ *
+ * **장소 칩에서 열었는데 좌표가 없는 경우**와 **여행에 위치가 하나도 없는 경우**는 다른
+ * 사정이다. 같은 문장으로 뭉뚱그리면 사용자는 무엇을 해야 할지 알 수 없다 — 앞은
+ * "이 장소에 좌표를 넣으려면 검색으로 고르라"이고, 뒤는 "사진에 GPS가 있으면 나타난다"이다.
+ */
+function emptyState(focusPlace?: PlaceLike): HTMLElement {
+  const empty = el('div', 'map-empty');
+  if (focusPlace) {
+    empty.append(
+      el('p', 'empty-emoji', '📍'),
+      el('h3', undefined, `"${focusPlace.name}"의 좌표가 저장돼 있지 않아요`),
+      el('p', 'muted', '이 장소는 이름만 적혀 있어서 지도에 점으로 찍을 수 없어요. 순간을 편집해 [🔍 검색]으로 장소를 고르면 좌표가 저장됩니다.'),
+    );
+  } else {
+    empty.append(
+      el('p', 'empty-emoji', '🗺'),
+      el('h3', undefined, '아직 지도에 표시할 위치가 없어요'),
+      el('p', 'muted', '사진에 위치정보(GPS)가 있으면 그 순간이 지도에 나타나요.'),
+    );
+  }
+  return empty;
+}
+
+/**
+ * 지도 모달을 연다. 위치가 있는 순간(points)을 지도/목록으로 보여준다.
+ *
+ * @param focusPlace 장소 칩에서 연 경우의 **그 장소**. 있으면 「구글지도로 열기」를 붙인다.
+ *   여행 전체 지도에는 붙이지 않는다 — 여러 장소를 링크 하나로 가리킬 수 없고,
+ *   억지로 하나를 고르면 앱이 **말하지 않은 선택**을 하는 셈이 된다.
+ */
+export function openMapView(tripTitle: string, points: MapPoint[], focusPlace?: PlaceLike): void {
   const prevFocus = document.activeElement as HTMLElement | null;
   const objectUrls: string[] = [];
 
@@ -87,6 +156,7 @@ export function openMapView(tripTitle: string, points: MapPoint[]): void {
   closeBtn.setAttribute('aria-label', '지도 닫기');
   actions.append(geoBtn, closeBtn);
   header.appendChild(actions);
+  const extBox = focusPlace ? externalMapButton(focusPlace) : null;
   modal.appendChild(header);
 
   const body = el('div', 'map-body');
@@ -120,15 +190,12 @@ export function openMapView(tripTitle: string, points: MapPoint[]): void {
 
   // 위치 순간이 없으면 안내(빈 상태).
   if (points.length === 0) {
-    const empty = el('div', 'map-empty');
-    empty.append(
-      el('p', 'empty-emoji', '🗺'),
-      el('h3', undefined, '아직 지도에 표시할 위치가 없어요'),
-      el('p', 'muted', '사진에 위치정보(GPS)가 있으면 그 순간이 지도에 나타나요.'),
-    );
-    body.appendChild(empty);
+    body.appendChild(emptyState(focusPlace));
+    if (extBox) body.appendChild(extBox); // 좌표가 없어도 **이름으로는** 갈 수 있다
     return;
   }
+
+  if (extBox) body.appendChild(extBox);
 
   // 지도 대신 항상 접근 가능한 '장소 목록'(오프라인 대체·기본 접근 보장).
   const list = el('div', 'map-list');
