@@ -21,6 +21,8 @@ import { fromMediaRow } from '../../src/domain/media/rowmap';
 import { fromExpenseRow } from '../../src/domain/expense/rowmap';
 import { mergeDecision } from '../../src/sync/merge';
 import { checkIntegrity } from '../../src/domain/integrity';
+import { groupMomentsByDay } from '../../src/domain/moment/timeline';
+import { latestOccurredAt } from '../../src/domain/moment/whenDefault';
 
 /** 서버가 실제로 준 값(2026-07-26 journey.media, `to_jsonb`로 확인). 지어낸 예가 아니다. */
 const PG = '2026-07-26T17:29:48.34+00:00';
@@ -210,5 +212,89 @@ describe('⑥ 시각 컬럼을 **빠짐없이** 정규화한다 (§7 — 형제�
     const fromServer = isoInstant(PG);
     const madeLocally = JS;
     expect(fromServer.localeCompare(madeLocally)).toBe(0);
+  });
+});
+
+// ── 논리적 충돌 점검(2026-07-27) ─────────────────────────────────────
+// 입구(rowmap)만 막고 나머지 층을 안 맞추면 규율이 절반만 산다. 셋을 맞췄다:
+// ①비교도 순간으로(정렬) ②이미 저장된 행의 그 필드도 정리 ③진단도 그 필드를 본다.
+describe('⑦ 정규화·정리·판정·정렬이 **같은 필드 집합**을 본다 (§7 대칭)', () => {
+  const P = { createdAt: PG, updatedAt: PG, deletedAt: null, occurredAt: PG, takenAt: PG };
+
+  it('withCanonicalStamps가 occurredAt·takenAt까지 다시 쓴다(정리의 절반이 빠져 있었다)', () => {
+    const after = withCanonicalStamps(P);
+    expect([after.createdAt, after.updatedAt, after.occurredAt, after.takenAt]).toEqual([JS, JS, JS, JS]);
+  });
+
+  it('빈 값·null은 건드리지 않는다(없는 시각을 지어내지 않는다)', () => {
+    const after = withCanonicalStamps({ ...P, occurredAt: '', deletedAt: null });
+    expect(after.occurredAt).toBe('');
+    expect(after.deletedAt).toBeNull();
+  });
+
+  it('시각이 아닌 필드는 그대로(이름이 At으로 안 끝나면 대상이 아니다)', () => {
+    const after = withCanonicalStamps({ ...P, startDate: '2026-07-16', title: '제주' });
+    expect(after.startDate).toBe('2026-07-16');
+    expect(after.title).toBe('제주');
+  });
+
+  it('진단이 occurredAt의 옛 표기도 본다 — 예전엔 「0건」이라 말했다', () => {
+    const m = { id: U(2), deletedAt: null, createdAt: JS, updatedAt: JS, version: 1, tripId: U(1), occurredAt: PG };
+    const c = checkIntegrity({ trips: [], moments: [m], media: [], expenses: [] }).findings.map((f) => f.code);
+    expect(c).toContain('BAD_TIME_FORMAT');
+  });
+
+  it('진단이 takenAt의 옛 표기도 본다', () => {
+    const md = { id: U(3), deletedAt: null, createdAt: JS, updatedAt: JS, version: 1, tripId: U(1), momentId: U(2), takenAt: PG };
+    const c = checkIntegrity({ trips: [], moments: [], media: [md], expenses: [] }).findings.map((f) => f.code);
+    expect(c).toContain('BAD_TIME_FORMAT');
+  });
+
+  it('전부 정규 표기면 침묵한다(§8)', () => {
+    const m = { id: U(2), deletedAt: null, createdAt: JS, updatedAt: JS, version: 1, tripId: U(1), occurredAt: JS };
+    const c = checkIntegrity({ trips: [], moments: [m], media: [], expenses: [] }).findings.map((f) => f.code);
+    expect(c).not.toContain('BAD_TIME_FORMAT');
+  });
+});
+
+describe('⑧ 정렬이 **가짜 차이**를 보지 않는다 (정직하게: 여기가 진짜 위험이다)', () => {
+  // ⚠️ 처음에 쓴 검사는 **공허했다.** 「옛 표기가 섞이면 순서가 뒤집힌다」는 케이스를 만들려
+  // 했는데, 실측해 보니 PostgREST는 timestamptz를 **항상 `+00:00`**으로 준다 — 초 단위까지
+  // 자릿수가 맞아 **사전순과 시간순이 대체로 일치한다.** 주입(localeCompare 복귀)에도 유닛이
+  // 통과했고 게이트만 잡았다. 그래서 주장도 검사도 고쳤다: 실제 위험은 순서 뒤집힘이 아니라
+  // **같은 순간을 다르다고 보는 것**(가짜 차이)이고, 그게 동률 처리를 건너뛰게 만든다.
+  const mk = (id: number, occurredAt: string) => ({
+    id: U(id), tripId: U(1), occurredAt, title: '', note: '', emotion: '', placeName: '',
+    version: 1, createdAt: JS, updatedAt: JS, deletedAt: null,
+  });
+
+  it('같은 순간의 두 표기를 문자열은 다르다고 한다 — 이게 가짜 차이다', () => {
+    expect('2026-07-16T09:30:00+00:00'.localeCompare('2026-07-16T09:30:00.000Z')).not.toBe(0);
+  });
+
+  it('정렬은 그것을 **동률로** 본다(정규화 + 순간 비교, 두 층 모두)', () => {
+    expect(compareInstants('2026-07-16T09:30:00+00:00', '2026-07-16T09:30:00.000Z')).toBe(0);
+  });
+
+  it('시간순 자체는 유지된다(느슨해진 게 아니다)', () => {
+    const early = '2026-07-16T09:30:00.400Z';
+    const late = '2026-07-16T09:30:00.900Z';
+    const groups = groupMomentsByDay([mk(2, late), mk(3, early)] as never, '2026-07-16');
+    expect(groups[0]!.items.map((m) => m.occurredAt)).toEqual([early, late]);
+  });
+
+  it('가장 늦은 순간을 고를 때도 순간으로 비교한다', () => {
+    expect(latestOccurredAt([{ occurredAt: '2026-07-16T09:30:00.900Z' }, { occurredAt: '2026-07-16T09:30:00.400Z' }]))
+      .toBe('2026-07-16T09:30:00.900Z');
+  });
+
+  it('같은 순간이면 앞의 것을 유지한다(안정 — 화면이 새로고침마다 흔들리지 않게)', () => {
+    expect(latestOccurredAt([{ occurredAt: '2026-07-16T09:30:00+00:00' }, { occurredAt: '2026-07-16T09:30:00.000Z' }]))
+      .toBe('2026-07-16T09:30:00+00:00');
+  });
+
+  it('못 읽는 값은 기준이 되지 못한다(지어낸 값이 이기지 않게)', () => {
+    expect(latestOccurredAt([{ occurredAt: 'nope' }, { occurredAt: JS }])).toBe(JS);
+    expect(latestOccurredAt([])).toBeNull();
   });
 });

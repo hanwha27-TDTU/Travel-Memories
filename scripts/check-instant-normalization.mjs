@@ -125,6 +125,47 @@ export function fromRow(r: TripRow): WithInstants<LocalTrip> {
   if (backupViolations(bkBad).length !== 1) throw new Error('SELF-TEST 실패: 호출이 사라진 백업을 못 잡음(게이트 공허).');
 })();
 
+/**
+ * **시각을 문자열로 비교하지 않는가** (논리적 충돌 점검 2026-07-27).
+ *
+ * 정규화(입구)만 고치고 비교(출구)를 두면 **방어선이 하나뿐**이다. 옛 표기가 한 줄만 남아도
+ * 순서가 흔들린다. 실제로 `mergeDecision`은 `compareInstants`로 고쳤는데 **타임라인 정렬만
+ * `localeCompare`로 남아 있었다** — 같은 규율의 §7 비대칭이었다.
+ *
+ * `localeCompare`는 시각에 **정당한 용도가 없다**(로캘 규칙은 ISO 순서와 무관하다) → 무조건 금지.
+ * `>`/`<` 비교는 시각 필드끼리일 때만 잡는다. 정말 필요하면 줄 끝에 `// not-an-instant`.
+ */
+export function stringTimeComparisons(files) {
+  const AT = String.raw`\w*(?:createdAt|updatedAt|deletedAt|occurredAt|takenAt)`;
+  const LOCALE = new RegExp(String.raw`\.${AT}\s*(?:\|\|[^.]*)?\)?\s*\.localeCompare\(`);
+  const RELOP = new RegExp(String.raw`\.${AT}\s*[<>]=?\s*\w+\.${AT}\b`);
+  const bad = [];
+  for (const [rel, src] of files) {
+    if (rel.endsWith('domain/time.ts')) continue; // 비교를 **정의하는** 곳
+    src.split('\n').forEach((line, i) => {
+      if (/^\s*(\/\/|\*|\/\*)/.test(line)) return; // 주석은 역사 기록이다
+      if (/not-an-instant/.test(line)) return; // 명시적 예외(줄 단위)
+      if (LOCALE.test(line)) bad.push(`${rel}:${i + 1} 시각을 localeCompare로 비교함 — compareInstants()를 쓰세요`);
+      else if (RELOP.test(line)) bad.push(`${rel}:${i + 1} 시각을 문자열 대소로 비교함 — compareInstants()를 쓰세요`);
+    });
+  }
+  return bad;
+}
+
+// ── 비교층 자체검사: 실제로 있었던 두 줄을 그대로 넣는다 ──
+(() => {
+  const hit = stringTimeComparisons([['a.ts', '.sort((a, b) => (a.occurredAt || a.createdAt).localeCompare(b.occurredAt || b.createdAt));']]);
+  if (hit.length !== 1) throw new Error('SELF-TEST 실패: localeCompare 비교를 못 잡음(게이트 공허).');
+  const rel = stringTimeComparisons([['a.ts', 'if (mx === null || m.occurredAt > mx.updatedAt) return 1;']]);
+  if (rel.length !== 1) throw new Error('SELF-TEST 실패: 문자열 대소 비교를 못 잡음.');
+  const ok = stringTimeComparisons([['a.ts', 'const c = compareInstants(a.occurredAt, b.occurredAt) ?? 0;']]);
+  if (ok.length !== 0) throw new Error('SELF-TEST 실패: 정상 코드를 위반으로 잡음(오탐).');
+  const cmt = stringTimeComparisons([['a.ts', '  // 예전엔 a.occurredAt.localeCompare(b.occurredAt)였다(설명 주석)']]);
+  if (cmt.length !== 0) throw new Error('SELF-TEST 실패: 주석까지 위반으로 잡음(오탐).');
+  const other = stringTimeComparisons([['a.ts', 'if (a.title.localeCompare(b.title) > 0) return 1;']]);
+  if (other.length !== 0) throw new Error('SELF-TEST 실패: 시각이 아닌 문자열 정렬을 잡음(오탐).');
+})();
+
 function walk(dir) {
   const out = [];
   for (const name of readdirSync(dir)) {
@@ -148,6 +189,10 @@ for (const file of files) {
 // 백업 복원은 타입이 안 걸리는 **두 번째 유입구**다(파일에서 온 행 — 옛 백업에 옛 표기가 있다).
 // 서버 경계만 막고 여기를 두면 같은 결함이 다른 문으로 다시 들어온다(§7 수평전개).
 violations.push(...backupViolations(readFileSync(join(ROOT, 'src', 'services', 'backup.ts'), 'utf8')));
+
+// 비교층은 **src 전체**에 건다 — 손으로 파일을 고르면 하나가 조용히 남는다(M-0012의 그 원인).
+const srcFiles = walk(join(ROOT, 'src')).map((abs) => [relative(ROOT, abs).replace(/\\/g, '/'), readFileSync(abs, 'utf8')]);
+violations.push(...stringTimeComparisons(srcFiles));
 
 // LWW가 다시 **문자열 대소**로 돌아가지 않게 못 박는다. 이게 M-0034가 사용자에게 닿은 경로다.
 const merge = readFileSync(join(ROOT, 'src', 'sync', 'merge.ts'), 'utf8');

@@ -241,7 +241,16 @@ npm run dev                            # 홈 화면 확인 (선택)
 - `tests/unit/instantFormat.test.ts` — 28 → 32건
 - 스킬: `sync-offline-dev` §1-E에 "형제는 필드다" · `gates-mechanization-dev` **§2-F 신설**(존재 검사로 만든 공허)
 
-**검증**: 하네스 <!--reg:gateCount-->29<!--/reg-->개 PASS · 유닛 530건 · **주입 RED 5건**(백업 호출 제거 · `occurred_at` 되돌리기 · `taken_at` 되돌리기 · `CHECK_COUNT` 드리프트 · 게이트 자체검사) · build OK · live 136/136(1회 흔들림, 아래 참조).
+**추가 라운드 — 논리적 충돌 점검(사용자 지시)**: 입구(정규화)만 고치고 나머지 층을 안 맞춘 것을 셋 찾아 맞췄다.
+- **비교층**: `timeline.ts`(타임라인 정렬)·`trash.ts`(휴지통 정렬)·`tripDetail.ts`(직전 순간)가 여전히 문자열 대소였다. `mergeDecision`만 `compareInstants`를 쓰던 **§7 비대칭**. `trash.ts`는 **게이트가 찾아 줬다**(내 손 목록에 없었다).
+- **정리층**: `withCanonicalStamps`가 시각 3종만 다시 써서 **이미 저장된 `occurredAt`·`takenAt`은 안 데려왔다.** 이제 `instantFieldsOf()`가 행에서 `…At` 필드를 **뽑는다**.
+- **판정층**: `BAD_TIME_FORMAT`도 3종만 봐서 그 둘이 옛 표기여도 **앱이 「0건」이라 말했다.** 같은 함수로 통일.
+- 새 게이트 규칙 `stringTimeComparisons` — **src 전체**에서 시각의 문자열 비교 금지(자체검사 5건, 오탐 케이스 포함).
+- `renderTripDetail`이 래칫에 걸려 `latestOccurredAt()`을 순수 함수로 뽑았다(612 → 611줄).
+
+**정정(측정 후)**: 「같은 초 안에서 순서가 뒤집힌다」고 적었던 것은 **틀렸다.** PostgREST는 항상 `+00:00`을 주므로 자릿수가 맞아 사전순 ≈ 시간순이다. 진짜 피해는 **같은 순간을 다르다고 보는 것**(동률일 때만 도는 규칙이 건너뛰어진다). `coding-mistakes.md`·`changelog.ts`의 그 문장도 함께 고쳤다. 그리고 그것을 검증한다던 유닛이 **주입에도 통과**했다 — 공허했다. 지금 유닛은 주입 시 RED다.
+
+**검증**: 하네스 <!--reg:gateCount-->29<!--/reg-->개 PASS · 유닛 542건 · **주입 RED 8건**(백업 호출 제거 · `occurred_at`·`taken_at` 되돌리기 · `CHECK_COUNT` 드리프트 · `localeCompare` 복귀 · `withCanonicalStamps` 축소 · `compareInstants` 무력화 · 게이트 자체검사) · build OK · live 136/136(1회 흔들림, 아래 참조).
 
 **남긴 것(정직)**
 - ~~라이브 검사가 흔들리는 것은 무관한 타이밍~~ → **틀렸다. 고쳤다**(M-0037). 실측 4회 중 3회 실패였고, 원인은 타이밍이 아니라 **`.photo-thumb` last()가 방금 넣은 사진이라는 위치 가정**이었다. 그리고 그 가정을 깬 것은 **v1.06에서 내가 바꾼 순간 정렬**이다 — 「무관」이 아니었다. 제목으로 찾도록 고쳐 **8회 연속 136/136**.

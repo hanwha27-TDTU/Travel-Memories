@@ -19,7 +19,7 @@
 // 그래서 **부모가 살아 있는(활성) 것만** 골라낸다. 그게 지금 어디에도 안 보이는 바로 그것이다.
 
 import { db } from '../offline/db';
-import { localDate } from '../domain/time';
+import { localDate, compareInstants } from '../domain/time';
 import { PURGE_DOMAINS, DOMAIN_PURGE, purgeOpType, type PurgeDomain } from './purge';
 import { restoreMomentLocalFirst } from './moments';
 import { restoreMediaLocalFirst } from './media';
@@ -83,7 +83,9 @@ export async function listTrashedChildren(): Promise<TrashedChild[]> {
     });
   }
 
-  return out.sort((a, b) => b.deletedAt.localeCompare(a.deletedAt));
+  // 휴지통은 **최근에 지운 것이 위**다. 시각은 순간으로 비교한다 — 문자열 대소는 표기에
+  // 흔들린다(M-0034). 이 자리는 **게이트가 잡아 줬다**: 내 손 목록에는 없었다.
+  return out.sort((a, b) => compareInstants(b.deletedAt, a.deletedAt) ?? 0);
 }
 
 /** 영구삭제를 막는 사전 조건 — 여행 쪽(`PendingSyncError`)과 **같은 규율**이다. */
