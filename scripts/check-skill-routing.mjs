@@ -21,15 +21,32 @@ import { SKILL_ROUTES, NO_SKILL_REQUIRED } from './brief.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-function walk(dir, out = []) {
+function walk(dir, ext, out = []) {
   if (!existsSync(dir)) return out;
   for (const f of readdirSync(dir)) {
     const p = join(dir, f);
-    if (statSync(p).isDirectory()) walk(p, out);
-    else if (/\.(ts|css)$/.test(f)) out.push(relative(ROOT, p));
+    if (statSync(p).isDirectory()) walk(p, ext, out);
+    else if (ext.test(f)) out.push(relative(ROOT, p));
   }
   return out;
 }
+
+/**
+ * 훑는 영역. **`src/`만 보던 것을 넓혔다**(2026-07-27 배포 중 실물로 드러남).
+ *
+ * `.github/workflows/`를 고치는데 `npm run brief`가 **"먼저 정독할 스킬 문서"를 하나도
+ * 주지 않았다.** 라우팅 표에 그 경로가 없었고, 이 게이트는 `src/`만 훑었으므로 **누락이
+ * 조용히 통과**했다 — 게이트 B조항("모든 파일이 라우팅에 걸린다")이 자기가 안 보는 영역에
+ * 대해서는 공허했던 셈이다. 배포 경로는 틀리면 **전부가 막히는** 자리인데(M-0031) 정독
+ * 문서가 없던 것이다.
+ *
+ * 새 영역을 넣을 때는 **그 영역의 파일 하나로 주입해 RED를 확인**한다(§2-B ① — 넓히기는
+ * 새 게이트를 만드는 것과 같다).
+ */
+const SCAN = [
+  { dir: 'src', ext: /\.(ts|css)$/ },
+  { dir: '.github/workflows', ext: /\.ya?ml$/ },
+];
 
 export function unrouted(paths, routes, excluded) {
   return paths.filter((p) => !excluded.has(p) && !routes.some((r) => r.match.test(p)));
@@ -46,6 +63,7 @@ export function deadLinks(routes, available) {
 }
 
 // ── 셀프테스트: 알려진 실패가 RED로 잡히는지(CLAUDE.md §4) ──
+let selfTestCount = 0;
 {
   const R = [{ match: /^src\/a\//, skill: 'alpha' }];
   const cases = [
@@ -62,6 +80,10 @@ export function deadLinks(routes, available) {
     console.error(`check-skill-routing: 셀프테스트 실패 — 게이트가 공허함: ${broken.map((c) => c.name).join(', ')}`);
     process.exit(2);
   }
+  // 성공 로그의 개수는 **배열에서 파생**한다. 여기 `7`이 손으로 박혀 있었다 — 케이스를
+  // 늘려도 계속 7이라 말했을 것이고, 그건 이 저장소가 다른 게이트에서 이미 한 번 겪은
+  // 결함이다("게이트 자신이 '숫자를 손으로 세지 않는다'를 어기고 있었다").
+  selfTestCount = cases.length;
 }
 
 // ── 실제 검사 ──
@@ -77,7 +99,7 @@ for (const s of deadLinks(SKILL_ROUTES, available)) {
 for (const s of orphanSkills(SKILL_ROUTES, available)) {
   problems.push(`고아 스킬 문서(아무 경로도 가리키지 않음): ${s} — 라우팅에 넣거나 문서를 정리할 것`);
 }
-const files = walk(join(ROOT, 'src'));
+const files = SCAN.flatMap((s) => walk(join(ROOT, s.dir), s.ext));
 for (const p of unrouted(files, SKILL_ROUTES, NO_SKILL_REQUIRED)) {
   problems.push(`먼저 읽을 문서가 정해지지 않은 파일: ${p} — SKILL_ROUTES에 넣거나 NO_SKILL_REQUIRED에 **이유와 함께** 등록`);
 }
@@ -88,5 +110,5 @@ if (problems.length) {
   process.exit(1);
 }
 console.log(
-  `check-skill-routing: OK (셀프테스트 7건 · 스킬 문서 ${available.length}개 전부 연결 · src ${files.length}개 파일 라우팅 완료 · 이유 있는 제외 ${NO_SKILL_REQUIRED.size}개)`,
+  `check-skill-routing: OK (셀프테스트 ${selfTestCount}건 · 스킬 문서 ${available.length}개 전부 연결 · ${SCAN.map((s) => s.dir).join('+')} ${files.length}개 파일 라우팅 완료 · 이유 있는 제외 ${NO_SKILL_REQUIRED.size}개)`,
 );
