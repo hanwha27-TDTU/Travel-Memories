@@ -241,7 +241,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   /** 여행 삭제(cascade tombstone) — 확인 → 소프트삭제 → 실행취소 토스트. 휴지통에서도 복구 가능. */
   function deleteTrip(t: LocalTrip): void {
     const ok = window.confirm(
-      `"${t.title}" 여행을 삭제할까요?\n순간·사진·비용도 함께 삭제되지만, 실행취소나 [데이터 관리 › 휴지통]에서 되살릴 수 있어요.`,
+      `"${t.title}" 여행을 삭제할까요?\n순간·사진·비용·소리도 함께 삭제되지만, 실행취소나 [데이터 관리 › 휴지통]에서 되살릴 수 있어요.`,
     );
     if (!ok) return;
     void (async () => {
