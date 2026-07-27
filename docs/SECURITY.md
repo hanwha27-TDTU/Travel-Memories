@@ -7,23 +7,45 @@
 실효 접근 = 다음의 **교집합**: Data-API 스키마 노출 + 테이블 grant(anon/authenticated) + RLS 역할/명령/`USING`/`WITH CHECK` 예측자 + 앱 인증·소유컬럼 + Edge Function 인증·사용 키 + Storage 버킷/공개URL 동작. **읽기전용 SQL로 grant·정책을 확인하고 Supabase security advisor를 돌린 뒤에만** "안전"이라 판단한다. 토글만 보고 결론 금지.
 
 > advisor 경고를 계약 확인 전에 "고치지" 마라 — 의도된 자세일 수 있다.
+>
+> 🔴 **구체적 사례(2026-07-27).** advisor는 `journey.is_allowed()`·`journey.unpurge_ids()`·
+> `journey.block_purged_reinsert()` 셋을 같은 이름의 경고(*"Signed-In Users Can Execute
+> SECURITY DEFINER Function"*)로 묶어 내고, 권고문도 셋 다 *"Revoke EXECUTE"*로 같다.
+> **그런데 처방은 정반대다:**
+>
+> | 함수 | 조치 | 회수하면 |
+> |---|---|---|
+> | `block_purged_reinsert()` | **회수함**(0018). 트리거로만 쓰인다 | 아무 일도 없다 — 트리거 발화는 EXECUTE를 검사하지 않는다(실증함) |
+> | `unpurge_ids()` | **유지.** 앱의 복원 좁은 문 | 백업 복원이 서버 원장에 막혀 조용히 무효화된다(M-0032 재발) |
+> | `is_allowed()` | **유지.** 정책 18개가 부른다 | 🔴 **RLS 정책 식은 호출자 권한으로 평가된다 → 앱이 자기 데이터를 못 읽는다** |
+>
+> 경고문이 같다고 조치가 같지 않다. **무엇이 그 함수를 부르는지**를 먼저 보라.
 
 ## 공통 RLS (모든 사용자 소유 테이블)
 
 ```
-SELECT  : auth.uid() = user_id
-INSERT  : auth.uid() = user_id  (WITH CHECK)
-UPDATE  : USING(기존행.user_id = auth.uid()) WITH CHECK(새행.user_id = auth.uid())
-DELETE  : auth.uid() = user_id
+SELECT  : (select auth.uid()) = user_id
+INSERT  : (select auth.uid()) = user_id  (WITH CHECK)
+UPDATE  : USING(기존행.user_id = (select auth.uid())) WITH CHECK(새행.user_id = (select auth.uid()))
+DELETE  : (select auth.uid()) = user_id
 ```
-정책은 operation별로 분리하고 `TO authenticated`를 명시한다. 관계형 테이블(`trip_days`, `moments`, `trip_companions` 등)은 연결된 여행의 소유자도 함께 검증한다. RLS 미검증 테이블은 배포하지 않는다. DELETE는 앱 직접 hard delete를 금지하고 필요한 테이블만 제한한다(tombstone 경로 우선).
+
+**`(select …)`로 감싸는 것이 계약이다**(0018부터, `check-migration-grants`가 강제). 맨
+`auth.uid()`는 **행마다** 재평가되고, 뒤에 AND로 붙는 `journey.is_allowed()`는 테이블을
+조회하는 함수라 사진 N장에 조회가 N번 붙는다. 둘 다 STABLE이므로 스칼라 서브쿼리로 감싸면
+Postgres가 InitPlan으로 끌어올려 **질의당 1회**만 평가한다 — 술어의 뜻은 바뀌지 않고 평가
+횟수만 바뀐다. (advisor `auth_rls_initplan`이 이 형태를 가리킨다.)
+
+정책은 operation별로 분리하고 `TO authenticated`를 명시한다 — **명시가 계약이다.** 빠뜨리면
+역할이 `public`이 되어 형제 정책과 어긋난다(0013·0015에서 실제로 6개가 그랬다. anon은
+GRANT가 없고 `auth.uid()`가 NULL이라 실害는 없었지만, 이유 없는 비대칭은 결함처럼 보인다). 관계형 테이블(`trip_days`, `moments`, `trip_companions` 등)은 연결된 여행의 소유자도 함께 검증한다. RLS 미검증 테이블은 배포하지 않는다. DELETE는 앱 직접 hard delete를 금지하고 필요한 테이블만 제한한다(tombstone 경로 우선).
 
 ## 초대제 접근 잠금 (ADR-0021 — 공유 프로젝트 전역 로그인 보완)
 
 Google 로그인은 공유 프로젝트에서 회계 앱과 전역 공용이라 아무 계정이나 로그인 가능하다. RLS가 사용자 간 데이터를 격리하지만, 개인 기억 앱은 한 겹 더 잠근다: **허용목록에 없는 사용자는 로그인해도 여행 데이터를 읽기/쓰기 불가**.
 
 ```
-소유자 정책 = (auth.uid() = user_id)  AND  journey.is_allowed()
+소유자 정책 = ((select auth.uid()) = user_id)  AND  (select journey.is_allowed())
 journey.is_allowed() : SECURITY DEFINER, search_path='', JWT email 소문자 = allowed_users.email 존재?
 journey.allowed_users : RLS on + 정책 없음 + grant 없음(클라이언트 직접 접근 불가, 함수로만 조회)
 ```

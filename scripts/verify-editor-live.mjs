@@ -110,7 +110,20 @@ await new Promise((r) => server.listen(4173, r));
 const results = [];
 const check = (name, ok, extra = '') => { results.push({ name, ok, extra }); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' — ' + extra : ''}`); };
 
-const browser = await chromium.launch();
+// 브라우저를 **띄우지 못하는 것**은 앱의 결함이 아니라 전제 미충족이다(브라우저 바이너리
+// 없음·판 불일치·샌드박스 제약). harness가 SKIP과 FAIL을 가르므로 여기서 그 신호를 정확히
+// 준다 — 크래시로 죽으면 harness는 이걸 "위반을 찾음(FAIL)"으로 읽고, 그건 **오탐**이다(§2-B ③).
+let browser;
+try {
+  browser = await chromium.launch();
+} catch (e) {
+  console.error(
+    `verify-editor-live: 브라우저를 띄우지 못했습니다 — ${String(e).split('\n')[0]}\n` +
+      '  → 이 실행은 라이브 층을 재지 않았습니다(통과가 아닙니다). `npx playwright install chromium` 후 재실행.',
+  );
+  server.close();
+  process.exit(2);
+}
 const page = await browser.newPage({ viewport: { width: 412, height: 915 } });
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -233,10 +246,23 @@ const mcSteps = await page.locator('.mc-step').count();
 check('기계화 검증 흐름도: 4단계 렌더', mcSteps === 4, `steps=${mcSteps}`);
 const mcBadge = await page.$eval('.mc-badge', (e) => e.textContent);
 check('기계화 검증 흐름도: 게이트 개수 배지(자동 집계)', /자동 검사 \d+가지/.test(mcBadge ?? ''), mcBadge ?? '');
-// 카테고리별 게이트 카드 개수 합 = 배지의 개수(손 나열이 아니라 REGISTRY 파생) + 라이브 렌더 1
+// 카테고리별 게이트 카드 개수 합 = 배지의 개수. **전부 REGISTRY 파생이어야 한다.**
+//
+// 2026-07-27 전제 변경: 예전엔 `+ 라이브 렌더 1`이었다 — 라이브 게이트가 등록부 밖에 있어
+// 화면이 그 카드 하나를 **손으로** 그렸기 때문이다. 이제 등록부 안으로 들어왔으므로 손편집
+// 자리가 없고, 기대값도 그만큼 단순해진다. (§2-B ② — 전제가 바뀌면 로직을 되돌리지 말고
+// 케이스를 뒤집는다. 그리고 뒤집는 김에 **더 조인다**: 아래 분류 검사가 새로 생긴 층이다.)
 const mcBadgeN = parseInt((mcBadge ?? '').match(/(\d+)가지/)?.[1] ?? '0', 10);
 const mcGates = await page.locator('.mc-gate').count();
-check('기계화 검증 흐름도: 카드 개수 = 게이트 수 + 라이브 1', mcGates === mcBadgeN + 1, `cards=${mcGates}, badge=${mcBadgeN}`);
+check('기계화 검증 흐름도: 카드 개수 = 게이트 수(손 나열 0)', mcGates === mcBadgeN, `cards=${mcGates}, badge=${mcBadgeN}`);
+// 분류가 **통째로 빠지는 것**을 잡는다. 카드 합만 재면 한 분류가 사라지고 다른 분류가 그만큼
+// 늘어난 경우를 못 본다. 라이브 층은 특히 조용히 사라지기 쉽다 — 그게 이번 결함의 자리였다.
+const mcCatNames = await page.$$eval('.mc-cat-head b', (ns) => ns.map((n) => n.textContent ?? ''));
+check(
+  '기계화 검증 흐름도: 라이브 분류가 화면에 있다(등록부의 분류가 자동으로 따라온다)',
+  mcCatNames.some((n) => n.includes('라이브')),
+  mcCatNames.join(' | '),
+);
 await page.keyboard.press('Escape');
 await page.waitForTimeout(250);
 while ((await page.locator('.guide-overlay').count()) > 0) {

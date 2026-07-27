@@ -30,9 +30,46 @@ description: Supabase·보안·RLS 개발 프롬프트 — supabase/migrations/*
 
 1. **한 지붕 여러 가족 — 스키마 격리**: 이 프로젝트는 회계 앱과 Supabase 프로젝트를 공유한다(ADR-0020). 벽은 셋으로 선다: ①클라이언트가 자기 스키마만 노출(`db.schema`) ②각 테이블 소유자 범위 RLS ③앱별 Storage 버킷 + 버킷 RLS. **스키마 간 FK·뷰로 새지 않게 한다.**
 2. **소유자 범위 RLS + 초대제**: 모든 정책은 `auth.uid()` 소유자 술어 **AND `journey.is_allowed()`**(허용목록). 허용목록 밖 사용자는 로그인해도 자기 행조차 못 읽는다.
+   **모양까지가 계약이다**(0018부터 `check-migration-grants`가 강제):
+   ```sql
+   create policy foo_select_own on journey.foo
+     for select to authenticated                                  -- ③ 역할 명시
+     using ((select auth.uid()) = user_id                          -- ① InitPlan
+        and (select journey.is_allowed()));                        -- ② 초대제 + InitPlan
+   ```
+   - ① **`(select …)`로 감싼다.** 맨 호출은 **행마다** 재평가된다. 둘 다 STABLE이라 감싸면
+     Postgres가 InitPlan으로 끌어올려 질의당 1회만 평가한다 — **뜻은 안 바뀌고 횟수만 바뀐다.**
+     `is_allowed()`는 테이블을 조회하는 함수라, 안 감싸면 사진 N장에 조회가 N번 붙는다
+     (advisor `auth_rls_initplan`이 이 자리를 가리킨다).
+   - ③ **`to authenticated`를 빠뜨리지 마라.** 역할이 `public`이 되어 형제와 어긋난다.
+     0013·0015가 실제로 6개를 빠뜨렸고 2026-07-27까지 몰랐다(anon은 GRANT가 없고
+     `auth.uid()`가 NULL이라 실害는 없었다 — 그래서 더 오래 갔다).
+   - **`alter policy`가 아니라 `drop` + `create`로 바꾼다.** 게이트가 `create policy` 본문
+     텍스트를 진실원으로 삼으므로, `alter`로 고치면 게이트가 보는 것은 옛 정의로 남고
+     그 자리는 **검사되지 않는 자리**가 된다.
 3. **복합 FK로 소유권 방어(H-02)**: 자식 테이블은 `(parent_id, user_id) → parent(id, user_id)`. 단일 FK면 남의 부모에 자식을 붙일 수 있다.
 4. **좀비 방지 트리거**: `prevent_zombie_resurrection` BEFORE UPDATE — tombstone은 **더 높은 version**으로만 부활한다(낮거나 같은 version의 활성 upsert는 거부). 클라이언트 병합 규율(`mergeDecision`)의 서버측 쌍둥이다.
 5. **`SECURITY DEFINER` 함수는 `search_path=''` 고정**(권한 상승 경로 차단).
+   본문 참조는 전부 스키마 한정(`journey.…`·`auth.uid()`)으로 쓴다 — 경로가 비므로 한정하지
+   않은 이름은 못 찾는다. **이 조항은 처음부터 있었는데 `block_purged_reinsert()`(0012)와
+   `unpurge_ids()`(0017)가 `journey, public`으로 태어났고 2026-07-27 건강진단까지 몰랐다.**
+   조항만 있고 기계 검사가 없던 자리였다 → 이제 `check-migration-grants`가 최종 상태로 판정한다.
+
+5-B. **노출 스키마의 함수는 REST 표면이다 — 그런데 advisor 경고가 같아도 처방은 정반대다.**
+   (번호를 `5-B`로 둔 것은 의도다 — 뒤 항목을 밀면 `§2.7`(R2 4중벽)을 가리키는 다른 문서의
+   참조가 조용히 어긋난다.)
+   `journey`는 노출 스키마라 그 안의 함수가 `/rest/v1/rpc/<name>`으로 보인다. advisor는
+   셋을 같은 경고로 묶지만:
+
+   | 함수 | 무엇이 부르는가 | 조치 |
+   |---|---|---|
+   | `block_purged_reinsert()` | **트리거만** | **EXECUTE 회수**(0018). Postgres는 트리거 함수의 EXECUTE를 **트리거 생성 시점에만** 검사하므로 회수해도 발화는 멀쩡하다(`BEGIN…ROLLBACK`으로 실증함) |
+   | `unpurge_ids(uuid[])` | **앱**(복원 좁은 문) | **유지.** 회수하면 백업 복원이 원장에 막혀 조용히 무효화된다(M-0032 재발) |
+   | `is_allowed()` | **정책 18개** | 🔴 **절대 회수 금지.** RLS 정책 식은 **호출자 권한**으로 평가된다 → 회수하면 앱이 자기 데이터를 못 읽는다 |
+
+   > **advisor의 권고문을 그대로 따르지 마라 — 무엇이 그 함수를 부르는지부터 보라.**
+   > 셋 다 권고문은 *"Revoke EXECUTE"*로 똑같다. 하나는 옳고, 하나는 기억을 잃게 하고,
+   > 하나는 앱을 죽인다. (`docs/SECURITY.md` 상단에 같은 표가 있다 — 그쪽이 정본.)
 6. **GPS는 동기화하지 않는다**(PRIVACY). 원본 사진도 서버에 올리지 않는다(절약 모드).
 7. **R2에는 RLS가 없다(ADR-0024)**: 벽이 넷으로 바뀐다 — ①토큰이 **버킷 하나**만 열도록 스코프 ②자격증명은 함수 시크릿에만 ③**객체 키를 서버가 생성**(폴더=검증된 `sub`, 클라이언트가 보낸 key/path는 무시) ④인증은 `verify_jwt` 설정에 기대지 않고 매 요청 `/auth/v1/user`로 실제 확인. 읽기도 서명(정책 B) — **공개 개발 URL·`R2_PUBLIC_BASE`를 쓰지 않는다.**
 8. **목록 조회의 prefix도 서버가 만든다**(2026-07-26 추가). 위 ③은 *한 객체*를 다루는 op(put/get/delete)만 상정하고 쓰여 있었고, **여러 객체를 훑는 op에는 규칙이 없었다** — 이 기능을 만들며 드러난 구멍이다. 단건 op에서는 키를 서버가 만들어 남의 폴더를 못 가리키지만, 목록은 **prefix 하나로 버킷 전체가 열린다**. 그래서:
@@ -49,6 +86,18 @@ description: Supabase·보안·RLS 개발 프롬프트 — supabase/migrations/*
    - **GRANT를 RLS와 헷갈리지 마라(M-0020).** 둘은 **다른 층**이다: GRANT는 *"이 역할이 이 테이블에 접근이나 할 수 있는가"*, RLS는 *"그중 어느 행을 볼 수 있는가"*. RLS만 쓰고 GRANT를 잊으면 정책이 아무리 옳아도 앱은 `permission denied`를 받는다. 실제로 `purged_ids`가 그 상태로 배포됐고, 진단 화면이 통째로 빨갛게 뜨고 **영구삭제가 서버에 반영되지 않았다.**
    - 게이트 `check-migration-grants`가 이제 이걸 막는다(새 테이블에 GRANT·`is_allowed()`가 없으면 RED). 제외하려면 `NO_GRANT_REQUIRED`에 **근거를 적는다.**
 4. **적용 전에 공격검사를 쓴다**(§4). 정책보다 테스트를 먼저 쓰면 빠뜨린 술어가 드러난다.
+   **더 좋은 방법: 마이그레이션 자체를 트랜잭션 안에서 먼저 돌린다**(2026-07-27에 이렇게 했다).
+   ```sql
+   begin;
+     <마이그레이션 DDL 전체>
+     set local role authenticated;   -- 앱이 쓰는 역할로 내려간다
+     select set_config('request.jwt.claims','{"sub":"…","email":"…"}', true);
+     <§4 공격검사 전 항목>
+   rollback;                          -- 프로덕션 무변경
+   ```
+   **적용 후가 아니라 적용 전에** 같은 상태를 만들어 볼 수 있다는 게 핵심이다. 되돌릴 일이
+   생기기 전에 되돌린다. (임시 테이블로 결과를 모을 거면 `grant all on <temp> to anon,
+   authenticated` — 역할을 바꾼 뒤엔 자기 임시 테이블에도 못 쓴다. 실제로 한 번 걸렸다.)
 5. 적용 후: **advisor 확인**(신규 이슈 0) + **프로덕션 행 수 무변경** 확인.
 6. 클라이언트 쪽 `rowmap.ts`와 `check-schema-parity`의 `ROW_TO_TABLE`을 같은 변경에서 맞춘다.
 
@@ -89,6 +138,9 @@ ROLLBACK;   -- 프로덕션 무변경
 | **Storage 버킷은 SQL로 못 지운다**(2026-07-26) | `storage.protect_delete()` 트리거가 `delete from storage.buckets`를 막는다("Use the Storage API instead" — 고아 객체 사고 방지). 마이그레이션 **전체가 롤백**된다 | 버킷 행 삭제는 대시보드/Storage API(사용자 몫 — service_role 키는 안 쓴다). **정책 4종을 drop하면 목적은 달성된다** — RLS는 기본 거부라 정책이 없으면 아무도 못 읽고 못 쓴다. 껍데기만 남는다 |
 | **새 테이블에 GRANT 누락 → 앱이 permission denied**(M-0020) | RLS와 GRANT를 같은 층으로 오인 + 검증을 superuser로 수행 | `check-migration-grants` 게이트(18번째) + §4에 "superuser 검증은 검증이 아니다" 명문화 |
 | **차단 트리거를 만들며 정당한 예외의 문을 안 냄**(M-0032) | 거부 규칙을 설계할 때 **막을 대상**만 생각했다. 0013은 `purged_ids`에 UPDATE·DELETE를 의도적으로 withhold했고 그 판단은 옳았는데, *"그럼 사용자의 복원은 어느 문으로 들어오나"*를 묻지 않았다 → **없는 문은 조용히 막는다**(오류·로그·토스트 없이 기억이 사라짐) | `0017`의 **좁은 문** 패턴: 이름 있는 `SECURITY DEFINER` 함수 하나만 열고 ①`user_id = auth.uid()`로 자기 행만 ②`is_allowed()` 통과 필수 ③**명시한 id만**(전체 비우기 없음) ④**테이블 권한은 그대로 안 준다**. 그리고 거부 상태 자체를 **런타임 지표**로 만든다 |
+| **불변식 #5(`search_path=''`)를 헌장에 적어 두고 함수 둘이 벗어난 채 배포**(건강진단 2026-07-27) | **조항 1층만 있는 규칙은 드리프트한다.** 실害는 없었다(참조가 전부 스키마 한정이었다) — 그래서 더 오래 갔다. 무해한 이탈일수록 오래 산다 | `0018`이 `alter function … set search_path = ''`로 복구 + `check-migration-grants`의 `auditDefinerSearchPath`가 3층을 놓는다 |
+| **정책 6개만 역할이 `public`**(0013·0015가 `to authenticated`를 빠뜨림) | 형제 12개는 좁혀져 있었다 — §7의 최빈 형태. anon은 GRANT가 없어 실害 0이라 아무도 안 봤다 | `0018`에서 18개 전부 재작성 + 게이트가 `to authenticated` 누락을 RED |
+| **RLS 정책이 행마다 `is_allowed()`를 재평가**(advisor `auth_rls_initplan` 18건) | 정책을 *옳게* 쓰는 것과 *효율적으로* 쓰는 것을 다른 문제로 취급했다. 행이 11개일 땐 안 보인다 | `(select …)` InitPlan 형태를 **계약으로 승격**(§2 불변식 #2) + 게이트가 맨 호출을 RED |
 | **공유 프로젝트 백업 복원이 프로젝트 단위** | 한 앱 복원 = 다른 앱도 롤백 | ADR-0020에 위험으로 문서화. **복구 전 상호 확인 필수**. (메디컬 합류 시 재검토 — `docs/STORAGE_R2_PROPOSAL.md`) |
 
 ## 6. 검증 레시피 (정직한 완료)

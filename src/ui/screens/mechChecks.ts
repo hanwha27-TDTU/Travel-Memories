@@ -60,12 +60,25 @@ export function openMechChecks(): void {
   const summary = el('div', 'mc-summary');
   summary.append(
     el('span', 'mc-badge', `자동 검사 ${REGISTRY.gateCount}가지`),
-    el('span', 'muted small', 'Required 게이트 — npm run harness가 전부 돌립니다. 목록은 자동 집계.'),
+    el(
+      'span',
+      'muted small',
+      // 「전부 돌립니다」는 이제 정확하지 않다 — 라이브 층은 브라우저가 있어야 돈다.
+      // 못 돌면 harness가 **통과가 아니라 「건너뜀」**으로 적는다. 그 사실을 여기서도 말한다(§8).
+      'npm run harness가 한 번에 돌립니다. 라이브 층만 브라우저가 필요하고, 없으면 통과가 아니라 「건너뜀」으로 적힙니다. 목록·분류는 자동 집계.',
+    ),
   );
   body.appendChild(summary);
 
-  // ── 카테고리별 게이트(목록은 REGISTRY에서 파생) ──
-  const cats: GateCategory[] = ['static', 'generated', 'unit'];
+  // ── 카테고리별 게이트(목록도 **분류도** 파생) ──
+  //
+  // 2026-07-27: 여기 `['static','generated','unit']`이 손으로 박혀 있었고, 라이브 렌더만
+  // 아래에 카드를 **따로 손으로** 그리고 있었다(설명 문장까지 GATE_DESC와 중복). 라이브
+  // 게이트를 등록부에 넣자 그 손편집이 곧바로 어긋났다 — 카드 수가 게이트 수와 안 맞았다.
+  // 근본형은 §7 그대로다: **다음 형제(새 분류)가 자동으로 따라오지 않는 구조.**
+  // 이제 분류 목록을 `CATEGORY_LABEL`에서 뽑으므로, `GateCategory`에 값을 하나 더하면
+  // 타입이 라벨을 요구하고 화면이 그 즉시 따라온다. 손으로 추가할 자리가 없다.
+  const cats = Object.keys(CATEGORY_LABEL) as GateCategory[];
   for (const cat of cats) {
     const gates = REGISTRY.gates.filter((g) => categoryOf(g) === cat);
     if (gates.length === 0) continue;
@@ -82,21 +95,6 @@ export function openMechChecks(): void {
     sec.appendChild(grid);
     body.appendChild(sec);
   }
-
-  // ── 라이브 렌더(별도) ──
-  const live = el('div', 'mc-cat');
-  const lh = el('div', 'mc-cat-head');
-  lh.append(el('b', undefined, '라이브 렌더 (실제 브라우저)'), el('span', 'mc-cat-count', '선택'));
-  live.appendChild(lh);
-  const lgrid = el('div', 'mc-grid');
-  const lg = el('div', 'mc-gate');
-  lg.append(
-    el('b', 'mc-gate-name', 'verify-editor-live'),
-    el('span', 'muted small', '편집기·뷰어·설계 개요도를 실제 Chromium으로 열어 픽셀·상태 변화를 read-back으로 확인.'),
-  );
-  lgrid.appendChild(lg);
-  live.appendChild(lgrid);
-  body.appendChild(live);
 
   body.appendChild(
     el(

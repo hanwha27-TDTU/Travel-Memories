@@ -1,12 +1,13 @@
 // app/gates.ts — 게이트 한 줄 설명·카테고리(편집 메타). 목록·개수는 registry.gen.ts에서 파생.
 // guide.ts와 mechChecks.ts가 공유한다(설명을 두 곳에 손으로 쓰지 않게 — §7).
 
-export type GateCategory = 'static' | 'generated' | 'unit';
+export type GateCategory = 'static' | 'generated' | 'unit' | 'live';
 
 export const CATEGORY_LABEL: Record<GateCategory, string> = {
   static: '정적 검사 (저장소만 · 네트워크 없음)',
   generated: '자동 생성물 ↔ 현실 대조',
   unit: '유닛 (순수 로직)',
+  live: '라이브 (실제 브라우저가 화면을 열어 확인)',
 };
 
 /**
@@ -47,6 +48,8 @@ export const GATE_DESC: Record<string, string> = {
   'check-timezone': '날짜를 UTC가 아닌 사용자 로컬로 계산(+ 다른 시간대에서도 유닛 통과)',
   'check-instant-normalization': '밖에서 온 시각을 앱의 표준 표기로 바꿔 저장(같은 순간을 두 표기로 적지 않게)',
   'unit-tests': '순수 로직 유닛(비공허 확인)',
+  'verify-editor-live':
+    '실제 브라우저가 앱을 열어 화면·편집기·서비스워커·폰트를 확인(정적 검사가 원리적으로 못 보는 층)',
 };
 
 /** 게이트 카테고리. 없으면 'static'으로 본다. 목록은 registry.gen에서 오므로 개수는 파생. */
@@ -80,6 +83,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-timezone': 'static',
   'check-instant-normalization': 'static',
   'unit-tests': 'unit',
+  'verify-editor-live': 'live',
 };
 
 export function categoryOf(gate: string): GateCategory {
