@@ -313,6 +313,84 @@ M-0023이 정확히 이 형태였다 — *사용자는 "됐다"고 믿고, 서�
 
 ---
 
+## 5-B. 인프라에 어떻게 손을 대나 (저장소 어디에도 안 적혀 있던 것)
+
+⚠️ **이 절은 2026-07-27에 신설했다.** 인계서가 *"마이그레이션을 `BEGIN…ROLLBACK`으로
+검증하라"*·*"`media-sign` v6를 배포하라"*고 시키면서 **어떻게 접근하는지를 안 알려주고
+있었다.** 저장소 전체를 뒤져도 Edge Function 배포 방법이 없었다(`docs/DEPLOYMENT.md`는
+GitHub Pages만 다룬다). §9 착수절차 2단계 — *"규칙이 빠져 있으면 그것부터 고친다."*
+
+### ① Supabase — 접근 수단은 환경마다 다르다
+
+| 환경 | 수단 |
+|---|---|
+| Claude Code(이 세션) | **Supabase MCP** — `execute_sql`·`apply_migration`·`deploy_edge_function`·`get_advisors` |
+| 그 외 | **Supabase CLI** — `npx supabase …` (프로젝트 링크 필요) |
+
+프로젝트: **Travel&Accounting**, ref `ihxiywffzmvrwmqvatzt`, 스키마 `journey`
+(회계 앱과 **한 프로젝트를 공유**한다 — ADR-0020. 스키마·RLS·버킷 셋으로 벽을 세운다).
+
+> ⚠️ `supabase/config.toml`이 **없다** — CLI를 쓰려면 `npx supabase link --project-ref
+> ihxiywffzmvrwmqvatzt`를 먼저 해야 한다. 이 세션은 MCP만 썼으므로 **CLI 경로는 미검증**이다.
+
+**SQL을 직접 돌릴 때의 철칙**(둘 다 어기면 프로덕션이 다친다):
+- 마이그레이션은 **적용 전에** `BEGIN … <DDL> … <공격검사> … ROLLBACK`으로 먼저 돌린다
+- 검증은 **`set local role authenticated`**로. superuser로 확인한 것은 검증이 아니다(M-0020)
+
+### ② Edge Function(`media-sign`) 배포 — R2로 가는 유일한 문
+
+```bash
+npx supabase functions deploy media-sign --project-ref ihxiywffzmvrwmqvatzt
+```
+(또는 Claude Code라면 Supabase MCP `deploy_edge_function`.)
+
+**함수가 요구하는 시크릿**(코드에서 뽑은 이름 — `R2_SECRET_NAMES` 참조):
+`R2_ACCOUNT_ID` · `R2_ACCESS_KEY_ID` · `R2_SECRET_ACCESS_KEY` · `R2_BUCKET`
+
+> 🔴 **이 값들은 Supabase Function Secrets에만 존재한다.** 저장소·`.env`·로그·리포트·
+> PR 본문 어디에도 넣지 마라. 사용자가 대시보드에서 설정했고, **평문으로 보이는 화면은
+> 캡처 금지 구간**이다. 실수로 노출됐다면 **즉시 폐기·재발급**한다 —
+> 자동 스캐너는 텍스트만 보고 이미지는 못 잡는다.
+
+**배포 후 반드시 되받아 대조한다** — 200 응답은 완료가 아니다:
+```
+① 저장소에 먼저 push        ← 바이트 정본을 만든다
+② 배포
+③ get_edge_function으로 소스를 되받아 대조
+④ FN_VERSION / EXPECTED_FN_VERSION  ← 그래도 어긋나면 앱이 화면에서 말한다
+```
+
+### ③ 앱 배포 — 자동이다
+
+`main`에 push되면 `.github/workflows/deploy-pages.yml`이 돌아 GitHub Pages에 올린다
+(`workflow_dispatch`로 수동 실행도 가능). **직접 배포하는 명령은 없다** — 병합이 곧 배포다.
+
+> 그래서 **배포를 미루려면 병합을 미루는 게 아니라, 병합해두고 Actions가 못 돌게 두면 된다**
+> (지금이 그 상태 — 사용량 한도). 코드는 안전하게 쌓이고 실기기만 옛 판에 머문다.
+
+### ④ 게이트가 실패하면
+
+| 게이트 | 뜻 | 대응 |
+|---|---|---|
+| `check-fn-size` **초과** | 큰 함수가 더 커졌다 | **우회하지 말고 덜어내라** — 함수를 뽑는다(§2-C). 주석을 지우지 마라 |
+| `check-fn-size` **미달** | 줄었다(좋다) | `scripts/check-fn-size.mjs`의 그 항목을 **새 숫자로 낮춰** 커밋 |
+| `check-doc-counts` | 문서 카운트 드리프트 | `node scripts/gen-registry.mjs` — **손으로 고치지 마라** |
+| `check-registry-gen` | 생성물이 SSOT와 어긋남 | 위와 같다 |
+| `check-schema-parity` | rowmap ↔ 서버 컬럼 불일치 | `ROW_TO_TABLE` 등록 여부부터 본다 |
+| `check-skill-routing` | 새 파일이 「먼저 읽을 문서」를 안 가짐 | `scripts/brief.mjs`의 `SKILL_ROUTES`에 등록 |
+| `verify-editor-live` **SKIP** | `dist`가 소스보다 낡음 | `npm run build` 먼저. **낡은 번들을 재면 검사가 공허하다** |
+
+### ⑤ 자주 쓰는 명령
+
+```bash
+npx vitest run tests/unit/<파일>.test.ts     # 검사 하나만
+npx tsc --noEmit                             # 타입만 빠르게
+node scripts/<게이트>.mjs                     # 게이트 하나만
+npm run brief <파일들>                        # 착수 브리핑
+```
+
+---
+
 ## 6. 지금 저장소 상태 (2026-07-27 세션 종료 시점)
 
 ### 배포 갭 — ⚠️ 코드와 실기기가 다르다
