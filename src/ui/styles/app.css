@@ -421,12 +421,86 @@
 .moment-say { margin: 0; font-size: 0.98rem; line-height: 1.5; color: var(--ink); }
 .moment-emo { font-size: 1.3rem; flex: 0 0 auto; }
 .chips { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2); }
+/* 칩은 **한 줄 정보**다 — 안에 무엇이 들어와도 한 줄로 선다.
+   ⚠️ 2026-07-27 사용자 실기기(*"칩 디자인이 조잡하네요"*): 예전엔 flex가 아니어서
+   소리 칩 안의 ✕가 **둘째 줄로 밀려났고**, 그 칩만 형제보다 두 배 높아 줄이 어긋났다.
+   `margin-left:auto`(해제 버튼)도 flex가 아니면 아무 일도 하지 않는다. */
 .chip {
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  /* 높이를 **못 박는다.** 안 그러면 글자만 든 칩(29.3px)과 버튼이 든 칩(27.3px)이 line-height
+     차이로 2px 어긋나 줄이 들쭉날쭉해진다 — 우연히 같기를 바라지 않는다(§7 화면 대칭). */
+  min-height: 30px;
   font-size: 0.72rem; font-weight: 700; padding: 5px 10px; border-radius: var(--radius-pill);
   background: var(--bg-2); color: var(--ink-soft);
 }
 .chip.gps { background: color-mix(in srgb, var(--sem-sky) 15%, transparent); color: var(--sem-sky-ink); }
 .chip.money { background: color-mix(in srgb, var(--sem-teal) 15%, transparent); color: var(--sem-teal-ink); }
+
+/* ===== 소리 칩 =====
+   장소(sky)·비용(teal)과 **같은 모양, 다른 시맨틱 색**. 새 색을 만들지 않고 남은 pink를 쓴다 —
+   기존 셋은 두 테마에서 대비 4.5:1이 이미 측정됐고(2026-07-26 적대적 리뷰), 새 색은 그 검증을
+   처음부터 다시 해야 한다. 색은 **글리프(🔊)와 늘 함께** 쓴다(색만으로 뜻을 만들지 않는다). */
+/* 진행률을 **커스텀 속성으로** 등록해 두면 값 변화가 부드럽게 이어진다(미지원 브라우저는
+   그냥 계단식으로 움직인다 — 정보는 같고 매끄러움만 다르다). */
+@property --p { syntax: '<number>'; inherits: true; initial-value: 0; }
+
+/* 재생 진행 — 칩 배경이 **스스로 눈금**이 된다(별도 막대를 만들지 않는다).
+   멈춰 있을 때는 --p가 0이라 아무것도 안 보인다: 침묵이 정상(§8).
+   ⚠️ 가상요소+overflow:hidden으로 만들지 않는다 — 그러면 ✕의 넓힌 터치 목표가 **잘린다**
+   (2026-07-27 실측: 오른쪽·아래 방향 히트테스트 실패). 배경 그라디언트는 넘칠 것이 없다. */
+.chip.audio {
+  background:
+    linear-gradient(to right,
+      color-mix(in srgb, var(--sem-pink) 19%, transparent) 0 calc(var(--p, 0) * 100%),
+      transparent calc(var(--p, 0) * 100%)),
+    color-mix(in srgb, var(--sem-pink) 15%, transparent);
+  color: var(--sem-pink-ink);
+  padding-right: 4px; /* ✕가 붙는 쪽만 좁힌다 — 칩이 오른쪽으로 뚱뚱해 보이지 않게 */
+  transition: --p .15s linear;
+}
+.chip-audio-play {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 0; background: none; padding: 0; margin: 0;
+  font: inherit; color: inherit; cursor: pointer;
+  font-variant-numeric: tabular-nums; /* 재생 중 숫자가 덜컹거리지 않게 */
+  position: relative; /* 진행 채움 위로 */
+}
+.chip-audio-play:focus-visible { outline: 2px solid var(--sem-pink-ink); outline-offset: 3px; border-radius: var(--radius-pill); }
+/* 글리프 자리와 시간 자리를 **고정 폭**으로 잡는다. 안 그러면 재생을 누를 때마다(🔊→이퀄라이저,
+   0:03→0:02) 칩 폭이 흔들려 옆 칩까지 밀린다 — 그 덜컹거림이 「조잡함」의 절반이었다. */
+.chip-audio-ic { display: inline-grid; place-items: center; width: 12px; }
+.chip-audio-time { min-width: 2.2em; text-align: left; }
+
+/* 재생 중 표시 — 3칸 이퀄라이저. **재생 중에만** 움직인다(모션은 상태 이해에만 쓴다).
+   멈추면 즉시 사라진다 — 장식이 아니라 상태다. */
+.eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 10px; }
+.eq i { width: 2px; border-radius: 1px; background: currentColor; animation: eqp .9s ease-in-out infinite; }
+.eq i:nth-child(1) { height: 40%; animation-delay: -.6s; }
+.eq i:nth-child(2) { height: 100%; animation-delay: -.3s; }
+.eq i:nth-child(3) { height: 65%; }
+@keyframes eqp { 0%, 100% { transform: scaleY(.4); } 50% { transform: scaleY(1); } }
+/* 움직임을 줄여달라는 사용자에게는 **막대를 고정**한다(정보는 남고 움직임만 사라진다). */
+@media (prefers-reduced-motion: reduce) {
+  .eq i { animation: none; }
+  .chip.audio { transition: none; }
+}
+
+/* 칩 안의 ✕ — `.chip-clear`(장소 해제)는 줄(row) 안에 서는 24px 원형이라 작은 알약 안에서는
+   너무 무겁다. 보이는 것은 작게 두되, **누를 수 있는 넓이는 칩 높이를 꽉 채워** 확보한다.
+   ⚠️ 처음엔 `::after { inset: -11px }`로 40px 목표를 만들었다. 격리 테스트에서는 네 방향이
+   전부 통과했는데 **실제 카드 안에서는 실패**했다 — 넓힌 영역이 아래 사진 격자에 가려졌다.
+   그리고 그건 단순한 미달이 아니라 **위험**이다: 보이지 않는 *삭제* 목표가 사진 위에 얹히면,
+   사진을 누르려던 손이 소리를 지운다. 그래서 칩 **바깥으로 넘치지 않는** 방식으로 바꿨다 —
+   24×28px(=672px²)은 예전 18×18(=324px²)의 두 배이고, 아무것과도 겹치지 않는다. */
+.chip-x {
+  display: inline-grid; place-items: center;
+  min-width: 24px; align-self: stretch; margin: -5px 0; /* 칩의 세로 여백까지 눌린다 */
+  border: 0; border-radius: var(--radius-pill); padding: 0;
+  background: none; color: inherit;
+  font-size: 0.62rem; line-height: 1; cursor: pointer; opacity: .55;
+}
+.chip-x:hover, .chip-x:focus-visible { opacity: 1; background: color-mix(in srgb, currentColor 16%, transparent); }
+.chip-x:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
 /* 환산값(기계 파생 보조 표시) — 원금액보다 약하게. 사용자가 적은 값과 시각적으로 구분한다(원칙 #2). */
 .chip-approx {
   margin-left: 6px; padding-left: 6px;

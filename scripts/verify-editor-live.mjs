@@ -710,6 +710,131 @@ await page.waitForTimeout(200);
 const hiddenAgain = await page.$eval('.fx-detail', (d) => d.hidden);
 check('환율 배지: 다시 탭하면 접힘', hiddenAgain === true, String(hiddenAgain));
 
+// ── v1.16: 소리 칩이 형제와 **같은 줄에 같은 높이로** 선다 ──
+// 실제 사고(2026-07-27 사용자 실기기): *"칩 디자인이 조잡하네요."* `.chip`이 flex가 아니어서
+// 소리 칩 안의 ✕가 **둘째 줄로 밀려났고**, 그 칩만 형제(장소)보다 두 배 높아 줄이 어긋났다.
+// 이건 자료구조가 아니라 **화면에만 나타나는** 부류라(§10 ③) 유닛이 원리적으로 못 잡는다.
+//
+// 마크업을 손으로 세우지 않고 **Dexie에 행을 넣어 앱이 스스로 그리게** 한다 — 그래야
+// 클래스 이름이 바뀌면 이 검사가 빨개진다(내가 쓴 마크업을 재면 그건 나 자신을 재는 것이다).
+const audioSeed = await page.evaluate(async () => {
+  const pick = await new Promise((resolve, reject) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction('localMoments', 'readonly');
+      const all = tx.objectStore('localMoments').getAll();
+      all.onsuccess = () => resolve(all.result.filter((m) => m.deletedAt === null).pop());
+      all.onerror = () => reject(all.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+  if (!pick) return null;
+  // **실제로 재생되는** 소리를 만든다(무음 WAV 1.5초). 예전엔 0바이트 더미를 넣었더니
+  // 재생이 실패해 「재생 불가」 경로만 재고 있었다 — 픽스처가 틀리면 검사는 조용히 딴 것을 잰다.
+  const sr = 8000, sec = 1.5, n = Math.floor(sr * sec);
+  const buf = new ArrayBuffer(44 + n * 2);
+  const dv = new DataView(buf);
+  const put = (o, t) => { for (let i = 0; i < t.length; i++) dv.setUint8(o + i, t.charCodeAt(i)); };
+  put(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); put(8, 'WAVEfmt ');
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, sr, true); dv.setUint32(28, sr * 2, true); dv.setUint16(32, 2, true);
+  dv.setUint16(34, 16, true); put(36, 'data'); dv.setUint32(40, n * 2, true);
+  const now = new Date().toISOString();
+  const row = {
+    id: crypto.randomUUID(), momentId: pick.id, tripId: pick.tripId,
+    blob: new Blob([buf], { type: 'audio/wav' }),
+    mime: 'audio/wav', durationSec: 3, recordedAt: now,
+    createdAt: now, updatedAt: now, deletedAt: null, version: 1,
+  };
+  await new Promise((resolve, reject) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction('localAudio', 'readwrite');
+      tx.objectStore('localAudio').put(row);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+  return { momentId: pick.id, tripId: pick.tripId };
+});
+check('소리 칩: 픽스처 주입(순간에 녹음 1건)', Boolean(audioSeed), JSON.stringify(audioSeed));
+
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForSelector('.chip.audio', { timeout: 10000 });
+
+// **화면 안으로 들여놓고** 잰다. `elementFromPoint`는 뷰포트 밖이면 null을 돌려주는데,
+// 그걸 "안 눌린다"로 읽으면 멀쩡한 것을 결함이라 부른다(오탐은 틀린 게이트다 — §11 ③).
+await page.evaluate(() => document.querySelector('.chip.audio')?.scrollIntoView({ block: 'center' }));
+await page.waitForTimeout(150);
+const chipGeo = await page.evaluate(() => {
+  const audio = document.querySelector('.chip.audio');
+  const sibling = document.querySelector('.chip.gps') ?? document.querySelector('.chip:not(.audio)');
+  const r = (e) => e.getBoundingClientRect();
+  const a = r(audio);
+  const play = audio.querySelector('.chip-audio-play');
+  const x = audio.querySelector('.chip-x');
+  const out = {
+    h: +a.height.toFixed(1),
+    siblingH: sibling ? +r(sibling).height.toFixed(1) : null,
+    // ✕가 재생 버튼과 **같은 줄**인가 — 세로 중심이 겹치면 한 줄이다.
+    oneLine: !!x && Math.abs((r(x).top + r(x).bottom) / 2 - (r(play).top + r(play).bottom) / 2) < 4,
+    hasX: !!x,
+    // 칩 높이가 내용 두 줄만큼 커지지 않았는가(둘째 줄로 밀리면 여기서 터진다).
+    notStacked: a.height < 40,
+  };
+  if (x) {
+    const b = r(x);
+    out.xW = +b.width.toFixed(1);
+    out.xH = +b.height.toFixed(1);
+    out.xArea = Math.round(b.width * b.height);
+    // 넓힌 목표가 **칩 밖으로 새지 않는가** — 새면 보이지 않는 삭제 버튼이 옆 것을 덮는다.
+    out.insideChip = b.top >= a.top - 0.6 && b.bottom <= a.bottom + 0.6 && b.right <= a.right + 0.6;
+    const at = (dx, dy) => document.elementFromPoint(b.left + b.width / 2 + dx, b.top + b.height / 2 + dy);
+    const hit = (dx, dy) => { const e = at(dx, dy); return e === x || x.contains(e); };
+    out.probes = { c: hit(0,0), l: hit(-8,0), r: hit(8,0), u: hit(0,-10), d: hit(0,10) };
+    out.reachable = Object.values(out.probes).every(Boolean);
+  }
+  return out;
+});
+check('소리 칩: ✕가 재생과 **같은 줄**(둘째 줄로 밀리지 않는다)', chipGeo.oneLine === true, JSON.stringify(chipGeo));
+check('소리 칩: 세로로 쌓이지 않는다', chipGeo.notStacked === true, `h=${chipGeo.h}`);
+check(
+  '소리 칩: 형제 칩과 **같은 높이**(줄이 어긋나지 않는다)',
+  chipGeo.siblingH === null || Math.abs(chipGeo.h - chipGeo.siblingH) < 1.5,
+  `audio=${chipGeo.h} sibling=${chipGeo.siblingH}`,
+);
+check(
+  '소리 칩: ✕를 누를 수 있는 넓이가 칩 높이를 채운다(≥600px²)',
+  chipGeo.xArea >= 600 && chipGeo.reachable === true,
+  `${chipGeo.xW}×${chipGeo.xH}=${chipGeo.xArea}px² reachable=${chipGeo.reachable}`,
+);
+check(
+  '소리 칩: ✕의 누름 영역이 **칩 밖으로 새지 않는다**(사진 위에 얹힌 삭제 목표를 만들지 않는다)',
+  chipGeo.insideChip === true,
+  String(chipGeo.insideChip),
+);
+
+// 재생을 눌렀을 때 **칩 폭이 흔들리지 않는가** — 글리프·숫자가 바뀌며 옆 칩을 밀면 그게 조잡함이다.
+const widthBefore = await page.$eval('.chip.audio', (e) => e.getBoundingClientRect().width);
+await page.locator('.chip-audio-play').first().click();
+await page.waitForTimeout(250);
+const playState = await page.evaluate(() => {
+  const c = document.querySelector('.chip.audio');
+  return {
+    w: c.getBoundingClientRect().width,
+    pressed: c.querySelector('.chip-audio-play').getAttribute('aria-pressed'),
+  };
+});
+check('소리 칩: 재생 상태가 aria-pressed로 전해진다', playState.pressed === 'true', String(playState.pressed));
+check(
+  '소리 칩: 재생해도 폭이 흔들리지 않는다(옆 칩을 밀지 않는다)',
+  Math.abs(playState.w - widthBefore) < 1.5,
+  `${widthBefore.toFixed(1)} → ${playState.w.toFixed(1)}`,
+);
+
 // ── v0.53: 넓은 화면(태블릿 가로·데스크톱) 레이아웃 ──
 // 문제였던 것: 본문이 780px 고정이라 2000px대 태블릿에서 가운데만 쓰고 양옆이 비었다.
 // 계약: ①어느 폭에서도 가로 넘침 0 ②1100px 이상에서 [기록 폼 | 타임라인] 2단 ③그 미만은 세로.

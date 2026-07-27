@@ -3,7 +3,7 @@
 
 import { el, setNote } from '../dom';
 import { audioChip, recordButton } from '../audioNote';
-import { listAudioByTrip, addAudioToMoment, softDeleteAudio } from '../../services/audio';
+import { listAudioByTrip, addAudioToMoment, softDeleteAudio, restoreAudio } from '../../services/audio';
 import type { LocalAudio } from '../../offline/db';
 import { showUndoToast } from '../toast';
 import {
@@ -388,7 +388,18 @@ function appendAudioChips(chips: HTMLElement, list: LocalAudio[], refresh: () =>
   for (const a of list) {
     chips.appendChild(
       audioChip(a, () => {
-        void softDeleteAudio(a.id).then(() => refresh());
+        void (async () => {
+          await softDeleteAudio(a.id);
+          refresh();
+          // **사진과 같은 실행취소**(§7 사용자 대면 대칭). 2026-07-27 사용자 실기기:
+          // *"이미 녹음된 걸 삭제할 땐 바로 삭제가 되네요."* — 사진에는 이 토스트가 있는데
+          // 소리에만 없었다. 되돌릴 수 있다는 사실을 **그 자리에서** 말하지 않으면,
+          // 사용자에게는 되돌릴 수 없는 것과 구별되지 않는다(휴지통까지 가야 안다).
+          showUndoToast('소리를 삭제했어요', async () => {
+            await restoreAudio(a.id);
+            refresh();
+          });
+        })();
       }),
     );
   }

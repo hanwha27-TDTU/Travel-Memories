@@ -37,15 +37,31 @@ export function stopAudioPlayback(): void {
  * 오디오 노트 하나를 나타내는 칩. 탭하면 재생/정지.
  * @param onDelete 있으면 ✕ 버튼을 붙인다(삭제는 tombstone — 되살릴 수 있다).
  */
+/** 재생 중 이퀄라이저 세 칸. 멈추면 통째로 사라진다 — 장식이 아니라 **상태**다. */
+function equalizer(): HTMLElement {
+  const eq = el('span', 'eq');
+  eq.setAttribute('aria-hidden', 'true'); // 뜻은 aria-pressed가 전한다(중복해 읽히지 않게)
+  for (let i = 0; i < 3; i++) eq.appendChild(el('i'));
+  return eq;
+}
+
 export function audioChip(a: LocalAudio, onDelete?: () => void): HTMLElement {
   const chip = el('span', 'chip audio');
-  const btn = el('button', 'chip-audio-play', `🔊 ${formatDuration(a.durationSec)}`) as HTMLButtonElement;
+  const label = formatDuration(a.durationSec);
+  const btn = el('button', 'chip-audio-play') as HTMLButtonElement;
   btn.type = 'button';
-  btn.setAttribute('aria-label', `녹음 ${formatDuration(a.durationSec)} 재생`);
+  btn.setAttribute('aria-label', `녹음 ${label} 재생`);
+
+  /** 글리프 자리 — 멈춤(🔊)과 재생 중(이퀄라이저)이 **같은 자리**에서 바뀐다(칩 폭이 안 흔들린다). */
+  const icon = el('span', 'chip-audio-ic', '🔊');
+  const time = el('span', 'chip-audio-time', label);
+  btn.append(icon, time);
 
   const setIdle = (): void => {
-    btn.textContent = `🔊 ${formatDuration(a.durationSec)}`;
+    icon.replaceChildren('🔊');
+    time.textContent = label;
     btn.setAttribute('aria-pressed', 'false');
+    chip.style.setProperty('--p', '0'); // 진행 채움을 되돌린다
   };
   setIdle();
 
@@ -59,25 +75,33 @@ export function audioChip(a: LocalAudio, onDelete?: () => void): HTMLElement {
     const audio = new Audio(url);
     audio.dataset['id'] = a.id;
     playing = { audio, url, onStop: setIdle };
-    btn.textContent = `⏸ ${formatDuration(a.durationSec)}`;
+    icon.replaceChildren(equalizer());
     btn.setAttribute('aria-pressed', 'true');
+
+    // 남은 시간을 **세어 내려간다**: 소리는 눈에 안 보이므로, 얼마나 남았는지가 유일한 단서다.
+    audio.addEventListener('timeupdate', () => {
+      const total = audio.duration || a.durationSec || 0;
+      if (total > 0) chip.style.setProperty('--p', String(Math.min(1, audio.currentTime / total)));
+      time.textContent = formatDuration(Math.max(0, Math.ceil(total - audio.currentTime)));
+    });
     audio.addEventListener('ended', () => stopAudioPlayback());
     // 재생 실패(코덱 미지원 등)를 **조용히 넘기지 않는다** — 안 나는 이유를 말한다.
-    audio.addEventListener('error', () => {
+    const failed = (): void => {
       stopAudioPlayback();
-      btn.textContent = '🔇 재생 불가';
-    });
-    void audio.play().catch(() => {
-      stopAudioPlayback();
-      btn.textContent = '🔇 재생 불가';
-    });
+      icon.replaceChildren('🔇');
+      time.textContent = '재생 불가';
+    };
+    audio.addEventListener('error', failed);
+    void audio.play().catch(failed);
   });
 
   chip.appendChild(btn);
   if (onDelete) {
-    const del = el('button', 'chip-clear', '✕') as HTMLButtonElement;
+    // `.chip-clear`(장소 해제)는 줄 안에 서는 24px 원형이라 작은 알약 안에서는 무겁다.
+    // 보이는 크기는 줄이되 **누를 수 있는 크기는 CSS로 40px까지 넓힌다**(::after).
+    const del = el('button', 'chip-x', '✕') as HTMLButtonElement;
     del.type = 'button';
-    del.setAttribute('aria-label', '녹음 지우기');
+    del.setAttribute('aria-label', `녹음 ${label} 지우기`);
     del.addEventListener('click', (e) => {
       e.stopPropagation();
       stopAudioPlayback();
