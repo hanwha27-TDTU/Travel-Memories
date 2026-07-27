@@ -147,7 +147,7 @@ export interface TripChildren {
 }
 
 /**
- * 여행 삭제 — 하드 삭제 금지(§0): deletedAt tombstone. 순간·사진·비용까지 같은 트랜잭션에서
+ * 여행 삭제 — 하드 삭제 금지(§0): deletedAt tombstone. 순간·사진·비용·소리까지 같은 트랜잭션에서
  * cascade tombstone하고, **네 종류 모두 sync 큐 op(delete)를 만든다.**
  *
  * ⚠️ 결함 이력(2026-07-25): 예전 주석은 "미디어는 로컬 전용이라 op를 만들지 않는다"였다.
@@ -226,7 +226,7 @@ export async function softDeleteTripLocalFirst(id: string): Promise<TripChildren
   return { momentIds, mediaIds, expenseIds, audioIds };
 }
 
-/** 여행 되살리기(실행취소) — 여행 + 삭제 시 함께 tombstone된 순간·사진·비용을 복원. version+1로 LWW 승리. */
+/** 여행 되살리기(실행취소) — 여행 + 삭제 시 함께 tombstone된 순간·사진·비용·소리를 복원. version+1로 LWW 승리. */
 export async function restoreTripLocalFirst(id: string, children: TripChildren): Promise<LocalTrip> {
   const { momentIds, mediaIds, expenseIds, audioIds } = children;
   const d = db();
