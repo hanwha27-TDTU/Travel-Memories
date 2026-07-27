@@ -330,8 +330,14 @@ GitHub Pages만 다룬다). §9 착수절차 2단계 — *"규칙이 빠져 있�
 프로젝트: **Travel&Accounting**, ref `ihxiywffzmvrwmqvatzt`, 스키마 `journey`
 (회계 앱과 **한 프로젝트를 공유**한다 — ADR-0020. 스키마·RLS·버킷 셋으로 벽을 세운다).
 
-> ⚠️ `supabase/config.toml`이 **없다** — CLI를 쓰려면 `npx supabase link --project-ref
-> ihxiywffzmvrwmqvatzt`를 먼저 해야 한다. 이 세션은 MCP만 썼으므로 **CLI 경로는 미검증**이다.
+> ⚠️ `supabase/config.toml`이 **없다** — CLI를 쓰려면 링크가 먼저다:
+> ```bash
+> npx supabase link --project-ref ihxiywffzmvrwmqvatzt
+> ```
+> **실측(2026-07-27)**: 이 환경에서 `npx supabase --version` → **2.109.1**로 동작하고,
+> `link`·`functions deploy`·`secrets set` 모두 `--project-ref` 플래그를 받는 것까지
+> `--help`로 확인했다. **다만 실제 링크·배포는 하지 않았다** — 프로덕션에 닿는 동작이라
+> 사용자 승인 없이 돌리지 않았다. 즉 *문법은 검증됐고 왕복은 미검증*이다.
 
 **SQL을 직접 돌릴 때의 철칙**(둘 다 어기면 프로덕션이 다친다):
 - 마이그레이션은 **적용 전에** `BEGIN … <DDL> … <공격검사> … ROLLBACK`으로 먼저 돌린다
@@ -346,6 +352,20 @@ npx supabase functions deploy media-sign --project-ref ihxiywffzmvrwmqvatzt
 
 **함수가 요구하는 시크릿**(코드에서 뽑은 이름 — `R2_SECRET_NAMES` 참조):
 `R2_ACCOUNT_ID` · `R2_ACCESS_KEY_ID` · `R2_SECRET_ACCESS_KEY` · `R2_BUCKET`
+
+```bash
+npx supabase secrets list --project-ref ihxiywffzmvrwmqvatzt   # 무엇이 설정돼 있나(값은 안 보인다)
+npx supabase secrets set R2_BUCKET=... --project-ref ihxiywffzmvrwmqvatzt
+```
+
+**시크릿이 제대로 들어갔는지 확인하는 법** — 값을 보지 않고도 알 수 있다.
+`capabilities` op이 `{ version, ops, serverTime, secretsOk, missing }`를 돌려주고,
+`missing`에 **빠진 시크릿 이름이 그대로 담긴다**. 비밀을 안 담으므로 **인증 전에도 답한다**
+— 로그인이 깨진 상황에서도 "서버 판이 낡았나 / 설정이 빠졌나"를 앱이 구분할 수 있어야 하기
+때문이다. 앱의 진단 화면이 이 값을 읽어 판정한다.
+
+> 실패 원인 1위는 **시크릿 앞뒤 공백 혼입**이다(증상: `SignatureDoesNotMatch`).
+> 함수가 `.trim()`으로 방어하지만, 붙여넣을 때 주의하라.
 
 > 🔴 **이 값들은 Supabase Function Secrets에만 존재한다.** 저장소·`.env`·로그·리포트·
 > PR 본문 어디에도 넣지 마라. 사용자가 대시보드에서 설정했고, **평문으로 보이는 화면은
