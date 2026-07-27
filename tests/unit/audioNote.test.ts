@@ -19,6 +19,11 @@ import {
   recordingHint,
 } from '../../src/domain/audio/note';
 import { serializeJson, deserializeJson, serializeZip, deserializeZip } from '../../src/services/backup';
+import { audioFileBase, photoFileBase } from '../../src/domain/media/naming';
+import { unzip } from '../../src/services/zip';
+
+/** ZIP 안 실제 파일 이름 목록 — 이름을 재려면 되읽기가 아니라 **엔트리**를 봐야 한다. */
+const deserializeZipNames = (buf: ArrayBuffer): string[] => unzip(buf).map((e) => e.name);
 import type { CollectedRows } from '../../src/services/backup';
 import type { LocalAudio, LocalTrip } from '../../src/offline/db';
 
@@ -147,5 +152,41 @@ describe('🔴 ③ 백업 왕복 — 오디오는 서버에 안 가므로 **백�
     const back = deserializeJson(await serializeJson({ ...rows(), audio: [] }));
     expect(back.audio).toEqual([]);
     expect(back.trips).toHaveLength(1);
+  });
+});
+
+// ⚠️ 아래 무리가 이 파일에서 **가장 늦게 생긴 이유**를 적어 둔다(사용자 지적 2026-07-27).
+// 처음엔 왕복(넣고 꺼내기)만 쟀다. 그런데 이름을 손으로 조립해 실제로는
+// `audio/[object Object]_a1b2c3d4.webm`이 만들어지고 있었는데 — **같은 키로 넣고 꺼내니
+// 왕복은 통과했다.** 이름이 사용자에게 보이는 산출물이면 **이름 자체를 재야 한다.**
+describe('🔴 ④ ZIP 안 파일명 — 사진과 **같은 규칙**이어야 한다 (§7 사용자 대면 대칭)', () => {
+  it('사진과 같은 모양: 날짜_시간_제목__id8', () => {
+    expect(audioFileBase(ISO, '제주여행', U(3))).toMatch(/^\d{8}_\d{4}_제주여행__[0-9a-f]{8}$/);
+  });
+
+  it('사진 규칙과 **자릿수·구분자가 같다**(나란히 놓으면 같은 형태로 보인다)', () => {
+    const a = audioFileBase(ISO, '제주여행', U(3));
+    const p = photoFileBase(ISO, '제주여행', U(3));
+    expect(a.replace(/__[0-9a-f]{8}$/, '')).toBe(p.replace(/__[0-9a-f]{8}$/, ''));
+  });
+
+  it('🔴 `[object Object]`가 들어가지 않는다 — 실제로 그랬다', () => {
+    expect(audioFileBase(ISO, '제주여행', U(3))).not.toContain('[object');
+  });
+
+  it('제목이 없으면 「소리」로(사진은 「사진」 — 같은 자리에 같은 어휘)', () => {
+    expect(audioFileBase(ISO, '', U(3))).toContain('_소리__');
+  });
+
+  it('시각을 못 읽으면 사진과 같은 폴백(`00000000_0000`)', () => {
+    expect(audioFileBase('nope', '제주', U(3))).toMatch(/^00000000_0000_/);
+  });
+
+  it('ZIP 안 실제 경로가 그 규칙을 따른다(조립하는 쪽까지 확인)', async () => {
+    const blob = await serializeZip({ trips: [trip()], moments: [], media: [], expenses: [], audio: [audio(3, [1, 2])] });
+    const names = deserializeZipNames(await blob.arrayBuffer());
+    const hit = names.find((n) => n.includes('/audio/'));
+    expect(hit).toBeDefined();
+    expect(hit).toMatch(/\/audio\/\d{8}_\d{4}_[^/]*__[0-9a-f]{8}\.webm$/);
   });
 });
