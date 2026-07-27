@@ -237,7 +237,7 @@ npm run brief            # 또는: npm run brief <고칠 파일들>
 
 ## 문서 지도 (SSOT)
 
-`docs/PROJECT_SPEC.md`(요구사항·최상위) · `ARCHITECTURE.md` · `DATA_MODEL.md` · `SECURITY.md` · `PRIVACY.md` · `SYNC_PROTOCOL.md` · `MEDIA_PIPELINE.md` · `DEPLOYMENT.md`(배포 계약) · `AGENT_REGISTRY.md` · `LESSONS.md` · `ROADMAP.md` · `TEST_PLAN.md` · `DECISIONS.md` · `ASSUMPTIONS.md` · `HANDOFF.md` · `CHANGELOG.md` · `REPOSITORY_AUDIT.md` · `CONFLICT_REPORT.md` · `ACTIVE_TASKS.md`. v0.2 원본은 `docs/reference/v0.2/`.
+**`docs/HANDOFF_CODEX.md`(처음 들어온 AI를 위한 완전 인계서 — 맥락 없이도 이어서 일할 수 있게)** · `docs/PROJECT_SPEC.md`(요구사항·최상위) · `ARCHITECTURE.md` · `DATA_MODEL.md` · `SECURITY.md` · `PRIVACY.md` · `SYNC_PROTOCOL.md` · `MEDIA_PIPELINE.md` · `DEPLOYMENT.md`(배포 계약) · `AGENT_REGISTRY.md` · `LESSONS.md` · `ROADMAP.md` · `TEST_PLAN.md` · `DECISIONS.md` · `ASSUMPTIONS.md` · `HANDOFF.md` · `CHANGELOG.md` · `REPOSITORY_AUDIT.md` · `CONFLICT_REPORT.md` · `ACTIVE_TASKS.md`. v0.2 원본은 `docs/reference/v0.2/`.
 충돌하면 공유 문서(SPEC)가 이긴다. 특정 AI 도구 대화가 아니라 이 문서들이 기준이다.
 
 ## 에이전트 운영
