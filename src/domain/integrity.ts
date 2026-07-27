@@ -39,11 +39,26 @@ export interface ExpenseRowLike extends IdCheckRow {
   originalCurrency?: string;
 }
 
+export interface AudioRowLike extends IdCheckRow {
+  tripId: string;
+  momentId: string;
+}
+
+/**
+ * 점검 대상 스냅샷.
+ *
+ * ⚠️ 2026-07-27: 소리가 여기 **없던 동안, 무결성 점검은 소리를 못 봤다** — 부모 없는 소리도,
+ * 지운 순간에 살아남은 소리도, 옛 표기로 박힌 `recordedAt`도 전부 「0건」으로 보고했다.
+ * 그건 정상이라는 뜻이 아니라 **안 봤다는 뜻**이었고, 지표가 자기 시야의 경계를 밝히지 않으면
+ * 그건 §8이 말하는 거짓말이다. 소리는 서버에 안 갈 뿐 **로컬 참조 무결성은 형제와 똑같이**
+ * 지켜야 한다 — 오히려 서버 사본이 없으니 이 점검이 **유일한 감시자**다.
+ */
 export interface IntegritySnapshot {
   trips: TripRowLike[];
   moments: MomentRowLike[];
   media: MediaRowLike[];
   expenses: ExpenseRowLike[];
+  audio: AudioRowLike[];
 }
 
 export type Severity = 'now' | 'prevent' | 'info';
@@ -76,6 +91,49 @@ export const CHECK_COUNT = 11;
 
 /** `checkIntegrity` 안의 발견 등록 함수 — 점검을 곁 함수로 뽑을 때 그대로 넘긴다. */
 type AddFinding = (code: string, severity: Severity, title: string, detail: string, hits: string[]) => void;
+
+/**
+ * 부모-자식 참조 점검 두 가지. **자식 종류가 늘면 여기 한 곳만 늘어난다.**
+ *
+ * 왜 뽑았나(2026-07-27): 소리를 자식으로 더하자 `checkIntegrity`가 래칫(`check-fn-size`)을
+ * 넘었다. 주석을 지워 줄이는 대신 응집된 덩어리를 뽑았고 결과가 더 낫다 —
+ * 자식 목록이 한 배열로 모여, 다음 형제를 더할 자리가 눈에 보인다(§11 「게이트가 설계를 밀어준다」).
+ */
+function parentChecks(s: IntegritySnapshot, add: AddFinding): void {
+  const tripById = new Map(s.trips.map((t) => [t.id, t]));
+  const momentById = new Map(s.moments.map((m) => [m.id, m]));
+
+  /** 여행·순간을 가리키는 **활성** 자식 전부. 새 자식 종류는 이 배열에 한 줄 더한다. */
+  const children: { tripId: string; momentId?: string; id: string }[] = [
+    ...s.moments.filter((m) => m.deletedAt === null).map((m) => ({ tripId: m.tripId, id: m.id })),
+    ...s.media.filter((m) => m.deletedAt === null).map((m) => ({ tripId: m.tripId, momentId: m.momentId, id: m.id })),
+    ...s.expenses.filter((e) => e.deletedAt === null).map((e) => ({ tripId: e.tripId, momentId: e.momentId, id: e.id })),
+    ...s.audio.filter((a) => a.deletedAt === null).map((a) => ({ tripId: a.tripId, momentId: a.momentId, id: a.id })),
+  ];
+  const missing = (c: { tripId: string; momentId?: string }): boolean =>
+    !tripById.has(c.tripId) || (c.momentId !== undefined && !momentById.has(c.momentId));
+  const underDeleted = (c: { tripId: string; momentId?: string }): boolean =>
+    !!tripById.get(c.tripId)?.deletedAt || (c.momentId !== undefined && !!momentById.get(c.momentId)?.deletedAt);
+
+  add(
+    'ORPHAN_PARENT',
+    'now',
+    '속한 여행·순간이 없는 기록',
+    '이 기록이 가리키는 여행이나 순간을 찾을 수 없어요. 화면 어디에도 나타나지 않아 사실상 잃어버린 상태입니다. 백업 파일이 있으면 복원으로 되살릴 수 있어요.',
+    children.filter(missing).map((c) => c.id),
+  );
+
+  // 소리는 서버로 안 가므로 아래 안내문("서버·저장소에는 남습니다")이 소리엔 정확하진 않다.
+  // 그래도 **같은 발견으로 묶는다**: 사용자가 고쳐야 할 상태는 동일하고(지운 부모에 딸린 것이
+  // 살아 있다), 소리만 따로 코드를 만들면 화면에 같은 성격의 줄이 둘로 늘어난다(§7 화면 대칭).
+  add(
+    'ALIVE_UNDER_DELETED',
+    'now',
+    '지운 여행·순간에 살아 있는 기록',
+    '부모가 지워졌는데 딸린 기록이 활성으로 남아 있어요. 화면엔 안 보이지만 서버·저장소에는 남습니다. 동기화를 눌러도 사라지지 않으면 알려주세요.',
+    children.filter(underDeleted).map((c) => c.id),
+  );
+}
 
 /**
  * 시각 점검 두 가지. **내용(순간)과 형식(표기)을 나눈다** — 하나로 묶었다가 사고가 났다.
@@ -140,36 +198,12 @@ export function checkIntegrity(s: IntegritySnapshot): IntegrityReport {
   const aliveMedia = s.media.filter((m) => m.deletedAt === null);
   const aliveExpenses = s.expenses.filter((e) => e.deletedAt === null);
 
-  const tripById = new Map(s.trips.map((t) => [t.id, t]));
-  const momentById = new Map(s.moments.map((m) => [m.id, m]));
   const mediaIds = new Set(s.media.map((m) => m.id));
-  const all = [...s.trips, ...s.moments, ...s.media, ...s.expenses];
+  // 소리도 `all`에 든다 — id 형식·중복·시각 표기·세대 점검은 **도메인을 가리지 않는다.**
+  const all = [...s.trips, ...s.moments, ...s.media, ...s.expenses, ...s.audio];
 
-  // 1. 부모 없는 자식 — 화면에서 영영 못 찾는 기억이 된다.
-  add(
-    'ORPHAN_PARENT',
-    'now',
-    '속한 여행·순간이 없는 기록',
-    '이 기록이 가리키는 여행이나 순간을 찾을 수 없어요. 화면 어디에도 나타나지 않아 사실상 잃어버린 상태입니다. 백업 파일이 있으면 복원으로 되살릴 수 있어요.',
-    [
-      ...aliveMoments.filter((m) => !tripById.has(m.tripId)).map((m) => m.id),
-      ...aliveMedia.filter((m) => !tripById.has(m.tripId) || !momentById.has(m.momentId)).map((m) => m.id),
-      ...aliveExpenses.filter((e) => !tripById.has(e.tripId) || !momentById.has(e.momentId)).map((e) => e.id),
-    ],
-  );
-
-  // 2. 부모는 지워졌는데 자식이 살아 있음 — cascade가 새는 자리(오늘 실제로 겪은 형태).
-  add(
-    'ALIVE_UNDER_DELETED',
-    'now',
-    '지운 여행·순간에 살아 있는 기록',
-    '부모가 지워졌는데 딸린 기록이 활성으로 남아 있어요. 화면엔 안 보이지만 서버·저장소에는 남습니다. 동기화를 눌러도 사라지지 않으면 알려주세요.',
-    [
-      ...aliveMoments.filter((m) => tripById.get(m.tripId)?.deletedAt).map((m) => m.id),
-      ...aliveMedia.filter((m) => tripById.get(m.tripId)?.deletedAt || momentById.get(m.momentId)?.deletedAt).map((m) => m.id),
-      ...aliveExpenses.filter((e) => tripById.get(e.tripId)?.deletedAt || momentById.get(e.momentId)?.deletedAt).map((e) => e.id),
-    ],
-  );
+  // 1·2. 부모-자식 참조 점검 — 자식 종류가 늘 때 **한 곳만** 늘어나게 곁 함수로 뺐다.
+  parentChecks(s, add);
 
   // 3. 대표사진이 사라짐 — 표지가 빈 카드로 보인다.
   add(

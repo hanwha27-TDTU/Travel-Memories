@@ -24,7 +24,7 @@ import { requestUnpurge } from './purge';
 // 시각 표기의 SSOT — 서버 경계(rowmap)와 **같은 함수**를 쓴다(§7: 규율은 한 곳에 구현한다).
 import { withCanonicalStamps } from '../domain/time';
 // 이름 규칙은 **한 곳**에서 온다 — ZIP 폴더·파일명과 R2 객체 키가 같은 규율을 쓴다(§7).
-import { tripFolderName as tripFolder, photoFileBase, stampFromISO } from '../domain/media/naming';
+import { tripFolderName as tripFolder, photoFileBase, audioFileBase } from '../domain/media/naming';
 import { extForAudioMime } from '../domain/audio/note';
 
 export { photoFileBase, stampFromISO } from '../domain/media/naming';
@@ -405,10 +405,12 @@ export async function serializeZip(rows: CollectedRows, includeOriginals = true)
   }
 
   // 오디오 노트 — 사진과 **같은 규율**로 실제 파일로 넣는다(탐색기에서 바로 들을 수 있게).
-  // 이름은 `audio/<녹음시각>_<id 8자>.<ext>` — 사람이 읽을 수 있고 충돌하지 않는다.
+  // 이름·제목 유도 모두 사진과 동일하다: `날짜_시간_제목__id8`, 제목은 **순간 제목 → 여행 제목**.
+  // 규칙을 손으로 조립하지 않고 `audioFileBase`(naming.ts SSOT)를 지난다(§1-D).
   for (const a of rows.audio) {
     const { folder, bundle } = bundleFor(a.tripId ?? null);
-    const file = `audio/${stampFromISO(a.recordedAt)}_${a.id.slice(0, 8)}.${extForAudioMime(a.mime)}`;
+    const title = momentTitle.get(a.momentId) || (a.tripId ? tripById.get(a.tripId)?.title : '') || '';
+    const file = `audio/${audioFileBase(a.recordedAt, title, a.id)}.${extForAudioMime(a.mime)}`;
     entries.push({ name: `${folder}/${file}`, data: await blobBytes(a.blob) });
     const { blob: _b, ...rest } = a;
     bundle.audio!.push({ ...rest, file });

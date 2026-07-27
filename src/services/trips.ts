@@ -138,6 +138,12 @@ export interface TripChildren {
   momentIds: string[];
   mediaIds: string[];
   expenseIds: string[];
+  /**
+   * 오디오 노트. **형제에게는 대칭과 공정이 기본값이다**(CLAUDE.md §7, 2026-07-27) —
+   * 서버로 안 간다는 사정은 큐 op를 안 만드는 것까지이고, **함께 지워지고 함께 살아나는
+   * 것은 예외 없이 같다.** 이 필드가 없던 동안 순간·여행을 지워도 소리만 활성으로 남았다.
+   */
+  audioIds: string[];
 }
 
 /**
@@ -178,9 +184,13 @@ export async function softDeleteTripLocalFirst(id: string): Promise<TripChildren
   const expenses = (await d.localExpenses.where('tripId').equals(id).toArray()).filter(
     (e) => e.deletedAt === null,
   );
+  const audio = (await d.localAudio.where('tripId').equals(id).toArray()).filter(
+    (a) => a.deletedAt === null,
+  );
   const momentIds = moments.map((m) => m.id);
   const mediaIds = media.map((m) => m.id);
   const expenseIds = expenses.map((e) => e.id);
+  const audioIds = audio.map((a) => a.id);
 
   // 자식 op는 **tombstone하는 종류 전부**에 대해 만든다. 하나라도 빠지면 그 종류만 서버에
   // 활성으로 남아 다른 기기에서 되살아나고(사진은 R2 객체까지 잔류) 원인이 보이지 않는다.
@@ -200,22 +210,25 @@ export async function softDeleteTripLocalFirst(id: string): Promise<TripChildren
     ...expenses.map((e) => childOp('expense', e.id)),
   ];
 
-  await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.syncQueue, async () => {
+  // 표 6개는 Dexie의 가변인자 오버로드 한도를 넘어 배열 형태를 쓴다(동작은 같다).
+  await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.syncQueue], async () => {
     await d.localTrips.put(tombstonedTrip);
     for (const m of moments) await d.localMoments.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now });
     for (const m of media) await d.localMedia.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now });
     for (const e of expenses) await d.localExpenses.put({ ...e, deletedAt: now, version: e.version + 1, updatedAt: now });
+    // 오디오도 형제다 — 함께 사라진다. 큐 op가 없는 것은 서버로 안 가기 때문뿐이다.
+    for (const a of audio) await d.localAudio.put({ ...a, deletedAt: now, version: a.version + 1, updatedAt: now });
     for (const op of ops) await d.syncQueue.add(op);
   });
 
   const back = await d.localTrips.get(id);
   if (!back || back.deletedAt === null) throw new Error('내구성 커밋 확인 실패: 여행 삭제 read-back 불일치');
-  return { momentIds, mediaIds, expenseIds };
+  return { momentIds, mediaIds, expenseIds, audioIds };
 }
 
 /** 여행 되살리기(실행취소) — 여행 + 삭제 시 함께 tombstone된 순간·사진·비용을 복원. version+1로 LWW 승리. */
 export async function restoreTripLocalFirst(id: string, children: TripChildren): Promise<LocalTrip> {
-  const { momentIds, mediaIds, expenseIds } = children;
+  const { momentIds, mediaIds, expenseIds, audioIds } = children;
   const d = db();
   const cur = await d.localTrips.get(id);
   if (!cur) throw new Error('여행을 찾을 수 없습니다.');
@@ -248,7 +261,10 @@ export async function restoreTripLocalFirst(id: string, children: TripChildren):
     ...expenseIds.map((eid) => childOp('expense', eid)),
   ];
 
-  await d.transaction('rw', d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.syncQueue, async () => {
+  // 소리를 되살리려면 `localAudio`도 **트랜잭션 범위 안에** 있어야 한다. 빠지면 Dexie가
+  // NotFoundError를 던져 **복원 전체가 실패**한다 — 삭제 쪽만 고치고 여기를 빠뜨리면
+  // "지우기는 되는데 되살리기가 안 되는" 비대칭이 된다(§7).
+  await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.syncQueue], async () => {
     await d.localTrips.put(restored);
     for (const mid of momentIds) {
       const m = await d.localMoments.get(mid);
@@ -261,6 +277,10 @@ export async function restoreTripLocalFirst(id: string, children: TripChildren):
     for (const eid of expenseIds) {
       const e = await d.localExpenses.get(eid);
       if (e) await d.localExpenses.put({ ...e, deletedAt: null, version: e.version + 1, updatedAt: now });
+    }
+    for (const aid of audioIds) {
+      const a = await d.localAudio.get(aid);
+      if (a) await d.localAudio.put({ ...a, deletedAt: null, version: a.version + 1, updatedAt: now });
     }
     for (const op of ops) await d.syncQueue.add(op);
   });
@@ -287,10 +307,12 @@ export async function restoreTripFromTrash(id: string): Promise<LocalTrip> {
   const moments = (await d.localMoments.where('tripId').equals(id).toArray()).filter((m) => m.deletedAt !== null);
   const media = (await d.localMedia.where('tripId').equals(id).toArray()).filter((m) => m.deletedAt !== null);
   const expenses = (await d.localExpenses.where('tripId').equals(id).toArray()).filter((e) => e.deletedAt !== null);
+  const audio = (await d.localAudio.where('tripId').equals(id).toArray()).filter((a) => a.deletedAt !== null);
   return restoreTripLocalFirst(id, {
     momentIds: moments.map((m) => m.id),
     mediaIds: media.map((m) => m.id),
     expenseIds: expenses.map((e) => e.id),
+    audioIds: audio.map((a) => a.id),
   });
 }
 
@@ -328,10 +350,23 @@ export async function purgeTripPermanently(id: string): Promise<void> {
   const moments = await d.localMoments.where('tripId').equals(id).toArray();
   const media = await d.localMedia.where('tripId').equals(id).toArray();
   const expenses = await d.localExpenses.where('tripId').equals(id).toArray();
+  // 소리도 이 여행의 가족이다. **표식·전파 op는 없지만 바이트는 반드시 사라져야 한다** —
+  // 「이 기기의 저장공간을 실제로 비운다」가 이 함수의 정의이고, 소리는 사진 다음으로 무겁다.
+  // 이걸 빠뜨린 동안, 여행을 영구삭제해도 소리 blob이 IndexedDB에 **영원히 고아로 남았다**
+  // (여행 행이 사라져 어느 화면에서도 닿을 수 없으므로 사용자가 지울 방법도 없었다).
+  const audio = await d.localAudio.where('tripId').equals(id).toArray();
 
   // ① 사전 조건: 이 여행 가족에 대기 중인 동기화 작업이 있으면 진행하지 않는다.
   //    (permanent_failed도 포함해 센다 — 실패한 채 남은 것도 "서버에 반영 안 됨"이다.)
-  const ids = new Set<string>([id, ...moments.map((m) => m.id), ...media.map((m) => m.id), ...expenses.map((e) => e.id)]);
+  //    소리 id도 **함께 센다**: 지금은 소리 op가 없어 결과가 같지만, 조건에서 빼두면
+  //    나중에 소리에 op가 생겨도 이 사전조건만 조용히 비게 된다(§7 — 예외는 결과이지 면제가 아니다).
+  const ids = new Set<string>([
+    id,
+    ...moments.map((m) => m.id),
+    ...media.map((m) => m.id),
+    ...expenses.map((e) => e.id),
+    ...audio.map((a) => a.id),
+  ]);
   const pending = (await d.syncQueue.toArray()).filter((q) => ids.has(q.entityId));
   if (pending.length) throw new PendingSyncError(pending.length);
 
@@ -358,19 +393,25 @@ export async function purgeTripPermanently(id: string): Promise<void> {
     createdAt: now,
   }));
 
-  // 표 6개는 Dexie의 가변인자 오버로드 한도를 넘어 배열 형태를 쓴다(동작은 같다).
-  await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.purgedIds, d.syncQueue], async () => {
+  // 표 7개는 Dexie의 가변인자 오버로드 한도를 넘어 배열 형태를 쓴다(동작은 같다).
+  await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.purgedIds, d.syncQueue], async () => {
     // ② 표식을 **먼저** 넣는다. 중간에 실패해도 "지웠는데 표식이 없어 되살아나는" 창이 생기지 않는다.
     await d.purgedIds.bulkPut(marks);
     for (const op of purgeOps) await d.syncQueue.add(op);
     if (media.length) await d.localMedia.bulkDelete(media.map((m) => m.id));
     if (expenses.length) await d.localExpenses.bulkDelete(expenses.map((e) => e.id));
+    // 소리는 `targets`(표식·전파 op)엔 없고 **여기 하드 삭제엔 있다.** 그 비대칭의 이유는
+    // 위 `audio` 선언부에 적혀 있다 — 지울 서버 행이 없을 뿐, 지울 바이트는 있다.
+    if (audio.length) await d.localAudio.bulkDelete(audio.map((a) => a.id));
     if (moments.length) await d.localMoments.bulkDelete(moments.map((m) => m.id));
     await d.localTrips.delete(id);
   });
 
   const back = await d.localTrips.get(id);
   if (back) throw new Error('영구 삭제 확인 실패: 행이 남아 있음');
+  // 바이트가 실제로 사라졌는지 **되읽어** 확인한다(성공 반환을 믿지 않는다).
+  const audioLeft = await d.localAudio.where('tripId').equals(id).count();
+  if (audioLeft) throw new Error('영구 삭제 확인 실패: 소리 행이 남아 있음');
   if (!(await d.purgedIds.get(id))) throw new Error('영구 삭제 확인 실패: 표식이 남지 않음');
   const queuedPurges = (await d.syncQueue.toArray()).filter((q) => q.operationType === 'purge').length;
   if (queuedPurges < targets.length) {

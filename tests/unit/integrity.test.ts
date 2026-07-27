@@ -14,7 +14,9 @@ const base = (id: string): { id: string; deletedAt: null; createdAt: string; upd
   updatedAt: '2026-07-02T00:00:00.000Z',
   version: 1,
 });
-const empty: IntegritySnapshot = { trips: [], moments: [], media: [], expenses: [] };
+const empty: IntegritySnapshot = { trips: [], moments: [], media: [], expenses: [], audio: [] };
+/** 스냅샷을 **빈 것 위에 얹어** 만든다 — 도메인이 늘어도 검사가 손대야 할 곳이 한 줄이다. */
+const snap = (p: Partial<IntegritySnapshot>): IntegritySnapshot => ({ ...empty, ...p });
 const codes = (s: IntegritySnapshot): string[] => checkIntegrity(s).findings.map((f) => f.code);
 
 describe('무결성 점검 — 정상은 조용하다', () => {
@@ -28,7 +30,7 @@ describe('무결성 점검 — 정상은 조용하다', () => {
     const trip = base(U(1));
     const moment = { ...base(U(2)), tripId: trip.id };
     const media = { ...base(U(3)), tripId: trip.id, momentId: moment.id };
-    const r = checkIntegrity({ trips: [trip], moments: [moment], media: [media], expenses: [] });
+    const r = checkIntegrity(snap({ trips: [trip], moments: [moment], media: [media] }));
     expect(r.findings).toEqual([]); // 사진이 있으므로 그 참고 항목도 안 뜬다
     expect(r.ok).toBe(true);
   });
@@ -88,7 +90,7 @@ describe('무결성 점검 — 잡아야 할 것을 잡는다', () => {
     const trip = base(U(1));
     const moment = { ...base(U(2)), tripId: trip.id };
     const e = { ...base(U(3)), tripId: trip.id, momentId: moment.id, originalAmount: 0 };
-    expect(codes({ trips: [trip], moments: [moment], media: [], expenses: [e] })).toContain('BAD_AMOUNT');
+    expect(codes(snap({ trips: [trip], moments: [moment], expenses: [e] }))).toContain('BAD_AMOUNT');
   });
 
   it('사진 없는 순간은 참고(info)일 뿐 문제가 아니다', () => {

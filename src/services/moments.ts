@@ -129,13 +129,17 @@ export async function updateMomentLocalFirst(id: string, patch: UpdateMomentPatc
 
 /**
  * 순간 삭제 — 하드 삭제 금지(§0): deletedAt tombstone. version+1로 LWW에서 이기게 하고,
- * 이 순간에 달린 활성 사진도 같은 트랜잭션에서 함께 tombstone한다(고아 사진이 통계를
- * 속이지 않도록). 되살리기(undo)가 정확히 이 사진들만 복원하도록 그 id 목록을 반환한다.
- * 미디어는 로컬 전용이라 sync 큐 op를 만들지 않는다(처리 주체가 없어 대기열에 영구 잔류함).
+ * 이 순간에 달린 활성 **사진·비용·소리**도 같은 트랜잭션에서 함께 tombstone한다(고아가
+ * 통계를 속이지 않도록). 되살리기(undo)가 정확히 그것들만 복원하도록 id 목록을 반환한다.
+ *
+ * ⚠️ 화석 주석 정정(2026-07-27): 예전 이 자리엔 "미디어는 로컬 전용이라 sync 큐 op를 만들지
+ * 않는다"가 적혀 있었다. 사진 동기화가 생기면서 **아래 코드는 op를 만드는데 주석만 옛
+ * 전제를 붙들고** 있었다 — M-0006과 같은 부류다. 지금 op를 만들지 않는 것은 소리뿐이고,
+ * 그 이유는 그 자리(아래 루프)에 적혀 있다.
  */
 export async function softDeleteMomentLocalFirst(
   id: string,
-): Promise<{ deletedMediaIds: string[]; deletedExpenseIds: string[] }> {
+): Promise<{ deletedMediaIds: string[]; deletedExpenseIds: string[]; deletedAudioIds: string[] }> {
   const d = db();
   const cur = await d.localMoments.get(id);
   if (!cur || cur.deletedAt !== null) throw new Error('순간을 찾을 수 없습니다.');
@@ -162,10 +166,13 @@ export async function softDeleteMomentLocalFirst(
 
   const media = (await d.localMedia.where('momentId').equals(id).toArray()).filter((m) => m.deletedAt === null);
   const expenses = (await d.localExpenses.where('momentId').equals(id).toArray()).filter((e) => e.deletedAt === null);
+  // 오디오도 **형제다** — 순간이 사라지면 함께 사라져야 한다(§7 대칭이 기본값).
+  const audio = (await d.localAudio.where('momentId').equals(id).toArray()).filter((a) => a.deletedAt === null);
   const deletedMediaIds = media.map((m) => m.id);
   const deletedExpenseIds = expenses.map((e) => e.id);
+  const deletedAudioIds = audio.map((a) => a.id);
 
-  await d.transaction('rw', d.localMoments, d.localMedia, d.localExpenses, d.syncQueue, async () => {
+  await d.transaction('rw', d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.syncQueue, async () => {
     await d.localMoments.put(tombstoned);
     for (const m of media) {
       // 사진도 동기화 대상 — cascade tombstone을 큐 op로 전파.
@@ -179,6 +186,11 @@ export async function softDeleteMomentLocalFirst(
       await d.localExpenses.put({ ...e, deletedAt: now, version: e.version + 1, updatedAt: now, baseVersion: e.version, clientOperationId: eOpId });
       await d.syncQueue.add({ operationId: eOpId, entityType: 'expense', entityId: e.id, operationType: 'delete', state: 'local_only', attempts: 0, createdAt: now });
     }
+    for (const a of audio) {
+      // 오디오는 서버로 안 가므로 **큐 op를 만들지 않는다**(사진·비용과의 유일한 차이).
+      // 그 사정은 `services/audio.ts` 머리주석과 `blueprint.ts`의 localOnlyReason에 적혀 있다.
+      await d.localAudio.put({ ...a, deletedAt: now, version: a.version + 1, updatedAt: now });
+    }
     await d.syncQueue.add(op);
   });
 
@@ -186,7 +198,7 @@ export async function softDeleteMomentLocalFirst(
   if (!back || back.deletedAt === null) {
     throw new Error('내구성 커밋 확인 실패: 삭제 read-back 불일치');
   }
-  return { deletedMediaIds, deletedExpenseIds };
+  return { deletedMediaIds, deletedExpenseIds, deletedAudioIds };
 }
 
 /**
@@ -198,6 +210,7 @@ export async function restoreMomentLocalFirst(
   id: string,
   mediaIds: string[],
   expenseIds: string[] = [],
+  audioIds: string[] = [],
 ): Promise<LocalMoment> {
   const d = db();
   const cur = await d.localMoments.get(id);
@@ -223,7 +236,7 @@ export async function restoreMomentLocalFirst(
     createdAt: now,
   };
 
-  await d.transaction('rw', d.localMoments, d.localMedia, d.localExpenses, d.syncQueue, async () => {
+  await d.transaction('rw', d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.syncQueue, async () => {
     await d.localMoments.put(restored);
     for (const mid of mediaIds) {
       const m = await d.localMedia.get(mid);
@@ -241,6 +254,12 @@ export async function restoreMomentLocalFirst(
         await d.localExpenses.put({ ...e, deletedAt: null, version: e.version + 1, updatedAt: now, baseVersion: e.version, clientOperationId: eOpId });
         await d.syncQueue.add({ operationId: eOpId, entityType: 'expense', entityId: e.id, operationType: 'update', state: 'local_only', attempts: 0, createdAt: now });
       }
+    }
+    for (const aid of audioIds) {
+      const a = await d.localAudio.get(aid);
+      // 삭제와 **같은 자리에서 되살린다** — 되살릴 수 없는 삭제는 이 앱의 계약 위반이다.
+      // 큐 op가 없는 것은 서버에 안 가기 때문이고, 그 사정은 audio.ts에 적혀 있다.
+      if (a) await d.localAudio.put({ ...a, deletedAt: null, version: a.version + 1, updatedAt: now });
     }
     await d.syncQueue.add(op);
   });

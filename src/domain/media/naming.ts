@@ -95,3 +95,25 @@ export function photoFileBase(
   const t = fsSafe(title, 30) || '사진';
   return `${date}_${time}_${t}__${hex(mediaId, 8)}`;
 }
+
+/**
+ * 백업 ZIP 안의 **오디오 노트** 파일명(확장자 제외): `날짜_시간_제목__id8`.
+ *
+ * 사진(`photoFileBase`)과 **같은 모양**이다 — 사용자는 탐색기에서 두 종류를 나란히 본다.
+ * 여기서 규칙이 갈리면 "왜 소리만 이름이 다르지?"가 되고, 그건 §7 「사용자 대면 대칭」 위반이다.
+ *
+ * ⚠️ 이 함수가 뒤늦게 생긴 이유(2026-07-27, 사용자 지적): 오디오를 붙이며 이름을 **손으로
+ * 조립**했다 — `` `${stampFromISO(a.recordedAt)}_${a.id.slice(0,8)}` ``. `stampFromISO`는
+ * **객체**를 돌려주는데 문자열처럼 썼고, 실제로 만들어진 이름은 **`[object Object]_a1b2c3d4`**였다.
+ * 여행 제목도 빠졌다. 왕복 유닛은 같은 키로 넣고 꺼내니 **그 이름으로도 통과**했다(공허).
+ * 이름 규칙은 이 파일 **한 곳**에서 온다 — 손으로 조립하지 마라(§1-D).
+ */
+export function audioFileBase(
+  recordedAt: string | null | undefined,
+  title: string,
+  audioId: string,
+): string {
+  const { date, time } = stampFromISO(recordedAt);
+  const t = fsSafe(title, 30) || '소리';
+  return `${date}_${time}_${t}__${hex(audioId, 8)}`;
+}

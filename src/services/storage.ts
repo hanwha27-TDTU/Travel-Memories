@@ -3,16 +3,24 @@
 // 정직성(§4): 사진은 실제 Blob 크기 합(원본+표시본+썸네일, tombstone 포함 — 실제 점유),
 // 텍스트는 blob을 뺀 기록(여행·순간·비용·미디어 메타·동기화 큐)의 UTF-8 JSON 바이트.
 // Blob.size는 데이터를 메모리에 올리지 않고 읽는 메타값이라 저렴하다.
+//
+// ⚠️ 2026-07-27: 소리(오디오 노트)가 **어느 줄에도 안 들어가 있었다.** 그래서 화면의 「합계」가
+// 실제 점유보다 작게 나왔고, 사용자는 저장공간이 왜 줄었는지 **어느 줄에서도 알 수 없었다**
+// (§12 — 앱이 아는데 말하지 않는 자리). 소리도 blob이므로 사진과 **같은 규율**로 잰다.
 
 import { db } from '../offline/db';
 
 export interface StorageUsage {
   /** 사진 blob 합(원본+표시본+썸네일). */
   photoBytes: number;
+  /** 소리 blob 합(녹음 원본). 사진과 같은 규율 — tombstone 포함(실제 점유). */
+  audioBytes: number;
   /** 기록(텍스트) 바이트 — blob 제외 JSON. */
   textBytes: number;
   /** 사진(미디어) 행 수(tombstone 포함). */
   photoCount: number;
+  /** 소리 행 수(tombstone 포함). */
+  audioCount: number;
   /** 브라우저 전체 사용/한도(가능 시). 앱 코드 캐시 등도 포함 → 사진+텍스트보다 크거나 같다. */
   estimate: { usage: number; quota: number } | null;
 }
@@ -27,11 +35,12 @@ export function formatBytes(n: number): string {
 
 export async function computeStorageUsage(): Promise<StorageUsage> {
   const d = db();
-  const [trips, moments, expenses, media, queue] = await Promise.all([
+  const [trips, moments, expenses, media, audio, queue] = await Promise.all([
     d.localTrips.toArray(),
     d.localMoments.toArray(),
     d.localExpenses.toArray(),
     d.localMedia.toArray(),
+    d.localAudio.toArray(),
     d.syncQueue.toArray(),
   ]);
 
@@ -42,7 +51,13 @@ export async function computeStorageUsage(): Promise<StorageUsage> {
     const { originalBlob: _o, displayBlob: _dsp, thumbBlob: _t, ...meta } = m;
     return meta;
   });
-  const json = JSON.stringify({ trips, moments, expenses, mediaMeta, queue });
+  let audioBytes = 0;
+  const audioMeta = audio.map((a) => {
+    audioBytes += a.blob?.size ?? 0;
+    const { blob: _b, ...meta } = a;
+    return meta;
+  });
+  const json = JSON.stringify({ trips, moments, expenses, mediaMeta, audioMeta, queue });
   const textBytes = new TextEncoder().encode(json).length;
 
   let estimate: StorageUsage['estimate'] = null;
@@ -57,5 +72,5 @@ export async function computeStorageUsage(): Promise<StorageUsage> {
     /* 미지원·차단 시 생략 */
   }
 
-  return { photoBytes, textBytes, photoCount: media.length, estimate };
+  return { photoBytes, audioBytes, textBytes, photoCount: media.length, audioCount: audio.length, estimate };
 }

@@ -12,7 +12,7 @@ import {
   CHILD_LABEL,
   type TrashedChild,
 } from '../../services/trash';
-import { exportBackup, exportBackupZip, importBackupAuto } from '../../services/backup';
+import { exportBackup, exportBackupZip, importBackupAuto, type BackupStats } from '../../services/backup';
 import { recordBackupNow, getLastBackupAt, backupFreshness } from '../../services/backupMeta';
 import { listDeletedTrips, restoreTripFromTrash, purgeTripPermanently } from '../../services/trips';
 import { requestSync } from '../../services/autoSync';
@@ -57,9 +57,12 @@ function buildUsageCard(): HTMLElement {
   void computeStorageUsage()
     .then((u) => {
       rows.innerHTML = '';
-      const known = u.photoBytes + u.textBytes;
+      const known = u.photoBytes + u.audioBytes + u.textBytes;
       rows.append(
         line('🖼', '사진', formatBytes(u.photoBytes), u.photoCount > 0 ? `${u.photoCount}장 · 원본+표시본+썸네일` : '아직 없음'),
+        // 소리는 **사진과 같은 자리에 같은 어휘**로 선다(§7 사용자 대면 대칭). 0이어도 줄을
+        // 없애지 않는다 — 줄이 사라지면 "이 앱이 소리를 세고 있다"는 사실 자체가 안 보인다.
+        line('🔊', '소리', formatBytes(u.audioBytes), u.audioCount > 0 ? `${u.audioCount}개 · 녹음 원본` : '아직 없음'),
         line('📝', '텍스트(기록)', formatBytes(u.textBytes), '여행·순간·비용·메모'),
       );
       const total = el('div', 'dm-usage-line dm-usage-total');
@@ -68,7 +71,7 @@ function buildUsageCard(): HTMLElement {
       if (u.estimate && u.estimate.quota > 0) {
         // 정확한 앱 데이터(사진+텍스트)를 브라우저 저장 한도에 견준다(estimate.usage는 프라이버시
         // 반올림으로 부정확할 수 있어 막대엔 쓰지 않는다). 한도는 실제 estimate.quota.
-        const ratio = (u.photoBytes + u.textBytes) / u.estimate.quota;
+        const ratio = known / u.estimate.quota;
         const pct = Math.min(100, Math.round(ratio * 100));
         const bar = el('div', 'dm-usage-bar');
         const fill = el('div', 'dm-usage-bar-fill');
@@ -127,7 +130,10 @@ function backupPanel(): HTMLElement {
 
   const runExport = (
     btn: HTMLButtonElement,
-    make: () => Promise<{ blob: Blob; stats: { trips: number; moments: number; media: number; expenses: number } }>,
+    // 통계는 **`BackupStats`를 통째로** 받는다. 예전엔 여기 네 필드를 손으로 다시 적어서,
+    // 백업이 소리를 담기 시작한 뒤에도 **화면 문장만 그 사실을 몰랐다** — 사용자가
+    // "백업에 오디오도 들어 있나?"를 물어야 했던 이유다(§12). 필드가 늘면 여기도 따라온다.
+    make: () => Promise<{ blob: Blob; stats: BackupStats }>,
     filename: (stamp: string) => string,
   ) => {
     btn.disabled = true;
@@ -142,7 +148,7 @@ function backupPanel(): HTMLElement {
         downloadBlob(blob, filename(stamp));
         recordBackupNow();
         renderFresh();
-        status.textContent = `✅ 내보냄 · 여행 ${stats.trips} · 순간 ${stats.moments} · 사진 ${stats.media} · 비용 ${stats.expenses} · ${fmtBytes(blob.size)}`;
+        status.textContent = `✅ 내보냄 · 여행 ${stats.trips} · 순간 ${stats.moments} · 사진 ${stats.media} · 비용 ${stats.expenses} · 소리 ${stats.audio} · ${fmtBytes(blob.size)}`;
       } catch (err) {
         status.textContent = `내보내기 실패: ${err instanceof Error ? err.message : String(err)}`;
       } finally {
@@ -242,7 +248,7 @@ function restorePanel(onChanged: () => void): HTMLElement {
           // 영구삭제했던 것을 되살렸으면 **그렇게 말한다.** 2026-07-26에 이 문장이 없어서,
           // 복원이 서버 원장에 막혀 통째로 무효화되는 동안 사용자는 「✅ 복원됨」만 봤다.
           const back = r.unpurged ? ` · 영구삭제했던 ${r.unpurged}건을 되살립니다` : '';
-          status.textContent = `✅ 복원됨 · 여행 ${r.trips} · 순간 ${r.moments} · 사진 ${r.media} · 비용 ${r.expenses} 반영${back}`;
+          status.textContent = `✅ 복원됨 · 여행 ${r.trips} · 순간 ${r.moments} · 사진 ${r.media} · 비용 ${r.expenses} · 소리 ${r.audio} 반영${back}`;
           onChanged();
           // 복원한 기억이 이 기기에만 갇히지 않게 곧바로 올린다(기기 분실 후 복구가 이 경로다).
           void requestSync('백업 복원');
