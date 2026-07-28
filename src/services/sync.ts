@@ -686,7 +686,23 @@ export async function pushPendingAudio(remote: AudioRemote, userId: string): Pro
       failed++;
       continue;
     }
-    if (audio.deletedAt === null) {
+    // 🔴 **바이트가 아직 서버에 없으면 tombstone이어도 올린다**(2026-07-28, M-0046).
+    //
+    // 처음엔 사진을 그대로 베껴 `deletedAt === null`일 때만 올렸다. 사진에서 그 조건이 옳은
+    // 이유는 *지우기 전에 이미 올라가 있었기 때문*이지 "지운 건 안 올린다"가 규칙이어서가
+    // 아니다 — ADR-0029의 규칙은 그 반대다: **휴지통에 있는 동안 바이트는 서버에 있어야 한다.**
+    // 그래야 사본이 없는 다른 기기에서도 복원된다.
+    //
+    // 백필이 그 전제를 깼다: v1.14~v1.19에 지운 녹음은 **한 번도 올라간 적이 없다.** 그런데
+    // 아래 upsert는 경로를 적었다 — 파일이 없는데 「여기 있다」고 주장하는 행이 3건 생겼고,
+    // 진단은 그걸 「지운 소리의 남은 기록 · 소리 자체는 없습니다」로 띄우며 **정리를 권했다.**
+    // 로컬 휴지통엔 멀쩡히 있는데도. 누르면 로컬 행까지 지워져 기억을 잃는 자리였다.
+    //
+    // 판정 기준은 `storagePath`다 — **바이트가 착지했다고 이 기기가 아는 유일한 근거**.
+    // (사진에는 이 조건을 걸지 않는다: 옛 키 형식 시절 행은 `storagePath`를 기억하지 않으면서
+    //  바이트는 서버에 있다. 올리면 **새 키로 사본이 하나 더 생겨** 고아가 된다 — 소리에는
+    //  키 형식이 하나뿐이라 "기억이 없다 = 올라간 적 없다"가 성립한다.)
+    if (audio.deletedAt === null || !audio.storagePath) {
       const up = await remote.upload(path, audio.blob, audio.mime || 'application/octet-stream');
       if (up.error) {
         await markFail(op, up.status);
@@ -870,6 +886,62 @@ export async function backfillAudioOps(): Promise<number> {
       attempts: 0,
       createdAt: now,
     });
+    added++;
+  }
+  return added;
+}
+
+/**
+ * **서버에 파일이 없는 기록의 바이트를 다시 올린다**(2026-07-28, M-0046 복구 경로).
+ *
+ * 언제 쓰나: 진단이 「서버에 없는 사진/소리」를 짚었을 때. 그 상태는 *서버 행은 경로를 적어
+ * 놓았는데 그 자리에 파일이 없다*는 뜻이고, **이 기기에 사본이 남아 있으면 고칠 수 있다.**
+ *
+ * 어떻게: 이 기기가 기억하는 착지 키(`storagePath`)를 **잊게 한다.** 그 기억이 곧 push의
+ * "이미 올렸다" 근거이므로, 지우면 다음 동기화가 바이트를 다시 올린다. 자료는 건드리지 않는다 —
+ * 잊는 것은 *키의 기억*이지 녹음이 아니다.
+ *
+ * 🔴 **왜 「정리」가 아니라 「다시 올리기」인가**: 같은 상태를 보고 예전 화면은 *"자료는 이미
+ * 없으니 기록 줄을 치우세요"*라고 말했다. 로컬에 사본이 있으면 그건 **거짓이고, 그 조언을
+ * 따르면 되살릴 수 있던 기억이 사라진다**(`purgeServerOnly`는 로컬 행도 지운다).
+ * 사본이 있는지 **묻고 나서** 말해야 한다 — 그게 이 함수가 생긴 이유다.
+ *
+ * @returns 이번에 다시 올리기로 큐에 넣은 수(로컬에 사본이 없는 id는 건너뛴다).
+ */
+export async function requeueMissingBytes(domain: PurgeDomain, ids: string[]): Promise<number> {
+  if (!ids.length || !DOMAIN_PURGE[domain].hasRemoteBytes) return 0;
+  const d = db();
+  const table = DOMAIN_PURGE[domain].table() as unknown as Table<
+    { id: string; storagePath?: string },
+    string
+  >;
+  const queued = new Set(
+    (await d.syncQueue.toArray()).filter((q) => q.entityType === domain).map((q) => q.entityId),
+  );
+  const now = new Date().toISOString();
+  let added = 0;
+
+  for (const id of ids) {
+    const cur = await table.get(id);
+    // 로컬에 사본이 없으면 올릴 것이 없다 — 이 경로로는 고칠 수 없는 상태다(조용히 건너뛴다).
+    if (!cur) continue;
+    const { storagePath: _forget, ...rest } = cur;
+    await d.transaction('rw', table, d.syncQueue, async () => {
+      await table.put(rest as { id: string });
+      if (!queued.has(id)) {
+        await d.syncQueue.add({
+          operationId: crypto.randomUUID(),
+          entityType: domain,
+          entityId: id,
+          operationType: 'update',
+          state: 'local_only',
+          attempts: 0,
+          createdAt: now,
+        });
+      }
+    });
+    // read-back — 기억을 정말로 잊었는지 되읽어 확인한다(성공 반환을 믿지 않는다).
+    if ((await table.get(id))?.storagePath) throw new Error(`다시 올리기 준비 실패: 경로 기억이 남아 있음 ${id}`);
     added++;
   }
   return added;

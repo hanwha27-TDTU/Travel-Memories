@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.20<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->120<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->56<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.21<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->121<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->56<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->20<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -262,6 +262,48 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0014 · v1.21 · **배포 30분 만에 사용자가 잡았다** — 찾아보지도 않고 「없다」고 말한 것 (M-0046)
+
+**계기**: 사용자가 v1.20 배포 직후 「앱 상태 확인」 스크린샷을 보내며 *"이거 맞나요?"*
+
+**한 줄**: 화면은 **맞게 나오고 있었다.** 어긋남을 정확히 짚었다. 그런데 **그 다음 문장이 거짓이었고, 거짓 위에서 파괴적 행동을 권하고 있었다.**
+
+### 무엇을 말했나 / 무엇이 사실이었나
+
+| 화면 | 사실 |
+|---|---|
+| 「지운 소리의 남은 기록 3개」 | ✅ 맞다 — 서버 행 3개가 경로를 적어놓고 파일이 없다 |
+| 「**소리 자체는 없습니다**」 | ❌ **거짓** — 로컬 휴지통에 그대로 있었다 |
+| 「[지운 소리 기록 정리]로 치울 수 있어요」 | ❌ 누르면 `purgeServerOnly`가 **로컬 행까지 지운다** → 녹음 20초 영구 손실 |
+
+**증거**(§10 ③ — 자료구조가 아니라 사용자에게 가는 것을 봐야 했다): 서버 행의 `bytes`가 37984·32508·229251. 그 값은 push 때 **로컬 blob에서 읽은 것**이다. 0이 아니면 그 순간 녹음이 이 기기에 있었다는 뜻이다. **앱은 알고 있었고, 묻지 않았을 뿐이다.**
+
+### 원인 두 겹
+
+1. **push가 「여기 있다」고 적고 안 올렸다.** 사진의 `if (deletedAt === null)`을 그대로 베꼈는데, 그 조건이 옳았던 이유는 *지우기 전에 이미 올라가 있었기 때문*이지 규칙이 아니었다. 백필이 **한 번도 올라간 적 없는 옛 tombstone**을 밀면서 숨은 전제가 깨졌다.
+   → 근본형: **베낀 조건에는 베끼지 않은 전제가 붙어 있다.** 조건이 아니라 *그 조건이 참인 이유*를 옮겨야 한다.
+2. **진단이 사본을 묻지 않았다.** `clearable = missing ∩ serverTombstoned`. tombstone 여부만 보고 「없다」고 단정했다.
+   → 근본형: **「없다」는 찾아보고 나서 하는 말이다.** 원칙 #4는 *모르는 것을 반올림하지 마라*인데, 여기선 한 걸음 더 나갔다 — **묻지 않은 것을 안다고 말하고, 그 위에서 삭제를 권했다.**
+
+### 고친 것
+
+- `pushPendingAudio` — `deletedAt === null || !audio.storagePath`. **착지 키를 모르면 tombstone이어도 올린다**(ADR-0029의 뜻: 휴지통 자료도 서버에 있어야 어느 기기에서든 복원된다). 사진에는 안 걸었다 — 옛 키 형식 때문에 사본이 중복된다. 이유를 코드에 적었다.
+- `classifyMissingFiles()` — 가르는 질문을 **사본 유무**로. `recoverable` / `clearable` / `atRisk`. `localBytesIds()`가 답을 준다.
+- `requeueMissingBytes()` + **[서버에 없는 자료 다시 올리기]**(primary) — 착지 키의 *기억만* 잊게 해 다음 동기화가 올린다. **자료를 지키는 일이 정리보다 먼저다.**
+- 문장: 정리를 권할 때 「이 기기에도 사본이 없습니다(찾아봤어요)」를 함께. 위험 문장의 "사본 가진 기기에서 동기화하세요"(사람에게 심부름)는 **정말 이 기기에 없을 때만** 나온다(§12).
+- `check-fn-size` 래칫에 걸려 `countComparisonMetrics()`를 뽑아냈다 — 경계가 맞아떨어졌다(**몇 개인가** vs **짝이 맞는가**). 게이트가 설계를 밀어준 자리(§11).
+
+### 검증
+
+유닛 **15건 신설** · **비공허 실증 2회**: ①원래 push 조건 되돌림 → 2건 RED ②옛 판정(사본 안 묻기) 되돌림 → 5건 RED. 특히 *「경로를 적었으면 그 자리에 파일이 있어야 한다」*를 **불변식**으로 걸었다. 게이트 31종·라이브 165건 그린.
+
+### 남은 것
+
+- 그 3건은 **[서버에 없는 자료 다시 올리기]** 한 번으로 복구된다(사용자 실행 필요).
+- 사진에도 같은 형태의 갈래가 남아 있다(오프라인 촬영 → 올리기 전 삭제). push 수정은 일부러 안 걸었고, **거짓 안내와 파괴적 행동은 진단 쪽 수정으로 양쪽 다 막힌다.**
 
 ---
 
