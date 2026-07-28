@@ -28,8 +28,10 @@ export const GATE_DESC: Record<string, string> = {
   'check-domain-symmetry': '도메인 4종이 같은 생명주기 심볼을 갖는지(삭제만 있고 복원이 없는 형태 차단)',
   'check-verdict-symmetry': '진단 도구가 자기 렌더 코드를 갖지 않고 단일 렌더러를 거치는지',
   'check-skill-routing': '모든 코드 영역이 착수 전 읽을 스킬 문서를 갖는지',
+  // 「덮였다」가 아니라 「덮도록 **선언**됐다」까지만 말한다 — 라이브 게이트는 SKIP될 수 있고
+  // 이 정적 게이트는 그걸 모른다(§8 모르는 것은 확인 불가).
   'check-live-coverage':
-    '모든 화면이 **눈으로 보는 라이브 검사**를 갖는지(없으면 이유와 함께 등록 — 이유 없는 제외는 결함)',
+    '모든 화면이 **눈으로 보는 라이브 검사**에 등록돼 있는지(없으면 이유와 함께 제외 — 이유 없는 제외는 결함)',
   'check-self-eval': '자가평가 항목이 실제 게이트·코드와 어긋나지 않는지',
   'check-schema-parity': '클라 rowmap 필드 ⊆ 서버 마이그레이션 컬럼(드리프트 차단)',
   'check-migration-grants': '코드가 하는 연산을 서버 권한(GRANT·RLS)이 실제로 허락하는지',
