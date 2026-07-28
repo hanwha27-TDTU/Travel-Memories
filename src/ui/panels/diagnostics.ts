@@ -19,7 +19,7 @@
 
 import { el } from '../dom';
 import { diagnoseSync, loadIntegritySnapshot } from '../../services/diagnostics';
-import { forceRepairCascadeOps, retryFailedOps } from '../../services/sync';
+import { forceRepairCascadeOps, retryFailedOps, requeueMissingBytes } from '../../services/sync';
 import { checkIntegrity, CHECK_COUNT } from '../../domain/integrity';
 import { autoSyncVerdict } from '../../domain/syncStatusVerdict';
 import { collectEnv, evictionRisk, requestPersist } from '../../services/envReport';
@@ -563,6 +563,34 @@ export function classifyOrphanFiles(
 }
 
 /**
+ * **파일이 없는 기록**을 세 갈래로 가른다. `classifyOrphanFiles`의 반대 방향이고, 가르는
+ * 질문은 **하나뿐**이다 — *이 기기에 사본이 있는가.*
+ *
+ * 🔴 왜 이 질문이 먼저인가(2026-07-28 사용자 실기기, M-0046): 예전에는 묻지 않고
+ * tombstone 여부만 봤다. 그래서 **로컬 휴지통에 멀쩡히 있는 녹음 3건**을 「지운 소리의 남은
+ * 기록 · 소리 자체는 없습니다」로 띄우고 **정리를 권했다.** 그 버튼(`purgeServerOnly`)은
+ * 로컬 행까지 지운다 — 따랐으면 되살릴 수 있던 기억 20초가 사라졌다.
+ *
+ *  · `recoverable` — **이 기기에 바이트가 있다.** 자료는 안전하고, 다시 올리면 끝난다.
+ *    tombstone이든 활성이든 상관없다 — 사본이 있다는 사실이 나머지를 이긴다.
+ *  · `clearable`   — 사본이 없고 서버에서도 tombstone. 자료는 정말로 없다. 기록 줄만 치운다.
+ *  · `atRisk`      — 사본이 없는데 **활성**이다. 어디에도 없을 수 있다 — 지우면 안 된다.
+ */
+export function classifyMissingFiles(
+  missing: string[],
+  serverTombstoned: string[],
+  /** 이 기기가 바이트를 들고 있는 id들. 비어 있으면 "사본 없음"으로 판정된다. */
+  localBytes: ReadonlySet<string>,
+): { recoverable: string[]; clearable: string[]; atRisk: string[] } {
+  const dead = new Set(serverTombstoned);
+  return {
+    recoverable: missing.filter((id) => localBytes.has(id)),
+    clearable: missing.filter((id) => !localBytes.has(id) && dead.has(id)),
+    atRisk: missing.filter((id) => !localBytes.has(id) && !dead.has(id)),
+  };
+}
+
+/**
  * **복원했는데 서버가 막은 항목** 지표. 순수 함수 — 사용자에게 나가는 문장을 유닛이 직접 돌린다(§10 ③).
  *
  * 2026-07-26 사용자 실기기: 백업을 복원했더니 *"복원 내용은 앱에는 하나도 없고 서버에만 좀비처럼
@@ -701,6 +729,11 @@ interface StoreActionsInput {
   /** 자료 없이 기록 줄만 남은 소리 id. 사진과 **버튼을 나누는 이유**: `purgeServerOnly`가
    *  도메인을 받으므로 한 목록으로 합치면 어느 표를 지울지 알 수 없다. */
   clearableAudioIds: string[];
+  /**
+   * **서버엔 파일이 없는데 이 기기엔 있는** id들 — 다시 올리면 끝난다(M-0046).
+   * 도메인별로 나눠 담는다: `requeueMissingBytes`가 어느 표의 행을 고칠지 알아야 한다.
+   */
+  recoverable: Record<'media' | 'audio', string[]>;
 }
 
 /**
@@ -712,9 +745,9 @@ interface StoreActionsInput {
  * 「치워도 되는 파일」로 분류하는 사고가 그렇게 났다(2026-07-26).
  */
 function storeCleanupActions(i: StoreActionsInput): Action[] {
-  const { c, cmp, stranded, blocked, leftoverFileIds, clearableIds, clearableAudioIds } = i;
+  const { c, cmp, stranded, blocked, leftoverFileIds, clearableIds, clearableAudioIds, recoverable } = i;
   /** 「먼저 눌러야 할 버튼」은 하나뿐이다 — 자료를 지키는 일이 남아 있으면 정리는 뒤로 미룬다. */
-  const quiet = !blocked && !stranded;
+  const quiet = !blocked && !stranded && !recoverable.media.length && !recoverable.audio.length;
   return [
     ...(cmp.multipart.known && cmp.multipart.mine
       ? [
@@ -805,8 +838,32 @@ function storeCleanupActions(i: StoreActionsInput): Action[] {
 }
 
 function storeActions(i: StoreActionsInput): Action[] {
-  const { cmp, level, stranded, blocked, leftoverFileIds, clearableIds } = i;
+  const { cmp, level, stranded, blocked, leftoverFileIds, clearableIds, recoverable } = i;
+  const reup = recoverable.media.length + recoverable.audio.length;
   return [
+    // 🔴 **자료를 지키는 일이 가장 먼저다**(2026-07-28, M-0046). 이 버튼이 없던 동안 화면은
+    //    같은 상태를 보고 「치우세요」라고 말했다 — 로컬에 사본이 있는데도.
+    ...(reup
+      ? [
+          {
+            label: '서버에 없는 자료 다시 올리기',
+            primary: true,
+            hook: 'data-reupload-missing',
+            run: async (): Promise<string> => {
+              // 자료를 건드리지 않는다 — 이 기기가 기억하는 **착지 키만** 잊게 해서
+              // 다음 동기화가 바이트를 다시 올리게 만든다.
+              let n = 0;
+              for (const dm of ['media', 'audio'] as const) n += await requeueMissingBytes(dm, recoverable[dm]);
+              if (!n) return '다시 올릴 사본을 이 기기에서 찾지 못했어요.';
+              await requestSync('서버에 없는 자료 다시 올리기');
+              const st = syncStatus();
+              return st.phase === 'failed'
+                ? `${n}건을 큐에 넣었지만 동기화가 실패했어요: ${st.lastError ?? '사유 불명'}`
+                : `${n}건을 다시 올렸어요. 다시 대조합니다.`;
+            },
+          },
+        ]
+      : []),
     // 지표를 만들었으면 **고칠 곳도 만든다**(진단 §7-B). 판정만 하고 행동을 못 주면 사용자는
     // "그래서 어쩌라고"에 남겨진다 — 2026-07-26에 반복해서 나온 지적이 그것이다.
     ...(blocked
@@ -922,7 +979,9 @@ export function fileAuditMetrics(i: {
   serverPurged: string[];
   serverTombstoned: string[];
   restorePending: ReadonlySet<string>;
-}): { metrics: Metric[]; leftover: string[]; clearable: string[]; restoring: number } {
+  /** 이 기기가 바이트를 들고 있는 id들 — **「없다」고 말하기 전에 묻는 것**(M-0046). */
+  localBytes: ReadonlySet<string>;
+}): { metrics: Metric[]; leftover: string[]; clearable: string[]; recoverable: string[]; restoring: number } {
   const { noun, fa } = i;
   if (!fa) {
     // 못 본 것을 정상으로 반올림하지 않는다(비타협 원칙 #4).
@@ -938,6 +997,7 @@ export function fileAuditMetrics(i: {
       ],
       leftover: [],
       clearable: [],
+      recoverable: [],
       restoring: 0,
     };
   }
@@ -950,12 +1010,12 @@ export function fileAuditMetrics(i: {
   //    그 기억의 **마지막 사본**이다. 지우면 기억을 잃는다(problem).
   const { leftover, restoring, unexplained } = classifyOrphanFiles(fa.orphans, i.serverPurged, i.restorePending);
 
-  // 「파일이 없는 기록」도 **두 갈래**다. 사용자가 해야 할 일이 정반대다:
-  //  · 휴지통에 있으면서 파일 없음 → **자료가 이미 없다.** 기록 줄만 정리하면 된다.
-  //  · 활성인데 파일 없음 → **기억 손실 위험.** 지우면 안 되고, 사본을 가진 기기가 올려야 한다.
-  const deadIds = new Set(i.serverTombstoned);
-  const clearable = fa.truncated ? [] : fa.missing.filter((id) => deadIds.has(id));
-  const atRisk = fa.truncated ? [] : fa.missing.filter((id) => !deadIds.has(id));
+  // 「파일이 없는 기록」은 **세 갈래**다. 가르는 질문은 하나 — *이 기기에 사본이 있는가*(M-0046).
+  // 목록이 잘렸으면 아무것도 단정하지 않는다(뒤쪽 페이지에 있을 수 있다).
+  const miss = fa.truncated
+    ? { recoverable: [], clearable: [], atRisk: [] }
+    : classifyMissingFiles(fa.missing, i.serverTombstoned, i.localBytes);
+  const { recoverable, clearable, atRisk } = miss;
 
   const metrics: Metric[] = [
     {
@@ -978,6 +1038,18 @@ export function fileAuditMetrics(i: {
         : {}),
     },
     {
+      // 🔴 사본이 있으면 이건 **손실이 아니라 심부름**이다. 겁주지 않고 할 일로 말한다.
+      label: `서버에 없는 ${noun}`,
+      actual: fa.truncated ? '확인 못 함' : `${recoverable.length}개`,
+      expected: '0개',
+      level: fa.truncated ? 'unknown' : recoverable.length ? 'todo' : 'ok',
+      ...(fa.truncated || !recoverable.length
+        ? {}
+        : {
+            meaning: `서버에 파일이 없지만 **이 기기에는 그대로 있어요.** 자료는 안전합니다 — 아래 [서버에 없는 자료 다시 올리기]를 누르면 올라가고, 그러면 다른 기기에서도 보입니다.`,
+          }),
+    },
+    {
       label: `${noun} 파일이 사라진 기록`,
       actual: fa.truncated ? '확인 못 함' : `${atRisk.length}개`,
       expected: '0개',
@@ -986,7 +1058,7 @@ export function fileAuditMetrics(i: {
       ...(fa.truncated
         ? { meaning: `파일이 너무 많아 목록을 다 보지 못했어요(${fa.files}개까지 확인). 이 판정은 보류합니다.` }
         : atRisk.length
-          ? { meaning: `살아 있는 ${noun}인데 서버에 파일이 없어요. **지우지 마세요** — 사본을 가진 기기에서 동기화하면 다시 올라갑니다.` }
+          ? { meaning: `살아 있는 ${noun}인데 서버에도 이 기기에도 파일이 없어요. **지우지 마세요** — 사본을 가진 다른 기기에서 동기화하거나, 백업 파일에서 복원해야 합니다.` }
           : {}),
     },
     {
@@ -996,11 +1068,58 @@ export function fileAuditMetrics(i: {
       // '문제'가 아니라 '할 일'이다 — 자료는 이미 없고 기록 줄만 남았다.
       level: fa.truncated ? 'unknown' : clearable.length ? 'todo' : 'ok',
       ...(clearable.length
-        ? { meaning: `이미 지운 ${noun}의 기록 줄만 서버에 남아 있어요. ${noun} 자체는 없습니다 — 아래 [지운 ${noun} 기록 정리]로 치울 수 있어요.` }
+        ? { meaning: `이미 지운 ${noun}의 기록 줄만 서버에 남아 있어요. **이 기기에도 사본이 없습니다**(찾아봤어요) — 아래 [지운 ${noun} 기록 정리]로 치울 수 있어요.` }
         : {}),
     },
   ];
-  return { metrics, leftover, clearable, restoring: restoring.length };
+  return { metrics, leftover, clearable, recoverable, restoring: restoring.length };
+}
+
+/**
+ * **개수 대조 지표** — 도메인별 활성 수와 휴지통 수를 서버와 나란히 놓는다. 순수 함수.
+ *
+ * (파일 대조와 함께 `storeStateProbe` 안에 있었는데 `check-fn-size` 래칫에 걸려 뽑아냈다.
+ *  경계가 맞아떨어졌다 — 여기는 **몇 개인가**를 묻고, `fileAuditMetrics`는 **짝이 맞는가**를
+ *  묻는다. 다른 관심사다. 게이트가 설계를 밀어준 자리다, §11.)
+ */
+export function countComparisonMetrics(cmp: StoreComparison): Metric[] {
+  const out: Metric[] = PURGE_DOMAINS.map((d) => {
+    const { cloud, local } = cmp.counts[d];
+    const same = cloud === local;
+    return {
+      label: DOMAIN_LABEL[d],
+      actual: `클라우드 ${cloud} · 이 기기 ${local}`,
+      expected: '같음',
+      level: same ? ('ok' as const) : ('todo' as const),
+      ...(same
+        ? {}
+        : {
+            meaning:
+              local > cloud
+                ? `이 기기에 아직 안 올린 것이 ${local - cloud}건 있어요. 동기화하면 올라갑니다.`
+                : `클라우드에 있는데 이 기기가 아직 안 받은 것이 ${cloud - local}건 있어요. 동기화하면 받아옵니다.`,
+          }),
+    };
+  });
+
+  // 휴지통도 **자료다.** 활성만 대조하면 자료가 전부 휴지통으로 옮겨간 순간 양쪽이 0이 되어
+  // 화면이 「같습니다」라고 말한다 — 정작 13건이 어디 있는지는 아무 지표도 말하지 않았다
+  // (2026-07-26 사용자 지적: *"클라우드와 동일한 게 아니잖아요? 이미 휴지통으로 자료가 이동했는데."*).
+  //
+  // 기대값을 `같음`으로 쓰지 않는 이유: **이 기기가 더 적은 것은 정상이다.** 다른 기기에서 지운
+  // 항목은 이 기기에 사본이 없으면 tombstone을 만들지 않는다(비파괴 pull, 불변식 #8).
+  // 그래서 어긋남은 한 방향뿐이다 — 이 기기가 **더 많으면** 아직 안 올린 것이 있다는 뜻이다.
+  const behind = cmp.trashed.local > cmp.trashed.cloud;
+  out.push({
+    label: '휴지통 항목',
+    actual: `클라우드 ${cmp.trashed.cloud} · 이 기기 ${cmp.trashed.local}`,
+    expected: '이 기기가 클라우드보다 많지 않음',
+    level: behind ? ('todo' as const) : ('ok' as const),
+    ...(behind
+      ? { meaning: `이 기기에서 지운 것 중 ${cmp.trashed.local - cmp.trashed.cloud}건이 아직 클라우드에 안 올라갔어요. 동기화하면 올라갑니다.` }
+      : {}),
+  });
+  return out;
 }
 
 export async function storeStateProbe(): Promise<Verdict> {
@@ -1045,43 +1164,7 @@ export async function storeStateProbe(): Promise<Verdict> {
   // 되돌리기 의사가 남아 있으면 여전히 복원 중이다.
   const restorePending = new Set<string>([...cmp.blockedByLedger, ...(await pendingUnpurgeIds())]);
 
-  const countMetrics: Metric[] = PURGE_DOMAINS.map((d) => {
-    const { cloud, local } = cmp.counts[d];
-    const same = cloud === local;
-    return {
-      label: DOMAIN_LABEL[d],
-      actual: `클라우드 ${cloud} · 이 기기 ${local}`,
-      expected: '같음',
-      level: same ? ('ok' as const) : ('todo' as const),
-      ...(same
-        ? {}
-        : {
-            meaning:
-              local > cloud
-                ? `이 기기에 아직 안 올린 것이 ${local - cloud}건 있어요. 동기화하면 올라갑니다.`
-                : `클라우드에 있는데 이 기기가 아직 안 받은 것이 ${cloud - local}건 있어요. 동기화하면 받아옵니다.`,
-          }),
-    };
-  });
-
-  // 휴지통도 **자료다.** 활성만 대조하면 자료가 전부 휴지통으로 옮겨간 순간 양쪽이 0이 되어
-  // 화면이 「같습니다」라고 말한다 — 정작 13건이 어디 있는지는 아무 지표도 말하지 않았다
-  // (2026-07-26 사용자 지적: *"클라우드와 동일한 게 아니잖아요? 이미 휴지통으로 자료가 이동했는데."*).
-  //
-  // 기대값을 `같음`으로 쓰지 않는 이유: **이 기기가 더 적은 것은 정상이다.** 다른 기기에서 지운
-  // 항목은 이 기기에 사본이 없으면 tombstone을 만들지 않는다(비파괴 pull, 불변식 #8).
-  // 그래서 어긋남은 한 방향뿐이다 — 이 기기가 **더 많으면** 아직 안 올린 것이 있다는 뜻이다.
-  countMetrics.push({
-    label: '휴지통 항목',
-    actual: `클라우드 ${cmp.trashed.cloud} · 이 기기 ${cmp.trashed.local}`,
-    expected: '이 기기가 클라우드보다 많지 않음',
-    level: cmp.trashed.local > cmp.trashed.cloud ? ('todo' as const) : ('ok' as const),
-    ...(cmp.trashed.local > cmp.trashed.cloud
-      ? {
-          meaning: `이 기기에서 지운 것 중 ${cmp.trashed.local - cmp.trashed.cloud}건이 아직 클라우드에 안 올라갔어요. 동기화하면 올라갑니다.`,
-        }
-      : {}),
-  });
+  const countMetrics = countComparisonMetrics(cmp);
 
   // 개수 대조와 파일 대조를 **한 배열에 담되 경계를 기억한다** — 판정 문장이 둘을 구분해야 한다.
   const metrics: Metric[] = [...countMetrics];
@@ -1101,6 +1184,7 @@ export async function storeStateProbe(): Promise<Verdict> {
     serverPurged: cmp.serverPurged,
     serverTombstoned: cmp.serverTombstoned,
     restorePending,
+    localBytes: cmp.localBytes.media,
   });
   const audioAudit = fileAuditMetrics({
     noun: '소리',
@@ -1109,6 +1193,7 @@ export async function storeStateProbe(): Promise<Verdict> {
     serverPurged: cmp.serverPurged,
     serverTombstoned: cmp.serverTombstoned,
     restorePending,
+    localBytes: cmp.localBytes.audio,
   });
   metrics.push(...audit.metrics, ...audioAudit.metrics);
   // 치우기는 **id로** 하고 그 경로는 종류를 가리지 않는다(R2 목록에서 키를 찾아 지운다).
@@ -1116,6 +1201,8 @@ export async function storeStateProbe(): Promise<Verdict> {
   const leftoverFileIds = [...audit.leftover, ...audioAudit.leftover];
   const clearableIds = audit.clearable;
   const clearableAudioIds = audioAudit.clearable;
+  // 다시 올릴 것은 **종류를 합친다** — 고치는 방법이 같다(로컬이 기억하는 키를 잊고 재큐잉).
+  const recoverable = { media: audit.recoverable, audio: audioAudit.recoverable };
   const restoringFiles = audit.restoring + audioAudit.restoring;
 
   // ── 앱이 관리하지 않는 항목 ────────────────────────────────────────
@@ -1228,7 +1315,7 @@ export async function storeStateProbe(): Promise<Verdict> {
           // 이걸 그냥 "0대"로 두면 사용자가 연동이 끊겼다고 오해한다(§5.9 — 말할 수 있는 것만).
           : '기기 이름은 무언가를 저장·수정해 서버로 올릴 때 찍혀요. 아직 그 뒤로 올린 것이 없습니다.',
     metrics,
-    actions: storeActions({ c, cmp, level, stranded, blocked, leftoverFileIds, clearableIds, clearableAudioIds }),
+    actions: storeActions({ c, cmp, level, stranded, blocked, leftoverFileIds, clearableIds, clearableAudioIds, recoverable }),
     evidence: [
       {
         // 사용자가 Supabase·R2를 직접 열어 "안 지워졌다"고 판단하던 자리(2026-07-26).

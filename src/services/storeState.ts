@@ -67,6 +67,11 @@ export interface StoreComparison {
   audioAudit: MediaFileAudit | null;
   audioAuditNote: string | null;
   /**
+   * **이 기기가 바이트를 들고 있는 id들.** 「서버에 파일이 없다」가 *기억 손실*인지
+   * *다시 올리면 되는 일*인지를 가른다 — 이 물음 없이 「없다」고 말하면 거짓이 된다(M-0046).
+   */
+  localBytes: Record<PurgeDomain, Set<string>>;
+  /**
    * **이 기기가 영구삭제했다고 믿는데 서버엔 아직 남아 있는** id들.
    *
    * 0이 정상이다. 0이 아니면 사용자의 의도가 서버에 반영되지 않은 상태이고, 로컬 표식 때문에
@@ -414,6 +419,31 @@ export async function localIdSet(): Promise<Set<string>> {
 }
 
 /**
+ * **이 기기가 바이트를 들고 있는 id들**(사진·소리). 진단이 「서버에 파일이 없다」를 판정할 때
+ * *그것이 기억 손실인지, 그냥 다시 올리면 되는 일인지*를 가르는 유일한 근거다.
+ *
+ * 🔴 왜 필요한가(2026-07-28, M-0046): 이 물음을 **안 하고** 「자료는 이미 없으니 기록 줄을
+ * 치우세요」라고 말했다. 로컬 휴지통에 녹음 3개가 멀쩡히 있는데도. 그 조언을 따르면
+ * `purgeServerOnly`가 로컬 행까지 지워 **되살릴 수 있던 기억이 사라진다.**
+ * 「없다」는 말은 **찾아보고 나서** 하는 것이다(비타협 원칙 #4).
+ *
+ * 빈 blob(size 0)은 사본으로 세지 않는다 — 올려도 아무것도 복구되지 않는다.
+ */
+export async function localBytesIds(): Promise<Record<PurgeDomain, Set<string>>> {
+  const d = db();
+  const out = {} as Record<PurgeDomain, Set<string>>;
+  for (const dm of PURGE_DOMAINS) out[dm] = new Set<string>();
+  // 바이트를 가진 도메인만 훑는다 — 등록부가 정한다(손으로 'media'라 적지 않는다).
+  for (const m of await d.localMedia.toArray()) {
+    if ((m.displayBlob?.size ?? 0) > 0) out.media.add(m.id);
+  }
+  for (const a of await d.localAudio.toArray()) {
+    if ((a.blob?.size ?? 0) > 0) out.audio.add(a.id);
+  }
+  return out;
+}
+
+/**
  * 로컬 **휴지통(tombstone)** 개수.
  *
  * 왜 필요한가(2026-07-26 사용자 지적): 지금까지 대조는 **활성만** 했다. 그래서 자료가 전부
@@ -435,7 +465,7 @@ export interface FilesPort {
 }
 
 export async function compareStore(port: StoreStatePort, files?: FilesPort): Promise<StoreComparison> {
-  const [cloud, local, stamps, remnants, serverTombstones, purged, localTrash, serverPurged, localIds] =
+  const [cloud, local, stamps, remnants, serverTombstones, purged, localTrash, serverPurged, localIds, localBytes] =
     await Promise.all([
       port.activeCounts(),
       localActiveCounts(),
@@ -446,6 +476,7 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
       localTombstoneCount(),
       port.purgedLedgerIds(),
       localIdSet(),
+      localBytesIds(),
     ]);
   // 내가 지웠다고 믿는데(로컬 표식) 서버엔 tombstone으로 남은 것 = 전파가 안 된 영구삭제.
   const unpropagatedPurges = serverTombstones.filter((id) => purged.has(id));
@@ -501,6 +532,7 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
     trashed: { cloud: remnants.tombstoned, local: localTrash },
     fileAudit,
     fileAuditNote,
+    localBytes,
     unpropagatedPurges,
     serverTombstoned: serverTombstones,
     serverPurged,

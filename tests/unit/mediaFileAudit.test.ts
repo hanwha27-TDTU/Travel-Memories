@@ -14,7 +14,14 @@
 
 import { describe, it, expect } from 'vitest';
 import { auditMediaFiles, unionListings } from '../../src/services/storeState';
-import { storeHeadline, classifyOrphanFiles, blockedByLedgerMetric } from '../../src/ui/panels/diagnostics';
+import {
+  storeHeadline,
+  classifyOrphanFiles,
+  classifyMissingFiles,
+  fileAuditMetrics,
+  blockedByLedgerMetric,
+} from '../../src/ui/panels/diagnostics';
+import type { Metric } from '../../src/ui/panels/verdict';
 import type { Level } from '../../src/ui/panels/verdict';
 import { parseListXml, mediaIdOfKey, xmlUnescape, presign, LIST_MAX_PAGES, countOutside } from '../../supabase/functions/media-sign/index';
 
@@ -393,5 +400,98 @@ describe('⑨ **내 폴더 밖**에 무엇이 있는지 앱이 스스로 안다 
     // countOutside의 반환 타입이 number라는 것 자체가 계약이다(키를 흘릴 자리가 없다).
     const p = parseListXml(xml(`<CommonPrefixes><Prefix>secret-user-id/</Prefix></CommonPrefixes>`));
     expect(typeof countOutside(p, MINE)).toBe('number');
+  });
+});
+
+
+describe('🔴 ⑩ 파일이 없는 기록 — **「없다」고 말하기 전에 이 기기를 찾아본다** (M-0046)', () => {
+  // 2026-07-28 사용자 실기기: 화면이 「지운 소리의 남은 기록 3개 · 소리 자체는 없습니다」라며
+  // 정리를 권했다. **로컬 휴지통에 그대로 있었다.** 그 버튼(purgeServerOnly)은 로컬 행까지
+  // 지우므로, 따랐으면 되살릴 수 있던 녹음 20초가 영구히 사라졌다.
+  //
+  // 가르는 질문은 tombstone 여부가 아니라 **사본이 있는가**다. 그 순서를 여기서 못박는다.
+  const A = 'aaaaaaaa-1111-4111-8111-111111111111';
+  const B = 'bbbbbbbb-2222-4222-8222-222222222222';
+  const C = 'cccccccc-3333-4333-8333-333333333333';
+  const none = new Set<string>();
+
+  it('🔴 사본이 있으면 tombstone이어도 **다시 올릴 것**이다(치울 것이 아니다)', () => {
+    const r = classifyMissingFiles([A], [A], new Set([A]));
+    expect(r.recoverable).toEqual([A]);
+    expect(r.clearable).toEqual([]); // ← 예전엔 여기 들어가서 "정리하세요"가 나왔다
+  });
+
+  it('사본이 없고 서버에서도 지워졌으면 그때만 **치울 것**이다', () => {
+    expect(classifyMissingFiles([A], [A], none)).toEqual({ recoverable: [], clearable: [A], atRisk: [] });
+  });
+
+  it('사본도 없는데 살아 있으면 **위험**이다 — 어디에도 없을 수 있다', () => {
+    expect(classifyMissingFiles([B], [], none)).toEqual({ recoverable: [], clearable: [], atRisk: [B] });
+  });
+
+  it('🔴 사본이 있으면 활성이어도 위험이 아니다 — 앱이 스스로 고칠 수 있다(§12)', () => {
+    const r = classifyMissingFiles([B], [], new Set([B]));
+    expect(r.atRisk).toEqual([]);
+    expect(r.recoverable).toEqual([B]);
+  });
+
+  it('셋이 섞여도 갈라 담는다(한 숫자로 합치지 않는다)', () => {
+    const r = classifyMissingFiles([A, B, C], [A], new Set([C]));
+    expect(r).toEqual({ recoverable: [C], clearable: [A], atRisk: [B] });
+  });
+
+  it('빠진 것이 없으면 전부 비어 있다', () => {
+    expect(classifyMissingFiles([], [A], new Set([A]))).toEqual({ recoverable: [], clearable: [], atRisk: [] });
+  });
+});
+
+describe('🔴 ⑪ 화면 문장이 사본 유무를 **정직하게** 말한다 (§10 ③)', () => {
+  const A = 'aaaaaaaa-1111-4111-8111-111111111111';
+  const audit = (localBytes: Set<string>, tombstoned: string[]) =>
+    fileAuditMetrics({
+      noun: '소리',
+      fa: { files: 0, rows: 1, orphans: [], missing: [A], foreign: 0, truncated: false },
+      note: null,
+      serverPurged: [],
+      serverTombstoned: tombstoned,
+      restorePending: new Set<string>(),
+      localBytes,
+    });
+  const find = (ms: Metric[], label: string): Metric => ms.find((m) => m.label === label)!;
+
+  it('🔴 사본이 있으면 「자료가 없다」고 말하지 않는다 — 그 문장이 거짓말이었다', () => {
+    const r = audit(new Set([A]), [A]);
+    const dead = find(r.metrics, '지운 소리의 남은 기록');
+    expect(dead.actual).toBe('0개');
+    expect(dead.level).toBe('ok');
+    const safe = find(r.metrics, '서버에 없는 소리');
+    expect(safe.actual).toBe('1개');
+    expect(safe.meaning).toContain('이 기기에는 그대로 있어요');
+    expect(safe.meaning).not.toContain('없습니다');
+  });
+
+  it('🔴 정리를 권하는 문장은 **찾아봤다는 사실**을 함께 말한다', () => {
+    const dead = find(audit(new Set(), [A]).metrics, '지운 소리의 남은 기록');
+    expect(dead.level).toBe('todo');
+    expect(dead.meaning).toContain('이 기기에도 사본이 없습니다');
+  });
+
+  it('사본이 있으면 다시 올릴 목록에 담긴다(버튼이 그것을 받는다)', () => {
+    expect(audit(new Set([A]), [A]).recoverable).toEqual([A]);
+    expect(audit(new Set(), [A]).recoverable).toEqual([]);
+  });
+
+  it('목록이 잘렸으면 아무것도 단정하지 않는다', () => {
+    const r = fileAuditMetrics({
+      noun: '소리',
+      fa: { files: 0, rows: 1, orphans: [], missing: [A], foreign: 0, truncated: true },
+      note: null,
+      serverPurged: [],
+      serverTombstoned: [A],
+      restorePending: new Set<string>(),
+      localBytes: new Set([A]),
+    });
+    expect(find(r.metrics, '서버에 없는 소리').actual).toBe('확인 못 함');
+    expect(r.recoverable).toEqual([]);
   });
 });
