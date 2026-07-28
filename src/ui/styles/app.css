@@ -442,7 +442,15 @@ button.chip { border: 0; font-family: inherit; }
 .chip-tap:focus-visible { outline: 2px solid var(--sem-sky-ink); outline-offset: 2px; }
 
 /* 바깥 지도(구글)로 나가는 자리 — 앱 지도 **안**에 둔다. 주(主)는 앱 지도다. */
-.map-ext { display: flex; flex-direction: column; gap: var(--space-1); align-items: flex-start; padding: var(--space-3) var(--space-4) 0; }
+/* 바깥 지도로 나가는 줄. ⚠️ 아래 padding이 **0이었다** — 버튼이 지도에 딱 붙어
+   답답해 보였다(2026-07-28 사용자 실기기). 위아래를 같게 줘 숨 쉬게 한다. */
+.map-ext {
+  display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start;
+  padding: var(--space-3) var(--space-4);
+}
+.map-ext-lead { margin: 0; }
+/* 지도가 넷이라 좁은 화면에서는 줄바꿈한다 — 가로 넘침을 만들지 않는다. */
+.map-ext-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .map-ext-note { margin: 0; }
 .chip.money { background: color-mix(in srgb, var(--sem-teal) 15%, transparent); color: var(--sem-teal-ink); }
 

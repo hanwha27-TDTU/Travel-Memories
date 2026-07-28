@@ -9,7 +9,7 @@
 import { el } from '../dom';
 import { toFeatureCollection, type LocatedPoint } from '../../domain/place/geojson';
 import { localDateTime } from '../../domain/time';
-import { externalMapTarget, externalMapConsentText, type PlaceLike } from '../../domain/place/externalMap';
+import { externalMapTargets, externalMapConsentText, type PlaceLike } from '../../domain/place/externalMap';
 import { hasAgreedExternalMap, rememberAgreedExternalMap } from '../../services/externalMapConsent';
 
 export interface MapPoint extends LocatedPoint {
@@ -25,29 +25,39 @@ export interface MapPoint extends LocatedPoint {
  * 그래서 칩을 누르면 앱 지도가 열리고, 구글은 여기서 한 번 더 누른다.
  */
 function externalMapButton(place: PlaceLike): HTMLElement | null {
-  const t = externalMapTarget(place);
-  if (!t) return null;
+  const targets = externalMapTargets(place);
+  if (!targets.length) return null;
 
   const wrap = el('div', 'map-ext');
-  const btn = el('button', 'btn-ghost map-ext-btn', `🌐 ${t.label}`) as HTMLButtonElement;
-  btn.type = 'button';
-  btn.addEventListener('click', () => {
-    // 처음 한 번만 묻는다. 거절하면 **열지 않는다** — 확인이 형식이 되지 않게.
-    if (!hasAgreedExternalMap()) {
-      if (!window.confirm(externalMapConsentText(t))) return;
-      rememberAgreedExternalMap();
-    }
-    // noreferrer: 앱 주소(여행 id가 든 URL)가 Referer로 함께 새지 않게 한다.
-    // noopener는 noreferrer에 포함되지만 명시해 의도를 남긴다.
-    window.open(t.url, '_blank', 'noopener,noreferrer');
-  });
-  wrap.appendChild(btn);
+  wrap.appendChild(el('span', 'map-ext-lead muted small', '다른 지도에서 열기'));
+
+  const row = el('div', 'map-ext-row');
+  for (const t of targets) {
+    const btn = el('button', 'btn-ghost map-ext-btn', t.label) as HTMLButtonElement;
+    btn.type = 'button';
+    btn.setAttribute('aria-label', `${t.company} 지도에서 열기`);
+    btn.addEventListener('click', () => {
+      // **제공자마다** 처음 한 번만 묻는다. 거절하면 **열지 않는다** — 확인이 형식이 되지 않게.
+      // 구글에 동의한 것이 얀덱스 동의는 아니다(받는 회사가 다르면 다른 결정이다).
+      if (!hasAgreedExternalMap(t.id)) {
+        if (!window.confirm(externalMapConsentText(t))) return;
+        rememberAgreedExternalMap(t.id);
+      }
+      // noreferrer: 앱 주소(여행 id가 든 URL)가 Referer로 함께 새지 않게 한다.
+      // noopener는 noreferrer에 포함되지만 명시해 의도를 남긴다.
+      window.open(t.url, '_blank', 'noopener,noreferrer');
+    });
+    row.appendChild(btn);
+  }
+  wrap.appendChild(row);
 
   // **이름으로 찾은 것이면 그렇게 말한다.** 좌표로 집은 것처럼 보이면 앱이 엉뚱한 곳을
   // 그 장소라고 우기는 셈이 된다(§8 「모르는 것은 확인 불가다」).
-  if (t.caveat) {
+  // caveat는 제공자마다 같으므로(좌표가 없다는 사실은 하나다) **한 번만** 적는다.
+  const caveat = targets.find((t) => t.caveat)?.caveat;
+  if (caveat) {
     const note = el('p', 'map-ext-note muted small');
-    note.textContent = t.caveat.replace(/\*\*/g, '');
+    note.textContent = caveat;
     wrap.appendChild(note);
   }
   return wrap;

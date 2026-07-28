@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.18<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->118<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->55<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.19<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->119<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->55<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->19<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -262,6 +262,64 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0012 · 세션 마무리 — 인계 정비 + 밀린 배포 해소 (2026-07-28)
+
+**두 가지를 했다**: ①오늘의 교훈을 스킬에 반영하고 Codex용 완전 인계서를 만들었다
+②Actions 한도로 하루 막혀 있던 배포를 풀었다.
+
+### 인계서(`docs/HANDOFF_CODEX.md`)를 **실행해서** 검증했다
+
+사용자 지시의 핵심은 *"코덱스랑 이 앱을 만드는 과정을 거의 하지 않았어요"*였다. 기존
+`HANDOFF.md`는 참여한 사람을 위한 시간순 기록이라 암묵적 전제가 많다 — 맥락 제로용 문서를
+따로 만들었다.
+
+그리고 **읽어서 검토하지 않고 깨끗한 클론에서 그대로 실행했다.** 확인 방법을 바꿀 때마다
+새로운 것이 나왔다:
+
+| 회차 | 방법 | 나온 것 |
+|---|---|---|
+| 1 | 읽고 검토 | 0건 — 통과처럼 보였다 |
+| 2 | **실행** | **4건** |
+| 3 | 커버리지 훑기 | **3건** |
+| 4 | 자기 표시(「미검증」) 훑기 | **3건** |
+
+**2회차가 가장 위험했다.** 인계서가 `cp .env.example .env`를 시켰는데, 그대로 따라 하면
+`npm run live`가 **155/155가 아니라 148/155**가 된다 — `.env`가 있으면 앱이 Supabase 접속을
+시도하고 샌드박스가 `*.supabase.co`를 차단해 상태 줄이 갈린다. **앱의 결함이 아니라 환경
+때문이고, CI에도 `.env`가 없어 CI는 통과한다.** Codex가 이걸 봤으면 멀쩡한 저장소를 고장
+났다고 판단했을 것이다.
+
+**3회차** — `media-sign` **배포 방법이 저장소 어디에도 없었다**(`DEPLOYMENT.md`는 Pages만
+다룬다). 인계서의 구멍이 아니라 **저장소의 구멍**이었고, §9 착수절차 2단계가 말하는 자리였다.
+→ §5-B 「인프라에 어떻게 손을 대나」 신설(Supabase MCP vs CLI · 함수 배포 · 시크릿 확인 ·
+앱 배포는 main push 자동 · 게이트 실패별 대응표).
+
+**자기 규율을 문서에서 어겼다**: 초안의 「게이트 34개·유닛 663개」는 실제로 **31개·637개**였고,
+`AGENTS.md:93`은 **그날 안에 117**이 됐다(내가 그 파일을 고쳐서). 이 저장소가 게이트로 막는
+손편집 드리프트(M-0001)를 인계서에서 그대로 저질렀다 → 숫자 대신 **재는 법**, 줄 번호 대신
+**내용 참조**로 바꾸고 **그 실수를 문서에 남겼다.**
+
+### 스킬 4종에 오늘의 교훈
+
+`ui-responsive-dev` §3-E(부품은 맥락과 함께 온다 — 떼어내 재면 맥락이 만드는 결함을 못 본다) ·
+`gates-mechanization-dev` §2-I(이름으로 판정하는 게이트는 새 형제를 정확히 놓친다) ·
+`sync-offline-dev`(로컬 전용은 정당한 예외가 아니라 **빚**이다 — 사용자 결정) ·
+`diagnostics-dev` §7-F(안 보는 것을 「0건」이라 말하지 마라).
+
+### 배포 갭 해소
+
+2026-07-27에 Actions **사용량 한도**로 러너가 배정되지 않아(1~2초 만에 실패) v1.17·v1.18이
+병합만 되고 배포되지 못했다. 그동안은 **깨끗한 클론에서 CI와 같은 명령을 재현**해 대체
+검증했다(그리고 그것을 "CI가 아니다"라고 정직하게 적었다).
+
+2026-07-28 한도가 풀려 **진짜 CI 그린**(harness + live-render)을 확인하고 병합·배포했다.
+
+**다음 사람에게**: 오디오 서버 동기화가 다음 일이다 — `HANDOFF_CODEX.md` §5의 8단계이고,
+그중 **백필**(이미 녹음된 소리는 큐 op가 애초에 없어 영영 안 올라간다)이 가장 놓치기 쉽다.
+마이그레이션 0019는 작성·공격검사 통과했으나 **미적용**이다.
 
 ---
 

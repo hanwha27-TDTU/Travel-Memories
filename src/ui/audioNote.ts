@@ -19,15 +19,38 @@ import type { LocalAudio } from '../offline/db';
  * 지금 재생 중인 것 하나. **모듈 하나에 하나** — 동시 재생을 구조적으로 막는다
  * (각 칩이 자기 상태를 들고 있으면 "누가 재생 중인지"를 아무도 모른다).
  */
-let playing: { audio: HTMLAudioElement; url: string; onStop: () => void } | null = null;
+let playing: {
+  audio: HTMLAudioElement;
+  url: string;
+  onStop: () => void;
+  /** 이 재생에 붙인 이벤트 전부를 떼는 손잡이. **정리보다 먼저** 불러야 한다(아래 참조). */
+  detach: () => void;
+} | null = null;
 
-/** 재생 중인 것을 멈추고 자원을 회수한다. **정리는 이 한 곳에서만** 한다(§7 2층). */
+/**
+ * 재생 중인 것을 멈추고 자원을 회수한다. **정리는 이 한 곳에서만** 한다(§7 2층).
+ *
+ * ⚠️ 결함 이력(2026-07-28 사용자 실기기): *"재생불가가 아닌데 재생불가라고 안내하네요."*
+ * 정리 과정 자체가 **`error` 이벤트를 발화시킨다** — 미디어 요소의 `src`를 비우고 `load()`를
+ * 부르면 브라우저는 "실을 것이 없다"를 오류로 알린다. 그래서 순서가 이렇게 됐다:
+ *
+ *   ①재생 끝(`ended`) → ②정리(`src=''`+`load()`) → ③`setIdle()`로 라벨 정상 복귀
+ *   → ④**뒤늦게 `error` 발화** → ⑤라벨을 「🔇 재생 불가」로 덮어씀
+ *
+ * 즉 **정상 재생을 마친 직후에만** 나타나는 거짓말이었다. 재생은 멀쩡히 됐는데 앱이
+ * 안 됐다고 말한 것이라, 사용자는 자기 녹음이 깨진 줄 안다(§8 — 모르는 것도 아니고
+ * **아는 것을 틀리게** 말한 경우다).
+ *
+ * 그래서 **떼는 것이 먼저다**: 정리로 인한 이벤트는 이미 이 재생의 것이 아니다.
+ * 근본형: *"뒷정리가 만드는 신호를 실패 신호로 읽지 마라."*
+ */
 export function stopAudioPlayback(): void {
   if (!playing) return;
   const p = playing;
   playing = null; // 먼저 비운다 — onStop이 다시 이 함수를 부를 수 있다
+  p.detach(); // 🔴 정리보다 먼저 — 아래 두 줄이 error를 발화시킨다
   p.audio.pause();
-  p.audio.src = '';
+  p.audio.removeAttribute('src'); // `src=''`는 문서 URL을 미디어로 실으려 든다(또 다른 오류원)
   p.audio.load(); // 디코더가 붙잡은 버퍼를 놓게 한다
   URL.revokeObjectURL(p.url);
   p.onStop();
@@ -74,24 +97,34 @@ export function audioChip(a: LocalAudio, onDelete?: () => void): HTMLElement {
     const url = URL.createObjectURL(a.blob);
     const audio = new Audio(url);
     audio.dataset['id'] = a.id;
-    playing = { audio, url, onStop: setIdle };
+    // 이 재생에 붙는 이벤트를 한 손잡이로 묶는다 — 정리할 때 **통째로** 뗀다.
+    const ac = new AbortController();
+    const on = <K extends keyof HTMLMediaElementEventMap>(
+      type: K,
+      fn: (e: HTMLMediaElementEventMap[K]) => void,
+    ): void => audio.addEventListener(type, fn, { signal: ac.signal });
+
+    playing = { audio, url, onStop: setIdle, detach: () => ac.abort() };
     icon.replaceChildren(equalizer());
     btn.setAttribute('aria-pressed', 'true');
 
     // 남은 시간을 **세어 내려간다**: 소리는 눈에 안 보이므로, 얼마나 남았는지가 유일한 단서다.
-    audio.addEventListener('timeupdate', () => {
+    on('timeupdate', () => {
       const total = audio.duration || a.durationSec || 0;
       if (total > 0) chip.style.setProperty('--p', String(Math.min(1, audio.currentTime / total)));
       time.textContent = formatDuration(Math.max(0, Math.ceil(total - audio.currentTime)));
     });
-    audio.addEventListener('ended', () => stopAudioPlayback());
+    on('ended', () => stopAudioPlayback());
     // 재생 실패(코덱 미지원 등)를 **조용히 넘기지 않는다** — 안 나는 이유를 말한다.
+    // 단, **이 재생이 아직 살아 있을 때만**이다. 정리 뒤에 오는 오류는 뒷정리가 만든 것이지
+    // 재생이 실패한 것이 아니다(위 stopAudioPlayback 머리주석).
     const failed = (): void => {
+      if (playing?.audio !== audio) return; // 이미 정리됐다 — 그 오류는 우리 것이 아니다
       stopAudioPlayback();
       icon.replaceChildren('🔇');
       time.textContent = '재생 불가';
     };
-    audio.addEventListener('error', failed);
+    on('error', failed);
     void audio.play().catch(failed);
   });
 
