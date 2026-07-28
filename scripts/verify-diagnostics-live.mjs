@@ -115,7 +115,7 @@ const FIXTURE = `
 import '../../src/ui/styles/tokens.css';
 import '../../src/ui/styles/app.css';
 import { renderTool, levelFromMetrics } from '../../src/ui/panels/verdict';
-import { fileAuditMetrics } from '../../src/ui/panels/diagnostics';
+import { fileAuditMetrics, storeHeadline } from '../../src/ui/panels/diagnostics';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const audit = { files: 0, rows: 1, orphans: [], missing: [A], foreign: 0, truncated: false };
@@ -169,6 +169,32 @@ function panel(id, localBytes, extraMetrics, otherDevices = 0) {
  *   ② 누른 뒤 **재판정이 도는가**(§8 — probe 호출 수로 관측한다)
  *   ③ 실패하면 **조용히 삼키지 않는가**
  */
+/**
+ * 🔴 **요약 문장이 어느 종류를 가리키는가**(M-0048 곁가지). 사진은 9:9로 멀쩡한데 배너가
+ * 「**사진** 파일에 확인할 것이 1가지 있어요」였다 — 유닛은 문자열을 재지만 *그 문장이 화면
+ * 맨 위에 실제로 그려지는지*는 못 본다(§10 ③).
+ */
+function headlinePanel(id, fileBad) {
+  const host = document.createElement('section');
+  host.setAttribute('data-panel', id);
+  host.appendChild(
+    renderTool({
+      title: '요약 ' + id,
+      lead: '주입 판정',
+      probe: async () => ({
+        level: 'todo',
+        headline: storeHeadline({ level: 'todo', countBad: 0, fileBad, stranded: 0, blocked: 0, alive: 12, trashed: 0 }),
+        because: '근거 한 줄',
+        metrics: [{ label: '지표', actual: '1개', expected: '0개', level: 'todo', meaning: '설명' }],
+        actions: [],
+        evidence: [],
+        context: [],
+      }),
+    }),
+  );
+  document.body.appendChild(host);
+}
+
 window.__probes = 0;
 function actionPanel() {
   const host = document.createElement('section');
@@ -206,6 +232,8 @@ panel('hascopy', new Set([A]), [UNKNOWN]);     // 사본 있음 → 다시 올�
 // 그때 화면은 [지운 소리 기록 정리]를 주버튼으로 권했다 — 따랐으면 태블릿의 사본까지 잃었다.
 panel('otherdev', new Set(), null, 1);
 actionPanel();
+headlinePanel('hl-sound', [{ noun: '사진', n: 0 }, { noun: '소리', n: 1 }]);
+headlinePanel('hl-both', [{ noun: '사진', n: 1 }, { noun: '소리', n: 2 }]);
 `;
 
 await rm(TMP, { recursive: true, force: true });
@@ -375,6 +403,22 @@ check(
   'B⑥ 「확인 못 함」을 정상으로 반올림하지 않는다(원칙 #4)',
   b.hasCopyShown.includes('확인 못 한 지표') && b.hasCopyText.includes('확인 못 함'),
   JSON.stringify(b.hasCopyShown),
+);
+
+// ── D. 요약 문장이 **어느 종류를 가리키는가** (M-0048 곁가지) ──────────────
+const d = await page.evaluate(() => {
+  const head = (id) => document.querySelector(`[data-panel="${id}"] .vd-headline`)?.textContent?.trim() ?? '';
+  return { sound: head('hl-sound'), both: head('hl-both') };
+});
+check(
+  'D① 🔴 소리만 어긋나면 배너가 **소리**라고 말한다(사진이라 하지 않는다 — M-0048)',
+  d.sound.includes('소리 파일') && !d.sound.includes('사진'),
+  `"${d.sound}"`,
+);
+check(
+  'D② 둘 다면 둘 다 이름을 부르고 합을 말한다',
+  d.both.includes('사진·소리 파일') && d.both.includes('3가지'),
+  `"${d.both}"`,
 );
 
 // ── C. 🔴 **버튼을 실제로 누른다** (2026-07-28) ─────────────────────────────
