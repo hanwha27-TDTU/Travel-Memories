@@ -97,6 +97,49 @@ export function photoFileBase(
 }
 
 /**
+ * **R2 오디오 객체 이름**(확장자 제외) — 사진(`mediaObjectName`)과 **같은 모양**이다.
+ *
+ * 왜 같아야 하나(§7 사용자 대면 대칭): 사용자는 Cloudflare 콘솔에서 두 종류를 **한 폴더 안에
+ * 나란히** 본다. 여기서 규칙이 갈리면 "왜 소리만 이름이 다르지?"가 되고, 그건 이 파일이
+ * 애초에 생긴 이유(UUID만 보여 무엇인지 몰랐던 문제)를 소리에서만 되풀이하는 것이다.
+ *
+ * 뒤 32자는 여기서도 **계약**이다 — `mediaIdOfKey`(Edge Function)가 이걸 되읽어 어느 소리인지
+ * 판정한다. 사진과 똑같은 이유로 자르지 않는다(영구삭제하면 대조할 행이 사라진다 — M-0029).
+ * 다른 것은 기본 이름(`소리`)과 확장자뿐이다.
+ */
+export function audioObjectName(
+  recordedAt: string | null | undefined,
+  tripTitle: string | null | undefined,
+  audioId: string,
+): string {
+  const { date, time } = stampFromISO(recordedAt);
+  const t = fsSafe(tripTitle || '', 30) || '소리';
+  return `${date}_${time}_${t}__${hex(audioId)}`;
+}
+
+/**
+ * 녹음 MIME → 파일 확장자. **Edge Function의 `AUDIO_EXTS`와 같은 목록이어야 한다** —
+ * 앱이 `.webm`으로 올리는데 함수가 그 확장자를 거부하면 소리는 영영 서버에 못 간다.
+ * `tests/unit/audioNaming.test.ts`가 그 목록을 대조한다.
+ *
+ * 모르는 형식은 `bin`이 아니라 **`webm`으로 떨어뜨리지 않는다** — 거짓 확장자를 붙이면
+ * 재생기가 잘못된 디코더를 고른다. 대신 null을 돌려 **업로드하지 않는다**(로컬엔 그대로 남고
+ * 진단이 「서버에 없는 소리」로 말한다 — 모르는 것을 아는 척하지 않는다, 비타협 원칙 #4).
+ */
+export const AUDIO_EXTS = ['webm', 'm4a', 'ogg', 'mp3', 'wav'] as const;
+
+export function audioExt(mime: string): string | null {
+  const m = (mime || '').toLowerCase();
+  if (m.includes('webm')) return 'webm';
+  // iOS Safari는 `audio/mp4`로 준다 — 파일 확장자는 `.m4a`가 관례다(재생기 호환이 가장 넓다).
+  if (m.includes('mp4') || m.includes('m4a') || m.includes('aac')) return 'm4a';
+  if (m.includes('ogg') || m.includes('opus')) return 'ogg';
+  if (m.includes('mpeg') || m.includes('mp3')) return 'mp3';
+  if (m.includes('wav')) return 'wav';
+  return null;
+}
+
+/**
  * 백업 ZIP 안의 **오디오 노트** 파일명(확장자 제외): `날짜_시간_제목__id8`.
  *
  * 사진(`photoFileBase`)과 **같은 모양**이다 — 사용자는 탐색기에서 두 종류를 나란히 본다.

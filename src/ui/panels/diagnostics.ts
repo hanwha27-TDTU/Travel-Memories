@@ -61,7 +61,7 @@ export const FILE_ID_CAP = 20;
  * 이 앱이 **기대하는** 사진 저장소 함수 판. 서버가 이보다 낮으면 새 지표를 믿을 수 없다.
  * 함수에 연산을 추가할 때 `FN_VERSION`과 **함께** 올린다 — 안 올리면 화면이 낡음을 못 알아본다.
  */
-export const EXPECTED_FN_VERSION = 5;
+export const EXPECTED_FN_VERSION = 6;
 
 /** 화면에 표시할 앱 버전 — changelog가 SSOT(손으로 적지 않는다). */
 const APP_VERSION = `v${CHANGELOG[0]?.version ?? '0.00'}`;
@@ -584,7 +584,7 @@ export function blockedByLedgerMetric(blocked: number, restoringFiles: number): 
       '백업에서 되살린 기록인데 서버가 「영구삭제된 것」으로 알고 받지 않고 있어요. 그대로 두면 다음 동기화 때 이 기기에서도 사라집니다 — 아래 [복원한 항목 되살리기]를 눌러 주세요.' +
       // 왜 굳이 덧붙이나: 위쪽 「영구삭제 후 남은 사진 파일」이 그만큼 줄어 보이기 때문이다.
       // 숫자가 줄어든 이유를 화면이 말하지 않으면 사용자는 파일이 사라진 줄 안다.
-      (restoringFiles ? ` 사진 파일 ${restoringFiles}개는 되살아날 사진이라 정리 대상에서 빼 뒀어요.` : ''),
+      (restoringFiles ? ` 파일 ${restoringFiles}개는 되살아날 자료라 정리 대상에서 빼 뒀어요.` : ''),
   };
 }
 
@@ -698,6 +698,9 @@ interface StoreActionsInput {
   leftoverFileIds: string[];
   /** 자료 없이 기록 줄만 남은 사진 id. */
   clearableIds: string[];
+  /** 자료 없이 기록 줄만 남은 소리 id. 사진과 **버튼을 나누는 이유**: `purgeServerOnly`가
+   *  도메인을 받으므로 한 목록으로 합치면 어느 표를 지울지 알 수 없다. */
+  clearableAudioIds: string[];
 }
 
 /**
@@ -709,7 +712,9 @@ interface StoreActionsInput {
  * 「치워도 되는 파일」로 분류하는 사고가 그렇게 났다(2026-07-26).
  */
 function storeCleanupActions(i: StoreActionsInput): Action[] {
-  const { c, cmp, stranded, blocked, leftoverFileIds, clearableIds } = i;
+  const { c, cmp, stranded, blocked, leftoverFileIds, clearableIds, clearableAudioIds } = i;
+  /** 「먼저 눌러야 할 버튼」은 하나뿐이다 — 자료를 지키는 일이 남아 있으면 정리는 뒤로 미룬다. */
+  const quiet = !blocked && !stranded;
   return [
     ...(cmp.multipart.known && cmp.multipart.mine
       ? [
@@ -738,8 +743,10 @@ function storeCleanupActions(i: StoreActionsInput): Action[] {
             // 지표를 만들었으면 **고칠 곳도 만든다**(진단 §7-B). 2026-07-26에 사용자는
             // 「기록 없는 사진 파일 3개」를 보면서 앱 안에서 손댈 방법이 없어 Cloudflare
             // 대시보드를 직접 열어야 했다. 판정만 하고 행동을 못 주면 관측으로 되돌아간 것이다.
-            label: '남은 사진 파일 정리',
-            primary: !blocked && !stranded && !clearableIds.length,
+            // 사진·소리를 **한 버튼**이 치운다: 지우는 경로가 id 하나로 같기 때문이다
+            // (함수가 R2 목록에서 그 id의 키를 찾아 지운다 — 확장자를 가리지 않는다).
+            label: '남은 파일 정리',
+            primary: quiet && !clearableIds.length && !clearableAudioIds.length,
             hook: 'data-clear-leftover-files',
             run: async (): Promise<string> => {
               // 건당 왕복 대신 **한 번에** 보내고, 함수가 지운 뒤 목록을 다시 읽어 확인한 결과를
@@ -749,7 +756,7 @@ function storeCleanupActions(i: StoreActionsInput): Action[] {
               if (r.error) return `치우지 못했어요: ${r.error}`;
               if (!r.verified) return `${r.sent}건 삭제를 요청했지만 다시 읽어 확인하지 못했어요.`;
               if (r.stillThere.length) return `${r.requested}건 중 ${r.stillThere.length}건이 아직 남아 있어요.`;
-              return `사진 파일 ${r.sent}건을 치웠어요. 다시 대조합니다.`;
+              return `파일 ${r.sent}건을 치웠어요. 다시 대조합니다.`;
             },
           },
         ]
@@ -758,7 +765,7 @@ function storeCleanupActions(i: StoreActionsInput): Action[] {
       ? [
           {
             label: '지운 사진 기록 정리',
-            primary: !blocked && !stranded && !leftoverFileIds.length,
+            primary: quiet && !leftoverFileIds.length && !clearableAudioIds.length,
             hook: 'data-clear-dead-media',
             run: async (): Promise<string> => {
               // 사진 자체는 이미 없다 — 서버에 남은 **기록 줄**만 치운다.
@@ -766,6 +773,26 @@ function storeCleanupActions(i: StoreActionsInput): Action[] {
               const n = await purgeServerOnly('media', clearableIds);
               if (!n) return '큐에 이미 들어 있어요. [지금 동기화]를 눌러 주세요.';
               await requestSync('지운 사진 기록 정리');
+              const st = syncStatus();
+              return st.phase === 'failed'
+                ? `${n}건을 큐에 넣었지만 동기화가 실패했어요: ${st.lastError ?? '사유 불명'}`
+                : `${n}건을 정리했어요. 다시 대조합니다.`;
+            },
+          },
+        ]
+      : []),
+    // 소리도 **같은 규율을 같은 모양으로** 받는다(§7 사용자 대면 대칭 — 같은 성격의 일은
+    // 같은 자리에 같은 어휘로). 다른 것은 지울 표 이름뿐이다.
+    ...(clearableAudioIds.length
+      ? [
+          {
+            label: '지운 소리 기록 정리',
+            primary: quiet && !leftoverFileIds.length && !clearableIds.length,
+            hook: 'data-clear-dead-audio',
+            run: async (): Promise<string> => {
+              const n = await purgeServerOnly('audio', clearableAudioIds);
+              if (!n) return '큐에 이미 들어 있어요. [지금 동기화]를 눌러 주세요.';
+              await requestSync('지운 소리 기록 정리');
               const st = syncStatus();
               return st.phase === 'failed'
                 ? `${n}건을 큐에 넣었지만 동기화가 실패했어요: ${st.lastError ?? '사유 불명'}`
@@ -848,10 +875,15 @@ function storeActions(i: StoreActionsInput): Action[] {
  * 총 바이트를 여기서 말하는 이유: 2026-07-26에 사용자가 대시보드의 「버킷 크기 2.87MB」와
  * 앱의 「사진 파일 0개」를 대조하지 못해 콘솔을 반복해서 열었다.
  */
-function fileAuditEvidence(fa: MediaFileAudit, totalBytes: number): { label: string; build: () => HTMLElement } {
+function fileAuditEvidence(
+  noun: string,
+  fa: MediaFileAudit,
+  /** 총 바이트를 표시할지 — 사진·소리가 **한 버킷**을 쓰므로 합계는 한 줄에서만 말한다(두 번 세지 않게). */
+  totalBytes: number | null,
+): { label: string; build: () => HTMLElement } {
   return {
     label:
-      `사진 파일 ${fa.files}개(${bytes(totalBytes)}) · 기록 ${fa.rows}개` +
+      `${noun} 파일 ${fa.files}개${totalBytes === null ? '' : `(${bytes(totalBytes)})`} · 기록 ${fa.rows}개` +
       `${fa.truncated ? ' (다 못 봄)' : ''} — 짝이 안 맞는 것은?`,
     build: () => {
       const rows: [string, string][] = [];
@@ -865,11 +897,110 @@ function fileAuditEvidence(fa: MediaFileAudit, totalBytes: number): { label: str
       show(fa.orphans, '기록 없는 파일');
       show(fa.missing, '파일 없는 기록');
       if (fa.foreign) rows.push(['(형식 밖)', `${fa.foreign}개 — 이 앱이 만들지 않은 이름의 파일이에요`]);
-      if (fa.truncated) rows.push(['⚠', '사진이 많아 목록을 다 보지 못했어요 — 위 개수는 확인한 범위까지입니다']);
+      if (fa.truncated) rows.push(['⚠', '파일이 많아 목록을 다 보지 못했어요 — 위 개수는 확인한 범위까지입니다']);
       // 「없음」 한 단어로 두지 않는다 — **무엇이 없는지**를 말한다.
       return table(rows, `짝이 안 맞는 것이 없어요 — 파일 ${fa.files}개와 기록 ${fa.rows}개가 모두 1:1로 맞습니다`);
     },
   };
+}
+
+/**
+ * **파일 대조 지표를 만드는 한 곳.** 사진·소리가 같은 규율을 지나게 한다(§7 2층).
+ *
+ * 왜 함수로 뽑았나(2026-07-27): 소리가 서버로 가면서 대조 대상이 둘이 됐다. 이 80줄을 손으로
+ * 한 번 더 쓰면 그 순간 드리프트가 시작된다 — 이 저장소가 이미 세 번 겪은 모양이다(§7 머리말).
+ * 지금은 `noun`만 다르고 판정·분류·문장 구조는 **구조적으로 같을 수밖에 없다.**
+ *
+ * 사용자에게 나가는 문장을 만드는 자리이므로 **순수 함수**로 둔다(§10 ③ — M-0022가 정확히
+ * 여기서 났다: 자료구조는 옳았고 화면 문장만 틀렸는데 유닛 15건이 전부 통과했다).
+ */
+export function fileAuditMetrics(i: {
+  /** 사용자에게 보일 종류 이름(「사진」·「소리」). 라벨·설명 문장이 전부 이걸 쓴다. */
+  noun: string;
+  fa: MediaFileAudit | null;
+  note: string | null;
+  serverPurged: string[];
+  serverTombstoned: string[];
+  restorePending: ReadonlySet<string>;
+}): { metrics: Metric[]; leftover: string[]; clearable: string[]; restoring: number } {
+  const { noun, fa } = i;
+  if (!fa) {
+    // 못 본 것을 정상으로 반올림하지 않는다(비타협 원칙 #4).
+    return {
+      metrics: [
+        {
+          label: `${noun} 파일 대조`,
+          actual: '확인 못 함',
+          expected: '기록과 파일이 1:1',
+          level: 'unknown',
+          meaning: i.note ?? `서버 ${noun} 목록을 물어보지 못했어요`,
+        },
+      ],
+      leftover: [],
+      clearable: [],
+      restoring: 0,
+    };
+  }
+
+  // 「기록 없는 파일」을 **두 갈래로 쪼갠다**(2026-07-26 사용자 실기기 — 서버 행이 전부 0인데
+  // R2에 파일 3개가 남았다). 영구삭제 시 바이트 삭제는 **최선노력**이라 실패해도 op을 지운다
+  // → 재시도 기회가 없다. 그래서 잔재가 생긴다. 성격이 정반대인 둘이 한 숫자에 섞여 있었다:
+  //  · 원장에 있는 id → 영구삭제한 것의 잔재. **자료는 이미 없다.** 치우면 된다(todo).
+  //  · 원장에 없는 id → **설명할 수 없는 파일.** 올리다 기록이 안 만들어졌다면 이 파일이
+  //    그 기억의 **마지막 사본**이다. 지우면 기억을 잃는다(problem).
+  const { leftover, restoring, unexplained } = classifyOrphanFiles(fa.orphans, i.serverPurged, i.restorePending);
+
+  // 「파일이 없는 기록」도 **두 갈래**다. 사용자가 해야 할 일이 정반대다:
+  //  · 휴지통에 있으면서 파일 없음 → **자료가 이미 없다.** 기록 줄만 정리하면 된다.
+  //  · 활성인데 파일 없음 → **기억 손실 위험.** 지우면 안 되고, 사본을 가진 기기가 올려야 한다.
+  const deadIds = new Set(i.serverTombstoned);
+  const clearable = fa.truncated ? [] : fa.missing.filter((id) => deadIds.has(id));
+  const atRisk = fa.truncated ? [] : fa.missing.filter((id) => !deadIds.has(id));
+
+  const metrics: Metric[] = [
+    {
+      label: `영구삭제 후 남은 ${noun} 파일`,
+      actual: `${leftover.length}개`,
+      expected: '0개',
+      // '문제'가 아니라 '할 일'이다 — 자료는 이미 없고 바이트만 남았다. 겁줄 일이 아니다(§5.10).
+      level: leftover.length ? 'todo' : 'ok',
+      ...(leftover.length
+        ? { meaning: `영구삭제할 때 파일 지우기가 실패해 바이트만 남았어요. 기억은 이미 지워졌고 용량만 차지합니다 — 아래 [남은 파일 정리]로 치울 수 있어요.` }
+        : {}),
+    },
+    {
+      label: `설명할 수 없는 ${noun} 파일`,
+      actual: `${unexplained.length}개`,
+      expected: '0개',
+      level: unexplained.length ? 'problem' : 'ok',
+      ...(unexplained.length
+        ? { meaning: `기록도 없고 영구삭제한 적도 없는 파일이에요. 올리다 기록이 안 만들어졌다면 **이 파일이 그 ${noun}의 마지막 사본**일 수 있습니다 — 앱이 자동으로 지우지 않습니다.` }
+        : {}),
+    },
+    {
+      label: `${noun} 파일이 사라진 기록`,
+      actual: fa.truncated ? '확인 못 함' : `${atRisk.length}개`,
+      expected: '0개',
+      // 목록이 잘렸으면 "없다"고 말할 수 없다 — 뒤쪽 페이지에 있을 수 있다.
+      level: fa.truncated ? 'unknown' : atRisk.length ? 'problem' : 'ok',
+      ...(fa.truncated
+        ? { meaning: `파일이 너무 많아 목록을 다 보지 못했어요(${fa.files}개까지 확인). 이 판정은 보류합니다.` }
+        : atRisk.length
+          ? { meaning: `살아 있는 ${noun}인데 서버에 파일이 없어요. **지우지 마세요** — 사본을 가진 기기에서 동기화하면 다시 올라갑니다.` }
+          : {}),
+    },
+    {
+      label: `지운 ${noun}의 남은 기록`,
+      actual: fa.truncated ? '확인 못 함' : `${clearable.length}개`,
+      expected: '0개',
+      // '문제'가 아니라 '할 일'이다 — 자료는 이미 없고 기록 줄만 남았다.
+      level: fa.truncated ? 'unknown' : clearable.length ? 'todo' : 'ok',
+      ...(clearable.length
+        ? { meaning: `이미 지운 ${noun}의 기록 줄만 서버에 남아 있어요. ${noun} 자체는 없습니다 — 아래 [지운 ${noun} 기록 정리]로 치울 수 있어요.` }
+        : {}),
+    },
+  ];
+  return { metrics, leftover, clearable, restoring: restoring.length };
 }
 
 export async function storeStateProbe(): Promise<Verdict> {
@@ -955,92 +1086,37 @@ export async function storeStateProbe(): Promise<Verdict> {
   // 개수 대조와 파일 대조를 **한 배열에 담되 경계를 기억한다** — 판정 문장이 둘을 구분해야 한다.
   const metrics: Metric[] = [...countMetrics];
 
-  // ── 사진 파일 대조 ──────────────────────────────────────────────
+  // ── 파일 대조(사진·소리) ────────────────────────────────────────
   // 두 방향을 **한 숫자로 합치지 않는다.** 사용자가 할 일이 정반대이기 때문이다
   // (진단 §4의 "대기 중인 작업 3건"이 정확히 그 실수였다).
-  const fa = cmp.fileAudit;
-  let clearableIds: string[] = [];
-  /** 원장에 있는(= 자료가 이미 없는) 고아 파일 id — 치워도 되는 것만 여기 담긴다. */
-  let leftoverFileIds: string[] = [];
-  /** 되살리는 중이라 **지키는** 사진 파일 수. 화면이 "왜 안 치우는지"를 말할 수 있어야 한다. */
-  let restoringFiles = 0;
-  if (!fa) {
-    // 못 본 것을 정상으로 반올림하지 않는다(비타협 원칙 #4).
-    metrics.push({
-      label: '사진 파일 대조',
-      actual: '확인 못 함',
-      expected: '기록과 파일이 1:1',
-      level: 'unknown',
-      meaning: cmp.fileAuditNote ?? '서버 사진 목록을 물어보지 못했어요',
-    });
-  } else {
-    // 「기록 없는 사진 파일」도 **두 갈래로 쪼갠다**(2026-07-26 사용자 실기기 — 서버 행이
-    // 전부 0인데 R2에 파일 3개가 남았다). 영구삭제 시 바이트 삭제는 **최선노력**이라
-    // 실패해도 op을 지운다 → 재시도 기회가 없다. 그래서 잔재가 생긴다.
-    //
-    // 성격이 정반대인 둘이 한 숫자에 섞여 있었다 — 「사진 파일이 사라진 기록」을 쪼갠 것과
-    // **같은 근본형**이다(§7 대칭):
-    //  · 원장에 있는 id → 영구삭제한 사진의 잔재. **자료는 이미 없다.** 치우면 된다(todo).
-    //  · 원장에 없는 id → **설명할 수 없는 파일.** 업로드는 됐는데 기록이 안 만들어졌을 수
-    //    있고, 그러면 이 파일이 그 사진의 **마지막 사본**이다. 지우면 기억을 잃는다(problem).
-    const { leftover, restoring, unexplained } = classifyOrphanFiles(fa.orphans, cmp.serverPurged, restorePending);
-    leftoverFileIds = leftover;
-    restoringFiles = restoring.length;
-
-    metrics.push({
-      label: '영구삭제 후 남은 사진 파일',
-      actual: `${leftoverFileIds.length}개`,
-      expected: '0개',
-      // '문제'가 아니라 '할 일'이다 — 자료는 이미 없고 바이트만 남았다. 겁줄 일이 아니다(§5.10).
-      level: leftoverFileIds.length ? 'todo' : 'ok',
-      ...(leftoverFileIds.length
-        ? { meaning: '영구삭제할 때 파일 지우기가 실패해 바이트만 남았어요. 기억은 이미 지워졌고 용량만 차지합니다 — 아래 [남은 사진 파일 정리]로 치울 수 있어요.' }
-        : {}),
-    });
-
-    metrics.push({
-      label: '설명할 수 없는 사진 파일',
-      actual: `${unexplained.length}개`,
-      expected: '0개',
-      level: unexplained.length ? 'problem' : 'ok',
-      ...(unexplained.length
-        ? { meaning: '기록도 없고 영구삭제한 적도 없는 파일이에요. 올리다 기록이 안 만들어졌다면 **이 파일이 그 사진의 마지막 사본**일 수 있습니다 — 앱이 자동으로 지우지 않습니다.' }
-        : {}),
-    });
-    // 「파일이 없는 사진 기록」을 **두 갈래로 쪼갠다**(2026-07-26 사용자 실기기에서 배웠다).
-    // 한 숫자에 섞으면 성격이 정반대인 둘이 같은 줄에 온다:
-    //  · 휴지통에 있으면서 파일 없음 → **자료가 이미 없다.** 기록만 남았으니 정리하면 된다.
-    //  · 활성인데 파일 없음 → **기억 손실 위험.** 지우면 안 되고, 사본을 가진 기기가 올려야 한다.
-    // 사용자가 해야 할 일이 정반대인데 예전엔 "파일이 없는 사진 기록 2개"로 뭉뚱그렸다.
-    const deadIds = new Set(cmp.serverTombstoned);
-    const clearable = fa.truncated ? [] : fa.missing.filter((id) => deadIds.has(id));
-    clearableIds = clearable;
-    const atRisk = fa.truncated ? [] : fa.missing.filter((id) => !deadIds.has(id));
-
-    metrics.push({
-      label: '사진 파일이 사라진 기록',
-      actual: fa.truncated ? '확인 못 함' : `${atRisk.length}개`,
-      expected: '0개',
-      // 목록이 잘렸으면 "없다"고 말할 수 없다 — 뒤쪽 페이지에 있을 수 있다.
-      level: fa.truncated ? 'unknown' : atRisk.length ? 'problem' : 'ok',
-      ...(fa.truncated
-        ? { meaning: `사진이 너무 많아 목록을 다 보지 못했어요(${fa.files}개까지 확인). 이 판정은 보류합니다.` }
-        : atRisk.length
-          ? { meaning: '살아 있는 사진인데 서버에 파일이 없어요. **지우지 마세요** — 사본을 가진 기기에서 동기화하면 다시 올라갑니다.' }
-          : {}),
-    });
-
-    metrics.push({
-      label: '지운 사진의 남은 기록',
-      actual: fa.truncated ? '확인 못 함' : `${clearable.length}개`,
-      expected: '0개',
-      // '문제'가 아니라 '할 일'이다 — 자료는 이미 없고 기록 줄만 남았다. 겁줄 일이 아니다.
-      level: fa.truncated ? 'unknown' : clearable.length ? 'todo' : 'ok',
-      ...(clearable.length
-        ? { meaning: '이미 지운 사진의 기록 줄만 서버에 남아 있어요. 사진 자체는 없습니다 — 아래 [지운 사진 기록 정리]로 치울 수 있어요.' }
-        : {}),
-    });
-  }
+  //
+  // 🔴 종류도 합치지 않는다(2026-07-27). 사진과 소리는 **같은 폴더**에 살지만 대조 상대가
+  //    다르다 — 섞으면 멀쩡한 소리가 전부 「기록 없는 사진 파일」이 되고 화면은 그걸 치우라고
+  //    권한다. 대신 **판정 규칙은 한 곳**(`fileAuditMetrics`)에 두어, 소리가 사진의 규율을
+  //    자동으로 물려받게 한다(§7 2층 — 다음 형제가 자동으로 따라오는가).
+  const audit = fileAuditMetrics({
+    noun: '사진',
+    fa: cmp.fileAudit,
+    note: cmp.fileAuditNote,
+    serverPurged: cmp.serverPurged,
+    serverTombstoned: cmp.serverTombstoned,
+    restorePending,
+  });
+  const audioAudit = fileAuditMetrics({
+    noun: '소리',
+    fa: cmp.audioAudit,
+    note: cmp.audioAuditNote,
+    serverPurged: cmp.serverPurged,
+    serverTombstoned: cmp.serverTombstoned,
+    restorePending,
+  });
+  metrics.push(...audit.metrics, ...audioAudit.metrics);
+  // 치우기는 **id로** 하고 그 경로는 종류를 가리지 않는다(R2 목록에서 키를 찾아 지운다).
+  // 그래서 잔재 목록은 합친다 — 버튼이 둘일 이유가 없다.
+  const leftoverFileIds = [...audit.leftover, ...audioAudit.leftover];
+  const clearableIds = audit.clearable;
+  const clearableAudioIds = audioAudit.clearable;
+  const restoringFiles = audit.restoring + audioAudit.restoring;
 
   // ── 앱이 관리하지 않는 항목 ────────────────────────────────────────
   // 왜(2026-07-26 사용자 *"니가 객체목록을 보게 하려면 내가 어케 해야해?"* — 스크린샷을 수백 장
@@ -1152,7 +1228,7 @@ export async function storeStateProbe(): Promise<Verdict> {
           // 이걸 그냥 "0대"로 두면 사용자가 연동이 끊겼다고 오해한다(§5.9 — 말할 수 있는 것만).
           : '기기 이름은 무언가를 저장·수정해 서버로 올릴 때 찍혀요. 아직 그 뒤로 올린 것이 없습니다.',
     metrics,
-    actions: storeActions({ c, cmp, level, stranded, blocked, leftoverFileIds, clearableIds }),
+    actions: storeActions({ c, cmp, level, stranded, blocked, leftoverFileIds, clearableIds, clearableAudioIds }),
     evidence: [
       {
         // 사용자가 Supabase·R2를 직접 열어 "안 지워졌다"고 판단하던 자리(2026-07-26).
@@ -1169,7 +1245,10 @@ export async function storeStateProbe(): Promise<Verdict> {
             ['사진 파일은?', '영구삭제 시점에 서버 사진 파일도 함께 지웁니다(위 개수에 안 잡힙니다).'],
           ], '서버에 남은 표식이 없어요'),
       },
-      ...(fa ? [fileAuditEvidence(fa, cmp.bytes)] : []),
+      ...(cmp.fileAudit ? [fileAuditEvidence('사진', cmp.fileAudit, cmp.bytes)] : []),
+      // 소리는 **바이트 합계를 다시 말하지 않는다** — 사진과 한 버킷을 쓰므로 `cmp.bytes`가
+      // 이미 둘을 합친 값이다. 여기서 또 붙이면 사용자가 두 배로 읽는다(§8 — 지표엔 기준이 필요하다).
+      ...(cmp.audioAudit ? [fileAuditEvidence('소리', cmp.audioAudit, null)] : []),
       {
         label: `내 기기들 ${cmp.devices.length}대`,
         build: () =>

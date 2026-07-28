@@ -242,60 +242,55 @@ pushUnpurges → pushPending(trips) → pushPendingMoments
 
 ---
 
-## 5. 지금 하던 일 — 오디오 서버 동기화 (이어서 할 작업)
+## 5. 오디오 서버 동기화 — **완료**(v1.20, 2026-07-28)
+
+> ⚠️ 이 절은 2026-07-27에 *"이어서 할 작업"*으로 쓰였다. 2026-07-28에 **끝났다.**
+> 무엇을 어떻게 했는지를 남긴다 — 다음 도메인(예: 영상)이 같은 길을 갈 때 그대로 따라오도록.
 
 ### 배경
 
-오디오 노트(순간에 붙이는 최대 60초 녹음)는 v1.14에서 **로컬 전용**으로 태어났다.
-사용자가 R2 화면을 열어보고 발견했다: *"해당 음성이 r2가 아닌 다른 곳에 저장되고 있는건가요?"*
+오디오 노트는 v1.14에서 **로컬 전용**으로 태어났다. 사용자가 R2 화면을 열어보고 발견했다:
+*"해당 음성이 r2가 아닌 다른 곳에 저장되고 있는건가요?"* 그리고 결정했다 —
+**"당연히 서버동기화를 진행해야죠. 사진과 동일하게."**
 
-그리고 결정했다: **"당연히 서버동기화를 진행해야죠. 사진과 동일하게."**
+핵심은 이것이다: **`localOnlyReason`은 §7이 요구하는 형식을 갖춘 예외였다.** 게이트도
+자가점검도 통과했다. 그런데 그 예외의 값은 사용자에게 *"다른 기기엔 소리만 없다"*였다.
+**적는 것은 면허가 아니라 빚 증서다**(§7 3항).
 
-### 완료된 것
+### 실제로 한 8단계 (`sync-offline-dev` §2와 같은 순서)
 
-- ✅ `supabase/migrations/0019_journey_audio.sql` — 작성 완료
-- ✅ **공격검사 7/7 통과** — `BEGIN … ROLLBACK` 안에서 마이그레이션을 먼저 돌리고
-  `set local role authenticated`로 검증(격리·강탈·위조·H-02·초대제·좀비차단·진짜복원)
-- ✅ 프로덕션 무변경 확인(`audio` 테이블 없음, media 9 / moments 1 / trips 1 그대로)
-- ✅ **미적용** — 프로덕션에 반영하지 않았다
+1. ✅ `supabase/migrations/0019_journey_audio.sql` — 공격검사 7/7 → **적용**
+2. ✅ `src/domain/audio/rowmap.ts` — `AudioRow`/`toAudioRow`/`fromAudioRow`/`audioStoragePath`
+   · 모든 `*_at`이 `isoInstant()`를 지난다(M-0034 — `recorded_at`이 사진의 `taken_at`과 같은 자리)
+3. ✅ `src/services/audio.ts` — 생성·삭제·복원 셋 다 **엔티티+op 한 트랜잭션**(M-0033)
+4. ✅ cascade — `moments.ts`·`trips.ts`의 `ChildEntity`에 `'audio'` 추가(삭제·복원 **양쪽**)
+5. ✅ `purge.ts` — `LOCAL_ONLY_DOMAINS` **삭제**, 소리가 `PURGE_DOMAINS`의 다섯 번째로.
+   그 결과 `storeState`·`diagnostics`·`pushPurges`·`applyPurgedLedger`가 **자동으로** 따라왔다
+   (`Record<PurgeDomain, …>`들이 컴파일 오류로 데려왔다 — §7 2층이 실제로 일한 자리)
+6. ✅ `sync.ts` — `AudioRemote`·`pushPendingAudio`·`pullAudio`, `runSync`에서 **순간 뒤**(복합 FK).
+   `pushPurges`의 `familyMediaPaths`/`mediaPath` → **`familyBytePaths`/`bytePath`**
+   (등록부 `hasRemoteBytes`를 돈다 — 안 바꿨으면 여행 영구삭제 때 소리 파일만 R2에 남았다)
+7. ✅ `media-sign` **v6** — `safeRest`가 확장자 목록(`KNOWN_EXT_RE`)을 받고,
+   `list`가 **사진 id와 소리 id를 나눠** 반환. `EXPECTED_FN_VERSION` 6
+8. ✅ **백필** — `backfillAudioOps()` + `bj.repair.audioSync.v1`
 
-### 남은 것 (순서대로 — `sync-offline-dev` §2의 8단계를 따른다)
+### 🔴 놓칠 뻔한 것 셋 (다음 도메인도 여기서 걸린다)
 
-1. **`src/domain/audio/rowmap.ts`** (신규 생성) — `AudioRow` + `toAudioRow`/`fromAudioRow` + 왕복 유닛
-   - 🔴 `fromAudioRow`는 **`isoInstant()`를 통과**하고 반환형은 `WithInstants<T>`여야 한다
-     (M-0034 — 서버는 `…48.34+00:00`, 로컬은 `…48.340Z`로 같은 순간을 다르게 적는다)
-2. **`src/services/audio.ts`** — 모든 mutation에 **큐 op enqueue**(insert/update/delete)
-   - 엔티티와 op은 **한 트랜잭션**(불변식 #1 — M-0033이 이걸 어겨서 났다)
-3. **cascade 전파** — `moments.ts`·`trips.ts`에서 소리에도 큐 op를 만든다
-   (지금은 "서버로 안 가서" 안 만든다고 주석에 적혀 있다 — 그 주석도 함께 고칠 것)
-4. **`purge.ts`** — 소리를 `LOCAL_ONLY_DOMAINS`에서 **`PURGE_DOMAINS`로 승격**
-   (`remoteTable: 'audio'`). 그러면 `storeState`·`diagnostics`·`pushPurges`가 자동으로 따라온다
-5. **`src/services/sync.ts`** — `AudioRemote` 포트 + `pushPendingAudio` + `pullAudio`
-   - `runSync`에서 **순간 다음**(사진·비용과 같은 층)
-   - 빈-클라우드 가드 · read-back 후에만 큐 op 제거
-6. **R2 바이트** — `media-sign` **v6**: `safeRest()`가 지금 **`.webp`만** 받는다.
-   오디오 확장자(`.webm`/`.m4a`/`.ogg`/`.mp4`) 허용 + `mediaIdOfKey`도 함께 + `FN_VERSION` 6
-   + 앱의 `EXPECTED_FN_VERSION` 6 (`src/ui/panels/diagnostics.ts`)
-   - `naming.ts`에 `audioObjectName`(32자 전체 id — `mediaObjectName`과 같은 규율) 추가
-7. **게이트 정리**
-   - `scripts/check-domain-symmetry.mjs`의 `NO_OP_REQUIRED`에서 `softDeleteAudio`·
-     `restoreAudio`·`addAudioToMoment` **제거**(이제 op를 만들어야 하므로)
-   - `scripts/check-schema-parity.mjs`의 `ROW_TO_TABLE`에 `AudioRow → journey.audio` 추가
-     ← **잊으면 게이트가 이 엔티티를 안 지킨다**
-   - `src/app/blueprint.ts`에서 `localOnlyReason` 제거 + `hasRowmap`/`hasSync` 반영
-8. 🔴 **백필(backfill)** — **이게 가장 놓치기 쉽고 가장 중요하다**
+1. **백필** — 옛 녹음에는 큐 op가 **존재한 적이 없다.** 코드만 고치면 그 행들은 영원히
+   로컬에 남고 **앱은 조용하다**(M-0023). §9 4단계의 질문이 이것이다:
+   *"지금 데이터에 옛 방식으로 만들어진 것이 있는가? 있으면 누가 데려오는가?"*
+2. **목록을 합치면 안 된다** — 사진과 소리는 **같은 R2 폴더**에 산다. 함수가 한 배열로
+   주면 멀쩡한 소리가 전부 「기록 없는 사진 파일」이 되고 화면은 그걸 **치우라고 권한다.**
+3. **`backup.ts` 복원 경로** — 형제 넷은 `enqueue()`를 지나는데 소리만 안 지나고 있었다.
+   그대로 뒀으면 **복원한 녹음이 이 기기에만 남는다.** 새 규율은 옛 자리를 지나가지 않는다.
 
-### 🔴 백필을 반드시 하라 (안 하면 사용자가 조용히 잃는다)
+### 게이트 정리(같이 해야 끝난다)
 
-**이미 녹음된 소리들은 큐 op가 애초에 존재하지 않는다.** 그때는 op를 안 만드는 것이
-설계였다. 그래서 동기화를 붙여도 **새로 녹음한 것만 올라가고 기존 것은 영영 안 올라간다.**
-사용자가 아무리 동기화를 눌러도 그렇다.
-
-M-0023이 정확히 이 형태였다 — *사용자는 "됐다"고 믿고, 서버는 모르고, 앱은 아무 말도 안 한다.*
-
-- 일회성 백필: `localAudio`에서 op 없는 행을 찾아 `insert` op를 만든다(멱등)
-- **그 어긋남을 진단 지표로**: 「로컬에 있는데 서버에 없는 소리」. 정적 게이트는 이 부류를
-  원리적으로 못 잡는다(§10 ②)
+- `check-domain-symmetry`의 `NO_OP_REQUIRED`에서 오디오 3건 **제거**, `pushPendingAudio` 추가
+- `check-schema-parity`의 `ROW_TO_TABLE`에 `AudioRow → journey.audio`
+- `check-verdict-symmetry`의 순서 계약을 새 포트 이름으로(주입해 RED 확인)
+- `check-fn-size` 래칫 하향(`storeStateProbe` 327 → 275 — 대조 지표를 함수로 뽑았다)
+- `blueprint.ts`의 `localOnlyReason` **필드 제거** + 관련 유닛 케이스 뒤집기
 
 ### 배포 순서 — 이것도 계약이다
 
@@ -305,9 +300,9 @@ M-0023이 정확히 이 형태였다 — *사용자는 "됐다"고 믿고, 서�
 ③ 앱                 (Pages)
 ```
 
-**함수 먼저, 앱 나중.** 새 앱 + 옛 함수는 업로드가 **통째로 실패**한다. 옛 앱 + 새 함수는
-정상이다(새 함수가 두 형식을 다 받는다). 서비스워커가 옛 앱을 잠시 살려 두므로
-**새 함수는 한동안 옛 형식도 받아야 한다.**
+**함수 먼저, 앱 나중.** 새 앱 + 옛 함수는 업로드가 **통째로 실패**한다(`safeRest`가 `.webm`을
+거부 → 400 → `permanent_failed`로 박힌다). 옛 앱 + 새 함수는 정상이다 — 새 함수가 두 형식을
+다 받는다. 서비스워커가 옛 앱을 잠시 살려 두므로 **새 함수는 한동안 옛 형식도 받아야 한다.**
 
 배포 후 **`get_edge_function`으로 소스를 되받아 대조**한다 — 200 응답은 완료가 아니다.
 

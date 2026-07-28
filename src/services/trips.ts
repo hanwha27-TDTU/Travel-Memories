@@ -140,11 +140,19 @@ export interface TripChildren {
   expenseIds: string[];
   /**
    * 오디오 노트. **형제에게는 대칭과 공정이 기본값이다**(CLAUDE.md §7, 2026-07-27) —
-   * 서버로 안 간다는 사정은 큐 op를 안 만드는 것까지이고, **함께 지워지고 함께 살아나는
-   * 것은 예외 없이 같다.** 이 필드가 없던 동안 순간·여행을 지워도 소리만 활성으로 남았다.
+   * 함께 지워지고 함께 살아난다. 이 필드가 없던 동안 순간·여행을 지워도 소리만 활성으로 남았다.
+   *
+   * 2026-07-27~ 소리도 **서버로 간다**. 그래서 마지막 남았던 예외(큐 op를 안 만든다)도
+   * 사라졌다 — 아래 `childOp`가 네 종류를 **같은 자리에서** 만든다.
    */
   audioIds: string[];
 }
+
+/**
+ * cascade가 다루는 자식 종류. **여기 한 곳에 적는다** — 삭제·복원 두 `childOp`가 같은 타입을
+ * 받으므로, 종류를 하나 더하면 두 곳이 함께 컴파일러의 감시를 받는다(§7 2층).
+ */
+type ChildEntity = 'moment' | 'media' | 'expense' | 'audio';
 
 /**
  * 여행 삭제 — 하드 삭제 금지(§0): deletedAt tombstone. 순간·사진·비용·소리까지 같은 트랜잭션에서
@@ -194,7 +202,7 @@ export async function softDeleteTripLocalFirst(id: string): Promise<TripChildren
 
   // 자식 op는 **tombstone하는 종류 전부**에 대해 만든다. 하나라도 빠지면 그 종류만 서버에
   // 활성으로 남아 다른 기기에서 되살아나고(사진은 R2 객체까지 잔류) 원인이 보이지 않는다.
-  const childOp = (entityType: 'moment' | 'media' | 'expense', entityId: string): SyncQueueItem => ({
+  const childOp = (entityType: ChildEntity, entityId: string): SyncQueueItem => ({
     operationId: uuid(),
     entityType,
     entityId,
@@ -208,6 +216,7 @@ export async function softDeleteTripLocalFirst(id: string): Promise<TripChildren
     ...moments.map((m) => childOp('moment', m.id)),
     ...media.map((m) => childOp('media', m.id)),
     ...expenses.map((e) => childOp('expense', e.id)),
+    ...audio.map((a) => childOp('audio', a.id)),
   ];
 
   // 표 6개는 Dexie의 가변인자 오버로드 한도를 넘어 배열 형태를 쓴다(동작은 같다).
@@ -216,7 +225,7 @@ export async function softDeleteTripLocalFirst(id: string): Promise<TripChildren
     for (const m of moments) await d.localMoments.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now });
     for (const m of media) await d.localMedia.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now });
     for (const e of expenses) await d.localExpenses.put({ ...e, deletedAt: now, version: e.version + 1, updatedAt: now });
-    // 오디오도 형제다 — 함께 사라진다. 큐 op가 없는 것은 서버로 안 가기 때문뿐이다.
+    // 오디오도 형제다 — 함께 사라지고, **서버에도 그 사실이 간다**(위 ops에 audio 포함).
     for (const a of audio) await d.localAudio.put({ ...a, deletedAt: now, version: a.version + 1, updatedAt: now });
     for (const op of ops) await d.syncQueue.add(op);
   });
@@ -245,7 +254,7 @@ export async function restoreTripLocalFirst(id: string, children: TripChildren):
   };
   // 삭제와 **대칭**이어야 한다. 복원 op가 빠지면 서버에는 tombstone이 남아, 다음 pull에서
   // 되살린 것이 도로 지워진다(사용자 눈에는 "복원이 안 되는" 것으로 보인다).
-  const childOp = (entityType: 'moment' | 'media' | 'expense', entityId: string): SyncQueueItem => ({
+  const childOp = (entityType: ChildEntity, entityId: string): SyncQueueItem => ({
     operationId: uuid(),
     entityType,
     entityId,
@@ -259,6 +268,7 @@ export async function restoreTripLocalFirst(id: string, children: TripChildren):
     ...momentIds.map((mid) => childOp('moment', mid)),
     ...mediaIds.map((mid) => childOp('media', mid)),
     ...expenseIds.map((eid) => childOp('expense', eid)),
+    ...audioIds.map((aid) => childOp('audio', aid)),
   ];
 
   // 소리를 되살리려면 `localAudio`도 **트랜잭션 범위 안에** 있어야 한다. 빠지면 Dexie가
@@ -350,16 +360,15 @@ export async function purgeTripPermanently(id: string): Promise<void> {
   const moments = await d.localMoments.where('tripId').equals(id).toArray();
   const media = await d.localMedia.where('tripId').equals(id).toArray();
   const expenses = await d.localExpenses.where('tripId').equals(id).toArray();
-  // 소리도 이 여행의 가족이다. **표식·전파 op는 없지만 바이트는 반드시 사라져야 한다** —
-  // 「이 기기의 저장공간을 실제로 비운다」가 이 함수의 정의이고, 소리는 사진 다음으로 무겁다.
-  // 이걸 빠뜨린 동안, 여행을 영구삭제해도 소리 blob이 IndexedDB에 **영원히 고아로 남았다**
-  // (여행 행이 사라져 어느 화면에서도 닿을 수 없으므로 사용자가 지울 방법도 없었다).
+  // 소리도 이 여행의 가족이다 — 로컬 바이트도, 서버 행도, R2 객체도 함께 사라져야 한다.
+  // (v1.14~v1.19 동안은 표식·전파 op가 없었다. 그때도 로컬 바이트는 지웠는데, 그건
+  //  「이 기기의 저장공간을 실제로 비운다」가 이 함수의 정의이기 때문이다. 이제 서버까지 간다.)
   const audio = await d.localAudio.where('tripId').equals(id).toArray();
 
   // ① 사전 조건: 이 여행 가족에 대기 중인 동기화 작업이 있으면 진행하지 않는다.
   //    (permanent_failed도 포함해 센다 — 실패한 채 남은 것도 "서버에 반영 안 됨"이다.)
-  //    소리 id도 **함께 센다**: 지금은 소리 op가 없어 결과가 같지만, 조건에서 빼두면
-  //    나중에 소리에 op가 생겨도 이 사전조건만 조용히 비게 된다(§7 — 예외는 결과이지 면제가 아니다).
+  //    소리 id도 **함께 센다** — 소리에도 op가 생겼으므로 이 조건은 이제 실제로 일한다.
+  //    (op가 없던 시절에도 여기 세어 두었다: 조건에서 빼면 op가 생겨도 아무도 모른다.)
   const ids = new Set<string>([
     id,
     ...moments.map((m) => m.id),
@@ -378,6 +387,7 @@ export async function purgeTripPermanently(id: string): Promise<void> {
     ...moments.map((m) => ({ id: m.id, domain: 'moment' as const })),
     ...media.map((m) => ({ id: m.id, domain: 'media' as const })),
     ...expenses.map((e) => ({ id: e.id, domain: 'expense' as const })),
+    ...audio.map((a) => ({ id: a.id, domain: 'audio' as const })),
   ];
   const marks: PurgedId[] = purgeMarks(targets, now);
   // ③ **서버에서 실제로 지운다**(ADR-0030) — 서버 행을 하드 삭제하는 작업을 큐에 넣는다.
@@ -400,8 +410,6 @@ export async function purgeTripPermanently(id: string): Promise<void> {
     for (const op of purgeOps) await d.syncQueue.add(op);
     if (media.length) await d.localMedia.bulkDelete(media.map((m) => m.id));
     if (expenses.length) await d.localExpenses.bulkDelete(expenses.map((e) => e.id));
-    // 소리는 `targets`(표식·전파 op)엔 없고 **여기 하드 삭제엔 있다.** 그 비대칭의 이유는
-    // 위 `audio` 선언부에 적혀 있다 — 지울 서버 행이 없을 뿐, 지울 바이트는 있다.
     if (audio.length) await d.localAudio.bulkDelete(audio.map((a) => a.id));
     if (moments.length) await d.localMoments.bulkDelete(moments.map((m) => m.id));
     await d.localTrips.delete(id);

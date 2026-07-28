@@ -22,34 +22,23 @@ export interface SourceDomain {
   readonly localTable?: 'localTrips' | 'localMoments' | 'localMedia' | 'localExpenses' | 'localAudio';
   readonly hasRowmap?: boolean; // src/domain/<key>/rowmap.ts 존재(게이트 검증)
   readonly hasSync?: boolean; // sync.ts에 table push/pull 배선(게이트 검증)
-  /**
-   * **서버에 안 가는 것이 의도인 도메인**의 이유. 있으면 rowmap·sync 부재를 결함으로 세지 않는다.
-   *
-   * 왜 필드가 필요했나(2026-07-27): 오디오 노트는 **구현됐지만** 서버 테이블이 없다(로컬+백업
-   * 두 계층). 그런데 모델에 그걸 표현할 방법이 없어서 자가점검이 「끊긴 배선」이라고 판정했다.
-   * 선택지는 셋이었다 — ①`implemented: false`로 적는다(**거짓말**: 실제로 동작한다)
-   * ②게이트를 느슨하게 한다(**규율이 죽는다**) ③모델을 넓히고 **이유를 강제한다**.
-   * ③을 골랐다: 이유 없는 제외는 결함이라는 §7 규율을 타입으로 만든 것이다.
-   */
-  readonly localOnlyReason?: string;
+  // 🔴 여기 `localOnlyReason?: string`이 있었다(2026-07-27 오전). 오디오가 서버 테이블 없이
+  //    태어나서, 자가점검이 그걸 「끊긴 배선」으로 판정하는 것을 막으려고 **이유를 강제하는**
+  //    필드를 뒀다. 같은 날 오후 사용자가 전제를 없앴고(*"로컬에만 있는 자료는 결함"*), 쓰는
+  //    도메인이 사라졌다. **빈 예외 구멍은 남기지 않는다** — 언젠가 또 채워도 된다는 뜻으로
+  //    읽히기 때문이다. 정말로 서버에 못 가는 도메인이 생기면 그때 §7대로 **설계 단계에서**
+  //    심사하고 이 필드를 다시 만든다(`purge.ts`의 `LOCAL_ONLY_DOMAINS`도 같이 사라졌다).
 }
 
 // 실장 도메인은 게이트가 db.ts·rowmap·sync.ts와 대조한다. 계획 도메인은 로드맵으로 표시(정직).
-/**
- * 오디오 노트가 서버로 가지 않는 이유 — **한 줄 항목 안에 넣을 수 없어 상수로 뺐다.**
- * (`check-blueprint`는 SOURCES를 **한 줄 = 한 항목**으로 읽는다. 여러 줄로 쓰면 파싱이 놓친다.)
- */
-const AUDIO_LOCAL_ONLY =
-  '서버 오디오 테이블이 아직 없다(마이그레이션 + Edge Function 확장자 허용 + FN_VERSION 상향 + 3단 배포가 함께 와야 한다 — VIDEO_PROPOSAL.md §1). 그래서 MVP는 ①로컬 + ③백업 두 계층으로 간다 — 원본 사진과 같은 계약(DISASTER_RECOVERY.md:69).';
-
 export const SOURCES: readonly SourceDomain[] = [
   { key: 'trip', label: '여행', table: 'trips', form: 'table', implemented: true, localTable: 'localTrips', hasRowmap: true, hasSync: true },
   { key: 'moment', label: '순간', table: 'moments', form: 'table', implemented: true, localTable: 'localMoments', hasRowmap: true, hasSync: true },
   { key: 'expense', label: '비용', table: 'expenses', form: 'table', implemented: true, localTable: 'localExpenses', hasRowmap: true, hasSync: true },
   { key: 'media', label: '사진', table: 'media', form: 'bundle', implemented: true, localTable: 'localMedia', hasRowmap: true, hasSync: true },
-  { key: 'audio', label: '소리', table: '(로컬 전용)', form: 'bundle', implemented: true, localTable: 'localAudio', localOnlyReason: AUDIO_LOCAL_ONLY },
-  // 오디오 노트 — **로컬+백업 두 계층**(서버 동기화는 후속). rowmap·sync가 없는 것은 결함이 아니라
-  // 의도이고, 그 이유는 `services/audio.ts` 머리주석과 `VIDEO_PROPOSAL.md` §1에 있다.
+  { key: 'audio', label: '소리', table: 'audio', form: 'bundle', implemented: true, localTable: 'localAudio', hasRowmap: true, hasSync: true },
+  // 오디오 노트 — 2026-07-27부터 **로컬+서버+백업 세 계층**(사진과 같다). 예전엔 여기 `localOnlyReason`이
+  // 붙어 있었다; 그 예외는 사용자 결정으로 사라졌다(마이그레이션 0019 · services/audio.ts 머리주석).
   // 계획(DOMAIN_REGISTRY엔 있으나 아직 미실장 — 정직하게 로드맵으로 표시)
   { key: 'place', label: '장소', table: 'places', form: 'table', implemented: false },
   { key: 'reflection', label: '회고', table: 'reflections', form: 'table', implemented: false },
@@ -113,9 +102,9 @@ export function selfCheck(): SelfCheck {
   const built = SOURCES.filter((s) => s.implemented);
   const fed = (key: string): boolean => SCREENS.some((sc) => sc.feeds.includes(key));
 
-  // 서버로 안 가는 것이 **의도**인 도메인은 rowmap·sync 항목의 분모에서 뺀다.
-  // 빼되 **이유가 있는 것만** 뺀다(`localOnlyReason` — 이유 없는 제외는 결함이다, §7).
-  const synced = built.filter((s) => !s.localOnlyReason);
+  // **실장 도메인은 전부 서버로 간다**(2026-07-27~). 분모에서 빼는 도메인이 없다 —
+  // 예외를 만들려면 그 자리에 이유를 설계해 넣어야 한다(§7).
+  const synced = built;
 
   const groups: CheckGroup[] = [
     { label: '저장형 왕복(rowmap)', got: synced.filter((s) => s.hasRowmap).length, total: synced.length },
@@ -125,8 +114,8 @@ export function selfCheck(): SelfCheck {
 
   const gaps: string[] = [];
   for (const s of built) {
-    if (!s.localOnlyReason && !s.hasRowmap) gaps.push(`${s.label}: 저장형 왕복(rowmap) 없음`);
-    if (!s.localOnlyReason && !s.hasSync) gaps.push(`${s.label}: 동기화 배선 없음`);
+    if (!s.hasRowmap) gaps.push(`${s.label}: 저장형 왕복(rowmap) 없음`);
+    if (!s.hasSync) gaps.push(`${s.label}: 동기화 배선 없음`);
     if (!fed(s.key)) gaps.push(`${s.label}: 어느 화면에도 닿지 않음(끊긴 배선)`);
   }
   const roadmap = SOURCES.filter((s) => !s.implemented).map((s) => s.label);

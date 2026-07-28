@@ -9,18 +9,17 @@ describe('blueprint selfCheck', () => {
     expect(c.score).toBe(100);
     expect(c.got).toBe(c.total);
     // 실장 도메인 수는 **손으로 적지 않는다** — 도메인이 늘 때마다 이 숫자가 낡는다(M-0001).
-    // 대신 관계를 잰다: 실장 도메인은 하나 이상이고, 서버로 안 가는 것은 **이유가 있어야** 한다.
+    // 대신 관계를 잰다: 실장 도메인은 하나 이상이고, **전부 서버로 간다.**
     const built = SOURCES.filter((s) => s.implemented);
     expect(built.length).toBeGreaterThan(0);
+    // 🔴 뒤집힌 케이스(2026-07-27): 예전엔 *"서버 배선이 없으면 `localOnlyReason`이 있어야
+    //    한다"*였다. 그 예외 구멍 자체가 사라졌으므로 이제 **예외 없이** 배선을 요구한다.
+    //    전제가 바뀌면 케이스를 먼저 뒤집는다(§11 ②).
     for (const s of built) {
-      // 서버 배선이 없는데 이유도 없으면 그건 결함이다(§7 — 이유 없는 제외 금지).
-      if (!s.hasSync) expect(s.localOnlyReason, `${s.label}에 localOnlyReason이 없다`).toBeTruthy();
+      expect(s.hasRowmap, `${s.label}에 rowmap이 없다`).toBe(true);
+      expect(s.hasSync, `${s.label}에 동기화 배선이 없다`).toBe(true);
     }
-    // 그룹 분모는 **서버로 가는 도메인 수**다(로컬 전용은 rowmap·sync 분모에서 빠진다).
-    const synced = built.filter((s) => !s.localOnlyReason).length;
-    for (const g of c.groups) {
-      expect(g.total === synced || g.total === built.length).toBe(true);
-    }
+    for (const g of c.groups) expect(g.total).toBe(built.length);
   });
 
   it('로드맵(계획 도메인)은 감점이 아니라 정직한 예정으로 표시', () => {

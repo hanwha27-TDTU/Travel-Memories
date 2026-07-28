@@ -125,12 +125,12 @@ function fakePurge(over: Partial<PurgeRemote> = {}): PurgeRemote & { calls: stri
       calls.push('familyIds');
       return Promise.resolve({ ids: [] });
     },
-    familyMediaPaths: () => {
-      calls.push('familyMediaPaths');
+    familyBytePaths: () => {
+      calls.push('familyBytePaths');
       return Promise.resolve({ paths: [] });
     },
-    mediaPath: () => {
-      calls.push('mediaPath');
+    bytePath: () => {
+      calls.push('bytePath');
       return Promise.resolve({ path: null });
     },
     hardDelete: (domain, id) => {
@@ -197,7 +197,7 @@ describe('② 전파 push — 서버 행을 지우고 원장에 id만 남긴다 
     await pushPurges(remote);
 
     const del = remote.calls.findIndex((c) => c.startsWith('hardDelete'));
-    expect(remote.calls.indexOf('familyMediaPaths')).toBeLessThan(del);
+    expect(remote.calls.indexOf('familyBytePaths')).toBeLessThan(del);
     expect(remote.calls.indexOf('familyIds')).toBeLessThan(del);
   });
 
@@ -282,7 +282,7 @@ describe('② 사진 바이트는 **영구삭제 때만** 지운다 (정책 2026
   // 예전에는 삭제(휴지통행) 즉시 서버 사진을 지워서, 휴지통에 있는 동안 이미 사진이 없었다.
   // 복원은 "사본을 가진 기기가 다시 올리는" 방식이라 그 기기가 없으면 사진이 영영 안 돌아왔다 —
   // 휴지통이 사진에 대해서는 휴지통이 아니었다(비타협 원칙 #1과 어긋남).
-  const withPaths = (paths: string[]): PurgeRemote => fakePurge({ familyMediaPaths: () => Promise.resolve({ paths }) });
+  const withPaths = (paths: string[]): PurgeRemote => fakePurge({ familyBytePaths: () => Promise.resolve({ paths }) });
 
   it('영구삭제 push가 서버에서 받은 경로의 바이트를 지운다', async () => {
     const { tripId } = await deletedTripWithChild();
@@ -408,9 +408,12 @@ describe('③ 서버 원장이 알려준 영구삭제를 이 기기에 적용한
 });
 
 describe('④ 도메인 등록부가 완전한가', () => {
-  it('네 도메인 전부가 등록부에 있다', () => {
+  it('다섯 도메인 전부가 등록부에 있다', () => {
     expect(Object.keys(DOMAIN_PURGE).sort()).toEqual([...PURGE_DOMAINS].sort());
-    expect(PURGE_DOMAINS.length).toBe(4);
+    // 🔴 2026-07-27에 4→5가 됐다(소리가 서버로 간다). 이 숫자를 손으로 적는 이유는
+    //    "도메인이 조용히 사라지는 것"도 결함이기 때문이다 — 전제가 바뀌면 여기를 먼저 고친다.
+    expect(PURGE_DOMAINS.length).toBe(5);
+    expect(PURGE_DOMAINS).toContain('audio');
   });
 
   it('각 도메인이 로컬 테이블과 서버 테이블 이름을 갖는다', () => {

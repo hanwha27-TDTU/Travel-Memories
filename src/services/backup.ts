@@ -121,7 +121,7 @@ export async function importMergeRows(incoming: CollectedRows): Promise<ImportRe
   // 다른 기기·서버에 영영 닿지 않는다(재해 복구의 절반이 빠진 상태). 2026-07-25 감사 F2.
   /** 이번 복원이 되살린 id들 — 서버 원장에서도 빼야 한다(아래 requestUnpurge). */
   const restoredIds = new Set<string>();
-  const enqueue = async (entityType: 'trip' | 'moment' | 'media' | 'expense', row: SyncMeta & { id: string }): Promise<void> => {
+  const enqueue = async (entityType: 'trip' | 'moment' | 'media' | 'expense' | 'audio', row: SyncMeta & { id: string }): Promise<void> => {
     await d.syncQueue.add({
       operationId: crypto.randomUUID(),
       entityType,
@@ -180,12 +180,14 @@ export async function importMergeRows(incoming: CollectedRows): Promise<ImportRe
         ec += 1;
       }
     }
-    // 오디오 노트 — **서버로 안 가므로 op를 만들지 않는다**(그래서 `enqueue`를 쓰지 않는다).
-    // 대신 같은 `mergeDecision`(LWW+tombstone)을 지나 병합 규율은 형제와 동일하다.
-    // 이 비대칭은 의도적이고, 그 이유가 `services/audio.ts` 머리주석과 NO_OP_REQUIRED에 있다.
+    // 오디오 노트 — **형제와 완전히 같다**(2026-07-27~). 예전 이 자리엔 *"서버로 안 가므로
+    // op를 만들지 않는다"*가 적혀 있었다. 소리가 서버로 가게 된 지금 그대로 두면 **복원한
+    // 녹음이 이 기기에만 남고 다른 기기에는 영영 안 간다** — 복원이 반쪽이 되는 자리다.
+    // (이 줄을 고치지 않는 것이 정확히 M-0033의 형태다: 새 규율이 옛 자리를 지나치지 않게.)
     for (const a of rows.audio) {
       if (mergeDecision(await d.localAudio.get(a.id), a) === 'take-server') {
         await d.localAudio.put(a);
+        await enqueue('audio', a);
         ac += 1;
       }
     }

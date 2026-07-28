@@ -41,18 +41,9 @@ const SERVICES = join(ROOT, 'src/services');
  * 적어야 한다.
  */
 const NO_OP_REQUIRED = new Map([
-  [
-    'softDeleteAudio',
-    '오디오는 서버로 가지 않는다(로컬 전용) — 보낼 곳이 없어 op가 무의미하다. ' +
-      '대신 백업이 두 번째 계층을 맡고(backup.ts audio 왕복), 로컬 대칭(cascade·휴지통·복원·' +
-      '영구삭제·용량·무결성)은 형제와 **동일하게** 지킨다. services/audio.ts 머리주석 참고.',
-  ],
-  [
-    'restoreAudio',
-    'softDeleteAudio와 같은 이유. 삭제에 op가 없으므로 복원에도 없다 — 이 둘은 짝이므로 ' +
-      '한쪽만 예외로 두면 그때 진짜 비대칭이 된다.',
-  ],
-  ['addAudioToMoment', 'softDeleteAudio와 같은 이유(로컬 전용). 생성·삭제·복원 셋이 같은 예외를 받는다.'],
+  // 🔴 2026-07-27에 **오디오 3건(addAudioToMoment·softDeleteAudio·restoreAudio)을 지웠다.**
+  //    "서버로 가지 않는다"는 사정이 사라졌기 때문이다(마이그레이션 0019 + sync.ts push/pull).
+  //    예외를 지우는 것이 이 표의 정상 상태다 — 등록은 빚이지 면허가 아니다(§7 3항).
   [
     'ensureTable',
     '환율표는 사용자의 기억이 아니라 **기계 파생 캐시**다(외부 제공자에서 다시 받아올 수 있다). ' +
@@ -72,6 +63,7 @@ const NO_OP_REQUIRED = new Map([
   ['pushPendingMoments', 'pushPending과 같은 이유 — 큐 소비자.'],
   ['pushPendingExpenses', 'pushPending과 같은 이유 — 큐 소비자.'],
   ['pushPendingMedia', 'pushPending과 같은 이유 — 큐 소비자.'],
+  ['pushPendingAudio', 'pushPending과 같은 이유 — 큐 소비자.'],
 ]);
 
 /**

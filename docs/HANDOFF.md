@@ -8,9 +8,9 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.19<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->119<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->55<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.20<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->120<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->56<!--/reg-->개).
 
-> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->19<!--/reg-->개 적용(`supabase/migrations/` 전부).
+> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->20<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
 
 ### 🕐 직전 세션에서 무슨 일이 있었나 (2026-07-27 · 새 AI는 이것부터)
@@ -262,6 +262,56 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0013 · v1.20 · **소리가 서버로 간다** — 마지막 「로컬 전용」을 갚았다 (ADR-0032)
+
+**요청**: 사용자 *"오디오 서버 동기화 진행하자."* (앞선 결정: *"핵심은 모든 기기에서 모든 정보를 확인해야 합니다. 따라서 서버에 올라가는 순간 클라우드가 정본이 되야 합니다."*)
+
+**한 줄**: 오디오 노트가 v1.14부터 지고 있던 빚 — **로컬 전용** — 을 갚았다. 마이그레이션 0019(`journey.audio`) + rowmap + 큐 op + cascade 전파 + push/pull + R2 바이트 + 함수 v6 + **백필**까지 8단계. 형제 넷과 **같은 규율, 하나의 예외도 없이.**
+
+### 왜 이게 단순한 "기능 추가"가 아닌가
+
+`localOnlyReason`은 §7이 요구하는 형식(*이유 있는 예외*)을 **갖추고 있었다.** 그래서 게이트도 통과했고 자가점검도 만점이었다. 그런데 그 예외의 값은 사용자에게 **"다른 기기로 로그인하면 소리만 없다"**였다. §7 3항의 문장이 정확히 이 자리를 가리킨다 — *"아직 못 했다"는 정당한 사정이 될 수 있다. 단, 적어야 한다.* 적는 것은 **면허가 아니라 빚 증서**다.
+
+### 무엇이 바뀌었나 (형제 목록을 두 번 훑었다 — §7)
+
+| 자리 | 예전(로컬 전용) | 지금 |
+|---|---|---|
+| `services/audio.ts` | 큐 op 없음 | **엔티티+op 한 트랜잭션**(M-0033 규율) · 생성·삭제·복원 셋 다 |
+| cascade(`moments`·`trips`) | 소리만 op를 안 만듦 | `ChildEntity`에 `audio` — 삭제·복원 양쪽 |
+| `purge.ts` | `LOCAL_ONLY_DOMAINS = ['audio']` | **삭제.** `PURGE_DOMAINS`의 다섯 번째. `TRASH_DOMAINS = PURGE_DOMAINS` |
+| `trash.ts` | `isLocalOnlyDomain` 분기 | **분기 자체가 사라졌다**(예외가 없으면 분기도 없다) |
+| `sync.ts` | 없음 | `AudioRemote`·`pushPendingAudio`·`pullAudio`(순간 **뒤** — 복합 FK) |
+| `pushPurges` | `familyMediaPaths`·`mediaPath` | **`familyBytePaths`·`bytePath`** — 등록부(`hasRemoteBytes`)를 돈다 |
+| `backup.ts` 복원 | 소리만 op를 안 만듦 | `enqueue('audio', …)` — 복원한 녹음이 서버로도 간다 |
+| `media-sign` | `.webp`만 | **v6** — 확장자 목록 + `list`가 사진/소리 id를 **나눠** 반환 |
+| 진단 | 사진만 대조 | `fileAuditMetrics()` **한 함수**를 사진·소리가 지난다 |
+| `blueprint.ts` | `localOnlyReason` | 필드 **제거**(빈 예외 구멍을 남기지 않는다) |
+
+### 놓칠 뻔한 것 셋 (전부 §9·§7이 데려왔다)
+
+1. **백필** — v1.14~v1.19 녹음에는 큐 op가 **존재한 적이 없다.** 코드만 고치면 그 행들은 영원히 로컬에 남고 앱은 조용하다(M-0023과 같은 형태). `backfillAudioOps()` + `bj.repair.audioSync.v1`.
+2. **목록을 합치면 안 된다** — 사진과 소리는 **같은 폴더**에 산다. 함수가 한 배열로 주면 멀쩡한 소리가 전부 「기록 없는 사진 파일」이 되고, 화면은 그걸 **치우라고 권한다.** 종류는 확장자가 말한다.
+3. **`familyMediaPaths`라는 이름 자체가 결함이 됐다** — 소리가 R2에 바이트를 갖는 순간, 여행을 영구삭제하면 사진 파일만 지워지고 소리 파일은 남는다. 등록부를 도는 형태로 바꿨다.
+
+### 검증
+
+- 유닛 **37건 신설**(`audioRowmap` 19 · `audioServerSync` 18) → 전체 **686건** 그린
+- 기존 케이스 **4건 뒤집음**(§11 ② — "소리는 op를 만들지 않는다"를 정상으로 못박고 있던 것들)
+- **비공허 실증**: tombstone에도 바이트를 올리게 주입 → 해당 케이스만 RED 확인 후 복원
+- 게이트 31종 + 라이브 165건 그린. `check-verdict-symmetry`의 순서 계약도 새 이름으로 갱신(주입 확인)
+
+### 🔴 배포 순서는 계약이다
+
+**마이그레이션 0019 → 함수 v6 → 앱.** 뒤집으면 앱이 없는 표에 upsert하고(400 → `permanent_failed`), 함수가 `.webm`을 거부한다. 되돌리기: `drop table journey.audio cascade;` + syncQueue의 `audio`/`purge:audio` op 비우기.
+
+### 🔴 사용자 확인이 필요한 것
+
+- **다른 기기에서 소리가 들리는가** — 2기기 전파는 이 환경에서 재현할 수 없다(§10의 마지막 층).
+- **옛 녹음이 올라갔는가** — 앱 새로고침 → 동기화 1회 → 「앱 상태 확인」의 **「소리」 줄**에서 `클라우드 N · 이 기기 N`이 같아지는지. 안 맞으면 진단의 [정리 실행].
+- Cloudflare R2에서 여행 폴더 안에 `…webm` 파일이 사진과 나란히 보이는지.
 
 ---
 

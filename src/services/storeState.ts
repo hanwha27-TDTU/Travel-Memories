@@ -63,6 +63,9 @@ export interface StoreComparison {
   fileAudit: MediaFileAudit | null;
   /** 대조를 못 한 이유(사람이 읽는 한 줄). 대조에 성공했으면 null. */
   fileAuditNote: string | null;
+  /** 서버 **소리** 기록↔파일 대조. 사진과 같은 규율 — 못 하면 null('확인 불가'). */
+  audioAudit: MediaFileAudit | null;
+  audioAuditNote: string | null;
   /**
    * **이 기기가 영구삭제했다고 믿는데 서버엔 아직 남아 있는** id들.
    *
@@ -140,7 +143,16 @@ export interface MediaFileAudit {
 
 /** 한 저장소의 목록 응답. */
 export interface Listing {
+  /** 우리 형식의 **사진**(`.webp`) 파일 id들. */
   ids: string[];
+  /**
+   * 우리 형식의 **소리** 파일 id들(`.webm`·`.m4a`·…). 사진과 **같은 폴더**에 살지만
+   * 대조 상대가 다르므로 목록을 나눠 받는다(안 나누면 소리가 「기록 없는 사진 파일」이 된다).
+   *
+   * 옛 함수(v5 이하)는 이 필드를 주지 않는다 → `undefined`. 그때는 **소리 대조를 하지 않는다**
+   * (0으로 반올림하면 "소리 파일이 하나도 없다"는 거짓 판정이 된다 — 비타협 원칙 #4).
+   */
+  audioIds?: string[] | undefined;
   foreign?: number;
   truncated?: boolean;
   /** 내 폴더 **밖**의 최상위 항목 수. `outsideKnown`이 false면 이 값을 쓰지 않는다. */
@@ -168,8 +180,11 @@ export interface Listing {
 export function unionListings(listings: Listing[]): Listing {
   const failed = listings.find((l) => l.error);
   if (failed) return { ids: [], foreign: 0, truncated: false, outside: 0, outsideKnown: false, error: failed.error };
+  // 소리 목록은 **모두가 알려줄 때만** 합친다 — 하나라도 모르면 전체를 모른다(truncated와 같은 규율).
+  const audioKnown = listings.length > 0 && listings.every((l) => l.audioIds !== undefined);
   return {
     ids: [...new Set(listings.flatMap((l) => l.ids))],
+    audioIds: audioKnown ? [...new Set(listings.flatMap((l) => l.audioIds ?? []))] : undefined,
     foreign: listings.reduce((a, l) => a + (l.foreign ?? 0), 0),
     truncated: listings.some((l) => l.truncated === true),
     outside: listings.reduce((a, l) => a + (l.outside ?? 0), 0),
@@ -247,6 +262,15 @@ export interface StoreStatePort {
    * 「사진 파일이 사라진 기록」을 두 갈래로 쪼갠 것과 **같은 규율**이다(§7 대칭).
    */
   purgedLedgerIds(): Promise<string[]>;
+  /**
+   * 저장 경로를 가진 서버 **소리** 기록의 id들 — `mediaRowIds`와 같은 규율(tombstone 포함).
+   *
+   * 왜 따로 세나(§7): 사진 파일과 소리 파일은 **같은 폴더에 나란히** 산다. 한 목록으로 합쳐
+   * 대조하면 "사진 기록이 없는 파일"에 소리 파일이 전부 섞여 들어와 **멀쩡한 소리가
+   * 「기록 없는 파일」로 뜬다** — 그리고 화면은 그걸 치우라고 권한다. 종류가 다르면 대조도
+   * 따로 해야 한다(M-0019의 근본형: 대조 대상을 하나로 가정한 것이 틀렸다).
+   */
+  audioRowIds(): Promise<string[]>;
 }
 
 export function storeStateRemote(client: JourneyClient): StoreStatePort {
@@ -315,6 +339,11 @@ export function storeStateRemote(client: JourneyClient): StoreStatePort {
       if (r.error) throw new Error(`사진 기록 조회 실패: ${r.error.message}`);
       return ((r.data ?? []) as { id: string }[]).map((x) => x.id);
     },
+    async audioRowIds() {
+      const r = await client.from('audio').select('id').not('storage_path', 'is', null);
+      if (r.error) throw new Error(`소리 기록 조회 실패: ${r.error.message}`);
+      return ((r.data ?? []) as { id: string }[]).map((x) => x.id);
+    },
   };
 }
 
@@ -345,21 +374,22 @@ export function foldDevices(rows: { stamp: string; at: string }[], thisId: strin
 type LocalRow = { id: string; deletedAt: string | null };
 
 /**
- * 로컬 4종 행을 **한 번에** 읽는다.
+ * 로컬 5종 행을 **한 번에** 읽는다.
  *
- * 왜 모으나(§7 — 다음 형제가 자동으로 따라오게): 아래 세 지표가 각자 4개 테이블을 손으로
+ * 왜 모으나(§7 — 다음 형제가 자동으로 따라오게): 아래 세 지표가 각자 테이블을 손으로
  * 열거하고 있었다. 도메인이 하나 늘면 세 곳을 다 고쳐야 하고, 한 곳을 빠뜨리면 **그 도메인만
  * 조용히 안 세지는** 형태가 된다 — 이 저장소가 이미 세 번 겪은 그 모양이다.
  */
 async function allLocalRows(): Promise<Record<PurgeDomain, LocalRow[]>> {
   const d = db();
-  const [trip, moment, media, expense] = await Promise.all([
+  const [trip, moment, media, expense, audio] = await Promise.all([
     d.localTrips.toArray(),
     d.localMoments.toArray(),
     d.localMedia.toArray(),
     d.localExpenses.toArray(),
+    d.localAudio.toArray(),
   ]);
-  return { trip, moment, media, expense };
+  return { trip, moment, media, expense, audio };
 }
 
 /** 로컬 활성 개수 — 서버와 **같은 기준**(tombstone 제외)으로 센다. 기준이 다르면 대조가 거짓이 된다. */
@@ -429,6 +459,9 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
   // 파일 대조는 **선택**이다. 포트가 없으면(Supabase Storage 경로 등) 못 한 것이지 정상이 아니다
   // → null로 두고 화면이 '확인 불가'로 말한다. 조회 실패도 같다(모르는 것을 정상으로 반올림하지 않는다).
   let fileAudit: MediaFileAudit | null = null;
+  // 소리 파일 대조 — 사진과 **같은 규율, 다른 목록**. 함수가 소리 목록을 안 주면 null('확인 불가').
+  let audioAudit: MediaFileAudit | null = null;
+  let audioAuditNote: string | null = null;
   let fileAuditNote: string | null = files ? null : '이 기기의 사진 저장소가 R2가 아니라 목록을 물어볼 수 없어요';
   let outside = { count: 0, known: false };
   let bytes = 0;
@@ -436,10 +469,18 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
   let fnVersion = 0;
   if (files) {
     try {
-      const [listing, rowIds] = await Promise.all([files.list(), port.mediaRowIds()]);
-      if (listing.error) fileAuditNote = listing.error;
-      else {
+      const [listing, rowIds, audioIds] = await Promise.all([files.list(), port.mediaRowIds(), port.audioRowIds()]);
+      if (listing.error) {
+        fileAuditNote = listing.error;
+        audioAuditNote = listing.error;
+      } else {
         fileAudit = auditMediaFiles(listing.ids, rowIds, { foreign: listing.foreign ?? 0, truncated: listing.truncated === true });
+        // 🔴 `foreign`은 **사진 쪽에만** 얹는다. 양쪽에 세면 같은 파일을 두 번 세게 된다.
+        if (listing.audioIds === undefined) {
+          audioAuditNote = '서버 함수가 아직 소리 파일 목록을 알려주지 않아요 — 함수를 최신으로 배포하면 대조할 수 있습니다';
+        } else {
+          audioAudit = auditMediaFiles(listing.audioIds, audioIds, { truncated: listing.truncated === true });
+        }
         outside = { count: listing.outside ?? 0, known: listing.outsideKnown === true };
         bytes = listing.bytes ?? 0;
         multipart = listing.multipart ?? { mine: 0, outside: 0, known: false };
@@ -447,10 +488,13 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
       }
     } catch (e) {
       fileAuditNote = (e as Error).message;
+      audioAuditNote = (e as Error).message;
     }
   }
   return {
     counts,
+    audioAudit,
+    audioAuditNote,
     devices,
     lastCloudWriteAt,
     remnants,
@@ -474,4 +518,5 @@ export const DOMAIN_LABEL: Record<PurgeDomain, string> = {
   moment: '순간',
   media: '사진',
   expense: '비용',
+  audio: '소리',
 };

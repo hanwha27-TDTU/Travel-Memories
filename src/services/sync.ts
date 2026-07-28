@@ -4,13 +4,14 @@
 // 순수 결정 로직(sync/merge.ts)을 직접 테스트할 수 있게 한다(LESSONS §6).
 
 import type { Table } from 'dexie';
-import { db, type SyncQueueItem, type LocalMedia, type SyncMeta } from '../offline/db';
+import { db, type SyncQueueItem, type LocalMedia, type LocalAudio, type SyncMeta } from '../offline/db';
 // 시각 표기의 SSOT — rowmap(서버 경계)·백업 복원과 **같은 함수**를 쓴다(§7: 규율은 한 곳에).
 import { withCanonicalStamps } from '../domain/time';
 import { toRow, fromRow, type TripRow } from '../domain/trip/rowmap';
 import { toMomentRow, fromMomentRow, type MomentRow } from '../domain/moment/rowmap';
 import { toExpenseRow, fromExpenseRow, type ExpenseRow } from '../domain/expense/rowmap';
 import { toMediaRow, fromMediaRow, mediaStoragePath, type MediaRow } from '../domain/media/rowmap';
+import { toAudioRow, fromAudioRow, audioStoragePath, type AudioRow } from '../domain/audio/rowmap';
 import { compressForStorage } from '../media/compress';
 import { mergeDecision, isEmptyCloudAnomaly, classifyError, retryDelayMs, isRetryDue } from '../sync/merge';
 import type { JourneyClient } from './supabase/client';
@@ -181,6 +182,55 @@ export function mediaRemote(client: JourneyClient): MediaRemote {
       }
     },
     uploadDisplay: (path, blob) => blobs.uploadDisplay(path, blob),
+    download: (path) => blobs.download(path),
+    remove: (path) => blobs.remove(path),
+  };
+}
+
+/**
+ * 소리 원격 포트 — 메타(journey.audio) + **원본 바이트**(R2).
+ *
+ * 사진과 하나만 다르다: 사진은 표시본만 올리고 원본은 로컬에 남기지만(절약 모드),
+ * 소리는 **원본이 곧 유일본**이라 그것을 올린다. 그래서 `uploadDisplay`가 아니라 `upload`다 —
+ * 이름이 다른 것 자체가 그 차이를 말한다.
+ */
+export interface AudioRemote {
+  upsert(row: AudioRow): Promise<{ error?: string | undefined; status?: number | undefined }>;
+  getById(id: string): Promise<{ data: AudioRow | null; error?: string | undefined; status?: number | undefined }>;
+  listAll(): Promise<{ data: AudioRow[]; error?: string | undefined }>;
+  upload(path: string, blob: Blob, contentType: string): Promise<{ error?: string | undefined; status?: number | undefined }>;
+  download(path: string): Promise<{ data: Blob | null; error?: string | undefined; status?: number | undefined }>;
+  remove(path: string): Promise<{ error?: string | undefined }>;
+}
+
+export function audioRemote(client: JourneyClient): AudioRemote {
+  const blobs = r2BlobStore(client); // 사진과 **같은 버킷·같은 인가 모델**(첫 칸은 검증된 sub)
+  return {
+    async upsert(row) {
+      try {
+        const r = await client.from('audio').upsert(row, { onConflict: 'id' });
+        return { error: r.error?.message, status: r.status };
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+    },
+    async getById(id) {
+      try {
+        const r = await client.from('audio').select('*').eq('id', id).maybeSingle();
+        return { data: (r.data as AudioRow | null) ?? null, error: r.error?.message, status: r.status };
+      } catch (e) {
+        return { data: null, error: (e as Error).message };
+      }
+    },
+    async listAll() {
+      try {
+        const r = await client.from('audio').select('*');
+        return { data: (r.data as AudioRow[] | null) ?? [], error: r.error?.message };
+      } catch (e) {
+        return { data: [], error: (e as Error).message };
+      }
+    },
+    upload: (path, blob, contentType) => blobs.upload(path, blob, contentType),
     download: (path) => blobs.download(path),
     remove: (path) => blobs.remove(path),
   };
@@ -603,8 +653,137 @@ export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; 
 }
 
 /**
+ * 소리 push — 사진과 **같은 순서·같은 규율**이다:
+ * 활성이면 원본 바이트를 올리고 → 메타 upsert → read-back → 서버시각 반영 → 작업 제거.
+ * tombstone이면 업로드 없이 메타만(바이트는 영구삭제 때만 지운다 — `pushPurges`).
+ *
+ * 🔴 확장자를 모르는 형식(`audioStoragePath`가 null)은 **올리지 않고 op을 남긴다.** 지우면
+ * 그 소리는 영영 서버에 못 가면서 아무도 그 사실을 모른다. 남겨 두면 진단의 「서버에 없는
+ * 소리」가 그걸 말한다(모르는 것을 처리한 척하지 않는다 — 비타협 원칙 #4).
+ */
+export async function pushPendingAudio(remote: AudioRemote, userId: string): Promise<{ pushed: number; failed: number }> {
+  const d = db();
+  const items = dueOps(
+    (await d.syncQueue.orderBy('createdAt').toArray()).filter(
+      (q) => q.state === 'local_only' || q.state === 'retryable_failed',
+    ),
+  );
+  let pushed = 0;
+  let failed = 0;
+
+  for (const op of items) {
+    if (op.entityType !== 'audio') continue;
+    const audio = await d.localAudio.get(op.entityId);
+    if (!audio) {
+      await d.syncQueue.delete(op.operationId);
+      continue;
+    }
+    // 경로는 **기억한 것을 쓴다**(사진과 같은 이유 — 제목을 바꿔도 키가 안 움직인다).
+    const trip = await d.localTrips.get(audio.tripId);
+    const path = audio.storagePath ?? audioStoragePath(userId, audio, trip?.title ?? null);
+    if (!path) {
+      await markFail(op, 400); // permanent — 형식이 바뀌지 않는 한 다시 시도해도 같다
+      failed++;
+      continue;
+    }
+    if (audio.deletedAt === null) {
+      const up = await remote.upload(path, audio.blob, audio.mime || 'application/octet-stream');
+      if (up.error) {
+        await markFail(op, up.status);
+        failed++;
+        continue;
+      }
+    }
+    const res = await remote.upsert(toAudioRow(audio, userId, path, deviceStamp()));
+    if (res.error) {
+      await markFail(op, res.status);
+      failed++;
+      continue;
+    }
+    const back = await remote.getById(audio.id);
+    if (back.error || !back.data) {
+      await markFail(op, back.status);
+      failed++;
+      continue;
+    }
+    const server = fromAudioRow(back.data);
+    await d.transaction('rw', d.localAudio, d.syncQueue, async () => {
+      const cur = await d.localAudio.get(audio.id);
+      // 경로도 **같은 커밋에** 기억한다(M-0033 — "곧 이어서 쓸 것"은 없는 것과 같다).
+      if (cur) await d.localAudio.put({ ...cur, storagePath: path, updatedAt: server.updatedAt, version: server.version });
+      await d.syncQueue.delete(op.operationId);
+    });
+    pushed++;
+  }
+  return { pushed, failed };
+}
+
+/**
+ * 소리 pull(비파괴) — 사진과 같은 규율. 서버가 더 최신일 때만 반영하고, tombstone은 로컬
+ * blob을 지우지 않고 `deletedAt`만 세운다(로컬에 없으면 skip). 활성은 바이트를 내려받아
+ * 재구성하되 **다운로드 실패 시 로컬을 그대로 둔다**(비파괴, 불변식 #8).
+ */
+export async function pullAudio(remote: AudioRemote): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
+  const d = db();
+  const res = await remote.listAll();
+  if (res.error) throw new Error(res.error);
+  const rows = res.data;
+
+  const purged = await purgedIdSet();
+  const localActive = (await d.localAudio.toArray()).filter((a) => a.deletedAt === null).length;
+  if (isEmptyCloudAnomaly(rows.length, localActive)) {
+    return { pulled: 0, skippedEmptyCloud: true };
+  }
+
+  let pulled = 0;
+  for (const r of rows) {
+    if (purged.has(r.id)) continue; // 이 기기에서 영구히 치운 것 — 되살리지 않는다
+    const server = fromAudioRow(r);
+    const local = await d.localAudio.get(server.id);
+    if (mergeDecision(local, server) !== 'take-server') {
+      await requeueIfServerStillActive('audio', local, server);
+      continue;
+    }
+    if (server.deletedAt !== null) {
+      // tombstone — blob 파괴 없이 삭제 표시만. 로컬에 없으면 만들 바이트가 없고 필요도 없다.
+      if (local) {
+        await d.localAudio.put({ ...local, deletedAt: server.deletedAt, version: server.version, updatedAt: server.updatedAt });
+        pulled++;
+      }
+      continue;
+    }
+    if (!server.storagePath) continue; // 아직 업로드 전 → 다음 동기화에서
+    // 로컬에 이미 바이트가 있으면 **다시 받지 않는다.** 같은 바이트를 매번 내려받는 것은
+    // 낭비이고(egress), 소리는 편집되지 않으므로 키가 같으면 내용도 같다.
+    let blob = local?.blob;
+    if (!blob || blob.size === 0 || local?.storagePath !== server.storagePath) {
+      const dl = await remote.download(server.storagePath);
+      if (dl.error || !dl.data) continue; // 실패 → 로컬 보존(비파괴), 다음에 재시도
+      blob = dl.data;
+    }
+    const next: LocalAudio = {
+      id: server.id,
+      momentId: server.momentId,
+      tripId: server.tripId,
+      blob,
+      mime: server.mime || local?.mime || 'audio/webm',
+      durationSec: server.durationSec,
+      recordedAt: server.recordedAt,
+      version: server.version,
+      createdAt: server.createdAt,
+      updatedAt: server.updatedAt,
+      deletedAt: null,
+      storagePath: server.storagePath,
+    };
+    await d.localAudio.put(next);
+    pulled++;
+  }
+  return { pulled, skippedEmptyCloud: false };
+}
+
+/**
  * 로그인/온라인 시 전체 동기화. push 먼저(로컬 우선 전송) → pull 병합.
- * push 순서: 여행 → 순간 → 사진·비용(자식의 복합 FK가 서버의 부모 존재를 요구).
+ * push 순서: 여행 → 순간 → 사진·비용·소리(자식의 복합 FK가 서버의 부모 존재를 요구).
  */
 /**
  * 일회성 정합 복구 — cascade op 누락 결함(2026-07-25, `trips.ts`)의 **이미 발생한 피해**를 되돌린다.
@@ -655,6 +834,66 @@ export async function requeueOrphanTombstones(): Promise<{ media: number; expens
 }
 
 /**
+ * **소리를 처음으로 서버에 올려보내기 위한 백필**(2026-07-27, 일회성).
+ *
+ * 왜 필요한가(§9 4단계 — *"옛 방식으로 만들어진 것을 누가 데려오는가?"*): v1.14~v1.19 동안
+ * 만들어진 오디오 노트에는 **큐 op가 애초에 존재한 적이 없다.** 코드에 push/pull을 붙이는
+ * 것만으로는 그 행들이 영원히 로컬에만 남는다 — 앱은 조용하고 사용자는 "소리도 이제 동기화된다"는
+ * 말을 믿는다. M-0023이 정확히 그 형태였다(방식을 바꿨는데 옛것을 아무도 데려오지 않았다).
+ *
+ * 대상은 **큐에 audio op이 없는 모든 로컬 소리 행**이다. tombstone도 포함한다 — 지운 사실도
+ * 서버가 알아야 한다(안 그러면 다른 기기에서 살아 있는 채로 내려온다).
+ *
+ * 안전성: 자료를 바꾸지 않고 큐에만 넣는다. push는 멱등이라 이미 반영된 것을 한 번 더 밀어도
+ * 결과가 같다. 그래서 표식이 사라진 뒤 다시 돌아도 손해가 없다(재업로드 비용뿐이고, 소리는
+ * 60초 상한이라 가볍다).
+ *
+ * @returns 이번에 새로 큐에 넣은 수.
+ */
+export async function backfillAudioOps(): Promise<number> {
+  const d = db();
+  const queued = new Set(
+    (await d.syncQueue.toArray()).filter((q) => q.entityType === 'audio').map((q) => q.entityId),
+  );
+  const now = new Date().toISOString();
+  let added = 0;
+  for (const a of await d.localAudio.toArray()) {
+    if (queued.has(a.id)) continue;
+    await d.syncQueue.add({
+      operationId: crypto.randomUUID(),
+      entityType: 'audio',
+      entityId: a.id,
+      // tombstone이면 'delete', 아니면 'insert' — push는 둘을 같은 upsert로 처리하지만
+      // 큐 화면·진단이 이 값을 사람에게 보여주므로 **사실대로** 적는다.
+      operationType: a.deletedAt === null ? 'insert' : 'delete',
+      state: 'local_only',
+      attempts: 0,
+      createdAt: now,
+    });
+    added++;
+  }
+  return added;
+}
+
+/** 소리 백필 1회 실행 표식. 되돌려야 하면 `.v2`로 올려 전 기기가 한 번 더 돌게 한다. */
+const AUDIO_BACKFILL_KEY = 'bj.repair.audioSync.v1';
+
+async function backfillAudioOnce(): Promise<void> {
+  try {
+    if (localStorage.getItem(AUDIO_BACKFILL_KEY)) return;
+  } catch {
+    return; // localStorage 불가 — 진단의 「서버에 없는 소리」가 대신 말한다.
+  }
+  const n = await backfillAudioOps();
+  if (n) console.info(`소리 동기화 백필: ${n}건을 큐에 넣었어요(로컬에만 있던 녹음).`);
+  try {
+    localStorage.setItem(AUDIO_BACKFILL_KEY, new Date().toISOString());
+  } catch {
+    /* 표식 저장 실패는 무해 — 다음 동기화에서 한 번 더 돌 뿐이고 이 작업은 멱등이다. */
+  }
+}
+
+/**
  * **서버가 아직 살아 있는데 로컬은 지운 상태**면 삭제를 다시 대기열에 올린다.
  *
  * 왜 pull에 두나: pull은 이미 서버 상태를 받아왔으므로 **추가 비용 0으로 정확히** 판정할 수
@@ -666,7 +905,7 @@ export async function requeueOrphanTombstones(): Promise<{ media: number; expens
  * 알 수 없다는 게 뿌리였다 — 서버와 대조하면 그 모호함이 사라진다.
  */
 async function requeueIfServerStillActive(
-  entityType: 'trip' | 'moment' | 'media' | 'expense',
+  entityType: 'trip' | 'moment' | 'media' | 'expense' | 'audio',
   local: { id: string; deletedAt: string | null } | undefined,
   server: { deletedAt: string | null },
 ): Promise<void> {
@@ -746,10 +985,17 @@ export interface PurgeRemote {
    * 로컬이 못 보는 자식은 **서버가 안다.**
    */
   familyIds(tripId: string): Promise<{ ids: string[]; error?: string | undefined }>;
-  /** 그 여행 사진의 서버 경로들. **행을 지우기 전에** 물어야 한다 — 행이 사라지면 경로도 사라진다. */
-  familyMediaPaths(tripId: string): Promise<{ paths: string[]; error?: string | undefined }>;
-  /** 사진 하나의 서버 경로. 위와 같은 이유로 **지우기 전에** 묻는다. */
-  mediaPath(id: string): Promise<{ path: string | null; error?: string | undefined }>;
+  /**
+   * 그 여행에 딸린 **바이트를 가진 모든 자식**의 서버 경로들. **행을 지우기 전에** 물어야
+   * 한다 — 행이 사라지면 경로도 사라진다.
+   *
+   * 🔴 예전엔 `familyMediaPaths`(사진 전용)였다. 소리가 R2로 가면서 그 이름이 곧 결함이 됐다 —
+   * 여행을 영구삭제하면 사진 파일만 지워지고 **소리 파일은 R2에 영영 남는다.** 그래서 등록부
+   * (`DOMAIN_PURGE[d].hasRemoteBytes`)를 도는 형태로 바꿨다: 다음 형제가 자동으로 따라온다(§7).
+   */
+  familyBytePaths(tripId: string): Promise<{ paths: string[]; error?: string | undefined }>;
+  /** 자식 하나의 서버 경로. 위와 같은 이유로 **지우기 전에** 묻는다. */
+  bytePath(domain: PurgeDomain, id: string): Promise<{ path: string | null; error?: string | undefined }>;
   /** 행을 **하드 삭제**한다(§0의 "하드 삭제 없음"에 대한 유일한 예외 — ADR-0030). */
   hardDelete(domain: PurgeDomain, id: string): Promise<{ error?: string | undefined }>;
   /** 그 여행의 자식 행 전부를 하드 삭제한다(등록부를 돌므로 새 도메인이 자동으로 따라온다). */
@@ -831,21 +1077,27 @@ export function purgeRemote(client: JourneyClient): PurgeRemote {
         return { ids: [], error: (e as Error).message };
       }
     },
-    async familyMediaPaths(tripId) {
+    async familyBytePaths(tripId) {
       try {
-        const r = await client.from('media').select('storage_path').eq('trip_id', tripId).not('storage_path', 'is', null);
-        if (r.error) return { paths: [], error: r.error.message };
-        const paths = ((r.data ?? []) as { storage_path: string | null }[])
-          .map((x) => x.storage_path)
-          .filter((p): p is string => Boolean(p));
+        const paths: string[] = [];
+        // 바이트를 가진 도메인 **전부**를 등록부에서 뽑는다 — 손으로 'media'라 적지 않는다.
+        for (const dm of PURGE_DOMAINS.filter((x) => DOMAIN_PURGE[x].hasRemoteBytes)) {
+          const t = DOMAIN_PURGE[dm].remoteTable;
+          const r = await client.from(t).select('storage_path').eq('trip_id', tripId).not('storage_path', 'is', null);
+          if (r.error) return { paths: [], error: `${t}: ${r.error.message}` };
+          for (const x of (r.data ?? []) as { storage_path: string | null }[]) {
+            if (x.storage_path) paths.push(x.storage_path);
+          }
+        }
         return { paths };
       } catch (e) {
         return { paths: [], error: (e as Error).message };
       }
     },
-    async mediaPath(id) {
+    async bytePath(domain, id) {
+      if (!DOMAIN_PURGE[domain].hasRemoteBytes) return { path: null }; // 바이트가 없는 도메인
       try {
-        const r = await client.from('media').select('storage_path').eq('id', id).maybeSingle();
+        const r = await client.from(DOMAIN_PURGE[domain].remoteTable).select('storage_path').eq('id', id).maybeSingle();
         const row = r.data as { storage_path: string | null } | null;
         return { path: row?.storage_path ?? null, error: r.error?.message };
       } catch (e) {
@@ -941,15 +1193,16 @@ export async function pushPurges(remote: PurgeRemote, bytes?: BytesRemote): Prom
         continue;
       }
       ledgerIds.push(...fam.ids);
-      const fp = await remote.familyMediaPaths(op.entityId);
+      const fp = await remote.familyBytePaths(op.entityId);
       if (fp.error) {
         await markFail(op, undefined);
         failed++;
         continue;
       }
       paths.push(...fp.paths);
-    } else if (domain === 'media') {
-      const mp = await remote.mediaPath(op.entityId);
+    } else if (DOMAIN_PURGE[domain].hasRemoteBytes) {
+      // 사진이든 소리든 **바이트를 가진 도메인이면** 경로를 먼저 묻는다(도메인 이름을 적지 않는다).
+      const mp = await remote.bytePath(domain, op.entityId);
       if (mp.error) {
         await markFail(op, undefined);
         failed++;
@@ -1005,13 +1258,13 @@ export async function pushPurges(remote: PurgeRemote, bytes?: BytesRemote): Prom
       }
     }
 
-    // ⑤ **여기가 사진 바이트를 지우는 유일한 자리다**(정책 2026-07-26).
+    // ⑤ **여기가 사진·소리 바이트를 지우는 유일한 자리다**(정책 2026-07-26).
     //    휴지통에 있는 동안은 서버에 남겨 두었다가, 휴지통을 비울 때 지운다 —
     //    그래야 휴지통이 진짜 휴지통이고, 어느 기기에서 복원해도 사진이 돌아온다.
     if (bytes) {
       for (const p of paths) {
         const rm = await bytes.remove(p);
-        if (rm.error) console.error(`영구삭제: 사진 파일 삭제 실패 ${p} — ${rm.error}`);
+        if (rm.error) console.error(`영구삭제: 저장소 파일 삭제 실패 ${p} — ${rm.error}`);
       }
     }
 
@@ -1042,6 +1295,15 @@ export async function forceRepairCascadeOps(): Promise<{ media: number; expenses
     /* 표식을 못 지워도 아래 재큐잉 자체는 동작한다. */
   }
   await normalizeStamps();
+  // 소리 백필도 **같은 버튼**이 다시 돌게 한다 — 사용자가 "어느 정리를 눌러야 하나"를
+  // 알아야 하는 상태를 만들지 않는다(§12).
+  try {
+    localStorage.removeItem(AUDIO_BACKFILL_KEY);
+  } catch {
+    /* 표식을 못 지워도 아래 백필 자체는 동작한다. */
+  }
+  const audio = await backfillAudioOps();
+  if (audio) console.info(`소리 동기화 백필: ${audio}건 재큐잉`);
   return requeueOrphanTombstones();
 }
 
@@ -1078,10 +1340,10 @@ async function normalizeTableStamps(table: Table<SyncMeta & { id: string }, stri
   });
 }
 
-/** 4개 테이블 전부 — 형제를 손으로 세지 않는다(§7). 고친 행 수를 돌려준다. */
+/** 로컬 테이블 전부 — 형제를 손으로 세지 않는다(§7). 고친 행 수를 돌려준다. */
 export async function normalizeStamps(): Promise<number> {
   const d = db();
-  const tables = [d.localTrips, d.localMoments, d.localMedia, d.localExpenses] as unknown as Table<SyncMeta & { id: string }, string>[];
+  const tables = [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.localAudio] as unknown as Table<SyncMeta & { id: string }, string>[];
   let fixed = 0;
   for (const t of tables) fixed += await normalizeTableStamps(t);
   return fixed;
@@ -1183,10 +1445,14 @@ export async function runSync(client: JourneyClient, userId: string): Promise<Sy
   // 표기 정리도 **병합보다 먼저**다(M-0034). 아래 pull이 `mergeDecision`으로 승부를 내는데,
   // 로컬에 옛 표기가 남아 있으면 같은 순간을 두 표기로 재게 된다.
   await normalizeStampsOnce();
+  // 소리는 v1.20 이전에 만들어진 것에 큐 op이 **아예 없다** — 코드만 고치면 그 행들은 영원히
+  // 안 올라간다. push보다 먼저 돌아 이번 동기화에서 바로 처리되게 한다.
+  await backfillAudioOnce();
   const remote = tripsRemote(client);
   const mRemote = momentsRemote(client);
   const eRemote = expensesRemote(client);
   const dRemote = mediaRemote(client);
+  const aRemote = audioRemote(client);
   // **복원 되돌리기가 가장 먼저다.** 원장이 남아 있으면 아래 push가 트리거에 막힌다.
   const pRemote0 = purgeRemote(client);
   const pu = await pushUnpurges(pRemote0);
@@ -1194,6 +1460,8 @@ export async function runSync(client: JourneyClient, userId: string): Promise<Sy
   const pm = await pushPendingMoments(mRemote, userId);
   const pd = await pushPendingMedia(dRemote, userId);
   const pe = await pushPendingExpenses(eRemote, userId);
+  // 소리는 **순간 뒤**여야 한다 — 복합 FK `(moment_id,user_id)`가 서버의 부모를 요구한다.
+  const pa = await pushPendingAudio(aRemote, userId);
   // 영구삭제 전파는 **pull보다 먼저** — 이번 동기화에서 다른 기기가 바로 알 수 있게.
   const pRemote = pRemote0;
   const pp = await pushPurges(pRemote, dRemote);
@@ -1211,10 +1479,12 @@ export async function runSync(client: JourneyClient, userId: string): Promise<Sy
   const qm = await pullMoments(mRemote);
   const qd = await pullMedia(dRemote);
   const qe = await pullExpenses(eRemote);
+  const qa = await pullAudio(aRemote);
   return {
-    pushed: pu.pushed + p.pushed + pm.pushed + pd.pushed + pe.pushed + pp.pushed,
-    failed: pu.failed + p.failed + pm.failed + pd.failed + pe.failed + pp.failed,
-    pulled: q.pulled + qm.pulled + qd.pulled + qe.pulled,
-    skippedEmptyCloud: q.skippedEmptyCloud || qm.skippedEmptyCloud || qd.skippedEmptyCloud || qe.skippedEmptyCloud,
+    pushed: pu.pushed + p.pushed + pm.pushed + pd.pushed + pe.pushed + pa.pushed + pp.pushed,
+    failed: pu.failed + p.failed + pm.failed + pd.failed + pe.failed + pa.failed + pp.failed,
+    pulled: q.pulled + qm.pulled + qd.pulled + qe.pulled + qa.pulled,
+    skippedEmptyCloud:
+      q.skippedEmptyCloud || qm.skippedEmptyCloud || qd.skippedEmptyCloud || qe.skippedEmptyCloud || qa.skippedEmptyCloud,
   };
 }

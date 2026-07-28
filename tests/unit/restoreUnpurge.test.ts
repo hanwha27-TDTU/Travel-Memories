@@ -50,8 +50,8 @@ function remote(opts: { removeError?: string; after?: string[]; allError?: strin
     ledgerRemove: (ids: string[]) =>
       Promise.resolve(opts.removeError ? { removed: 0, error: opts.removeError } : { removed: ids.length }),
     familyIds: () => Promise.resolve({ ids: [] }),
-    familyMediaPaths: () => Promise.resolve({ paths: [] }),
-    mediaPath: () => Promise.resolve({ path: null }),
+    familyBytePaths: () => Promise.resolve({ paths: [] }),
+    bytePath: () => Promise.resolve({ path: null }),
     hardDelete: () => Promise.resolve({}),
     hardDeleteFamily: () => Promise.resolve({}),
     stillThere: () => Promise.resolve({ found: false }),
