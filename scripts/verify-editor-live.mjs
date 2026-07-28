@@ -125,6 +125,18 @@ try {
   process.exit(2);
 }
 const page = await browser.newPage({ viewport: { width: 412, height: 915 } });
+
+// 지도 타일을 **가로채 1×1 PNG로 답한다.** 샌드박스는 tile.openstreetmap.org를 막으므로
+// 지도를 열어 두는 동안 타일 요청이 전부 실패하고, 그게 「콘솔 에러 0」을 깨뜨린다 —
+// **앱의 결함이 아니라 환경 때문**이다. 검사를 약하게 만드는 대신(그러면 진짜 에러도 놓친다)
+// 요청을 결정적으로 만든다. 타일 그림 자체는 이 검사의 관심사가 아니다(레이아웃·배선을 잰다).
+const PNG_1X1 = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+  'base64',
+);
+await page.route('**://tile.openstreetmap.org/**', (route) =>
+  route.fulfill({ status: 200, contentType: 'image/png', body: PNG_1X1 }),
+);
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(String(e)));
@@ -829,6 +841,28 @@ const playState = await page.evaluate(() => {
   };
 });
 check('소리 칩: 재생 상태가 aria-pressed로 전해진다', playState.pressed === 'true', String(playState.pressed));
+
+// 🔴 **끝까지 재생한 뒤** 라벨을 본다(2026-07-28 사용자 실기기: *"재생불가가 아닌데
+// 재생불가라고 안내하네요"*). 정리 과정이 `error`를 발화시켜, 정상 재생을 마친 **직후에만**
+// 「🔇 재생 불가」로 덮이고 있었다. 재생 중만 재면 이 부류는 영원히 안 잡힌다 —
+// 검사는 **끝난 뒤**를 봐야 한다.
+const afterEnd = await page.evaluate(async () => {
+  const chip = document.querySelector('.chip.audio');
+  const btn = chip.querySelector('.chip-audio-play');
+  // 픽스처는 1.5초짜리 무음 WAV다. 넉넉히 기다려 자연 종료(ended)를 지난다.
+  await new Promise((r) => setTimeout(r, 2600));
+  return {
+    text: btn.textContent.trim(),
+    pressed: btn.getAttribute('aria-pressed'),
+    p: getComputedStyle(chip).getPropertyValue('--p').trim(),
+  };
+});
+check(
+  '🔴 소리 칩: 끝까지 재생해도 「재생 불가」라고 하지 않는다(정상을 실패라 말하지 않는다)',
+  !afterEnd.text.includes('재생 불가') && !afterEnd.text.includes('🔇'),
+  JSON.stringify(afterEnd),
+);
+check('소리 칩: 재생이 끝나면 멈춤 상태로 돌아온다', afterEnd.pressed === 'false', JSON.stringify(afterEnd));
 check(
   '소리 칩: 재생해도 폭이 흔들리지 않는다(옆 칩을 밀지 않는다)',
   Math.abs(playState.w - widthBefore) < 1.5,
@@ -887,32 +921,88 @@ await page.locator('.chip.gps').first().click();
 await page.waitForSelector('.map-overlay', { timeout: 10000 });
 check('위치 칩: 탭하면 앱 지도가 열린다', true, 'map-overlay');
 
+// ── v1.19: 지도가 넷이 됐다(구글·얀덱스·네이버·카카오). 사용자 요청 2026-07-28.
+// 유닛이 URL 문자열을 재는 것과, **버튼을 눌렀을 때 그 URL이 실제로 나가는 것**은 다른 층이다.
+// 여기서는 후자를 잰다 — 배선이 끊기면 유닛은 초록인데 아무 일도 안 일어난다(M-0038).
 const ext = await page.evaluate(() => {
-  const b = document.querySelector('.map-ext-btn');
-  return b ? { text: b.textContent, note: document.querySelector('.map-ext-note')?.textContent ?? null } : null;
+  const wrap = document.querySelector('.map-ext');
+  const cs = wrap ? getComputedStyle(wrap) : null;
+  const btns = [...document.querySelectorAll('.map-ext-btn')];
+  const r = (e) => e.getBoundingClientRect();
+  const last = btns.length ? r(btns[btns.length - 1]) : null;
+  return {
+    labels: btns.map((b) => b.textContent.trim()),
+    note: document.querySelector('.map-ext-note')?.textContent ?? null,
+    padTop: cs?.paddingTop ?? null,
+    padBottom: cs?.paddingBottom ?? null,
+    // 버튼 아래와 wrap 바닥 사이가 실제로 벌어져 있는가(padding이 0이면 0에 가깝다).
+    gapUnderButtons: last && wrap ? +(r(wrap).bottom - last.bottom).toFixed(1) : -1,
+    sameRowTop: btns.length > 1 ? Math.abs(r(btns[0]).top - r(btns[1]).top) < 2 : false,
+    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  };
 });
-check('지도 안에 「구글지도로 열기」가 있다(칩이 곧바로 밖으로 나가지 않는다)', /구글지도/.test(ext?.text ?? ''), String(ext?.text));
+check('지도 안에 바깥 지도 버튼이 있다(칩이 곧바로 밖으로 나가지 않는다)', ext.labels.length > 0, ext.labels.join(' · '));
+check(
+  '지도 링크: 구글·얀덱스·네이버·카카오 넷 다 있다',
+  ['구글', '얀덱스', '네이버', '카카오'].every((l) => ext.labels.includes(l)),
+  ext.labels.join(' · '),
+);
+
+// 실제 사고(2026-07-28 사용자 실기기): *"버튼 하단 여백이 없어서 답답해보여요."*
+// `.map-ext`의 아래 padding이 **0**이라 버튼이 지도에 붙어 있었다. 위아래가 다르면
+// 사람 눈에는 "덜 만든 것"으로 보인다 — 기계는 못 보고 화면에서만 드러나는 부류(§10 ③).
+check(
+  '🔴 지도 링크: 버튼 아래 여백이 있다(지도에 딱 붙지 않는다)',
+  ext.padBottom !== '0px' && ext.gapUnderButtons >= 8,
+  `padding ${ext.padTop} / ${ext.padBottom} · 아래 여백 ${ext.gapUnderButtons}px`,
+);
+check('지도 링크: 위아래 여백이 같다(한쪽만 비면 덜 만든 것으로 보인다)', ext.padTop === ext.padBottom, `${ext.padTop} vs ${ext.padBottom}`);
+check('지도 링크: 버튼들이 한 줄에 선다(넓은 화면)', ext.sameRowTop === true, String(ext.sameRowTop));
+check('지도 링크: 가로 넘침 0', ext.overflow === 0, `overflow=${ext.overflow}`);
 
 // 좌표가 있는 장소이므로 「이름으로 찾았다」 단서는 **없어야** 한다(있으면 거짓 경보다).
-check('좌표가 있으면 「이름으로 찾음」 단서를 달지 않는다', ext?.note === null, String(ext?.note));
+check('좌표가 있으면 「이름으로 찾음」 단서를 달지 않는다', ext.note === null, String(ext.note));
 
 // 클릭이 **새 창으로** 나가는지 — 같은 탭을 뺏으면 사용자가 앱을 잃는다.
-// 실제 구글 접속은 하지 않는다(샌드박스·외부 네트워크). window.open을 가로채 인자만 잰다.
-const opened = await page.evaluate(async () => {
-  const calls = [];
+// 실제 외부 접속은 하지 않는다(샌드박스·외부 네트워크). window.open을 가로채 인자만 잰다.
+// 동의 키는 **제공자별**이다(구글 동의가 얀덱스 동의가 아니다) — 그래서 넷을 다 미리 넣는다.
+const openedAll = await page.evaluate(async () => {
+  const out = {};
   const real = window.open;
-  window.open = (url, target, feat) => { calls.push({ url, target, feat }); return null; };
+  window.open = (url, target, feat) => { out.__last = { url, target, feat }; return null; };
   try {
-    localStorage.setItem('bugeon:externalMapOk', '1'); // 확인 창은 별도로 검증(여기선 배선만)
-    document.querySelector('.map-ext-btn').click();
-    await new Promise((r) => setTimeout(r, 100));
+    for (const id of ['google', 'yandex', 'naver', 'kakao']) localStorage.setItem(`bugeon:externalMapOk:${id}`, '1');
+    for (const b of document.querySelectorAll('.map-ext-btn')) {
+      out.__last = null;
+      b.click();
+      await new Promise((r) => setTimeout(r, 60));
+      out[b.textContent.trim()] = out.__last;
+    }
   } finally { window.open = real; }
-  return calls[0] ?? null;
+  delete out.__last;
+  return out;
 });
-check('구글 링크가 Maps URLs 형식이다(api=1 · 키 없음)', /^https:\/\/www\.google\.com\/maps\/search\/\?api=1&query=/.test(opened?.url ?? ''), String(opened?.url));
-check('구글 링크에 API 키가 붙지 않는다', !/key=/i.test(opened?.url ?? ''), String(opened?.url));
-check('구글은 **새 창**으로 연다(앱을 잃지 않게)', opened?.target === '_blank', String(opened?.target));
-check('noreferrer로 앱 주소가 함께 새지 않는다(PRIVACY)', /noreferrer/.test(opened?.feat ?? ''), String(opened?.feat));
+const g = openedAll['구글'], y = openedAll['얀덱스'], nv = openedAll['네이버'], kk = openedAll['카카오'];
+check('구글 링크가 Maps URLs 형식이다(api=1 · 키 없음)', /^https:\/\/www\.google\.com\/maps\/search\/\?api=1&query=/.test(g?.url ?? ''), String(g?.url));
+// 🔴 얀덱스만 **경도,위도** 순서다 — 뒤집으면 다른 나라가 열린다.
+check('얀덱스 링크가 경도,위도 순서다(넷 중 여기만 반대)', /yandex\.com\/maps\/\?ll=126\.\d+,37\./.test(y?.url ?? ''), String(y?.url));
+check('네이버 링크에 lat·lng가 그대로 든다', /map\.naver\.com\/p\?.*lat=37\..*lng=126\./.test(nv?.url ?? ''), String(nv?.url));
+check('카카오 링크가 이름,위도,경도 형식이다', /map\.kakao\.com\/link\/map\/[^/]+,37\.\d+,126\.\d+$/.test(decodeURIComponent(kk?.url ?? '')), String(kk?.url));
+check(
+  '🔴 어느 지도에도 API 키가 붙지 않는다(넷 다 그냥 링크 — 그래서 무료다)',
+  [g, y, nv, kk].every((o) => o && !/[?&](api_?key|apikey|key)=/i.test(o.url)),
+  '',
+);
+check(
+  '넷 다 **새 창**으로 연다(앱을 잃지 않게)',
+  [g, y, nv, kk].every((o) => o?.target === '_blank'),
+  [g, y, nv, kk].map((o) => o?.target).join(','),
+);
+check(
+  'noreferrer로 앱 주소가 함께 새지 않는다(PRIVACY · 넷 다)',
+  [g, y, nv, kk].every((o) => /noreferrer/.test(o?.feat ?? '')),
+  [g, y, nv, kk].map((o) => o?.feat).join(' | '),
+);
 
 await page.locator('.map-close').click();
 await page.waitForTimeout(200);
