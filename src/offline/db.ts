@@ -94,14 +94,17 @@ export interface LocalExpense extends SyncMeta {
  * (`mergeDecision`은 `SyncMeta`만 참조한다 — 서버 동기화를 붙일 때 그대로 쓰인다).
  *
  * ── 계층(DISASTER_RECOVERY) ───────────────────────────────────────────
- * MVP에서 오디오는 **①로컬 + ③백업**에 산다. 서버 동기화(②)는 후속이다 —
- * 이는 **원본 사진과 똑같은 계약**이고(`DISASTER_RECOVERY.md:79`), 그래서 두 계층이
- * 확보된다. 한 계층만 남는 설계는 비타협 원칙 #1 위반이라 하지 않았다.
+ * 오디오는 **①로컬 + ②서버 + ③백업** 세 계층에 산다 — 사진과 같다.
+ *
+ * v1.14에서는 ②가 없었다(로컬+백업 두 계층). 사용자가 그 판단을 뒤집었다(2026-07-27):
+ * *"핵심은 모든 기기에서 모든 정보를 확인해야 합니다. 따라서 서버에 올라가는 순간 클라우드가
+ * 정본이 되야 합니다."* 그 말이 옳고, **로컬에만 있는 자료는 기능이 아니라 결함**이었다.
+ * 마이그레이션 0019(`journey.audio`)와 `domain/audio/rowmap.ts`가 그 빚의 상환이다.
  */
 export interface LocalAudio extends SyncMeta {
   momentId: string;
   tripId: string;
-  /** 녹음 바이트(원본 그대로 — 재인코딩하지 않는다). */
+  /** 녹음 바이트(원본 그대로 — 재인코딩하지 않는다). 사진과 달리 **이게 유일본**이라 그대로 올린다. */
   blob: Blob;
   /** 실제 저장된 형식(`audio/webm;codecs=opus` 등). 재생 `type` 힌트에 쓴다. */
   mime: string;
@@ -109,6 +112,15 @@ export interface LocalAudio extends SyncMeta {
   durationSec: number;
   /** 녹음한 시각(ISO). `occurredAt`이 아니라 **만든 시각**이다. */
   recordedAt: string;
+  /**
+   * **서버에 실제로 올라간 객체 키.** `LocalMedia.storagePath`와 **같은 이유·같은 규율**이다 —
+   * 키가 여행 제목의 함수라서, 다시 계산하면 제목을 바꾼 뒤의 재전송이 다른 키로 올라가
+   * 옛 파일이 고아로 남는다. 바이트가 착지한 키가 곧 진실이므로 파생이 아니라 데이터로 둔다.
+   *
+   * 인덱스가 아니므로 Dexie 스키마 버전을 올리지 않는다(평범한 속성). 옛 행에는 없다 —
+   * 없으면 그때 계산해 채운다(`pushPendingAudio`).
+   */
+  storagePath?: string;
 }
 
 // 환율 표(FxRateTable) 로컬 캐시 — **파생·재취득 가능한 공개 데이터**이지 사용자의 기억이 아니다.
@@ -163,14 +175,14 @@ export interface SyncQueueItem {
 // 성격: 기억이 아니라 **로컬 표시 상태**다. 잃어도 사용자의 기억은 그대로이고, 휴지통에 다시
 // 나타날 뿐이다 → 동기화·백업 대상이 아니다(localFxRates·syncQueue와 같은 분류).
 export interface PurgedId {
-  /** 영구삭제된 엔티티 id(여행·순간·사진·비용 모두 같은 목록에 담는다). */
+  /** 영구삭제된 엔티티 id(여행·순간·사진·비용·소리 모두 같은 목록에 담는다). */
   id: string;
   /**
    * 어느 도메인이었는가. **`'unknown'`은 거짓이 아니라 사실이다** — 서버 원장(ADR-0030)은
    * id만 담으므로(자료를 남기지 않는 것이 목적) 다른 기기가 알려준 영구삭제는 종류를 모른다.
    * 모르는 것을 아는 척 적지 않는다(비타협 원칙 #4).
    */
-  entityType: 'trip' | 'moment' | 'media' | 'expense' | 'unknown';
+  entityType: 'trip' | 'moment' | 'media' | 'expense' | 'audio' | 'unknown';
   purgedAt: string;
 }
 

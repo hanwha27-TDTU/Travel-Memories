@@ -20,13 +20,7 @@
 
 import { db } from '../offline/db';
 import { localDate, compareInstants } from '../domain/time';
-import {
-  TRASH_DOMAINS,
-  isLocalOnlyDomain,
-  localTableOf,
-  purgeOpType,
-  type TrashDomain,
-} from './purge';
+import { TRASH_DOMAINS, localTableOf, purgeOpType, type TrashDomain } from './purge';
 import { formatDuration } from '../domain/audio/note';
 import { restoreMomentLocalFirst } from './moments';
 import { restoreMediaLocalFirst } from './media';
@@ -151,11 +145,9 @@ export class PendingChildSyncError extends Error {
  *  ③ 전파 작업을 큐에 넣는다 — 없으면 이 기기에서만 지워지고 서버엔 영영 남는다(M-0023).
  *  ④ 로컬 행을 하드 삭제하고 **되읽어** 확인한다.
  *
- * **로컬 전용 도메인(소리)은 ②③이 없다** — 그리고 그것이 차별이 아닌 이유:
- * ②는 *pull이 서버 tombstone을 다시 받아와 되살아나는 것*을 막는 표식이고, ③은 *서버 행을
- * 지우라는 전파*다. 소리는 pull되지도, 서버에 있지도 않으므로 **두 단계가 막을 대상 자체가
- * 없다.** 표식을 굳이 남기면 아무것도 지키지 않으면서 원장만 부풀린다. 반면 ①④는 그대로
- * 적용된다 — 사용자에게 보이는 결과(바이트가 실제로 사라지고, 되읽어 확인한다)는 같다.
+ * 🔴 예전엔 소리만 ②③을 건너뛰었다(서버에 표가 없었으므로). 그 예외는 사라졌다 —
+ * 마이그레이션 0019 이후 소리도 `PURGE_DOMAINS`의 형제라 **네 단계를 전부 지난다.**
+ * 도메인 분기가 이 함수에서 통째로 없어진 것이 그 증거다(§7 2층 — 예외가 없으면 분기도 없다).
  *
  * 되돌릴 수 없다. tombstone된 것에만 적용한다.
  */
@@ -170,34 +162,27 @@ export async function purgeChildPermanently(domain: ChildDomain, id: string): Pr
   if (!cur) return; // 이미 없다 — 멱등
   if (cur.deletedAt === null) throw new Error('삭제되지 않은 항목은 영구 삭제할 수 없습니다.');
 
-  // ① 사전 조건은 **모든 도메인에 같다.** 소리엔 op가 없으니 늘 통과하지만, 그건 결과이지
-  //    면제가 아니다 — 예외를 조건문으로 만들면 나중에 op가 생겨도 아무도 모른다.
+  // ① 사전 조건은 **모든 도메인에 같다.**
   const pending = (await d.syncQueue.toArray()).filter((q) => q.entityId === id);
   if (pending.length) throw new PendingChildSyncError(pending.length);
 
   const now = new Date().toISOString();
-  const localOnly = isLocalOnlyDomain(domain);
   await d.transaction('rw', [localTable, d.purgedIds, d.syncQueue], async () => {
-    if (!localOnly) {
-      await d.purgedIds.put({ id, entityType: domain, purgedAt: now });
-      await d.syncQueue.add({
-        operationId: crypto.randomUUID(),
-        entityType: purgeOpType(domain),
-        entityId: id,
-        operationType: 'purge',
-        state: 'local_only',
-        attempts: 0,
-        createdAt: now,
-      });
-    }
+    await d.purgedIds.put({ id, entityType: domain, purgedAt: now });
+    await d.syncQueue.add({
+      operationId: crypto.randomUUID(),
+      entityType: purgeOpType(domain),
+      entityId: id,
+      operationType: 'purge',
+      state: 'local_only',
+      attempts: 0,
+      createdAt: now,
+    });
     await localTable.delete(id);
   });
 
   // read-back — 성공 반환이 아니라 되읽어 확인한다(데이터 안전 불변식).
-  // **행이 사라졌는지는 도메인과 무관하게 확인한다.** 소리에서 확인을 건너뛰면 "지웠다고
-  // 말했는데 바이트가 남는" 갈래가 소리에만 생긴다 — 저장공간을 비우는 것이 이 기능의 목적이다.
   if (await table.get(id)) throw new Error('영구 삭제 확인 실패: 행이 남아 있음');
-  if (localOnly) return; // 아래 둘은 서버가 있는 도메인에만 존재하는 산출물이다.
   if (!(await d.purgedIds.get(id))) throw new Error('영구 삭제 확인 실패: 표식이 남지 않음');
   const queued = (await d.syncQueue.toArray()).some((q) => q.entityId === id && q.operationType === 'purge');
   if (!queued) throw new Error('영구 삭제 확인 실패: 다른 기기에 알릴 작업이 큐에 남지 않음');

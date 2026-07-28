@@ -206,9 +206,12 @@ export async function softDeleteMomentLocalFirst(id: string): Promise<MomentChil
       await d.syncQueue.add({ operationId: eOpId, entityType: 'expense', entityId: e.id, operationType: 'delete', state: 'local_only', attempts: 0, createdAt: now });
     }
     for (const a of audio) {
-      // 오디오는 서버로 안 가므로 **큐 op를 만들지 않는다**(사진·비용과의 유일한 차이).
-      // 그 사정은 `services/audio.ts` 머리주석과 `blueprint.ts`의 localOnlyReason에 적혀 있다.
-      await d.localAudio.put({ ...a, deletedAt: now, version: a.version + 1, updatedAt: now });
+      // 오디오도 **서버로 간다**(2026-07-27~). cascade tombstone을 큐 op로 전파하지 않으면
+      // 순간을 지워도 서버의 소리 행이 활성으로 남고 R2 객체까지 잔류한다 — M-0006이 사진·
+      // 비용에서 정확히 그랬다. 형제가 지키는 것을 새것도 지킨다.
+      const aOpId = uuid();
+      await d.localAudio.put({ ...a, deletedAt: now, version: a.version + 1, updatedAt: now, baseVersion: a.version, clientOperationId: aOpId });
+      await d.syncQueue.add({ operationId: aOpId, entityType: 'audio', entityId: a.id, operationType: 'delete', state: 'local_only', attempts: 0, createdAt: now });
     }
     await d.syncQueue.add(op);
   });
@@ -273,8 +276,12 @@ export async function restoreMomentLocalFirst(id: string, children: MomentChildr
     for (const aid of audioIds) {
       const a = await d.localAudio.get(aid);
       // 삭제와 **같은 자리에서 되살린다** — 되살릴 수 없는 삭제는 이 앱의 계약 위반이다.
-      // 큐 op가 없는 것은 서버에 안 가기 때문이고, 그 사정은 audio.ts에 적혀 있다.
-      if (a) await d.localAudio.put({ ...a, deletedAt: null, version: a.version + 1, updatedAt: now });
+      // 복원도 큐 op로 전파한다(update — deletedAt=null·version+1로 삭제를 이긴다).
+      if (a) {
+        const aOpId = uuid();
+        await d.localAudio.put({ ...a, deletedAt: null, version: a.version + 1, updatedAt: now, baseVersion: a.version, clientOperationId: aOpId });
+        await d.syncQueue.add({ operationId: aOpId, entityType: 'audio', entityId: a.id, operationType: 'update', state: 'local_only', attempts: 0, createdAt: now });
+      }
     }
     await d.syncQueue.add(op);
   });

@@ -213,8 +213,12 @@ export function legacyRows(src, banned) {
  *
  *  · 원장(`ledgerAdd`)을 **지우기 전에** 적어야 한다. 뒤집히면 그 틈에 밀린 편집을 가진 다른
  *    기기가 자기 사본을 다시 올려 좀비가 된다(ADR-0027이 하드 삭제를 기각했던 바로 그 이유).
- *  · 사진 경로(`familyMediaPaths`·`mediaPath`)와 자식 id(`familyIds`)는 **지우기 전에** 읽어야
+ *  · 저장소 경로(`familyBytePaths`·`bytePath`)와 자식 id(`familyIds`)는 **지우기 전에** 읽어야
  *    한다. 행이 사라지면 경로도 사라지고, 그러면 R2에 고아 파일이 영영 남는다.
+ *
+ * ⚠️ 2026-07-27에 이름이 바뀌었다(`familyMediaPaths`→`familyBytePaths`, `mediaPath`→`bytePath`).
+ *    소리도 R2에 바이트를 갖게 되면서 "사진 전용"이라는 이름 자체가 결함이 됐기 때문이다 —
+ *    등록부를 도는 형태로 바꿔 다음 형제가 자동으로 따라온다(§7 2층).
  */
 export function purgeOrderContract(syncSrc) {
   const bad = [];
@@ -232,7 +236,7 @@ export function purgeOrderContract(syncSrc) {
   if (ledger === -1) bad.push('pushPurges가 원장에 적지 않음 — 다른 기기가 영구삭제를 배울 길이 없다');
   else if (ledger > del) bad.push('원장 기록이 행 삭제 **뒤**에 있음 — 그 틈에 다른 기기가 사본을 다시 올린다');
 
-  for (const q of ['remote.familyMediaPaths(', 'remote.mediaPath(', 'remote.familyIds(']) {
+  for (const q of ['remote.familyBytePaths(', 'remote.bytePath(', 'remote.familyIds(']) {
     const i = at(q);
     if (i === -1) bad.push(`pushPurges가 ${q}…)를 부르지 않음 — 지운 뒤엔 알 수 없는 정보다`);
     else if (i > del) bad.push(`${q}…) 가 행 삭제 **뒤**에 있음 — 행이 사라지면 그 값도 사라진다`);
@@ -534,7 +538,7 @@ let selfTestCount = 0;
       fn: () =>
         purgeOrderContract(
           `export async function pushPurges(remote, bytes) {
-             await remote.familyIds(x); await remote.familyMediaPaths(x); await remote.mediaPath(x);
+             await remote.familyIds(x); await remote.familyBytePaths(x); await remote.bytePath(x);
              await remote.ledgerAdd(ids); await remote.ledgerHas(x);
              await remote.hardDeleteFamily(x); await remote.hardDelete(d, x);
              await remote.stillThere(d, x); await remote.remainingInFamily(x);
@@ -547,7 +551,7 @@ let selfTestCount = 0;
       fn: () =>
         purgeOrderContract(
           `export async function pushPurges(remote, bytes) {
-             await remote.familyIds(x); await remote.familyMediaPaths(x); await remote.mediaPath(x);
+             await remote.familyIds(x); await remote.familyBytePaths(x); await remote.bytePath(x);
              await remote.hardDeleteFamily(x); await remote.hardDelete(d, x);
              await remote.ledgerAdd(ids); await remote.ledgerHas(x);
              await remote.stillThere(d, x); await remote.remainingInFamily(x);
@@ -562,7 +566,7 @@ let selfTestCount = 0;
           `export async function pushPurges(remote, bytes) {
              await remote.familyIds(x); await remote.ledgerAdd(ids); await remote.ledgerHas(x);
              await remote.hardDeleteFamily(x); await remote.hardDelete(d, x);
-             await remote.familyMediaPaths(x); await remote.mediaPath(x);
+             await remote.familyBytePaths(x); await remote.bytePath(x);
              await remote.stillThere(d, x); await remote.remainingInFamily(x);
 }`,
         ),
@@ -573,7 +577,7 @@ let selfTestCount = 0;
       fn: () =>
         purgeOrderContract(
           `export async function pushPurges(remote, bytes) {
-             await remote.familyIds(x); await remote.familyMediaPaths(x); await remote.mediaPath(x);
+             await remote.familyIds(x); await remote.familyBytePaths(x); await remote.bytePath(x);
              await remote.ledgerAdd(ids); await remote.ledgerHas(x);
              await remote.hardDeleteFamily(x); await remote.hardDelete(d, x);
 }`,

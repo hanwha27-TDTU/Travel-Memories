@@ -178,15 +178,17 @@ export async function presign(
  * 그래서 권한의 경계만 남기고 이름은 앱에 넘긴다:
  *  · **첫 칸은 여전히 검증된 sub다.** 이 값은 요청 본문에서 오지 않는다 — 남의 폴더는
  *    원리적으로 못 만든다. 인가 모델은 그대로다.
- *  · 그 **안쪽**만 앱이 정하되 모양을 못박는다: `폴더/파일.webp` 또는 `파일.webp`(옛 형식).
+ *  · 그 **안쪽**만 앱이 정하되 모양을 못박는다: `폴더/파일.<확장자>` 또는 `파일.<확장자>`(옛 형식).
  *    빈 칸·`.`·`..`·중첩 더 깊은 경로는 거부한다.
+ *  · 확장자는 **우리가 만드는 것만** 받는다(`KNOWN_EXT_RE`). 이걸 열어 두면 버킷이 임의
+ *    파일 저장소가 된다 — 자기 폴더 안이라도 그건 이 앱이 약속한 바가 아니다.
  *
  * 즉 앱이 틀린 이름을 보내도 **자기 폴더 안**에서만 틀릴 수 있다. 그건 보안이 아니라
  * 정합의 문제이고, 그쪽은 진단의 사진 대조가 잡는다.
  */
 export function safeRest(rest: string): string | null {
   if (typeof rest !== 'string' || rest.length === 0 || rest.length > 400) return null;
-  if (!/\.webp$/i.test(rest)) return null;
+  if (!KNOWN_EXT_RE.test(rest)) return null;
   const parts = rest.split('/');
   if (parts.length < 1 || parts.length > 2) return null;
   for (const p of parts) {
@@ -224,7 +226,22 @@ export const LIST_MAX_PAGES = 10;
  *
  * 규칙: **연산을 추가하면 이 목록에 넣는다.** 넣지 않으면 클라이언트가 없는 것으로 취급한다.
  */
-export const FN_VERSION = 5;
+/**
+ * 이 앱이 만드는 확장자. **`domain/media/naming.ts`의 `AUDIO_EXTS`와 같은 목록이어야 한다** —
+ * 앱이 `.webm`으로 올리는데 여기서 거부하면 소리는 영영 서버에 못 간다. 두 파일은 다른 배포
+ * 단위(브라우저/Deno)에 살아 손으로 맞출 수 없으므로 `tests/unit/audioNaming.test.ts`가 잠근다.
+ */
+export const PHOTO_EXTS = ['webp'] as const;
+export const AUDIO_EXTS = ['webm', 'm4a', 'ogg', 'mp3', 'wav'] as const;
+const KNOWN_EXT_RE = new RegExp(`\\.(?:${[...PHOTO_EXTS, ...AUDIO_EXTS].join('|')})$`, 'i');
+const AUDIO_EXT_RE = new RegExp(`\\.(?:${AUDIO_EXTS.join('|')})$`, 'i');
+
+/** 이 키는 소리인가. 종류는 **확장자가 말한다**(사진과 같은 폴더에 살기 때문에). */
+export function isAudioKey(key: string): boolean {
+  return AUDIO_EXT_RE.test(key);
+}
+
+export const FN_VERSION = 6;
 export const FN_OPS = ['probe', 'capabilities', 'list', 'put', 'get', 'delete', 'deleteMany', 'abortMultipart'] as const;
 
 /** 한 번에 지울 수 있는 최대 개수 — 요청 하나가 무한정 길어지지 않게. */
@@ -330,7 +347,7 @@ export function parseMultipartXml(xml: string): MultipartUpload[] {
  */
 export function mediaIdOfKey(key: string): string | null {
   const last = key.split('/').pop() ?? '';
-  const base = last.replace(/\.webp$/i, '');
+  const base = last.replace(KNOWN_EXT_RE, '');
   // 새 형식: `날짜_시간_제목__<하이픈 뺀 32자>`. 사람이 읽는 앞부분에 `__`가 몇 번 나오든
   // **맨 뒤 조각**만 본다(여행 제목에 밑줄이 들어갈 수 있다).
   const tail = base.split('__').pop() ?? '';
@@ -445,7 +462,10 @@ export async function handler(req: Request): Promise<Response> {
   //    유출 시 단건 URL보다 손해가 크다(삭제와 같은 이유로 함수가 직접 호출한다).
   if (op === 'list') {
     const prefix = `${userId}/`;
-    const ids: string[] = [];
+    const ids: string[] = []; // 사진(.webp)
+    // 🔴 소리를 **같은 배열에 담으면 안 된다.** 앱은 이 목록을 사진 기록과 1:1로 대조하므로,
+    //    섞으면 멀쩡한 소리가 전부 「기록 없는 사진 파일」로 뜨고 화면은 그걸 치우라고 권한다.
+    const audioIds: string[] = [];
     let foreign = 0; // 우리 형식이 아닌 키 — 조용히 버리지 않고 개수로 보고한다
     let bytes = 0; // 내 폴더 총 바이트
     let token: string | null = null;
@@ -465,8 +485,9 @@ export async function handler(req: Request): Promise<Response> {
         bytes += parsed.bytes;
         for (const k of parsed.keys) {
           const id = mediaIdOfKey(k);
-          if (id) ids.push(id);
-          else foreign++;
+          if (!id) { foreign++; continue; }
+          if (isAudioKey(k)) audioIds.push(id);
+          else ids.push(id);
         }
         token = parsed.nextToken;
         if (!token) break;
@@ -534,6 +555,7 @@ export async function handler(req: Request): Promise<Response> {
     // 키 전체가 아니라 mediaId만 돌려준다(폴더=uid는 다시 담지 않는다).
     return json({
       ids,
+      audioIds,
       foreign,
       truncated,
       count: ids.length,

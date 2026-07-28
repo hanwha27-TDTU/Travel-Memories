@@ -22,6 +22,15 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** 바이트 저장소 포트 — MediaRemote의 바이트 3종과 같은 모양. */
 export interface BlobStore {
+  /**
+   * 바이트를 올린다. `contentType`을 **인자로 받는 이유**: 사진(`image/webp`)과 소리
+   * (`audio/webm`…)가 같은 경로를 지난다. 하드코딩하면 소리가 사진 타입으로 올라가고,
+   * 나중에 그 URL을 그대로 재생하려는 곳에서 디코더가 엉뚱한 선택을 한다.
+   *
+   * 서명은 host만 덮으므로 Content-Type을 바꿔도 서명이 깨지지 않는다(presign 머리주석).
+   */
+  upload(path: string, blob: Blob, contentType: string): Promise<{ error?: string | undefined; status?: number | undefined }>;
+  /** 사진 표시본 전용 별칭 — 기존 호출부(MediaRemote)의 어휘를 지킨다. */
   uploadDisplay(path: string, blob: Blob): Promise<{ error?: string | undefined; status?: number | undefined }>;
   download(path: string): Promise<{ data: Blob | null; error?: string | undefined; status?: number | undefined }>;
   remove(path: string): Promise<{ error?: string | undefined }>;
@@ -36,7 +45,8 @@ export interface BlobStore {
  * 살아서 손으로는 맞출 수 없다 — `tests/unit/mediaNaming.test.ts`가 왕복으로 잠근다.
  */
 export function mediaIdFromPath(path: string): string | null {
-  const base = (path.split('/').pop() ?? '').replace(/\.webp$/i, '');
+  // 확장자는 사진(.webp)만이 아니다 — 소리(.webm·.m4a·…)도 같은 폴더에 산다(2026-07-27~).
+  const base = (path.split('/').pop() ?? '').replace(/\.(?:webp|webm|m4a|ogg|mp3|wav)$/i, '');
   const tail = base.split('__').pop() ?? ''; // 제목에 밑줄이 있어도 **맨 뒤**만 본다
   if (/^[0-9a-f]{32}$/i.test(tail)) {
     const h = tail.toLowerCase();
@@ -123,8 +133,13 @@ export async function r2Probe(client: JourneyClient): Promise<{ ok: boolean; det
  * 오지 않는다 — 함수가 호출하고 결과만 준다.
  */
 export interface R2Listing {
-  /** 서버에 파일이 있는 사진 id들. */
+  /** 서버에 파일이 있는 사진 id들(`.webp`). */
   ids: string[];
+  /**
+   * 서버에 파일이 있는 **소리** id들. 사진과 같은 폴더에 살지만 대조 상대가 다르므로 나눠 받는다.
+   * 옛 함수(v5 이하)는 이 필드를 주지 않는다 → `undefined`("소리 파일 0개"가 아니라 **모른다**).
+   */
+  audioIds?: string[] | undefined;
   /** 우리 형식(`{uuid}.webp`)이 아닌 키의 수. 조용히 버리지 않고 개수로 보고한다. */
   foreign: number;
   /** 페이지 상한에 걸려 **다 못 봤다**. true면 "고아 0건"이라 말하면 안 된다. */
@@ -151,6 +166,7 @@ export async function r2ListObjects(client: JourneyClient): Promise<R2Listing> {
   const r = await callSign(client, 'list', null);
   const empty = {
     ids: [],
+    audioIds: undefined,
     foreign: 0,
     truncated: false,
     outside: 0,
@@ -163,6 +179,7 @@ export async function r2ListObjects(client: JourneyClient): Promise<R2Listing> {
   const d = r.data as
     | ({
         ids?: unknown;
+        audioIds?: unknown;
         foreign?: unknown;
         truncated?: unknown;
         outside?: unknown;
@@ -176,6 +193,10 @@ export async function r2ListObjects(client: JourneyClient): Promise<R2Listing> {
   const mp = d.multipart as { mine?: unknown; outside?: unknown; known?: unknown } | undefined;
   return {
     ids: (d.ids as unknown[]).filter((x): x is string => typeof x === 'string'),
+    // 배열이 아니면 **없는 것이 아니라 모르는 것**이다(옛 함수) — undefined로 남긴다.
+    audioIds: Array.isArray(d.audioIds)
+      ? (d.audioIds as unknown[]).filter((x): x is string => typeof x === 'string')
+      : undefined,
     foreign: typeof d.foreign === 'number' ? d.foreign : 0,
     truncated: d.truncated === true,
     // 옛 버전 함수가 배포돼 있으면 이 필드가 없다 → **0이 아니라 '모른다'**로 둔다.
@@ -263,19 +284,26 @@ export function r2BlobStore(client: JourneyClient): BlobStore {
     return { url: r.data.url };
   }
 
+  async function upload(
+    path: string,
+    blob: Blob,
+    contentType: string,
+  ): Promise<{ error?: string | undefined; status?: number | undefined }> {
+    const s = await signed('put', path);
+    if (s.error || !s.url) return { error: s.error ?? 'no_url' };
+    try {
+      const res = await fetch(s.url, { method: 'PUT', body: blob, headers: { 'Content-Type': contentType } });
+      // 403은 서명 만료·시크릿 오입력, CORS 실패는 fetch가 예외로 던진다(진단표 참조).
+      if (!res.ok) return { error: `R2 업로드 실패(${res.status})`, status: res.status };
+      return {};
+    } catch (e) {
+      return { error: `R2 업로드 실패 — CORS 설정(5단계)일 가능성이 큽니다: ${(e as Error).message}` };
+    }
+  }
+
   return {
-    async uploadDisplay(path, blob) {
-      const s = await signed('put', path);
-      if (s.error || !s.url) return { error: s.error ?? 'no_url' };
-      try {
-        const res = await fetch(s.url, { method: 'PUT', body: blob, headers: { 'Content-Type': 'image/webp' } });
-        // 403은 서명 만료·시크릿 오입력, CORS 실패는 fetch가 예외로 던진다(진단표 참조).
-        if (!res.ok) return { error: `R2 업로드 실패(${res.status})`, status: res.status };
-        return {};
-      } catch (e) {
-        return { error: `R2 업로드 실패 — CORS 설정(5단계)일 가능성이 큽니다: ${(e as Error).message}` };
-      }
-    },
+    upload,
+    uploadDisplay: (path, blob) => upload(path, blob, 'image/webp'),
 
     async download(path) {
       const s = await signed('get', path);

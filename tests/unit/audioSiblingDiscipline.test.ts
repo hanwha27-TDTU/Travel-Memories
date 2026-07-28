@@ -20,8 +20,10 @@
 // 정적 게이트는 "op를 넣는 코드가 있다"까지만 본다(§10 ①). **자식 종류를 빠짐없이 쓸어담는지,
 // 되살릴 때 정확히 그것만 돌아오는지**는 실제로 돌려봐야 안다 — 여기가 그 층이다.
 //
-// 🔴 소리는 서버로 가지 않으므로 **큐 op가 아니라 행(row)을 잰다.** 형제와 다른 것은 그
-//    한 가지뿐이고, 나머지(함께 지워지고·보이고·살아나고·바이트가 사라지는 것)는 전부 같다.
+// 🔴 2026-07-27에 마지막 비대칭도 사라졌다: 소리도 **서버로 간다**(마이그레이션 0019).
+//    그래서 이 파일의 전제를 뒤집었다 — 예전엔 "소리엔 큐 op가 없다"를 **정상으로 못박고**
+//    있었고, 그 케이스를 그대로 두면 서버 동기화를 붙여도 게이트가 GREEN인 채로 남는다.
+//    전제가 바뀌면 **케이스를 먼저 뒤집는다**(§11 ② — 통과시키려고 로직을 되돌리지 마라).
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import 'fake-indexeddb/auto';
@@ -109,12 +111,35 @@ describe('① cascade — 부모가 사라지면 소리도 함께 사라진다',
     expect((await audioRow(audioId))!.deletedAt).toBeNull();
   });
 
-  it('소리는 큐 op를 만들지 않는다 — 그 예외는 **여기까지**다(등록된 사정)', async () => {
-    const { tripId } = await seed();
+  // 🔴 **뒤집힌 케이스**(2026-07-27). 예전 이 자리는 *"소리는 큐 op를 만들지 않는다"*를
+  //    정상으로 못박고 있었다 — 그 전제가 사라진 지금 그대로 두면, 서버 전파를 빠뜨려도
+  //    검사가 GREEN으로 통과한다(§11 ② — 전제가 바뀌면 케이스를 먼저 뒤집는다).
+  it('🔴 여행 cascade가 소리 op도 만든다 — 안 만들면 서버 행이 활성으로 남는다(M-0006과 같은 형태)', async () => {
+    const { tripId, audioId } = await seed();
     await softDeleteTripLocalFirst(tripId);
-    const types = new Set((await db().syncQueue.toArray()).map((q) => q.entityType));
-    expect(types.has('audio')).toBe(false); // 서버에 보낼 곳이 없다
-    expect(types.has('trip')).toBe(true); // 형제들의 op는 그대로 난다
+    const ops = await db().syncQueue.toArray();
+    const audioOps = ops.filter((q) => q.entityType === 'audio');
+    expect(audioOps.map((q) => q.entityId)).toContain(audioId);
+    expect(audioOps[0]!.operationType).toBe('delete');
+    expect(new Set(ops.map((q) => q.entityType)).has('trip')).toBe(true);
+  });
+
+  it('🔴 여행 복원도 소리 op를 만든다 — 없으면 서버 tombstone이 다음 pull에서 되지운다', async () => {
+    const { tripId, audioId } = await seed();
+    const children = await softDeleteTripLocalFirst(tripId);
+    await db().syncQueue.clear();
+    await restoreTripLocalFirst(tripId, children);
+    const audioOps = (await db().syncQueue.toArray()).filter((q) => q.entityType === 'audio');
+    expect(audioOps.map((q) => q.entityId)).toContain(audioId);
+    expect(audioOps[0]!.operationType).toBe('update');
+  });
+
+  it('🔴 순간 cascade도 소리 op를 만든다(여행과 같은 규율 — 형제 위치를 함께 본다)', async () => {
+    const { momentId, audioId } = await seed();
+    await db().syncQueue.clear();
+    await softDeleteMomentLocalFirst(momentId);
+    const audioOps = (await db().syncQueue.toArray()).filter((q) => q.entityType === 'audio');
+    expect(audioOps.map((q) => q.entityId)).toContain(audioId);
   });
 });
 
@@ -174,8 +199,15 @@ describe('③ 영구삭제 — 바이트가 실제로 사라진다', () => {
   it('소리 하나만 영구삭제해도 행이 사라진다', async () => {
     const { audioId } = await seed();
     await softDeleteAudio(audioId);
+    await db().syncQueue.clear(); // 사전조건(대기 op 없음) — 형제와 **같은** 조건이다
     await purgeChildPermanently('audio', audioId);
     expect(await audioRow(audioId)).toBeUndefined();
+  });
+
+  it('🔴 서버에 못 보낸 변경이 있으면 영구삭제를 거부한다 — 사진·비용과 같은 사전조건', async () => {
+    const { audioId } = await seed();
+    await softDeleteAudio(audioId); // 삭제 op가 큐에 남는다
+    await expect(purgeChildPermanently('audio', audioId)).rejects.toThrow(/서버에 반영되지 않은/);
   });
 
   it('삭제되지 않은 소리는 영구삭제를 **거부**한다(형제와 같은 사전조건)', async () => {
@@ -183,12 +215,16 @@ describe('③ 영구삭제 — 바이트가 실제로 사라진다', () => {
     await expect(purgeChildPermanently('audio', audioId)).rejects.toThrow(/삭제되지 않은/);
   });
 
-  it('로컬 전용이므로 표식·전파 op를 남기지 않는다 — 지킬 대상이 없기 때문이다', async () => {
+  it('🔴 표식과 전파 op를 남긴다 — 다른 기기에서도 사라져야 한다(예전엔 둘 다 없었다)', async () => {
     const { audioId } = await seed();
     await softDeleteAudio(audioId);
+    await db().syncQueue.clear();
     await purgeChildPermanently('audio', audioId);
-    expect(await db().purgedIds.get(audioId)).toBeUndefined();
-    expect((await db().syncQueue.toArray()).filter((q) => q.entityId === audioId)).toEqual([]);
+    // 표식: pull이 이 id를 건너뛴다(서버 tombstone을 다시 받아 휴지통에 되살아나지 않게).
+    expect((await db().purgedIds.get(audioId))?.entityType).toBe('audio');
+    // 전파: 없으면 이 기기에서만 지워지고 서버·R2엔 영영 남는다(M-0023).
+    const ops = (await db().syncQueue.toArray()).filter((q) => q.entityId === audioId);
+    expect(ops.map((q) => q.entityType)).toContain('purge:audio');
   });
 });
 
