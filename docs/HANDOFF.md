@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.21<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->121<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->56<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.22<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->122<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->56<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->20<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -263,6 +263,43 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0017 · v1.22 · **같은 자료를 두고 기기마다 정반대로 안내했다** (M-0048)
+
+**계기**: 사용자가 두 기기의 스크린샷을 나란히 보냈다. 그리고 한 줄 — *"해결은 했는데 **이거 신경 안 쓰도록 설계를 수정**해야 할 거 같은데…"*
+
+**한 줄**: 맞는 지적이었다. 증상은 셋이었는데 **원인이 하나로 모였다** — 헌법의 read-back 규율이 **행에만 걸려 있고 바이트에는 없었다**(§7 형제 비대칭). 그래서 어긋남을 **사람이 발견하고 사람이 고쳐야** 했다.
+
+| 무엇 | 사용자가 대신 한 일 |
+|---|---|
+| 버튼을 눌러야 올라감 | **대조와 복구를 사람이 실행** |
+| 🔴 기기마다 정반대 판정(태블릿=「안전합니다」 / 폴드5=**「치우세요」**) | **어느 기기를 믿을지 판단** |
+| 배너가 「사진」인데 문제는 소리 | **문장을 무시하고 아래를 읽기** |
+
+🔴 **폴드5의 조언을 따랐으면 기억을 잃었다.** 그 3건은 그때 **휴지통에 있었고**(같은 화면이 「복원하면 돌아옵니다」라고 적고 있었다), [정리]는 서버 원장 + `block_purged_reinsert` 트리거를 거쳐 **태블릿의 사본까지 되살릴 수 없게** 만든다.
+
+### 고친 것 셋
+
+- **A · 동기화가 스스로 대조한다**(`reconcileMissingBytes`) — 서버 파일 목록 ↔ 이 기기의 바이트. 로컬에 있는데 서버에 없으면 **자동으로 다시 올리기 큐에**. `hasRemoteBytes` 등록부를 돌아 **다음 형제가 자동으로 따라온다**. 자동 하루 한 번 · 사용자가 부른 동기화(`deep`)는 항상. **올리기만 하고 지우지 않는다**(지우는 방향은 자동으로 할 일이 아니다).
+- **B · 기기 축을 판정에 넣는다**(`classifyMissingFiles(..., otherDevices)`) — 다른 기기가 있으면 `clearable` → `atRisk`, **파괴적 버튼은 만들지 않는다**(비활성이 아니라 **없음**). 기본값을 안 둬서 **누락이 컴파일 오류**가 됐다(§7 2층) — 컴파일러가 호출부 2곳과 유닛 9곳을 끌고 왔다.
+- **C · 판정 문장이 종류 이름을 부른다** — `fileBad: number` → `Array<{noun,n}>`. 각 감사가 **자기 이름을 들고 다니게** 해서(`fileAuditMetrics`가 `noun` 반환) 갈라질 수 없게.
+
+### 게이트가 밀어준 것 둘
+
+- 🔴 **라이브 검사가 제 픽스처의 거짓말을 잡았다** — 픽스처가 버튼을 `recoverable` 하나로 손수 고르고 `else`로 「정리」를 붙이고 있었다. 앱은 옳았는데 **픽스처가 틀렸다**(§3-E 「내가 쓴 마크업을 재는 것」의 재발). 판정이 낸 목록에서 파생하도록 고쳤다.
+- **`check-fn-size` 래칫**이 두 번 막았고, 우회 대신 덜어내자 **형제 비대칭이 하나 더** 드러났다 — `blocked`는 전용 함수가 있는데 `stranded`만 인라인이었다(`strandedMetric` 신설). 래칫 243 → **237**.
+
+### 검증
+
+하네스 <!--reg:gateCount-->33<!--/reg-->개 PASS(건너뜀 0) · 유닛 **715**(+13) · live 165 + **14** · build OK.
+**주입 RED 3종**: 배너를 옛 「사진」 고정으로 → 3건 · 기기 축 무시 → 2건 · `deep` 무시 → 2건.
+**§13 열어서 봄**: 폴드5 상태를 판정 함수에 먹여 실제 렌더러로 그려 캡처 — **주버튼 0개**(「다시 확인」만), 설명이 다른 기기를 가리킴.
+
+### 남은 것
+
+**A는 실기기에서 아직 안 돌았다**(샌드박스가 `*.supabase.co`를 막는다). 확인법: 다음 동기화 뒤 「소리 파일 N개 · 기록 N개」가 **버튼을 누르지 않고도** 1:1로 맞는지. 지금은 이미 4:4라 **새 어긋남이 생겼을 때가 진짜 시험**이다.
 
 ---
 

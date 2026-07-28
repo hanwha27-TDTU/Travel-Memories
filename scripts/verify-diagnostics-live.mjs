@@ -121,13 +121,21 @@ const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const audit = { files: 0, rows: 1, orphans: [], missing: [A], foreign: 0, truncated: false };
 const base = { noun: '소리', fa: audit, note: null, serverPurged: [], serverTombstoned: [A], restorePending: new Set() };
 
-/** 같은 서버 상태 · 사본 유무만 다르다 — M-0046이 갈라지는 바로 그 지점. */
-function panel(id, localBytes, extraMetrics) {
-  const r = fileAuditMetrics({ ...base, localBytes });
+/**
+ * 같은 서버 상태 · **사본 유무와 기기 수만** 다르다 — M-0046과 M-0048이 갈라지는 두 지점.
+ * 판정이 실제로 갈라지는지를 앱 밖에서 만들 수 없으므로 판정 함수에 직접 먹인다.
+ */
+function panel(id, localBytes, extraMetrics, otherDevices = 0) {
+  const r = fileAuditMetrics({ ...base, localBytes, otherDevices });
   const metrics = [...r.metrics, ...(extraMetrics || [])];
-  const actions = r.recoverable.length
-    ? [{ label: '서버에 없는 자료 다시 올리기', primary: true, run: async () => 'x' }]
-    : [{ label: '지운 소리 기록 정리', primary: true, run: async () => 'x' }];
+  // 🔴 버튼을 **손으로 고르지 않는다.** 앱의 계약은 *"그 목록이 비면 그 행동은 아예 없다"*이고
+  // (storeCleanupActions), 여기서 임의로 고르면 M-0038형 — 내가 쓴 마크업을 재게 된다.
+  // 실제로 첫 판이 그랬다: recoverable만 보고 else로 「정리」를 붙여서, 기기 축을 넣은 뒤에도
+  // 파괴적 버튼이 계속 떴다. 판정이 낸 목록에서 **파생**시킨다.
+  const actions = [
+    ...(r.recoverable.length ? [{ label: '서버에 없는 자료 다시 올리기', primary: true, run: async () => 'x' }] : []),
+    ...(r.clearable.length ? [{ label: '지운 소리 기록 정리', primary: true, run: async () => 'x' }] : []),
+  ];
   const host = document.createElement('section');
   host.setAttribute('data-panel', id);
   host.appendChild(
@@ -151,8 +159,11 @@ function panel(id, localBytes, extraMetrics) {
 /** 판정 불가를 '정상'으로 반올림하지 않는지 보려고 섞어 넣는다. */
 const UNKNOWN = { label: '확인 못 한 지표', actual: '확인 못 함', expected: '0개', level: 'unknown', meaning: '물어보지 못했어요' };
 
-panel('nocopy', new Set());          // 사본 없음 → 정리해도 되는 상태
-panel('hascopy', new Set([A]), [UNKNOWN]); // 사본 있음 → 다시 올려야 하는 상태
+panel('nocopy', new Set());                    // 사본 없음 · 기기 1대 → 정리해도 되는 상태
+panel('hascopy', new Set([A]), [UNKNOWN]);     // 사본 있음 → 다시 올려야 하는 상태
+// 🔴 M-0048: 사본이 없지만 **다른 기기가 있다.** 폴드5에서 실제로 나온 상태이고,
+// 그때 화면은 [지운 소리 기록 정리]를 주버튼으로 권했다 — 따랐으면 태블릿의 사본까지 잃었다.
+panel('otherdev', new Set(), null, 1);
 `;
 
 await rm(TMP, { recursive: true, force: true });
@@ -272,6 +283,8 @@ const b = await page.evaluate(() => {
     noCopyPrimary: primary('nocopy'),
     hasCopyPrimary: primary('hascopy'),
     hasCopyShown: shown('hascopy'),
+    otherDevText: txt('otherdev'),
+    otherDevPrimary: primary('otherdev'),
     noCopyQuiet: quiet('nocopy'),
     hasCopyQuiet: quiet('hascopy'),
     // 지표 설명(meaning)이 실제로 DOM에 나오는가 — 자료구조에만 있고 화면에 없으면 M-0022다.
@@ -291,8 +304,18 @@ check(
 );
 check(
   'B③ 사본이 없을 때만 정리를 권하고, **찾아봤다는 사실**을 함께 말한다',
-  b.noCopyPrimary.includes('정리') && b.noCopyText.includes('이 기기에도 사본이 없습니다'),
+  b.noCopyPrimary.includes('정리') && b.noCopyText.includes('사본이 어디에도 없습니다'),
   `primary="${b.noCopyPrimary}"`,
+);
+check(
+  'B③-2 🔴 다른 기기가 있으면 **정리를 권하지 않는다**(M-0048 회귀 — 두 기기가 정반대 판정)',
+  !b.otherDevPrimary.includes('정리') && !b.otherDevText.includes('치울 수 있어요'),
+  `primary="${b.otherDevPrimary}"`,
+);
+check(
+  'B③-3 대신 **다른 기기를 보라고** 말한다(막다른 문장으로 끝내지 않는다)',
+  b.otherDevText.includes('다른 기기') && b.otherDevText.includes('서버에 없는 자료 다시 올리기'),
+  b.otherDevText.replace(/\s+/g, ' ').slice(0, 160),
 );
 check('B④ 지표 설명이 실제로 화면에 그려진다(자료구조에만 있으면 M-0022)', b.whyCount > 0, `설명 ${b.whyCount}개`);
 check(

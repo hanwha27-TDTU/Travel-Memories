@@ -303,8 +303,8 @@ export async function syncProbe(): Promise<Verdict> {
     primary: stuck === 0 && (waiting > 0 || opless > 0),
     hook: 'data-sync-now',
     run: async () => {
-      // 수동 버튼도 **같은 경로**를 쓴다 — 단일 실행·상태 보고가 거기 있다(§7).
-      await requestSync('수동');
+      // 수동 버튼도 **같은 경로**(§7). `deep`은 바이트 대조를 주기와 무관하게 돌린다.
+      await requestSync('수동', { deep: true });
       const after = syncStatus();
       if (after.phase === 'failed') return `동기화 실패: ${after.lastError ?? '사유 불명'}`;
       if (after.phase === 'signed-out') return '로그인 상태가 아니에요. 홈 화면에서 로그인한 뒤 다시 시도해 주세요.';
@@ -571,22 +571,42 @@ export function classifyOrphanFiles(
  * 기록 · 소리 자체는 없습니다」로 띄우고 **정리를 권했다.** 그 버튼(`purgeServerOnly`)은
  * 로컬 행까지 지운다 — 따랐으면 되살릴 수 있던 기억 20초가 사라졌다.
  *
+ * 🔴 **두 번째 질문은 「다른 기기가 있는가」다**(2026-07-28 사용자 실기기, M-0048).
+ * 위 수정 뒤에도 같은 3건이 **기기마다 정반대 판정**을 받았다 — 사본을 가진 태블릿은
+ * 「자료는 안전합니다」, 사본이 없는 폴드5는 **「치우세요」**. 두 문장 다 자기 기기에 대해서는
+ * 참이었지만, 폴드5의 **결론**은 틀렸다. 그리고 그 결론을 따랐으면(`purgeServerOnly` →
+ * 서버 원장 + `block_purged_reinsert` 트리거) **태블릿의 사본까지 되살릴 수 없게** 된다.
+ *
+ * > **「이 기기에 없다」에서 「없다」로 건너뛰지 않는다.** M-0046의 근본형이 기기 축에서
+ * > 반복된 것이다 — *한 곳을 보고 전체를 말하면, 아직 안 본 곳이 곧 사용자의 기억이다.*
+ * > 앱은 기기가 몇 대인지 **화면에 띄우면서도** 그 사실을 판정에 쓰지 않고 있었다.
+ *
  *  · `recoverable` — **이 기기에 바이트가 있다.** 자료는 안전하고, 다시 올리면 끝난다.
  *    tombstone이든 활성이든 상관없다 — 사본이 있다는 사실이 나머지를 이긴다.
- *  · `clearable`   — 사본이 없고 서버에서도 tombstone. 자료는 정말로 없다. 기록 줄만 치운다.
- *  · `atRisk`      — 사본이 없는데 **활성**이다. 어디에도 없을 수 있다 — 지우면 안 된다.
+ *  · `clearable`   — 사본이 없고, 서버에서도 tombstone이고, **다른 기기도 없다.**
+ *    그때만 「자료는 정말로 없다」고 말할 수 있다. 기록 줄만 치운다.
+ *  · `atRisk`      — 나머지 전부. 활성이거나, **다른 기기가 사본을 가졌을 수 있다.**
+ *    지우면 안 된다.
  */
 export function classifyMissingFiles(
   missing: string[],
   serverTombstoned: string[],
-  /** 이 기기가 바이트를 들고 있는 id들. 비어 있으면 "사본 없음"으로 판정된다. */
+  /** 이 기기가 바이트를 들고 있는 id들. 비어 있으면 "이 기기엔 사본 없음"으로 판정된다. */
   localBytes: ReadonlySet<string>,
+  /**
+   * **이 기기를 뺀** 기기 수. 0보다 크면 「사본이 없다」를 단정할 수 없다.
+   *
+   * 왜 인자인가: 기본값을 두면 호출부가 안 넘겨도 컴파일된다 — 그러면 이 규율이 **조용히
+   * 빠지는 길**이 생긴다(§7 2층: 누락이 컴파일 오류가 되게).
+   */
+  otherDevices: number,
 ): { recoverable: string[]; clearable: string[]; atRisk: string[] } {
   const dead = new Set(serverTombstoned);
+  const alone = otherDevices === 0;
   return {
     recoverable: missing.filter((id) => localBytes.has(id)),
-    clearable: missing.filter((id) => !localBytes.has(id) && dead.has(id)),
-    atRisk: missing.filter((id) => !localBytes.has(id) && !dead.has(id)),
+    clearable: missing.filter((id) => !localBytes.has(id) && dead.has(id) && alone),
+    atRisk: missing.filter((id) => !localBytes.has(id) && !(dead.has(id) && alone)),
   };
 }
 
@@ -600,6 +620,27 @@ export function classifyMissingFiles(
  * 왜 지표인가(§10 ②): 이건 코드가 아니라 **지금 데이터의 모양**에 달린 결함이다. 고친 뒤에도
  * 옛 판으로 이미 복원해 둔 사람은 여전히 이 상태이고, 그걸 데려올 층은 런타임 진단뿐이다.
  */
+/**
+ * **전파되지 않은 영구삭제** 지표 — 내가 지웠다고 믿는데(로컬 표식) 서버엔 tombstone으로 남은 것.
+ *
+ * 로컬 표식 때문에 휴지통에도 안 보이므로 **어디서도 손댈 수 없는 상태**다 — 앱이 말해주지
+ * 않으면 영원히 남는다.
+ *
+ * (형제인 `blockedByLedgerMetric`은 처음부터 함수였는데 이쪽만 `storeStateProbe` 안에 인라인으로
+ *  있었다. `check-fn-size` 래칫이 그 비대칭을 밀어내 줬다 — §2-C 「게이트가 설계를 밀어준다」.)
+ */
+export function strandedMetric(stranded: number): Metric {
+  return {
+    label: '지웠는데 서버에 남은 항목',
+    actual: stranded === 0 ? '없음' : `${stranded}건`,
+    expected: '없음',
+    level: stranded > 0 ? 'problem' : 'ok',
+    ...(stranded > 0
+      ? { meaning: '이 기기에서 영구삭제했지만 서버에 전하지 못한 항목이에요. 휴지통에도 안 보여서 손댈 수가 없습니다 — 아래 [서버에서도 지우기]를 눌러 주세요.' }
+      : {}),
+  };
+}
+
 export function blockedByLedgerMetric(blocked: number, restoringFiles: number): Metric {
   if (blocked === 0) return { label: '복원했는데 서버가 막은 항목', actual: '없음', expected: '없음', level: 'ok' };
   return {
@@ -620,8 +661,17 @@ export interface StoreHeadlineInput {
   level: Level;
   /** 개수 대조에서 어긋난 도메인 수. */
   countBad: number;
-  /** 사진 파일 대조에서 어긋난 지표 수. */
-  fileBad: number;
+  /**
+   * 파일 대조에서 어긋난 지표 수 — **종류별로** 받는다.
+   *
+   * 🔴 왜 숫자 하나가 아닌가(2026-07-28 사용자 실기기, M-0048): 예전엔 `fileBad: number`였고
+   * 문장이 「**사진** 파일에 확인할 것이 N가지 있어요」로 못 박혀 있었다. 그런데 소리를
+   * 형제로 들이면서 이 숫자가 **소리까지** 세게 됐고, 문장만 안 따라왔다 — 사진은 9:9로
+   * 멀쩡한데 화면은 「사진 파일에…」라고 말했다. §7 최빈형(형제 하나만 조용히 빠짐)이다.
+   *
+   * 종류 이름을 **호출부가 넘기게** 해서, 다음 형제(영상 등)가 생기면 문장이 자동으로 따라온다.
+   */
+  fileBad: ReadonlyArray<{ noun: string; n: number }>;
   /** 전파되지 않은 영구삭제 건수. */
   stranded: number;
   /**
@@ -657,9 +707,13 @@ export function storeHeadline(i: StoreHeadlineInput): string {
   // 사라진다. 「지웠는데 남은 것」은 용량과 정합의 문제지만 이건 자료가 없어지는 문제다.
   if (i.blocked) return `되살린 기록 ${i.blocked}건을 서버가 받지 않고 있어요`;
   if (i.stranded) return `지웠는데 서버에 남은 항목이 ${i.stranded}건 있어요`;
-  if (i.countBad && i.fileBad) return `클라우드와 다른 항목 ${i.countBad}가지, 사진 파일 문제 ${i.fileBad}가지가 있어요`;
+  // 어긋난 종류만 남긴다 — **정상은 문장에서 사라진다**(§8 「침묵이 정상」).
+  const bad = i.fileBad.filter((f) => f.n > 0);
+  const fileTotal = bad.reduce((n, f) => n + f.n, 0);
+  const nouns = bad.map((f) => f.noun).join('·');
+  if (i.countBad && fileTotal) return `클라우드와 다른 항목 ${i.countBad}가지, ${nouns} 파일 문제 ${fileTotal}가지가 있어요`;
   if (i.countBad) return `클라우드와 다른 항목이 ${i.countBad}가지 있어요`;
-  if (i.fileBad) return `사진 파일에 확인할 것이 ${i.fileBad}가지 있어요`;
+  if (fileTotal) return `${nouns} 파일에 확인할 것이 ${fileTotal}가지 있어요`;
   // 어느 무리에도 안 잡혔는데 정상도 아니다 = 대조 자체를 못 했다(확인 불가).
   return '지금은 클라우드와 대조하지 못했어요';
 }
@@ -855,7 +909,7 @@ function storeActions(i: StoreActionsInput): Action[] {
               let n = 0;
               for (const dm of ['media', 'audio'] as const) n += await requeueMissingBytes(dm, recoverable[dm]);
               if (!n) return '다시 올릴 사본을 이 기기에서 찾지 못했어요.';
-              await requestSync('서버에 없는 자료 다시 올리기');
+              await requestSync('서버에 없는 자료 다시 올리기', { deep: true });
               const st = syncStatus();
               return st.phase === 'failed'
                 ? `${n}건을 큐에 넣었지만 동기화가 실패했어요: ${st.lastError ?? '사유 불명'}`
@@ -912,7 +966,8 @@ function storeActions(i: StoreActionsInput): Action[] {
       primary: level !== 'ok' && !blocked && !stranded && !clearableIds.length && !leftoverFileIds.length,
       hook: 'data-store-sync',
       run: async () => {
-        await requestSync('저장 상태 확인');
+        // 의심해서 누른 버튼이다 — 바이트까지 대조한다(§12).
+        await requestSync('저장 상태 확인', { deep: true });
         const s = syncStatus();
         return s.phase === 'failed' ? `동기화 실패: ${s.lastError ?? '사유 불명'}` : '동기화했어요. 다시 대조합니다.';
       },
@@ -981,11 +1036,22 @@ export function fileAuditMetrics(i: {
   restorePending: ReadonlySet<string>;
   /** 이 기기가 바이트를 들고 있는 id들 — **「없다」고 말하기 전에 묻는 것**(M-0046). */
   localBytes: ReadonlySet<string>;
-}): { metrics: Metric[]; leftover: string[]; clearable: string[]; recoverable: string[]; restoring: number } {
+  /** **이 기기를 뺀** 기기 수 — 「이 기기에 없다」를 「없다」로 반올림하지 않으려고(M-0048). */
+  otherDevices: number;
+}): {
+  /** 이 감사가 다룬 종류 이름. **지표와 함께 다닌다** — 갈라지면 M-0048이 재발한다. */
+  noun: string;
+  metrics: Metric[];
+  leftover: string[];
+  clearable: string[];
+  recoverable: string[];
+  restoring: number;
+} {
   const { noun, fa } = i;
   if (!fa) {
     // 못 본 것을 정상으로 반올림하지 않는다(비타협 원칙 #4).
     return {
+      noun,
       metrics: [
         {
           label: `${noun} 파일 대조`,
@@ -1014,7 +1080,7 @@ export function fileAuditMetrics(i: {
   // 목록이 잘렸으면 아무것도 단정하지 않는다(뒤쪽 페이지에 있을 수 있다).
   const miss = fa.truncated
     ? { recoverable: [], clearable: [], atRisk: [] }
-    : classifyMissingFiles(fa.missing, i.serverTombstoned, i.localBytes);
+    : classifyMissingFiles(fa.missing, i.serverTombstoned, i.localBytes, i.otherDevices);
   const { recoverable, clearable, atRisk } = miss;
 
   const metrics: Metric[] = [
@@ -1058,7 +1124,11 @@ export function fileAuditMetrics(i: {
       ...(fa.truncated
         ? { meaning: `파일이 너무 많아 목록을 다 보지 못했어요(${fa.files}개까지 확인). 이 판정은 보류합니다.` }
         : atRisk.length
-          ? { meaning: `살아 있는 ${noun}인데 서버에도 이 기기에도 파일이 없어요. **지우지 마세요** — 사본을 가진 다른 기기에서 동기화하거나, 백업 파일에서 복원해야 합니다.` }
+          ? {
+              meaning: i.otherDevices
+                ? `서버에도 **이 기기에도** 파일이 없어요. 그런데 이 계정에는 기기가 ${i.otherDevices + 1}대 있습니다 — **다른 기기에 사본이 남아 있을 수 있어요.** 여기서 지우면 그 사본까지 되살릴 수 없게 됩니다(서버가 재등록을 거부합니다). 먼저 다른 기기에서 「앱 상태 확인」을 열어 [서버에 없는 자료 다시 올리기]가 보이는지 확인해 주세요.`
+                : `살아 있는 ${noun}인데 서버에도 이 기기에도 파일이 없어요. **지우지 마세요** — 백업 파일에서 복원해야 합니다.`,
+            }
           : {}),
     },
     {
@@ -1068,11 +1138,25 @@ export function fileAuditMetrics(i: {
       // '문제'가 아니라 '할 일'이다 — 자료는 이미 없고 기록 줄만 남았다.
       level: fa.truncated ? 'unknown' : clearable.length ? 'todo' : 'ok',
       ...(clearable.length
-        ? { meaning: `이미 지운 ${noun}의 기록 줄만 서버에 남아 있어요. **이 기기에도 사본이 없습니다**(찾아봤어요) — 아래 [지운 ${noun} 기록 정리]로 치울 수 있어요.` }
+        ? { meaning: `이미 지운 ${noun}의 기록 줄만 서버에 남아 있어요. **사본이 어디에도 없습니다**(이 기기를 찾아봤고, 다른 기기도 없습니다) — 아래 [지운 ${noun} 기록 정리]로 치울 수 있어요.` }
         : {}),
     },
   ];
-  return { metrics, leftover, clearable, recoverable, restoring: restoring.length };
+  return { noun, metrics, leftover, clearable, recoverable, restoring: restoring.length };
+}
+
+/**
+ * 파일 대조에서 어긋난 지표를 **종류별로** 센다 — 판정 문장이 이름을 부를 수 있게.
+ *
+ * 🔴 왜 순수 함수인가(M-0048): 예전엔 `metrics.slice(...)`로 **한 숫자에 합쳐** 놓고 문장은
+ * 「사진 파일에…」로 못 박혀 있었다. 소리를 형제로 들이자 숫자는 소리까지 셌는데 이름은
+ * 안 따라왔다 — 사진이 9:9로 멀쩡한 화면에서 「사진 파일 문제」라고 말했다.
+ * 각 감사가 **자기 이름을 들고 오게** 하면 다음 형제(영상 등)가 자동으로 따라온다(§7 2층).
+ */
+export function fileBadByNoun(
+  audits: ReadonlyArray<{ noun: string; metrics: Metric[] }>,
+): Array<{ noun: string; n: number }> {
+  return audits.map((a) => ({ noun: a.noun, n: a.metrics.filter((m) => m.level !== 'ok').length }));
 }
 
 /**
@@ -1177,6 +1261,9 @@ export async function storeStateProbe(): Promise<Verdict> {
   //    다르다 — 섞으면 멀쩡한 소리가 전부 「기록 없는 사진 파일」이 되고 화면은 그걸 치우라고
   //    권한다. 대신 **판정 규칙은 한 곳**(`fileAuditMetrics`)에 두어, 소리가 사진의 규율을
   //    자동으로 물려받게 한다(§7 2층 — 다음 형제가 자동으로 따라오는가).
+  // **이 기기를 뺀** 기기 수(M-0048). 화면은 이미 「내 기기들 N대」로 띄우면서 판정만 그
+  // 사실을 몰랐다 — 앱이 아는 것을 판정에 안 쓴 §12의 형태다.
+  const otherDevices = Math.max(0, cmp.devices.length - 1);
   const audit = fileAuditMetrics({
     noun: '사진',
     fa: cmp.fileAudit,
@@ -1185,6 +1272,7 @@ export async function storeStateProbe(): Promise<Verdict> {
     serverTombstoned: cmp.serverTombstoned,
     restorePending,
     localBytes: cmp.localBytes.media,
+    otherDevices,
   });
   const audioAudit = fileAuditMetrics({
     noun: '소리',
@@ -1194,6 +1282,7 @@ export async function storeStateProbe(): Promise<Verdict> {
     serverTombstoned: cmp.serverTombstoned,
     restorePending,
     localBytes: cmp.localBytes.audio,
+    otherDevices,
   });
   metrics.push(...audit.metrics, ...audioAudit.metrics);
   // 치우기는 **id로** 하고 그 경로는 종류를 가리지 않는다(R2 목록에서 키를 찾아 지운다).
@@ -1264,19 +1353,8 @@ export async function storeStateProbe(): Promise<Verdict> {
         }),
   });
 
-  // ── 전파되지 않은 영구삭제 ─────────────────────────────────────────
-  // 내가 지웠다고 믿는데(로컬 표식) 서버엔 tombstone으로 남은 것. 로컬 표식 때문에 휴지통에도
-  // 안 보이므로 **어디서도 손댈 수 없는 상태**다 — 앱이 말해주지 않으면 영원히 남는다.
   const stranded = cmp.unpropagatedPurges.length;
-  metrics.push({
-    label: '지웠는데 서버에 남은 항목',
-    actual: stranded === 0 ? '없음' : `${stranded}건`,
-    expected: '없음',
-    level: stranded > 0 ? 'problem' : 'ok',
-    ...(stranded > 0
-      ? { meaning: '이 기기에서 영구삭제했지만 서버에 전하지 못한 항목이에요. 휴지통에도 안 보여서 손댈 수가 없습니다 — 아래 [서버에서도 지우기]를 눌러 주세요.' }
-      : {}),
-  });
+  metrics.push(strandedMetric(stranded));
 
   const blocked = cmp.blockedByLedger.length;
   metrics.push(blockedByLedgerMetric(blocked, restoringFiles));
@@ -1285,7 +1363,7 @@ export async function storeStateProbe(): Promise<Verdict> {
   const behind = cmp.devices.filter((d) => !d.isThis && cmp.lastCloudWriteAt && d.lastPushAt < cmp.lastCloudWriteAt);
 
   const countBad = countMetrics.filter((m) => m.level !== 'ok').length;
-  const fileBad = metrics.slice(countMetrics.length).filter((m) => m.level !== 'ok').length;
+  const fileBad = fileBadByNoun([audit, audioAudit]);
   // 살아 있는 기록이 하나도 없을 때 「클라우드와 같습니다」만 말하면 사용자는 **자기 자료가
   // 어디 갔는지 모른 채** 화면을 떠난다. 그래서 판정 문장에 대조한 대상(활성)과 자료의
   // 현재 위치(휴지통)를 함께 넘긴다.

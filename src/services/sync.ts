@@ -15,7 +15,10 @@ import { toAudioRow, fromAudioRow, audioStoragePath, type AudioRow } from '../do
 import { compressForStorage } from '../media/compress';
 import { mergeDecision, isEmptyCloudAnomaly, classifyError, retryDelayMs, isRetryDue } from '../sync/merge';
 import type { JourneyClient } from './supabase/client';
-import { r2BlobStore } from './r2';
+import { r2BlobStore, r2ListObjects } from './r2';
+// 바이트 대조가 「이 기기에 사본이 있는 id」를 물어본다. `storeState`는 Dexie만 읽는
+// 하위 모듈이라 순환이 생기지 않는다(그쪽은 sync를 모른다).
+import { localBytesIds } from './storeState';
 import { deviceStamp } from '../app/deviceId';
 import {
   applyPurgedLedger,
@@ -947,6 +950,115 @@ export async function requeueMissingBytes(domain: PurgeDomain, ids: string[]): P
   return added;
 }
 
+// ── 바이트 대조(자기 점검) ────────────────────────────────────────────────────
+//
+// 🔴 **왜 이게 동기화의 일인가**(2026-07-28 사용자 지적: *"이거 신경 안 쓰도록 설계를 수정해야
+// 할 거 같은데…"*)
+//
+// 헌법의 데이터 안전 불변식은 *"정확한 read-back으로 확인 — HTTP 200/성공 토스트가 아니라
+// 같은 레코드를 되읽어 확인한 뒤에만 완료 처리"*라고 말한다. 그런데 그 규율이 **행(row)에만**
+// 걸려 있었다. 행은 upsert 뒤 되읽는데 **바이트(R2 파일)는 올린 뒤 아무도 안 봤다.**
+// 형제 비대칭이다(§7).
+//
+// 그래서 어긋남이 생기면 **사람이 진단을 열어 버튼을 눌러야만** 고쳐졌다. 실제로 그렇게 됐고,
+// 더 나빴던 것은 **기기마다 정반대 판정**이 나온 것이다 — 사본이 있는 기기는 「자료는
+// 안전합니다」, 없는 기기는 「치우세요」. 사용자가 *어느 기기를 믿을지*까지 판단해야 했다.
+// §12가 묻는 그 질문의 답이 「바이트 대조와 복구」였다.
+//
+// 대칭: 바이트를 가진 도메인 **전부**를 돈다(`hasRemoteBytes` 등록부). 손으로 'media'라고
+// 적지 않으므로 **다음 형제가 자동으로 따라온다**.
+
+/** 마지막 바이트 대조 시각(ISO). 자동 동기화는 하루 한 번만 목록을 부른다. */
+const BYTES_RECONCILE_KEY = 'bj.repair.bytesReconcile.v1';
+/** 자동 동기화의 대조 주기. 사용자가 직접 부른 동기화(`deep`)는 이 값과 무관하게 항상 돈다. */
+export const BYTES_RECONCILE_EVERY_MS = 24 * 60 * 60 * 1000;
+
+/** 지금 대조할 때인가 — 순수 함수라 유닛이 직접 잰다(경계값 포함). */
+export function reconcileDue(lastAt: string | null, now: number, deep: boolean): boolean {
+  if (deep) return true;
+  if (!lastAt) return true;
+  const t = Date.parse(lastAt);
+  if (Number.isNaN(t)) return true; // 표식이 깨졌으면 **재는 쪽**으로 기운다(안 재고 넘기지 않는다)
+  return now - t >= BYTES_RECONCILE_EVERY_MS;
+}
+
+/**
+ * **로컬에 사본이 있는데 서버에 파일이 없는 것**을 찾아 다시 올리기로 큐에 넣는다.
+ *
+ * 이 함수는 **고치기만 하고 지우지 않는다.** 반대 방향(서버에 파일이 있는데 기록이 없음)은
+ * 손대지 않는다 — 그건 자료를 **버리는** 방향이고, 자동으로 할 일이 아니다(비타협 원칙 #1·#5).
+ * 진단이 사람에게 보여 주고 사람이 정한다.
+ *
+ * **모르면 손대지 않는다**(§8): 목록이 잘렸으면(`truncated`) 「없다」고 단정할 수 없고,
+ * 서버 함수가 소리 목록을 안 주면(`audioIds === undefined`) 소리는 **확인 불가**다.
+ * 그 경우 전부 다시 올리는 쪽으로 반올림하면 멀쩡한 파일을 다시 올려 요금만 쓴다.
+ */
+export async function reconcileMissingBytes(
+  client: JourneyClient,
+): Promise<{ requeued: Record<string, number>; note: string | null }> {
+  const requeued: Record<string, number> = {};
+  const listing = await r2ListObjects(client);
+  if (listing.error) return { requeued, note: listing.error };
+  if (listing.truncated) {
+    return { requeued, note: '서버 파일 목록이 잘려서 대조하지 않았어요(뒤쪽 페이지에 있을 수 있어요).' };
+  }
+  const local = await localBytesIds();
+  // 도메인 → 서버 파일 id 집합. `undefined`는 「빈 집합」이 아니라 **확인 불가**다.
+  const serverIds: Partial<Record<PurgeDomain, ReadonlySet<string> | undefined>> = {
+    media: new Set(listing.ids),
+    audio: listing.audioIds === undefined ? undefined : new Set(listing.audioIds),
+  };
+  const unknown: string[] = [];
+
+  for (const domain of PURGE_DOMAINS) {
+    if (!DOMAIN_PURGE[domain].hasRemoteBytes) continue;
+    const server = serverIds[domain];
+    if (server === undefined) {
+      unknown.push(domain);
+      continue;
+    }
+    const missing = [...local[domain]].filter((id) => !server.has(id));
+    if (!missing.length) continue;
+    const n = await requeueMissingBytes(domain, missing);
+    if (n) requeued[domain] = n;
+  }
+
+  const note = unknown.length
+    ? `서버 함수가 아직 ${unknown.join('·')} 파일 목록을 알려주지 않아 그 부분은 대조하지 못했어요 — 함수를 최신으로 배포하면 됩니다.`
+    : null;
+  return { requeued, note };
+}
+
+/** 대조 단계 — 실패해도 동기화를 멈추지 않는다(못 고친 대가는 「어긋남이 조금 더 남는다」뿐). */
+async function reconcileBytesIfDue(client: JourneyClient, deep: boolean): Promise<void> {
+  let lastAt: string | null = null;
+  try {
+    lastAt = localStorage.getItem(BYTES_RECONCILE_KEY);
+  } catch {
+    // localStorage 불가 — 주기를 못 재므로 **자동은 건너뛰고** 사용자가 부른 것만 돈다.
+    // (매 동기화마다 목록을 부르는 쪽으로 기울면 요금이 조용히 샌다.)
+    if (!deep) return;
+  }
+  if (!reconcileDue(lastAt, Date.now(), deep)) return;
+  try {
+    const { requeued, note } = await reconcileMissingBytes(client);
+    const total = Object.values(requeued).reduce((a, b) => a + b, 0);
+    if (total) {
+      const detail = Object.entries(requeued).map(([d, n]) => `${d} ${n}건`).join(' · ');
+      console.info(`바이트 대조: 서버에 없는 자료를 다시 올리기로 큐에 넣었어요(${detail}).`);
+    }
+    if (note) console.warn(`바이트 대조: ${note}`);
+  } catch (e) {
+    console.error(`바이트 대조 실패 — ${(e as Error).message}`);
+    return; // 🔴 표식을 남기지 않는다. 못 쟀으면 **다음에 다시 재야** 한다(SKIP≠PASS).
+  }
+  try {
+    localStorage.setItem(BYTES_RECONCILE_KEY, new Date().toISOString());
+  } catch {
+    /* 표식 저장 실패는 무해 — 다음 동기화에서 한 번 더 돌 뿐이고 이 작업은 멱등이다. */
+  }
+}
+
 /** 소리 백필 1회 실행 표식. 되돌려야 하면 `.v2`로 올려 전 기기가 한 번 더 돌게 한다. */
 const AUDIO_BACKFILL_KEY = 'bj.repair.audioSync.v1';
 
@@ -1511,7 +1623,22 @@ async function revivePushOps(ids: string[]): Promise<number> {
   return dead.length;
 }
 
-export async function runSync(client: JourneyClient, userId: string): Promise<SyncResult> {
+/**
+ * 동기화 실행 옵션.
+ *
+ * `deep` — **사용자가 직접 부른 동기화**인가. 자동(주기·화면 복귀·저장 직후)과 구별한다.
+ * 이름이 아니라 **호출자의 의도**로 판정한다: 이유 문자열을 훑어 「수동」인지 맞히는 방식은
+ * 새 진입점이 생기면 조용히 빠진다(M-0040 — 이름으로 판정하면 새 형제를 정확히 놓친다).
+ */
+export interface SyncOptions {
+  deep?: boolean;
+}
+
+export async function runSync(
+  client: JourneyClient,
+  userId: string,
+  opts: SyncOptions = {},
+): Promise<SyncResult> {
   // push보다 **먼저** 돈다 — 재큐잉된 op가 이번 동기화에서 바로 처리되도록.
   await repairCascadeOpsOnce();
   // 표기 정리도 **병합보다 먼저**다(M-0034). 아래 pull이 `mergeDecision`으로 승부를 내는데,
@@ -1520,6 +1647,10 @@ export async function runSync(client: JourneyClient, userId: string): Promise<Sy
   // 소리는 v1.20 이전에 만들어진 것에 큐 op이 **아예 없다** — 코드만 고치면 그 행들은 영원히
   // 안 올라간다. push보다 먼저 돌아 이번 동기화에서 바로 처리되게 한다.
   await backfillAudioOnce();
+  // 바이트 대조도 **push보다 먼저** — 다시 올릴 것을 찾으면 이번 동기화에서 바로 올라간다.
+  // 자동은 하루 한 번, 사용자가 직접 부른 동기화(`deep`)는 항상(사람이 의심할 때 누르는
+  // 버튼이 곧 확실한 경로여야 한다 — §12).
+  await reconcileBytesIfDue(client, opts.deep === true);
   const remote = tripsRemote(client);
   const mRemote = momentsRemote(client);
   const eRemote = expensesRemote(client);
