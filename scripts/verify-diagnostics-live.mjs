@@ -156,6 +156,47 @@ function panel(id, localBytes, extraMetrics, otherDevices = 0) {
   document.body.appendChild(host);
 }
 
+/**
+ * 🔴 **버튼을 실제로 누르는 판**(2026-07-28 사용자 지적: *"앞으로 버튼을 만들게 된다면
+ * 니가 직접 눌러봐서 확인할 수 있지 않아?"*).
+ *
+ * 맞다. 그동안 이 검사는 버튼의 **라벨만 읽고** 한 번도 안 눌러 봤다 — M-0046도 M-0048도
+ * 버튼이 문제였는데. 누른 뒤 무슨 일이 일어나야 하는지는 헌법 §8에 적혀 있다:
+ * *"고쳤다고 말하지 말고 **다시 읽어라**"*. 그런데 그 재판정을 아무도 재고 있지 않았다.
+ *
+ * 여기서 재는 것(전부 실제 renderTool의 배선이다):
+ *   ① 결과 문장이 **화면에 나오는가**(자료구조에만 있으면 M-0022의 행동판)
+ *   ② 누른 뒤 **재판정이 도는가**(§8 — probe 호출 수로 관측한다)
+ *   ③ 실패하면 **조용히 삼키지 않는가**
+ */
+window.__probes = 0;
+function actionPanel() {
+  const host = document.createElement('section');
+  host.setAttribute('data-panel', 'act');
+  host.appendChild(
+    renderTool({
+      title: '행동 배선',
+      lead: '주입 판정',
+      probe: async () => {
+        window.__probes += 1;
+        return {
+          level: 'ok',
+          headline: '대조했어요',
+          because: '근거',
+          metrics: [{ label: '지표', actual: '0개', expected: '0개', level: 'ok' }],
+          actions: [
+            { label: '고치기', primary: true, hook: 'data-act-ok', run: async () => '3건을 고쳤어요. 다시 대조합니다.' },
+            { label: '터지는 버튼', hook: 'data-act-boom', run: async () => { throw new Error('서버가 거절했어요'); } },
+          ],
+          evidence: [],
+          context: [],
+        };
+      },
+    }),
+  );
+  document.body.appendChild(host);
+}
+
 /** 판정 불가를 '정상'으로 반올림하지 않는지 보려고 섞어 넣는다. */
 const UNKNOWN = { label: '확인 못 한 지표', actual: '확인 못 함', expected: '0개', level: 'unknown', meaning: '물어보지 못했어요' };
 
@@ -164,6 +205,7 @@ panel('hascopy', new Set([A]), [UNKNOWN]);     // 사본 있음 → 다시 올�
 // 🔴 M-0048: 사본이 없지만 **다른 기기가 있다.** 폴드5에서 실제로 나온 상태이고,
 // 그때 화면은 [지운 소리 기록 정리]를 주버튼으로 권했다 — 따랐으면 태블릿의 사본까지 잃었다.
 panel('otherdev', new Set(), null, 1);
+actionPanel();
 `;
 
 await rm(TMP, { recursive: true, force: true });
@@ -206,14 +248,20 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice
 // ═══════════════════════════════════════════════════════════════════════════
 // A층 — 실제 앱에서 진단 허브를 열고 **등록부의 모든 도구**를 그린다
 // ═══════════════════════════════════════════════════════════════════════════
-await page.goto(`http://127.0.0.1:4174${BASE}`, { waitUntil: 'networkidle' });
-await page.waitForTimeout(400);
-
-// 데이터 관리 → 진단 도구. 라벨로 찾는다(카드에 hook이 없어 텍스트가 유일한 손잡이다).
-await page.getByRole('button', { name: /데이터 관리/ }).first().click();
-await page.waitForTimeout(400);
-await page.getByRole('button', { name: /진단 도구/ }).first().click();
-await page.waitForSelector('[data-rollup]', { timeout: 10000 });
+/**
+ * 앱을 열고 **데이터 관리 → 진단 도구**까지 간다. 라벨로 찾는다(카드에 hook이 없어 텍스트가
+ * 유일한 손잡이다). C층도 같은 경로를 쓰므로 **한 곳에만 구현한다**(§7 2층) — 두 곳에 손으로
+ * 적으면 허브 진입이 바뀌는 날 한쪽만 고쳐진다.
+ */
+async function openDiagnosticsHub(pg) {
+  await pg.goto(`http://127.0.0.1:4174${BASE}`, { waitUntil: 'networkidle' });
+  await pg.waitForTimeout(400);
+  await pg.getByRole('button', { name: /데이터 관리/ }).first().click();
+  await pg.waitForTimeout(400);
+  await pg.getByRole('button', { name: /진단 도구/ }).first().click();
+  await pg.waitForSelector('[data-rollup]', { timeout: 10000 });
+}
+await openDiagnosticsHub(page);
 
 // **등록부를 손으로 세지 않는다** — 허브가 그린 카드가 곧 도구 목록이다(`data-tool`).
 // 새 도구가 생기면 이 검사에 자동으로 들어온다(§7 2층: 다음 형제가 따라오는가).
@@ -328,6 +376,73 @@ check(
   b.hasCopyShown.includes('확인 못 한 지표') && b.hasCopyText.includes('확인 못 함'),
   JSON.stringify(b.hasCopyShown),
 );
+
+// ── C. 🔴 **버튼을 실제로 누른다** (2026-07-28) ─────────────────────────────
+// 지금까지 이 검사는 버튼의 **라벨만 읽었다.** M-0046도 M-0048도 버튼이 문제였는데,
+// 정작 눌러본 적이 없다. 누르는 순간의 계약은 실제 `renderTool`이 갖고 있으므로 여기서 잰다.
+await page.waitForSelector('[data-panel="act"] [data-act-ok]');
+const beforeProbes = await page.evaluate(() => window.__probes);
+await page.click('[data-panel="act"] [data-act-ok]');
+await page.waitForFunction(() => window.__probes > 1, null, { timeout: 5000 }).catch(() => {});
+const c1 = await page.evaluate(() => ({
+  probes: window.__probes,
+  msg: document.querySelector('[data-panel="act"] .vd-msg')?.textContent?.trim() ?? '',
+  msgHidden: document.querySelector('[data-panel="act"] .vd-msg')?.hidden !== false,
+  enabled: !document.querySelector('[data-panel="act"] [data-act-ok]')?.disabled,
+}));
+check(
+  'C① 버튼을 누르면 결과 문장이 **화면에 나온다**(자료구조에만 있으면 M-0022의 행동판)',
+  !c1.msgHidden && c1.msg.includes('3건을 고쳤어요'),
+  `msg="${c1.msg}" hidden=${c1.msgHidden}`,
+);
+check(
+  'C② 🔴 고친 뒤 **다시 읽는다**(§8 — 고쳤다고 말하지 말고 재판정하라)',
+  c1.probes > beforeProbes,
+  `probe 호출 ${beforeProbes} → ${c1.probes}`,
+);
+check('C③ 누른 뒤 버튼이 다시 눌린다(비활성으로 잠기지 않는다)', c1.enabled, `enabled=${c1.enabled}`);
+
+await page.click('[data-panel="act"] [data-act-boom]');
+await page.waitForTimeout(300);
+const c2 = await page.evaluate(() => ({
+  msg: document.querySelector('[data-panel="act"] .vd-msg')?.textContent?.trim() ?? '',
+  enabled: !document.querySelector('[data-panel="act"] [data-act-boom]')?.disabled,
+}));
+check(
+  'C④ 🔴 실패하면 **조용히 삼키지 않는다**(사유가 화면에 나온다)',
+  c2.msg.includes('실행 실패') && c2.msg.includes('서버가 거절했어요'),
+  `msg="${c2.msg}"`,
+);
+check('C⑤ 실패해도 버튼이 잠기지 않는다(다시 시도할 수 있다)', c2.enabled, `enabled=${c2.enabled}`);
+
+// 실제 앱에서도 한 번 누른다 — **안전한 행동**(다시 확인)만. 파괴적 버튼은 누르지 않는다:
+// 이 검사는 사용자의 실제 기억을 담은 기기에서도 돌 수 있다(§0 — 원본 자료를 건드리지 않는다).
+//
+// ⚠️ 여기는 주입 픽스처 페이지 위다 — **앱으로 돌아가야 도구가 있다.** 상태를 바꾸는 검사는
+// 맨 뒤에 붙인다(`ui-responsive-dev` §3-C: 중간에서 goto하면 뒤따르는 검사가 화면을 잃는다).
+await openDiagnosticsHub(page);
+const firstTool = (await page.locator('.guide-card-diag[data-tool]').all())[0];
+if (firstTool) {
+  await firstTool.click();
+  await page.waitForSelector('[data-verdict-recheck]', { timeout: 8000 }).catch(() => {});
+  const recheck = page.locator('[data-verdict-recheck]').first();
+  const had = await recheck.count();
+  if (had) {
+    await recheck.click();
+    await page.waitForTimeout(600);
+  }
+  const c3 = await page.evaluate(() => ({
+    badge: document.querySelector('.vd-badge')?.textContent?.trim() ?? '',
+    stuck: document.body.innerText.includes('확인 중…'),
+  }));
+  check(
+    'C⑥ 실제 앱에서 [다시 확인]을 눌러도 판정이 다시 그려진다(「확인 중…」에 멈추지 않는다)',
+    had > 0 && c3.badge.length > 0 && !c3.stuck,
+    `버튼=${had} 뱃지="${c3.badge}"`,
+  );
+} else {
+  check('C⑥ 이하 — 도구를 못 열어 재지 못함(공허 통과 방지)', false, '허브에서 도구를 찾지 못했다');
+}
 
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 
