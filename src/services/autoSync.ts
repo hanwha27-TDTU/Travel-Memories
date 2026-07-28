@@ -81,6 +81,13 @@ let running: Promise<void> | null = null;
 let trailing = false; // 도는 중에 들어온 요청 → 끝난 뒤 **한 번만** 더 돈다
 let timer: ReturnType<typeof setTimeout> | null = null;
 
+/**
+ * 이 실행이 **사용자가 직접 부른 것**인지. 디바운스·후행 실행이 요청을 합치므로 플래그도
+ * 합친다 — **창 안의 어느 요청 하나라도 deep이면 그 실행은 deep이다.** 합치면서 잃으면
+ * 사용자가 누른 버튼이 조용히 얕은 동기화가 된다.
+ */
+let deepPending = false;
+
 async function runOnce(reason: string): Promise<void> {
   const c = supabase();
   if (!c) {
@@ -100,7 +107,10 @@ async function runOnce(reason: string): Promise<void> {
 
   setStatus({ phase: 'running', lastReason: reason });
   try {
-    const r = await runSync(c, u.id);
+    // 소비하면서 내린다 — 이 실행이 그 요청을 덮었으므로 다음 실행까지 끌고 가지 않는다.
+    const deep = deepPending;
+    deepPending = false;
+    const r = await runSync(c, u.id, { deep });
     // **실패한 작업이 있으면 성공이 아니다.** `runSync`는 개별 작업 실패를 예외로 던지지 않고
     // 개수로 돌려준다 — 그걸 안 보면 "3건이 안 갔는데 동기화 성공"이라고 말하게 된다.
     // 실제로 그랬다(2026-07-26): 서버 DELETE 권한이 없어 영구삭제 3건이 막혔는데 화면은
@@ -127,7 +137,8 @@ async function runOnce(reason: string): Promise<void> {
  * 겹쳐 불러도 안전하다: 도는 중이면 끝난 뒤 **한 번만** 더 돈다(후행 1회).
  * 반환 프로미스는 "이 요청을 덮는 동기화가 끝났을 때" 풀린다.
  */
-export function requestSync(reason: string): Promise<void> {
+export function requestSync(reason: string, opts: { deep?: boolean } = {}): Promise<void> {
+  if (opts.deep) deepPending = true;
   if (running) {
     trailing = true;
     return running.then(() => running ?? Promise.resolve());
@@ -147,11 +158,11 @@ export function requestSync(reason: string): Promise<void> {
 }
 
 /** 디바운스 요청 — 연타를 한 번으로 합친다(저장 루프 등). */
-export function requestSyncSoon(reason: string): void {
+export function requestSyncSoon(reason: string, opts: { deep?: boolean } = {}): void {
   if (timer) clearTimeout(timer);
   timer = setTimeout(() => {
     timer = null;
-    void requestSync(reason);
+    void requestSync(reason, opts);
   }, DEBOUNCE_MS);
 }
 

@@ -28,6 +28,10 @@ export const GATE_DESC: Record<string, string> = {
   'check-domain-symmetry': '도메인 4종이 같은 생명주기 심볼을 갖는지(삭제만 있고 복원이 없는 형태 차단)',
   'check-verdict-symmetry': '진단 도구가 자기 렌더 코드를 갖지 않고 단일 렌더러를 거치는지',
   'check-skill-routing': '모든 코드 영역이 착수 전 읽을 스킬 문서를 갖는지',
+  // 「덮였다」가 아니라 「덮도록 **선언**됐다」까지만 말한다 — 라이브 게이트는 SKIP될 수 있고
+  // 이 정적 게이트는 그걸 모른다(§8 모르는 것은 확인 불가).
+  'check-live-coverage':
+    '모든 화면이 **눈으로 보는 라이브 검사**에 등록돼 있는지(없으면 이유와 함께 제외 — 이유 없는 제외는 결함)',
   'check-self-eval': '자가평가 항목이 실제 게이트·코드와 어긋나지 않는지',
   'check-schema-parity': '클라 rowmap 필드 ⊆ 서버 마이그레이션 컬럼(드리프트 차단)',
   'check-migration-grants': '코드가 하는 연산을 서버 권한(GRANT·RLS)이 실제로 허락하는지',
@@ -51,6 +55,8 @@ export const GATE_DESC: Record<string, string> = {
   'unit-tests': '순수 로직 유닛(비공허 확인)',
   'verify-editor-live':
     '실제 브라우저가 앱을 열어 화면·편집기·서비스워커·폰트를 확인(정적 검사가 원리적으로 못 보는 층)',
+  'verify-diagnostics-live':
+    '실제 브라우저가 진단 도구를 하나씩 열어 **사용자에게 나가는 문장·자리·버튼**을 확인(자료구조가 옳아도 화면이 틀릴 수 있다 — M-0046)',
 };
 
 /** 게이트 카테고리. 없으면 'static'으로 본다. 목록은 registry.gen에서 오므로 개수는 파생. */
@@ -64,6 +70,9 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-domain-symmetry': 'static',
   'check-verdict-symmetry': 'static',
   'check-skill-routing': 'generated',
+  // 형제(`check-skill-routing`)와 같은 부류다: 손으로 쓴 **선언**을 디렉터리라는 **현실**에
+  // 대조한다. 화면이 늘거나 사라지면 선언 쪽이 조용히 낡는 것을 잡는 자리.
+  'check-live-coverage': 'generated',
   'check-self-eval': 'generated',
   'check-schema-parity': 'static',
   'check-migration-grants': 'static',
@@ -86,6 +95,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-exif-strip-on-share': 'static',
   'unit-tests': 'unit',
   'verify-editor-live': 'live',
+  'verify-diagnostics-live': 'live',
 };
 
 export function categoryOf(gate: string): GateCategory {

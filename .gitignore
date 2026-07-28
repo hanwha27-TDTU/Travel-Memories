@@ -4,6 +4,8 @@ node_modules/
 # build output
 dist/
 *.tsbuildinfo
+# 라이브 진단 게이트가 만드는 주입 페이지(실행 끝에 스스로 지우지만, 중단되면 남는다)
+.diaglive/
 
 # env & secrets (never commit)
 .env

@@ -32,6 +32,10 @@ const gates = [
   { name: 'check-domain-symmetry', cmd: 'node scripts/check-domain-symmetry.mjs' },
   { name: 'check-verdict-symmetry', cmd: 'node scripts/check-verdict-symmetry.mjs' },
   { name: 'check-skill-routing', cmd: 'node scripts/check-skill-routing.mjs' },
+  // 아래 둘은 형제다: 하나는 「이 코드는 누가 읽고 고치나(문서)」를, 다른 하나는
+  // 「이 화면은 누가 눈으로 보나(라이브)」를 묻는다. 둘 다 *덮였음의 보증*이 아니라
+  // **안 덮인 것이 조용히 생기는 것의 차단**이다(CLAUDE.md §13).
+  { name: 'check-live-coverage', cmd: 'node scripts/check-live-coverage.mjs' },
   { name: 'check-self-eval', cmd: 'node scripts/check-self-eval.mjs' },
   { name: 'check-schema-parity', cmd: 'node scripts/check-schema-parity.mjs' },
   { name: 'check-migration-grants', cmd: 'node scripts/check-migration-grants.mjs' },
@@ -53,12 +57,29 @@ const gates = [
   { name: 'check-instant-normalization', cmd: 'node scripts/check-instant-normalization.mjs' },
   { name: 'check-exif-strip-on-share', cmd: 'node scripts/check-exif-strip-on-share.mjs' },
   { name: 'unit-tests', cmd: 'npm run -s test' },
-  // 유일한 런타임 층 — 실제 Chromium이 `dist`를 열어 화면·서비스워커·폰트를 잰다.
+  // 런타임 층 — 실제 Chromium이 `dist`를 열어 **화면에 나가는 것**을 잰다.
   // 전제(playwright + 최신 dist)가 없으면 SKIP, 돌았는데 위반이면 FAIL(위 계약 참조).
+  //
+  // 둘로 나뉜 이유: 재는 대상이 다르다. 편집기는 **상호작용**(슬라이더·브러시·픽셀 read-back)을,
+  // 진단은 **전달**(사용자에게 가는 문장·자리·버튼)을 잰다. 후자는 2026-07-28 M-0046 때
+  // **아예 없던 층**이다 — 게이트 31종·유닛 686건이 전부 초록인 채로 거짓 안내가 배포됐고,
+  // 30분 뒤 사용자 실기기 스크린샷이 잡았다(§10 ③).
   { name: 'verify-editor-live', cmd: 'node scripts/verify-editor-live.mjs', optional: true },
+  { name: 'verify-diagnostics-live', cmd: 'node scripts/verify-diagnostics-live.mjs', optional: true },
 ];
 
-/** 전제 미충족을 뜻하는 종료코드. `verify-editor-live`가 이 값으로 자기 전제를 알린다. */
+/**
+ * 전제 미충족을 뜻하는 종료코드. 라이브 게이트들이 이 값으로 자기 전제를 알린다.
+ *
+ * 🔴 **이 값은 `optional`일 때만 SKIP이다.** 아래 분기의 `g.optional &&`가 그 경계이고,
+ * 그건 실수가 아니라 계약이다 — 정적 게이트 15종은 **셀프테스트가 공허할 때** 같은 `2`를
+ * 낸다(저장소 관용구). Required이므로 지금은 올바르게 **FAIL**로 잡힌다.
+ *
+ * > 그러나 **게이트 하나를 `optional`로 바꾸는 순간, 그 게이트의 「나는 공허하다」는 비명이
+ * > 조용한 SKIP이 된다.** 같은 숫자가 두 가지를 뜻하기 때문이다(2026-07-28 점검에서 확인).
+ * > 그래서 규칙: **정적 게이트를 optional로 승격할 때는 그 게이트의 셀프테스트 실패 코드를
+ * > 먼저 `1`로 바꾼다.** 전제 미충족과 공허함은 정반대의 사건이다.
+ */
 const EXIT_PRECONDITION = 2;
 
 let failed = 0;

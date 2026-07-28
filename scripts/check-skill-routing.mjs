@@ -46,6 +46,16 @@ function walk(dir, ext, out = []) {
 const SCAN = [
   { dir: 'src', ext: /\.(ts|css)$/ },
   { dir: '.github/workflows', ext: /\.ya?ml$/ },
+  // 2026-07-28 다시 넓혔다 — **같은 형태가 두 영역 더 남아 있었다.** `scripts/`(게이트 자신)와
+  // `supabase/`(마이그레이션·Edge Function)는 라우팅 표에 catch-all이 있어 *지금은* 아무 파일도
+  // 빠지지 않지만, 이 게이트가 **그 영역을 보고 있지 않았다.** 누가 catch-all을 좁히는 순간
+  // 누락이 조용히 통과한다 — 위 `.github/workflows` 사고와 **완전히 같은 구조**이고, 하필 둘 다
+  // 틀리면 데이터나 배포가 걸리는 자리다.
+  //
+  // > 게이트가 「모든 코드 영역」이라고 말하면 **훑는 영역도 그래야 한다.**
+  // > 주장보다 좁은 스캔은 그 차이만큼 초록이 거짓말이 된다.
+  { dir: 'scripts', ext: /\.(mjs|py)$/ },
+  { dir: 'supabase', ext: /\.(ts|sql)$/ },
 ];
 
 export function unrouted(paths, routes, excluded) {

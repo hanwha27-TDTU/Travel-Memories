@@ -204,10 +204,12 @@ describe('⑥ 판정 문장이 **엉뚱한 곳을 가리키지 않는다** (2026
   // 실제로 이렇게 나왔다: 개수 대조는 전부 정상인데 문장이 `클라우드와 다른 항목이 1가지 있어요`.
   // 진짜 문제는 사진 파일이었다. §8의 "판정한다"는 **맞는 것을 판정한다**는 뜻이다 —
   // 엉뚱한 것을 가리키면 관측보다 나쁘다(사용자를 틀린 곳으로 보낸다).
-  const base = { level: 'ok' as Level, countBad: 0, fileBad: 0, stranded: 0, blocked: 0, alive: 3, trashed: 0 };
+  const base = { level: 'ok' as Level, countBad: 0, fileBad: [] as { noun: string; n: number }[], stranded: 0, blocked: 0, alive: 3, trashed: 0 };
+  const photo = (n: number) => [{ noun: '사진', n }];
+  const sound = (n: number) => [{ noun: '소리', n }];
 
   it('사진 파일만 문제면 사진 파일이라고 말한다', () => {
-    const h = storeHeadline({ ...base, level: 'problem', fileBad: 1 });
+    const h = storeHeadline({ ...base, level: 'problem', fileBad: photo(1) });
     expect(h).toContain('사진 파일');
     expect(h).not.toContain('클라우드와 다른'); // ← 그때 실제로 나온 틀린 문장
   });
@@ -219,9 +221,30 @@ describe('⑥ 판정 문장이 **엉뚱한 곳을 가리키지 않는다** (2026
   });
 
   it('둘 다면 둘 다 말한다 — 하나로 뭉뚱그리지 않는다', () => {
-    const h = storeHeadline({ ...base, level: 'problem', countBad: 1, fileBad: 2 });
+    const h = storeHeadline({ ...base, level: 'problem', countBad: 1, fileBad: photo(2) });
     expect(h).toContain('1가지');
     expect(h).toContain('2가지');
+  });
+
+  // 🔴 M-0048(2026-07-28 사용자 실기기): 사진은 9:9로 멀쩡한데 배너가 「**사진** 파일에
+  // 확인할 것이 1가지 있어요」였다. 어긋난 것은 **소리**였다. 소리를 형제로 들이면서 이
+  // 숫자가 소리까지 세게 됐는데 문장만 「사진」으로 못 박혀 있었다(§7 최빈형).
+  it('🔴 소리만 문제면 **소리**라고 말한다 — 사진이라 하지 않는다(M-0048)', () => {
+    const h = storeHeadline({ ...base, level: 'todo', fileBad: sound(1) });
+    expect(h).toContain('소리 파일');
+    expect(h).not.toContain('사진'); // ← 실기기에서 실제로 나온 틀린 문장
+  });
+
+  it('둘 다 어긋나면 둘 다 이름을 부른다', () => {
+    const h = storeHeadline({ ...base, level: 'problem', fileBad: [{ noun: '사진', n: 1 }, { noun: '소리', n: 2 }] });
+    expect(h).toContain('사진·소리 파일');
+    expect(h).toContain('3가지');
+  });
+
+  it('정상인 종류는 문장에서 사라진다(§8 침묵이 정상)', () => {
+    const h = storeHeadline({ ...base, level: 'todo', fileBad: [{ noun: '사진', n: 0 }, { noun: '소리', n: 2 }] });
+    expect(h).toContain('소리 파일');
+    expect(h).not.toContain('사진');
   });
 
   it('정상도 아닌데 어느 무리도 안 잡히면 **확인 불가**라고 말한다(정상으로 반올림 금지)', () => {
@@ -231,7 +254,7 @@ describe('⑥ 판정 문장이 **엉뚱한 곳을 가리키지 않는다** (2026
   // 2026-07-26 사용자: *"복원 내용은 앱에는 하나도 없고 서버에만 좀비처럼 살아났어요."*
   // 이건 **자료가 없어지는** 문제라 다른 어떤 것보다 먼저 말해야 한다.
   it('복원이 막혀 있으면 **그걸 제일 먼저** 말한다 — 기억을 잃는 쪽이 1위다', () => {
-    const h = storeHeadline({ ...base, level: 'problem', blocked: 4, stranded: 2, countBad: 1, fileBad: 3 });
+    const h = storeHeadline({ ...base, level: 'problem', blocked: 4, stranded: 2, countBad: 1, fileBad: photo(3) });
     expect(h).toContain('되살린 기록 4건');
     expect(h).not.toContain('지웠는데');
     expect(h).not.toContain('사진 파일');
@@ -243,7 +266,7 @@ describe('⑦ 정상일 때 **무엇이 같은지** 말한다 (2026-07-26 사용
   // 옛 문장은 「이 기기는 클라우드와 같습니다」였다. 대조는 맞았지만 **비교한 것이 활성 개수뿐**
   // 이라는 사실을 말하지 않았다. 특히 활성이 양쪽 0일 때가 최악이다 — 0 == 0을 초록 정상으로
   // 칠하면, 자료를 전부 휴지통으로 옮긴 사용자는 자기 자료가 어디 있는지 모른 채 화면을 떠난다.
-  const ok = { level: 'ok' as Level, countBad: 0, fileBad: 0, stranded: 0, blocked: 0 };
+  const ok = { level: 'ok' as Level, countBad: 0, fileBad: [] as { noun: string; n: number }[], stranded: 0, blocked: 0 };
 
   it('살아 있는 기록이 있으면 **그 개수와 함께** 같다고 말한다', () => {
     const h = storeHeadline({ ...ok, alive: 12, trashed: 0 });
@@ -416,38 +439,38 @@ describe('🔴 ⑩ 파일이 없는 기록 — **「없다」고 말하기 전�
   const none = new Set<string>();
 
   it('🔴 사본이 있으면 tombstone이어도 **다시 올릴 것**이다(치울 것이 아니다)', () => {
-    const r = classifyMissingFiles([A], [A], new Set([A]));
+    const r = classifyMissingFiles([A], [A], new Set([A]), 0);
     expect(r.recoverable).toEqual([A]);
     expect(r.clearable).toEqual([]); // ← 예전엔 여기 들어가서 "정리하세요"가 나왔다
   });
 
   it('사본이 없고 서버에서도 지워졌으면 그때만 **치울 것**이다', () => {
-    expect(classifyMissingFiles([A], [A], none)).toEqual({ recoverable: [], clearable: [A], atRisk: [] });
+    expect(classifyMissingFiles([A], [A], none, 0)).toEqual({ recoverable: [], clearable: [A], atRisk: [] });
   });
 
   it('사본도 없는데 살아 있으면 **위험**이다 — 어디에도 없을 수 있다', () => {
-    expect(classifyMissingFiles([B], [], none)).toEqual({ recoverable: [], clearable: [], atRisk: [B] });
+    expect(classifyMissingFiles([B], [], none, 0)).toEqual({ recoverable: [], clearable: [], atRisk: [B] });
   });
 
   it('🔴 사본이 있으면 활성이어도 위험이 아니다 — 앱이 스스로 고칠 수 있다(§12)', () => {
-    const r = classifyMissingFiles([B], [], new Set([B]));
+    const r = classifyMissingFiles([B], [], new Set([B]), 0);
     expect(r.atRisk).toEqual([]);
     expect(r.recoverable).toEqual([B]);
   });
 
   it('셋이 섞여도 갈라 담는다(한 숫자로 합치지 않는다)', () => {
-    const r = classifyMissingFiles([A, B, C], [A], new Set([C]));
+    const r = classifyMissingFiles([A, B, C], [A], new Set([C]), 0);
     expect(r).toEqual({ recoverable: [C], clearable: [A], atRisk: [B] });
   });
 
   it('빠진 것이 없으면 전부 비어 있다', () => {
-    expect(classifyMissingFiles([], [A], new Set([A]))).toEqual({ recoverable: [], clearable: [], atRisk: [] });
+    expect(classifyMissingFiles([], [A], new Set([A]), 0)).toEqual({ recoverable: [], clearable: [], atRisk: [] });
   });
 });
 
 describe('🔴 ⑪ 화면 문장이 사본 유무를 **정직하게** 말한다 (§10 ③)', () => {
   const A = 'aaaaaaaa-1111-4111-8111-111111111111';
-  const audit = (localBytes: Set<string>, tombstoned: string[]) =>
+  const audit = (localBytes: Set<string>, tombstoned: string[], otherDevices = 0) =>
     fileAuditMetrics({
       noun: '소리',
       fa: { files: 0, rows: 1, orphans: [], missing: [A], foreign: 0, truncated: false },
@@ -456,6 +479,7 @@ describe('🔴 ⑪ 화면 문장이 사본 유무를 **정직하게** 말한다 
       serverTombstoned: tombstoned,
       restorePending: new Set<string>(),
       localBytes,
+      otherDevices,
     });
   const find = (ms: Metric[], label: string): Metric => ms.find((m) => m.label === label)!;
 
@@ -473,7 +497,31 @@ describe('🔴 ⑪ 화면 문장이 사본 유무를 **정직하게** 말한다 
   it('🔴 정리를 권하는 문장은 **찾아봤다는 사실**을 함께 말한다', () => {
     const dead = find(audit(new Set(), [A]).metrics, '지운 소리의 남은 기록');
     expect(dead.level).toBe('todo');
-    expect(dead.meaning).toContain('이 기기에도 사본이 없습니다');
+    expect(dead.meaning).toContain('사본이 어디에도 없습니다');
+  });
+
+  // 🔴 M-0048(2026-07-28 사용자 실기기 · 두 기기 스크린샷): **같은 3건이 기기마다 정반대
+  // 판정**을 받았다. 사본을 가진 태블릿은 「자료는 안전합니다」, 없는 폴드5는 「치우세요」.
+  // 폴드5의 조언을 따랐으면 서버 원장 + 트리거 때문에 **태블릿의 사본까지** 못 되살린다.
+  // 「이 기기에 없다」에서 「없다」로 건너뛰지 않는 것을 여기서 못박는다.
+  it('🔴 다른 기기가 있으면 「치우세요」라고 하지 않는다 — 거기 사본이 있을 수 있다', () => {
+    const r = audit(new Set(), [A], 1);
+    expect(r.clearable).toEqual([]); // ← 예전엔 [A]였고 파괴적 버튼이 떴다
+    const dead = find(r.metrics, '지운 소리의 남은 기록');
+    expect(dead.actual).toBe('0개');
+    expect(dead.level).toBe('ok');
+  });
+
+  it('🔴 그 대신 **다른 기기를 보라고** 말한다(막다른 문장으로 끝내지 않는다)', () => {
+    const risk = find(audit(new Set(), [A], 1).metrics, '소리 파일이 사라진 기록');
+    expect(risk.actual).toBe('1개');
+    expect(risk.meaning).toContain('다른 기기');
+    expect(risk.meaning).toContain('2대');
+    expect(risk.meaning).toContain('서버에 없는 자료 다시 올리기');
+  });
+
+  it('기기가 이 기기뿐이면 예전대로 치울 수 있다(과보호로 막다른 길을 만들지 않는다)', () => {
+    expect(audit(new Set(), [A], 0).clearable).toEqual([A]);
   });
 
   it('사본이 있으면 다시 올릴 목록에 담긴다(버튼이 그것을 받는다)', () => {
@@ -490,6 +538,7 @@ describe('🔴 ⑪ 화면 문장이 사본 유무를 **정직하게** 말한다 
       serverTombstoned: [A],
       restorePending: new Set<string>(),
       localBytes: new Set([A]),
+      otherDevices: 0,
     });
     expect(find(r.metrics, '서버에 없는 소리').actual).toBe('확인 못 함');
     expect(r.recoverable).toEqual([]);
