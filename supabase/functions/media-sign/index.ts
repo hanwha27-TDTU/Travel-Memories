@@ -15,7 +15,8 @@
 //      가리킬 방법이 없다. 그 **안쪽 이름**은 앱이 정한다(2026-07-27~) — 사용자가 요구한
 //      `여행제목/날짜_시간_제목__id` 규칙을 만들려면 여행 제목과 촬영시각이 필요한데 이 함수는
 //      DB를 보지 않기 때문이다. 대신 `safeRest()`가 모양을 못박는다(깊이 2 이하·`.`/`..` 금지·
-//      제어문자 금지·`.webp`만). 즉 앱이 틀린 이름을 보내도 **자기 폴더 안에서만** 틀릴 수 있다.
+//      제어문자 금지·**우리가 만드는 확장자만** — 사진 `.webp` + 소리 `.webm`/`.m4a`/`.ogg`/
+//      `.mp3`/`.wav`). 즉 앱이 틀린 이름을 보내도 **자기 폴더 안에서만** 틀릴 수 있다.
 //      그건 보안이 아니라 정합의 문제이고, 그쪽은 진단의 사진 대조가 잡는다.
 //      · `deleteMany`는 한 걸음 더 간다 — **자기가 목록에서 본 키만** 지운다(클라이언트가 준
 //        문자열을 지우지 않는다). 이름이 id에서 파생되지 않게 되면서 오히려 더 좁아졌다.
@@ -229,7 +230,7 @@ export const LIST_MAX_PAGES = 10;
 /**
  * 이 앱이 만드는 확장자. **`domain/media/naming.ts`의 `AUDIO_EXTS`와 같은 목록이어야 한다** —
  * 앱이 `.webm`으로 올리는데 여기서 거부하면 소리는 영영 서버에 못 간다. 두 파일은 다른 배포
- * 단위(브라우저/Deno)에 살아 손으로 맞출 수 없으므로 `tests/unit/audioNaming.test.ts`가 잠근다.
+ * 단위(브라우저/Deno)에 살아 손으로 맞출 수 없으므로 `tests/unit/audioRowmap.test.ts`가 잠근다.
  */
 export const PHOTO_EXTS = ['webp'] as const;
 export const AUDIO_EXTS = ['webm', 'm4a', 'ogg', 'mp3', 'wav'] as const;
@@ -247,7 +248,7 @@ export const FN_OPS = ['probe', 'capabilities', 'list', 'put', 'get', 'delete', 
 /** 한 번에 지울 수 있는 최대 개수 — 요청 하나가 무한정 길어지지 않게. */
 export const DELETE_MANY_MAX = 200;
 
-/** XML 엔티티 되돌리기. 우리 키(`{uuid}/{uuid}.webp`)엔 없지만 없다고 가정하지 않는다. */
+/** XML 엔티티 되돌리기. 우리 키엔 없지만 없다고 가정하지 않는다. */
 export function xmlUnescape(s: string): string {
   return s
     .replace(/&lt;/g, '<')
