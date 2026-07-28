@@ -36,8 +36,9 @@ export const REGISTRY = {
   'check-exif-strip-on-share',
   'unit-tests',
   'verify-editor-live',
+  'verify-diagnostics-live',
   ] as const,
-  gateCount: 31,
+  gateCount: 32,
   /** 최신 앱 버전(정본: src/app/changelog.ts의 첫 항목). 첫 로드 화면은 이걸 읽는다. */
   appVersion: '1.21',
   agentCount: 28,

@@ -53,12 +53,18 @@ const gates = [
   { name: 'check-instant-normalization', cmd: 'node scripts/check-instant-normalization.mjs' },
   { name: 'check-exif-strip-on-share', cmd: 'node scripts/check-exif-strip-on-share.mjs' },
   { name: 'unit-tests', cmd: 'npm run -s test' },
-  // 유일한 런타임 층 — 실제 Chromium이 `dist`를 열어 화면·서비스워커·폰트를 잰다.
+  // 런타임 층 — 실제 Chromium이 `dist`를 열어 **화면에 나가는 것**을 잰다.
   // 전제(playwright + 최신 dist)가 없으면 SKIP, 돌았는데 위반이면 FAIL(위 계약 참조).
+  //
+  // 둘로 나뉜 이유: 재는 대상이 다르다. 편집기는 **상호작용**(슬라이더·브러시·픽셀 read-back)을,
+  // 진단은 **전달**(사용자에게 가는 문장·자리·버튼)을 잰다. 후자는 2026-07-28 M-0046 때
+  // **아예 없던 층**이다 — 게이트 31종·유닛 686건이 전부 초록인 채로 거짓 안내가 배포됐고,
+  // 30분 뒤 사용자 실기기 스크린샷이 잡았다(§10 ③).
   { name: 'verify-editor-live', cmd: 'node scripts/verify-editor-live.mjs', optional: true },
+  { name: 'verify-diagnostics-live', cmd: 'node scripts/verify-diagnostics-live.mjs', optional: true },
 ];
 
-/** 전제 미충족을 뜻하는 종료코드. `verify-editor-live`가 이 값으로 자기 전제를 알린다. */
+/** 전제 미충족을 뜻하는 종료코드. 라이브 게이트들이 이 값으로 자기 전제를 알린다. */
 const EXIT_PRECONDITION = 2;
 
 let failed = 0;

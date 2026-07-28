@@ -51,6 +51,8 @@ export const GATE_DESC: Record<string, string> = {
   'unit-tests': '순수 로직 유닛(비공허 확인)',
   'verify-editor-live':
     '실제 브라우저가 앱을 열어 화면·편집기·서비스워커·폰트를 확인(정적 검사가 원리적으로 못 보는 층)',
+  'verify-diagnostics-live':
+    '실제 브라우저가 진단 도구를 하나씩 열어 **사용자에게 나가는 문장·자리·버튼**을 확인(자료구조가 옳아도 화면이 틀릴 수 있다 — M-0046)',
 };
 
 /** 게이트 카테고리. 없으면 'static'으로 본다. 목록은 registry.gen에서 오므로 개수는 파생. */
@@ -86,6 +88,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-exif-strip-on-share': 'static',
   'unit-tests': 'unit',
   'verify-editor-live': 'live',
+  'verify-diagnostics-live': 'live',
 };
 
 export function categoryOf(gate: string): GateCategory {
