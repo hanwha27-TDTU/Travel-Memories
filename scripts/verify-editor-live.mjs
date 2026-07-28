@@ -3,6 +3,11 @@
 // 열기 → 값 표시 → 프리셋 → 슬라이더(픽셀 read-back) → 원본 비교 홀드 → 실행취소 →
 // 브러시 표시 → Esc confirm → 배치 2장 → 저장 → 뷰어 탐색. 콘솔 에러 0까지 확인.
 // 사용: npm run build && node scripts/verify-editor-live.mjs
+//
+// @live-covers: screens/home.ts, screens/tripDetail.ts, screens/mapView.ts, screens/dataManager.ts,
+// @live-covers: screens/guide.ts, screens/mechChecks.ts, screens/designOverview.ts
+// ↑ `check-live-coverage`가 읽는다. **여기 적은 화면은 이 스크립트가 실제로 연다** — 선언과
+//   실제가 어긋나면 게이트는 못 잡는다(정직한 한계). 화면을 더 열면 여기도 늘려라.
 // (Playwright는 devDependency가 아니므로 전역 설치본을 폴백으로 찾는다.)
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';

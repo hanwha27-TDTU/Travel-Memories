@@ -32,6 +32,10 @@ const gates = [
   { name: 'check-domain-symmetry', cmd: 'node scripts/check-domain-symmetry.mjs' },
   { name: 'check-verdict-symmetry', cmd: 'node scripts/check-verdict-symmetry.mjs' },
   { name: 'check-skill-routing', cmd: 'node scripts/check-skill-routing.mjs' },
+  // 아래 둘은 형제다: 하나는 「이 코드는 누가 읽고 고치나(문서)」를, 다른 하나는
+  // 「이 화면은 누가 눈으로 보나(라이브)」를 묻는다. 둘 다 *덮였음의 보증*이 아니라
+  // **안 덮인 것이 조용히 생기는 것의 차단**이다(CLAUDE.md §13).
+  { name: 'check-live-coverage', cmd: 'node scripts/check-live-coverage.mjs' },
   { name: 'check-self-eval', cmd: 'node scripts/check-self-eval.mjs' },
   { name: 'check-schema-parity', cmd: 'node scripts/check-schema-parity.mjs' },
   { name: 'check-migration-grants', cmd: 'node scripts/check-migration-grants.mjs' },

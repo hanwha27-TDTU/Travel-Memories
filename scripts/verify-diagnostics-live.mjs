@@ -26,6 +26,8 @@
 //    (샌드박스는 `*.supabase.co`를 막아 A에서는 로그인 상태를 만들 수 없다 — B가 그 구멍을 메운다.)
 //
 // 사용: npm run build && node scripts/verify-diagnostics-live.mjs
+//
+// @live-covers: screens/diagnosticsHub.ts, panels/diagnostics.ts, panels/verdict.ts
 // 종료코드: 0=통과 · 1=위반 · 2=전제 미충족(SKIP — harness가 가른다, §2-G)
 
 import { createServer } from 'node:http';
