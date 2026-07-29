@@ -43,8 +43,9 @@ import { momentCoord } from '../../domain/place/geojson';
 // 보조 화면은 반드시 lazyScreens를 거친다(정적 import 금지 — check-lazy-screens).
 import { openMapView, openMapPicker, openDiagnosticsHub } from '../lazyScreens';
 import type { MapPoint } from './mapView';
-import { ensureProviders, searchPlaces, type PlaceResult } from '../../services/geocode';
+import { ensureProviders, reverseGeocode, searchPlaces, type PlaceResult } from '../../services/geocode';
 import { providerLabel } from '../../domain/place/provider';
+import { coordInputLabel, parseCoordinateInput, swapCoord, type ParsedCoord } from '../../domain/place/coordInput';
 import { listPlaces, savePlace } from '../../services/places';
 import { supabase } from '../../services/supabase/client';
 import { needsRefine, precisionGlyph, precisionLabel, verdictFromStored, type PrecisionVerdict } from '../../domain/place/precision';
@@ -188,7 +189,17 @@ async function runPlaceSearch(q: string, ctx: PlaceSearchContext): Promise<void>
       }),
     );
     if (places.length === 0) {
-      if (!saved.length) results.appendChild(el('div', 'place-none', '결과가 없어요. 다른 검색어로 시도해 보세요.'));
+      if (!saved.length) {
+        // 🔴 **막다른 길을 만들지 않는다.** 검색이 못 찾는 곳은 반드시 있다(신축·골목·해외 소도시).
+        // 그때 사용자가 쓸 수 있는 두 길을 여기서 알려 준다 — 지도로 직접 찍기, 그리고
+        // 다른 지도에서 찾아 **좌표를 붙여넣기**(사용자 제안 2026-07-30).
+        const none = el('div', 'place-none');
+        none.append(
+          el('p', undefined, '결과가 없어요.'),
+          el('p', 'muted small', '[🗺 지도]로 직접 찍거나, 네이버·카카오·구글 지도에서 찾은 좌표(또는 링크)를 여기에 붙여넣어 보세요.'),
+        );
+        results.appendChild(none);
+      }
       return;
     }
     renderPlaceResults(results, places, (p) => {
@@ -227,6 +238,136 @@ async function runPlaceSearch(q: string, ctx: PlaceSearchContext): Promise<void>
   } catch (err) {
     results.textContent = `검색 실패: ${err instanceof Error ? err.message : String(err)}`;
   }
+}
+
+
+
+
+
+/**
+ * 🗺 지도 버튼 — 지도에서 지점을 찍고, **이름이 비어 있으면 그 자리의 주소를 물어 채운다**.
+ *
+ * 예전엔 좌표만 남고 이름은 사용자가 전부 타이핑해야 했다. 앱이 알 수 있는 것을 사람에게
+ * 시키고 있던 자리다(§12 — *"지금 이 앱은 사람에게 무엇을 대신 시키고 있는가?"*).
+ */
+function wireMapPickButton(
+  mapBtn: HTMLButtonElement,
+  results: HTMLElement,
+  ctx: CoordApplyContext,
+  current: () => { lat: number; lng: number } | null,
+): void {
+  mapBtn.addEventListener('click', () => {
+    mapBtn.disabled = true;
+    void openMapPicker(current())
+      .then((coords) => {
+        if (!coords) return;
+        ctx.commit(coords.lat, coords.lng);
+        results.hidden = true;
+        const name = ctx.input.value.trim();
+        ctx.setPicked(name || '지도에서 지정'); // 이름을 안 적었으면 안내만
+        if (!name) void fillNameFromReverse(ctx, coords.lat, coords.lng);
+      })
+      .finally(() => {
+        mapBtn.disabled = false;
+      });
+  });
+}
+
+/** 장소 필드의 뼈대(입력칸 + 검색·지도 버튼 + 결과 상자). 상태가 없는 순수 DOM 조립이다. */
+interface PlaceFieldShell {
+  wrap: HTMLElement;
+  row: HTMLElement;
+  input: HTMLInputElement;
+  searchBtn: HTMLButtonElement;
+  mapBtn: HTMLButtonElement;
+  results: HTMLElement;
+}
+function buildPlaceFieldShell(initialName: string): PlaceFieldShell {
+  const wrap = el('div', 'place-field');
+  const row = el('div', 'place-row');
+  const input = el('input', 'edit-input place-input') as HTMLInputElement;
+  input.type = 'text';
+  input.value = initialName;
+  input.maxLength = 80;
+  input.placeholder = '📍 장소 · 좌표 · 지도 링크';
+  input.setAttribute('aria-label', '장소(선택) — 이름·좌표·지도 링크를 붙여넣을 수 있어요');
+  const searchBtn = el('button', 'btn-ghost place-search', '🔍 검색') as HTMLButtonElement;
+  searchBtn.type = 'button';
+  searchBtn.setAttribute('aria-label', '장소 검색(지도)');
+  // 지도에서 직접 위치 지정 — Nominatim에 없는 곳(등록되지 않은 장소)도 좌표로 남길 수 있다.
+  const mapBtn = el('button', 'btn-ghost place-map', '🗺 지도') as HTMLButtonElement;
+  mapBtn.type = 'button';
+  mapBtn.setAttribute('aria-label', '지도에서 위치 지정');
+  row.append(input, searchBtn, mapBtn);
+  const results = el('div', 'place-results');
+  results.hidden = true;
+  return { wrap, row, input, searchBtn, mapBtn, results };
+}
+
+/** 좌표를 적용할 때 필요한 최소한 — 필드의 나머지 상태를 밖으로 흘리지 않는다. */
+interface CoordApplyContext {
+  input: HTMLInputElement;
+  setPicked: (detail: string | null, precision?: PrecisionVerdict | null) => void;
+  /** 좌표 확정을 필드 상태에 반영한다(지도 픽과 같은 성격 — 이름과 독립). */
+  commit: (lat: number, lng: number) => void;
+}
+
+/**
+ * 붙여넣은 좌표를 적용한다 — 지도로 찍은 것과 **같은 성격**이라 이름과 독립이다.
+ *
+ * 입력칸에 좌표 문자열이 그대로 남아 있으면 그건 장소 이름이 아니다. 비우고 **그 자리의
+ * 이름을 대신 물어봐 준다**(역지오코딩) — 앱이 알 수 있는 것을 사람에게 타이핑시키지 않는다(§12).
+ */
+function applyPastedCoord(ctx: CoordApplyContext, c: ParsedCoord): void {
+  ctx.commit(c.lat, c.lng);
+  const typed = ctx.input.value.trim();
+  const looksLikeCoords = parseCoordinateInput(typed) !== null;
+  ctx.setPicked(looksLikeCoords ? '좌표로 지정' : typed || '좌표로 지정');
+  if (!looksLikeCoords) return;
+  ctx.input.value = '';
+  void fillNameFromReverse(ctx, c.lat, c.lng);
+}
+
+/**
+ * 좌표 → 그 자리의 이름. **비어 있을 때만** 채운다(사용자가 쓴 것을 덮지 않는다).
+ *
+ * 실패하면 조용히 비워 둔다 — 좌표는 이미 확정됐고 이름은 사용자가 적으면 된다.
+ * 편의 기능이 기억 저장을 막으면 안 된다(§0의 정신 — 앱이 사용자를 이기지 않는다).
+ */
+async function fillNameFromReverse(ctx: CoordApplyContext, lat: number, lng: number): Promise<void> {
+  const hit = await reverseGeocode(lat, lng);
+  if (!hit || ctx.input.value.trim()) return; // 그 사이 사용자가 적었으면 건드리지 않는다
+  ctx.input.value = hit.name;
+  ctx.setPicked(hit.displayName);
+}
+
+/**
+ * 붙여넣은 좌표를 확인시키는 줄 — **읽은 값과 출처를 말하고, 틀렸으면 뒤바꿀 수 있게** 한다.
+ *
+ * 🔴 왜 즉시 적용하지 않고 보여주는가: 좌표를 잘못 읽으면 **기억이 엉뚱한 곳에 찍힌다.**
+ * 특히 위·경도 순서는 두 값이 모두 ±90 안이면 원리적으로 모호하다(로마 41.9, 12.5).
+ * 그래서 적용은 하되 **무엇으로 읽었는지 화면에 남기고**, 모호했으면 [바꾸기]를 준다(§8).
+ * 한국 좌표는 경도가 90을 넘어 언제나 명확하므로 이 버튼이 뜨지 않는다 — 정상은 조용하다.
+ */
+function renderCoordInput(host: HTMLElement, parsed: ParsedCoord, onUse: (c: ParsedCoord) => void): void {
+  const box = el('div', 'place-coord');
+  const text = el('p', 'place-coord-text');
+  text.textContent = coordInputLabel(parsed);
+  box.appendChild(text);
+  if (parsed.ambiguous) {
+    box.classList.add('is-ambiguous');
+    const swapBtn = el('button', 'btn-ghost place-coord-swap', '↔ 위·경도 바꾸기') as HTMLButtonElement;
+    swapBtn.type = 'button';
+    swapBtn.addEventListener('click', () => {
+      const swapped = swapCoord(parsed);
+      host.innerHTML = '';
+      renderCoordInput(host, swapped, onUse);
+      onUse(swapped);
+    });
+    box.appendChild(swapBtn);
+  }
+  host.appendChild(box);
+  onUse(parsed);
 }
 
 /**
@@ -276,24 +417,7 @@ function renderPlaceResults(
 }
 
 function buildPlaceField(initial: { name: string; lat: number | null; lng: number | null }): PlaceField {
-  const wrap = el('div', 'place-field');
-  const row = el('div', 'place-row');
-  const input = el('input', 'edit-input place-input') as HTMLInputElement;
-  input.type = 'text';
-  input.value = initial.name;
-  input.maxLength = 80;
-  input.placeholder = '📍 장소 (선택)';
-  input.setAttribute('aria-label', '장소(선택)');
-  const searchBtn = el('button', 'btn-ghost place-search', '🔍 검색') as HTMLButtonElement;
-  searchBtn.type = 'button';
-  searchBtn.setAttribute('aria-label', '장소 검색(지도)');
-  // 지도에서 직접 위치 지정 — Nominatim에 없는 곳(등록되지 않은 장소)도 좌표로 남길 수 있다.
-  const mapBtn = el('button', 'btn-ghost place-map', '🗺 지도') as HTMLButtonElement;
-  mapBtn.type = 'button';
-  mapBtn.setAttribute('aria-label', '지도에서 위치 지정');
-  row.append(input, searchBtn, mapBtn);
-  const results = el('div', 'place-results');
-  results.hidden = true;
+  const { wrap, row, input, searchBtn, mapBtn, results } = buildPlaceFieldShell(initial.name);
 
   let lat: number | null = initial.lat;
   let lng: number | null = initial.lng;
@@ -330,9 +454,31 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
     setPicked(null);
   });
 
+  const coordCtx: CoordApplyContext = {
+    input,
+    setPicked: (d, p) => setPicked(d, p),
+    commit: (la, ln) => {
+      lat = la;
+      lng = ln;
+      mapPicked = true; // 사용자가 확정한 지점 — 이름을 나중에 적어도 유지된다
+      placeId = null; // 라이브러리 항목이 아니다(담기면 그때 링크가 생긴다)
+    },
+  };
+  const useCoord = (c: ParsedCoord): void => applyPastedCoord(coordCtx, c);
+
   const doSearch = (): void => {
     const q = input.value.trim();
     if (!q) return;
+    // 🔴 **좌표 먼저 본다.** 네이버·카카오·구글에서 찾은 좌표를 그대로 붙여넣는 흐름
+    //    (사용자 제안 2026-07-30) — 앱이 못 찾는 곳을 사람이 뚫는 탈출구다.
+    //    지오코더에 「37.587, 127.0016」을 물어봐야 좋은 답이 나올 리 없다.
+    const coord = parseCoordinateInput(q);
+    if (coord) {
+      results.hidden = false;
+      results.innerHTML = '';
+      renderCoordInput(results, coord, useCoord);
+      return;
+    }
     searchBtn.disabled = true;
     results.hidden = false;
     results.textContent = '검색 중…';
@@ -367,23 +513,7 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
 
   // 🗺 지도에서 위치 지정 — 장소 이름은 사용자가 직접 적고, 좌표만 지도로 찍는다.
   // (등록되지 않은 곳일 수 있으므로 이름은 검색 결과에 의존하지 않는다.)
-  mapBtn.addEventListener('click', () => {
-    mapBtn.disabled = true;
-    void openMapPicker(lat !== null && lng !== null ? { lat, lng } : null)
-      .then((coords) => {
-        if (coords) {
-          lat = coords.lat;
-          lng = coords.lng;
-          mapPicked = true; // 지도 좌표는 이름과 독립 — 이후 이름을 적어도 유지
-          results.hidden = true;
-          const name = input.value.trim();
-          setPicked(name ? name : '지도에서 지정'); // 이름을 안 적었으면 안내만
-        }
-      })
-      .finally(() => {
-        mapBtn.disabled = false;
-      });
-  });
+  wireMapPickButton(mapBtn, results, coordCtx, () => (lat !== null && lng !== null ? { lat, lng } : null));
 
   return {
     el: wrap,

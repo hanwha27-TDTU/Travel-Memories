@@ -1693,3 +1693,13 @@ button.chip { border: 0; font-family: inherit; }
 /* 진단 허브 카드는 셰브론 자리에 상태 슬롯을 둔다(16px → 자동 폭). */
 .guide-card-diag { grid-template-columns: 40px minmax(0, 1fr) auto; }
 .guide-card-slot { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ===== 붙여넣은 좌표 확인 (2026-07-30 · 사용자 제안) =====
+   네이버·카카오·구글에서 찾은 좌표를 그대로 붙여넣는 흐름. **읽은 값을 화면에 남긴다** —
+   위·경도를 잘못 읽으면 기억이 엉뚱한 곳에 찍히고, 그건 조용히 일어난다(§8). */
+.place-coord { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; }
+.place-coord-text { margin: 0; font-size: 0.8rem; line-height: 1.45; color: var(--ink); }
+/* 순서가 모호할 때만 눈에 띈다. 한국 좌표는 경도가 90을 넘어 언제나 확실하므로
+   이 상태가 뜨지 않는다 — 정상은 조용하다(§8). 색 단독이 아니라 문장이 함께 묻는다. */
+.place-coord.is-ambiguous .place-coord-text { color: var(--sem-pink-ink); font-weight: 700; }
+.place-coord-swap { align-self: flex-start; }

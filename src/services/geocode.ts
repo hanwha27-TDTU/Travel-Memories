@@ -183,6 +183,59 @@ export function parseNominatimResults(json: unknown): PlaceResult[] {
   return out;
 }
 
+const NOMINATIM_REVERSE = 'https://nominatim.openstreetmap.org/reverse';
+
+/**
+ * 좌표 → 그 자리의 주소(역지오코딩) URL(순수).
+ *
+ * `zoom=18`은 **건물 단위**다. 더 낮추면 동네 이름이 나오고, 더 올리면 없는 정밀도를
+ * 요구하게 된다. 지도에서 콕 찍은 지점에 이름을 붙이는 것이 목적이므로 건물이 맞다.
+ */
+export function buildNominatimReverseUrl(lat: number, lng: number): string {
+  const params = new URLSearchParams({
+    format: 'jsonv2',
+    'accept-language': 'ko',
+    addressdetails: '1',
+    zoom: '18',
+    lat: String(lat),
+    lon: String(lng),
+  });
+  return `${NOMINATIM_REVERSE}?${params.toString()}`;
+}
+
+/**
+ * 역지오코딩 응답 → PlaceResult(순수). 배열이 아니라 **객체 하나**로 온다.
+ *
+ * 바다 한가운데처럼 아무것도 없는 곳은 `{ error: … }`를 준다 — 그때는 **null**이다.
+ * 이름을 지어내지 않는다(§8). 호출부는 그냥 좌표만 쓰고 이름은 사용자가 적는다.
+ */
+export function parseReverseResult(json: unknown): PlaceResult | null {
+  if (!json || typeof json !== 'object' || Array.isArray(json)) return null;
+  if ('error' in (json as Record<string, unknown>)) return null;
+  return parseNominatimResults([json])[0] ?? null;
+}
+
+/**
+ * 좌표 → 그 자리의 이름·주소. 실패·결과없음은 **null**(throw하지 않는다).
+ *
+ * 🔴 왜 throw하지 않나: 이건 **거들어 주는 기능**이다. 사용자는 이미 지도에서 지점을
+ * 확정했고 좌표는 손에 있다. 이름을 못 붙였다고 그 저장을 막으면, 편의 기능이 기억을
+ * 막는 셈이 된다(§0의 정신 — 앱이 사용자를 이기지 않는다).
+ *
+ * 저트래픽 예의(map-place-dev §1 6항): **확정 시 1회만** 부른다. 마커를 끌 때마다
+ * 부르지 않는다 — 공용 서버이고, 사용자는 한 지점을 찍기까지 수십 번 끈다.
+ */
+export async function reverseGeocode(lat: number, lng: number): Promise<PlaceResult | null> {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  try {
+    const res = await fetch(buildNominatimReverseUrl(lat, lng), { headers: { Accept: 'application/json' } });
+    if (!res.ok) return null;
+    return parseReverseResult(await res.json());
+  } catch {
+    return null; // 오프라인·차단 — 좌표는 이미 있으므로 이름만 못 붙인다
+  }
+}
+
 /** 장소 검색(Nominatim 단독) — 실패 시 throw(호출부에서 안내). */
 export async function searchNominatim(query: string, opts: GeocodeOptions = {}): Promise<PlaceResult[]> {
   const q = query.trim();

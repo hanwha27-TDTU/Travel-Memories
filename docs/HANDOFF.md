@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.24<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->124<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->60<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.25<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->125<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->23<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -16,6 +16,8 @@
 ### 🕐 직전 세션에서 무슨 일이 있었나 (2026-07-30 · 새 AI는 이것부터)
 
 > **이 절은 "지금 이 순간"이다.** 아래 기능 지도가 *무엇이 있는가*를, 이 절이 *방금 무슨 일이 있었고 무엇이 아직 안 끝났는가*를 말한다.
+
+**한 줄(2026-07-30 · v1.25)**: 구글 Maps API를 검토했다가 **약관의 표시 조항에서 막혔고**(비-Google 지도와 함께 쓸 수 없다), 사용자가 더 나은 답을 냈다 — **다른 지도에서 좌표를 눈으로 확인해 붙여넣기.** API를 안 부르니 약관 대상이 아니고, 「다른 지도에서 열기」의 **돌아오는 길**이 완성됐다. 역지오코딩도 함께 붙여 좌표만 넣어도 이름이 채워진다.
 
 **한 줄(2026-07-30 · v1.24)**: *"기본맵이 너무 부정확해요"* — **재보니 좌표는 맞았고**, 앱이 두 가지를 말하지 않고 있었다(확대수준·정밀도). 제안받은 「Mapbox로 교체」는 **재지 않은 처방**이었고, 대신 **재는 도구**를 만들었다. 장소를 1급 도메인으로 승격(0022·0023)했지만 **실서버 적용은 아직**이다 — 아래 HANDOFF-0019의 「잔여 위험」 4가지가 다음 작업이다.
 
@@ -59,7 +61,7 @@
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.24<!--/reg-->) Pages 성공.
+**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.25<!--/reg-->) Pages 성공.
 
 ### 현재 기능 지도 (새 AI는 이 표로 기능 표면을 즉시 파악)
 
@@ -276,6 +278,23 @@ npm run dev                            # 홈 화면 확인 (선택)
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
 
 ---
+
+## HANDOFF-0020 · v1.25 · **못 찾는 장소를 사용자가 뚫는 길** (2026-07-30)
+
+- **브랜치**: `claude/travel-log-app-r2xd5f`(v1.24 병합 후 main에서 재시작) · PR 예정
+- **발단**: 사용자가 구글 Maps API 도입을 물음 → 약관 확인 결과 **표시 조항에서 막힘** → 사용자가 더 나은 대안을 제시(*"다른 지도에서 좌표를 확인해 붙여넣게 하면 어때?"*)
+- **변경 파일**: `domain/place/coordInput.ts`(신설) · `services/geocode.ts`(역지오코딩) · `ui/screens/tripDetail.ts` · `ui/styles/app.css` · `tests/unit/coordInput.test.ts`(신설) · `scripts/verify-editor-live.mjs`
+- **DB 변경**: 없음 · **Storage 변경**: 없음
+- **개인정보 영향**: 역지오코딩이 좌표를 Nominatim에 보낸다(기존 검색과 같은 경계). **확정 시 1회만** — 마커를 끌 때마다 부르지 않는다.
+- **보안 영향**: 없음(새 키·새 호스트 없음, CSP 무변경 — `nominatim.openstreetmap.org`는 이미 허용돼 있다)
+- **실행 검사**: 전체 하네스 통과(SKIP 없음) · 유닛 883건 · 라이브 217건 · §4 주입 3종 RED 확인 · 화면 캡처 육안 확인 · [↔ 바꾸기] 버튼 **실제 클릭**(§13 4항)
+- 🔴 **설계상 가장 조심한 것**: **위·경도 순서.** 두 값이 모두 ±90 안이면 원리적으로 모호하다. 조용히 추측하면 기억이 엉뚱한 곳에 남고 **그건 조용하다** — 그래서 되묻는다(§8).
+- **잔여 위험 / 다음 작업**:
+  1. 카카오·VWorld는 **사용자가 보류**(*"향후 검토"*). `geocode` Edge Function과 라우팅 코드는 이미 있으므로 시크릿만 넣으면 켜진다.
+  2. 「국내 제공자가 더 정확하다」는 **여전히 측정되지 않았다**(`npm run compare:geocoders`).
+  3. 지도 화면에 저장된 장소를 점으로 표시하는 기능은 아직 없다.
+  4. 실기기 확인 — 좌표 붙여넣기를 실제 손가락으로 해 보는 것(붙여넣기 UX는 기기마다 다르다).
+- **롤백**: `coordInput.ts` 삭제 + `tripDetail.ts`의 좌표 분기 제거 + `geocode.ts`의 reverse 3함수 제거. 데이터 영향 없음(저장 형식 무변경).
 
 ## HANDOFF-0019 · v1.24 · **지도가 부정확하다 — 좌표는 맞았다** (M-0050 · 2026-07-30)
 
