@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   adminLabel,
+  buildNominatimReverseUrl,
   buildNominatimUrl,
+  parseReverseResult,
   parseAddress,
   parseBBox,
   parseNominatimResults,
@@ -161,5 +163,52 @@ describe('parseNominatimResults', () => {
     expect(r[0]!.precision.precision).toBe('unknown');
     expect(r[0]!.providerId).toBeNull();
     expect(r[0]!.bbox).toBeNull();
+  });
+});
+
+describe('역지오코딩 (좌표 → 그 자리의 이름)', () => {
+  it('URL에 좌표와 건물 단위 zoom이 든다', () => {
+    const url = buildNominatimReverseUrl(37.5796, 126.977);
+    expect(url).toContain('/reverse?');
+    expect(url).toContain('lat=37.5796');
+    expect(url).toContain('lon=126.977');
+    expect(url).toContain('zoom=18'); // 건물 단위 — 낮추면 동네 이름이 나온다
+    expect(url).toContain('addressdetails=1');
+  });
+
+  it('🔴 응답이 **객체 하나**다(검색은 배열) — 그 차이를 파서가 구분한다', () => {
+    const one = {
+      osm_type: 'way',
+      osm_id: 999,
+      lat: '37.5796',
+      lon: '126.9770',
+      name: '경복궁',
+      display_name: '경복궁, 사직로, 종로구, 서울특별시, 대한민국',
+      category: 'tourism',
+      type: 'attraction',
+      place_rank: 30,
+      boundingbox: ['37.5794', '37.5798', '126.9768', '126.9772'],
+      address: { borough: '종로구', state: '서울특별시', country_code: 'kr' },
+    };
+    const hit = parseReverseResult(one);
+    expect(hit).not.toBeNull();
+    expect(hit!.name).toBe('경복궁');
+    expect(hit!.precision.precision).toBe('point');
+    expect(hit!.address.district).toBe('종로구');
+    expect(hit!.providerId).toBe('way/999');
+  });
+
+  it('🔴 아무것도 없는 곳(바다 등)은 null — 이름을 지어내지 않는다(§8)', () => {
+    expect(parseReverseResult({ error: 'Unable to geocode' })).toBeNull();
+  });
+
+  it('배열이 오면 null이다(검색 응답을 역지오코딩으로 오인하지 않는다)', () => {
+    expect(parseReverseResult([{ lat: '37.5', lon: '127.0', display_name: 'x' }])).toBeNull();
+  });
+
+  it('깨진 응답은 null', () => {
+    expect(parseReverseResult(null)).toBeNull();
+    expect(parseReverseResult('nope')).toBeNull();
+    expect(parseReverseResult({ lat: 'x', lon: 'y' })).toBeNull();
   });
 });

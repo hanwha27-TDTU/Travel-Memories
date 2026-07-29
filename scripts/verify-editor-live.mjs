@@ -1665,6 +1665,163 @@ check(
   JSON.stringify(afterSaved),
 );
 
+
+// ── 🔴 v1.25: 붙여넣은 좌표로 핀 찍기 + 역지오코딩 (사용자 제안 2026-07-30) ──────────
+// *"정 찾기 어려우면 네이버·카카오·구글에서 위치를 클릭해 좌표를 확인하고, 그 좌표를 장소
+//   입력 필드에 붙여넣어 핀을 찍게 하면 어때?"*
+//
+// 여기서 재는 것은 **배선**이다: 순수 파서는 tests/unit/coordInput.test.ts가 재고, 그 결과가
+// 실제로 화면에 그려지고 좌표가 폼에 들어가는지는 이 층만 볼 수 있다(M-0022의 자리).
+await page.fill('.place-input', '37.587, 127.0016');
+await page.locator('.place-search').first().click();
+await page.waitForSelector('.place-coord', { timeout: 5000 });
+const coordSeen = await page.evaluate(() => ({
+  text: document.querySelector('.place-coord-text')?.textContent ?? '',
+  ambiguous: document.querySelector('.place-coord')?.classList.contains('is-ambiguous') ?? null,
+  swapBtn: Boolean(document.querySelector('.place-coord-swap')),
+  badge: document.querySelector('.place-picked-text')?.textContent ?? '',
+  inputCleared: (document.querySelector('.place-input')?.value ?? 'x') === '',
+  overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+}));
+check(
+  '🔴 좌표 붙여넣기: 검색을 누르면 좌표로 인식하고 읽은 값을 화면에 적는다',
+  coordSeen.text.includes('위도 37.58700') && coordSeen.text.includes('경도 127.00160'),
+  JSON.stringify(coordSeen),
+);
+check(
+  '좌표 붙여넣기: 한국 좌표는 순서가 확실하므로 되묻지 않는다(정상은 침묵 §8)',
+  coordSeen.ambiguous === false && coordSeen.swapBtn === false,
+  `ambiguous=${coordSeen.ambiguous} swap=${coordSeen.swapBtn}`,
+);
+check('좌표 붙여넣기: 배지가 위치 지정을 확인해 준다', coordSeen.badge.includes('지정'), coordSeen.badge);
+check(
+  '좌표 붙여넣기: 좌표 문자열이 장소 이름 칸에 남지 않는다(이름이 아니다)',
+  coordSeen.inputCleared === true,
+  String(coordSeen.inputCleared),
+);
+check('좌표 붙여넣기: 가로 넘침 0', coordSeen.overflow === 0, `overflow=${coordSeen.overflow}`);
+
+// 🔴 모호한 좌표(둘 다 ±90 안)는 **되묻고, 바꿀 수 있어야 한다.**
+await page.fill('.place-input', '41.9, 12.5'); // 로마 — 12.5도 위도일 수 있다
+await page.locator('.place-search').first().click();
+await page.waitForSelector('.place-coord.is-ambiguous', { timeout: 5000 });
+const coordBefore = await page.evaluate(() => document.querySelector('.place-coord-text')?.textContent ?? '');
+check(
+  '🔴 좌표 붙여넣기: 순서가 모호하면 **되묻는다**(조용히 추측하지 않는다 §8)',
+  coordBefore.includes('순서가 맞나요?') && coordBefore.includes('위도 41.90000'),
+  coordBefore,
+);
+const swapExists = await page.locator('.place-coord-swap').count();
+check('좌표 붙여넣기: 모호할 때 [바꾸기] 버튼이 있다', swapExists === 1, String(swapExists));
+// 버튼은 **눌러 봐야 확인한 것이다**(§13 4항).
+await page.locator('.place-coord-swap').first().click();
+await page.waitForTimeout(200);
+const coordAfter = await page.evaluate(() => ({
+  text: document.querySelector('.place-coord-text')?.textContent ?? '',
+  stillAmbiguous: document.querySelector('.place-coord')?.classList.contains('is-ambiguous') ?? null,
+}));
+check(
+  '🔴 [바꾸기]를 누르면 위·경도가 실제로 뒤바뀐다',
+  coordAfter.text.includes('위도 12.50000') && coordAfter.text.includes('경도 41.90000'),
+  JSON.stringify(coordAfter),
+);
+check(
+  '[바꾸기] 뒤에는 더 이상 되묻지 않는다(사용자가 정했으므로)',
+  coordAfter.stillAmbiguous === false && !coordAfter.text.includes('순서가 맞나요?'),
+  JSON.stringify(coordAfter),
+);
+
+// 지도 링크를 통째로 붙여넣어도 읽는가(앱이 내보낸 카카오 링크 형식).
+await page.fill('.place-input', 'https://map.kakao.com/link/map/%EB%8C%80%ED%95%99%EB%A1%9C,37.587,127.0016');
+await page.locator('.place-search').first().click();
+await page.waitForSelector('.place-coord', { timeout: 5000 });
+const linkSeen = await page.evaluate(() => document.querySelector('.place-coord-text')?.textContent ?? '');
+check(
+  '🔴 좌표 붙여넣기: 지도 **링크**를 통째로 붙여넣어도 읽고, 어디서 왔는지 밝힌다',
+  linkSeen.includes('카카오맵 링크') && linkSeen.includes('위도 37.58700'),
+  linkSeen,
+);
+
+// 검색이 못 찾았을 때 **막다른 길이 아니어야** 한다 — 두 탈출구를 안내하는가.
+await page.evaluate(() => {
+  const real = window.fetch;
+  window.fetch = (input, init) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (url.includes('nominatim.openstreetmap.org')) {
+      return Promise.resolve(new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }
+    return real(input, init);
+  };
+});
+await page.fill('.place-input', '있을리없는장소이름1234');
+await page.locator('.place-search').first().click();
+await page.waitForSelector('.place-none', { timeout: 5000 });
+const noneText = await page.evaluate(() => document.querySelector('.place-none')?.textContent ?? '');
+check(
+  '🔴 결과 없음: 막다른 길이 아니라 **두 탈출구**를 알려 준다(지도 찍기 · 좌표 붙여넣기)',
+  noneText.includes('지도') && noneText.includes('좌표'),
+  noneText,
+);
+
+
+// ── 🔴 v1.25: 역지오코딩 — 좌표를 넣으면 **그 자리의 이름을 대신 물어봐 준다** ──────────
+// 예전엔 지도로 찍으면 좌표만 남고 이름은 사용자가 전부 타이핑해야 했다. 앱이 알 수 있는
+// 것을 사람에게 시키던 자리다(§12). 응답 모양은 **객체 하나**다(검색은 배열) — 그 차이를
+// 파서가 실제로 구분하는지까지 여기서 잰다.
+await page.evaluate(() => {
+  const one = {
+    osm_type: 'way', osm_id: 999, lat: '37.5796', lon: '126.9770',
+    name: '경복궁', display_name: '경복궁, 사직로, 종로구, 서울특별시, 대한민국',
+    category: 'tourism', type: 'attraction', place_rank: 30,
+    boundingbox: ['37.5794', '37.5798', '126.9768', '126.9772'],
+    address: { borough: '종로구', state: '서울특별시', country_code: 'kr' },
+  };
+  const real = window.fetch;
+  window.fetch = (input, init) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (url.includes('nominatim.openstreetmap.org/reverse')) {
+      return Promise.resolve(new Response(JSON.stringify(one), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      }));
+    }
+    if (url.includes('nominatim.openstreetmap.org')) {
+      return Promise.resolve(new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }
+    return real(input, init);
+  };
+});
+await page.fill('.place-input', '37.5796, 126.9770');
+await page.locator('.place-search').first().click();
+await page.waitForFunction(() => (document.querySelector('.place-input')?.value ?? '') === '경복궁', { timeout: 5000 })
+  .then(() => check('🔴 역지오코딩: 좌표만 넣어도 그 자리의 이름이 채워진다(사람이 타이핑하지 않는다 §12)', true, '경복궁'))
+  .catch(async () => {
+    const v = await page.evaluate(() => document.querySelector('.place-input')?.value ?? '');
+    check('🔴 역지오코딩: 좌표만 넣어도 그 자리의 이름이 채워진다(사람이 타이핑하지 않는다 §12)', false, `입력칸="${v}"`);
+  });
+const revBadge = await page.evaluate(() => document.querySelector('.place-picked-text')?.textContent ?? '');
+check(
+  '역지오코딩: 배지가 전체 주소를 보여 준다(어디인지 확인할 수 있게)',
+  revBadge.includes('종로구'),
+  revBadge,
+);
+
+// 🔴 사용자가 이미 이름을 적었으면 **덮어쓰지 않는다**(앱이 사용자를 이기지 않는다).
+await page.evaluate(() => {
+  const inp = document.querySelector('.place-input');
+  if (inp) inp.value = '';
+});
+await page.fill('.place-input', '37.5796, 126.9770');
+await page.locator('.place-search').first().click();
+await page.waitForTimeout(50);
+await page.fill('.place-input', '내가 적은 이름'); // 역지오코딩이 돌아오기 전에 사용자가 적는다
+await page.waitForTimeout(800);
+const keptName = await page.evaluate(() => document.querySelector('.place-input')?.value ?? '');
+check(
+  '🔴 역지오코딩: 사용자가 그 사이에 적었으면 **덮지 않는다**',
+  keptName === '내가 적은 이름',
+  keptName,
+);
+
 // ── v0.89: 플랫폼 지도(무엇이 어디서 도나) — **생성물이 실제로 그려지는가** ──────────
 // 정적 게이트는 platformMap.gen.ts가 코드와 맞는지만 본다. 그게 **화면에 실제로 나오는지**는
 // 렌더해야만 안다 — 생성은 됐는데 카드가 안 열리면 사용자에겐 없는 기능이다.
