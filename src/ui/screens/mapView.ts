@@ -10,8 +10,8 @@ import { el } from '../dom';
 import { toFeatureCollection, type LocatedPoint } from '../../domain/place/geojson';
 import { zoomForSpan } from '../../domain/place/precision';
 import { localDateTime } from '../../domain/time';
-import { externalMapTargets, externalMapConsentText, type PlaceLike } from '../../domain/place/externalMap';
-import { hasAgreedExternalMap, rememberAgreedExternalMap } from '../../services/externalMapConsent';
+import type { PlaceLike } from '../../domain/place/externalMap';
+import { externalMapRow } from '../externalMapRow';
 
 export interface MapPoint extends LocatedPoint {
   placeName: string;
@@ -19,49 +19,17 @@ export interface MapPoint extends LocatedPoint {
 }
 
 /**
- * 「구글지도로 열기」 버튼. **없으면 만들지 않는다**(열 곳이 없으면 버튼도 없다).
+ * 「다른 지도에서 열기」 줄. **없으면 만들지 않는다**(열 곳이 없으면 버튼도 없다).
  *
  * 왜 앱 지도 *안*에 두는가(사용자 결정 2026-07-27): 앱 지도가 주(主)다 — 비공개이고
- * 오프라인에서도 뜬다. 구글은 길찾기·스트리트뷰가 필요할 때 **한 걸음 더 가서** 여는 곳이다.
- * 그래서 칩을 누르면 앱 지도가 열리고, 구글은 여기서 한 번 더 누른다.
+ * 오프라인에서도 뜬다. 바깥 지도는 길찾기·스트리트뷰가 필요할 때 **한 걸음 더 가서** 여는 곳이다.
+ *
+ * 그리는 일은 `ui/externalMapRow`가 한다 — 장소 검색 실패 자리(`tripDetail`)도 같은 부품을
+ * 쓰므로, 동의·`noreferrer`·caveat 규율이 **한 곳에만** 구현된다(§7 2층. 2026-07-30에
+ * 여기 인라인이던 것을 뽑았다).
  */
 function externalMapButton(place: PlaceLike): HTMLElement | null {
-  const targets = externalMapTargets(place);
-  if (!targets.length) return null;
-
-  const wrap = el('div', 'map-ext');
-  wrap.appendChild(el('span', 'map-ext-lead muted small', '다른 지도에서 열기'));
-
-  const row = el('div', 'map-ext-row');
-  for (const t of targets) {
-    const btn = el('button', 'btn-ghost map-ext-btn', t.label) as HTMLButtonElement;
-    btn.type = 'button';
-    btn.setAttribute('aria-label', `${t.company} 지도에서 열기`);
-    btn.addEventListener('click', () => {
-      // **제공자마다** 처음 한 번만 묻는다. 거절하면 **열지 않는다** — 확인이 형식이 되지 않게.
-      // 구글에 동의한 것이 얀덱스 동의는 아니다(받는 회사가 다르면 다른 결정이다).
-      if (!hasAgreedExternalMap(t.id)) {
-        if (!window.confirm(externalMapConsentText(t))) return;
-        rememberAgreedExternalMap(t.id);
-      }
-      // noreferrer: 앱 주소(여행 id가 든 URL)가 Referer로 함께 새지 않게 한다.
-      // noopener는 noreferrer에 포함되지만 명시해 의도를 남긴다.
-      window.open(t.url, '_blank', 'noopener,noreferrer');
-    });
-    row.appendChild(btn);
-  }
-  wrap.appendChild(row);
-
-  // **이름으로 찾은 것이면 그렇게 말한다.** 좌표로 집은 것처럼 보이면 앱이 엉뚱한 곳을
-  // 그 장소라고 우기는 셈이 된다(§8 「모르는 것은 확인 불가다」).
-  // caveat는 제공자마다 같으므로(좌표가 없다는 사실은 하나다) **한 번만** 적는다.
-  const caveat = targets.find((t) => t.caveat)?.caveat;
-  if (caveat) {
-    const note = el('p', 'map-ext-note muted small');
-    note.textContent = caveat;
-    wrap.appendChild(note);
-  }
-  return wrap;
+  return externalMapRow(place, { lead: '다른 지도에서 열기' });
 }
 
 // 기본 지도 스타일(키 불필요, 귀속표시). VITE_MAP_STYLE_URL로 교체 가능(ADR A-006).

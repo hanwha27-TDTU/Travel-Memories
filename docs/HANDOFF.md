@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.25<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->125<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.26<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->126<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->23<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -61,7 +61,7 @@
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.25<!--/reg-->) Pages 성공.
+**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.26<!--/reg-->) Pages 성공.
 
 ### 현재 기능 지도 (새 AI는 이 표로 기능 표면을 즉시 파악)
 
@@ -276,6 +276,33 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0021 · v1.26 · **검색이 실패한 자리에서 막다른 길을 없앴다** (2026-07-30)
+
+**계기**: 사용자 제안 — *"카카오 네이버 구글 좌표를 얻기 위한 링크를 칩 형태로 제공해주는게 어때요?"*
+
+**한 줄**: 맞는 지적이었고 **부품이 이미 다 있었다.** 장소 검색이 실패하면 화면이 *"네이버·카카오·구글에서 찾아 붙여넣으세요"*라고 **말만** 했다 — 앱이 검색어를 **이미 쥐고 있으면서** 사용자에게 *다른 앱을 열고 같은 말을 다시 치게* 시킨 것이다(§12).
+
+### 복사하지 않고 **뽑았다**
+
+열기 로직(제공자별 동의 → `window.open` → caveat)이 `mapView.ts`에 **인라인**이었다. 그대로 베꼈으면 같은 규율이 두 곳에 손으로 구현되고, 특히 담긴 것이 **개인정보 동의**라 한쪽만 낡으면 조용히 새어 나간다. `ui/externalMapRow.ts`로 뽑아 **두 화면이 같은 한 곳을 지나게** 했다(§7 2층).
+
+- 얀덱스 포함 **넷 다**(사용자 결정). 안내 문장은 셋만 말하고 있었다 — §7대로 형제를 빠뜨리지 않는다.
+- 좌표를 안 넘긴다(`lat/lng: null`) → `precision: 'name'` → *"저장된 좌표가 없어 장소 이름으로 검색해요. 같은 이름이 여러 곳이면 다른 곳이 열릴 수 있어요."*가 자동으로 붙는다.
+
+### 게이트·스킬이 세 번 밀어줬다
+
+- `check-skill-routing`이 **새 파일의 정독 라우팅 누락**을 잡았다 → `map-place-dev`로 라우팅(UI 부품이지만 규율은 장소 헌장이다).
+- `ui-responsive-dev` §3(M-0026)이 가리킨 자리에 실제로 걸렸다 — `.map-ext`의 좌우 여백이 상자 안에서 **이중**이 된다. `.place-none-ext`로 그 자리만 되돌렸다.
+- 🔴 **§3-C를 읽으면서 그대로 어겼다** — 내 라이브 블록이 빈 결과를 만들어 **뒤따르는 검사가 화면을 잃었다.** 자기가 바꾼 상태를 자기가 되돌리게 고쳤다.
+
+### 검증
+
+하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **882** · `verify-editor-live` **198/198** · build OK.
+**§13 4항 — 칩을 실제로 눌렀다**: 카카오 칩 클릭 → `window.open`이 `map.kakao.com/link/search/<검색어>`로 불린 것을 확인(외부 접속은 샌드박스가 막으므로 **인자까지가 내가 잴 수 있는 층**이다). 넷 다 렌더·가로 넘침 0도 함께.
+**화면도 열어서 봤다** — 칩 넷이 한 줄, 아래 한정 문장.
 
 ---
 

@@ -452,6 +452,10 @@ button.chip { border: 0; font-family: inherit; }
 /* 지도가 넷이라 좁은 화면에서는 줄바꿈한다 — 가로 넘침을 만들지 않는다. */
 .map-ext-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .map-ext-note { margin: 0; }
+/* 장소 검색 실패 상자 **안**에 들어갈 때. ⚠️ `.map-ext`는 지도 카드 기준이라 좌우 여백을
+   갖는데, 상자는 이미 자기 여백이 있어 **이중이 된다**(§3 M-0026 — 다른 화면의 클래스를
+   빌리면 그 화면의 레이아웃 가정까지 따라온다). 가로만 0으로 되돌리고 위 간격만 남긴다. */
+.place-none-ext { padding-left: 0; padding-right: 0; padding-bottom: 0; }
 .chip.money { background: color-mix(in srgb, var(--sem-teal) 15%, transparent); color: var(--sem-teal-ink); }
 
 /* ===== 소리 칩 =====

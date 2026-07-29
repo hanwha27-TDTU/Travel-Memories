@@ -2,6 +2,7 @@
 // 자유 텍스트는 textContent만 사용. 서버 동기화(순간)는 후속 — 지금은 이 기기에 내구성 저장.
 
 import { el, setNote } from '../dom';
+import { externalMapRow } from '../externalMapRow';
 import { audioChip, recordButton } from '../audioNote';
 import { listAudioByTrip, addAudioToMoment, softDeleteAudio, restoreAudio } from '../../services/audio';
 import type { LocalAudio } from '../../offline/db';
@@ -196,8 +197,23 @@ async function runPlaceSearch(q: string, ctx: PlaceSearchContext): Promise<void>
         const none = el('div', 'place-none');
         none.append(
           el('p', undefined, '결과가 없어요.'),
-          el('p', 'muted small', '[🗺 지도]로 직접 찍거나, 네이버·카카오·구글 지도에서 찾은 좌표(또는 링크)를 여기에 붙여넣어 보세요.'),
+          el('p', 'muted small', '[🗺 지도]로 직접 찍거나, 아래 지도에서 찾은 좌표(또는 링크)를 여기에 붙여넣어 보세요.'),
         );
+        // 🔴 **앱이 이미 검색어를 쥐고 있다**(사용자 제안 2026-07-30). 예전엔 「네이버·카카오·
+        // 구글에서 찾아 붙여넣으세요」라고 **말만** 하고, 사용자가 다른 앱을 열어 **같은 말을
+        // 다시 치게** 했다 — §12가 묻는 그 형태다. 이제 그 검색어로 바로 열어 준다.
+        //
+        // 좌표는 넘기지 않는다(`lat/lng: null`) — 여기는 *좌표를 아직 모르는* 자리이고,
+        // 그래서 링크는 **이름으로 찾는다**(`precision: 'name'`). 부품이 그 사실을 caveat로
+        // 함께 말한다(동명이 있으면 다른 곳이 열릴 수 있다).
+        const row = externalMapRow(
+          { name: q, lat: null, lng: null },
+          {
+            lead: '다른 지도에서 찾기',
+            className: 'place-none-ext',
+          },
+        );
+        if (row) none.appendChild(row);
         results.appendChild(none);
       }
       return;
