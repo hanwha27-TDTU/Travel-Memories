@@ -14,6 +14,7 @@
 //      막으면 안 되기 때문이다(사용자는 한국·해외를 둘 다 쓴다).
 
 import { classifyPlace, type BBox, type PrecisionVerdict } from '../domain/place/precision';
+import { dedupePlaces, providerOrder, type ProviderId } from '../domain/place/provider';
 
 /** 구조화 주소 조각. 없는 것은 null — 빈 문자열로 채우지 않는다(§8 「모르는 것」). */
 export interface AddressParts {
@@ -44,6 +45,8 @@ export interface PlaceResult {
    */
   providerId: string | null;
   address: AddressParts;
+  /** 이 답이 **어디서 왔는가**. 출처를 숨기지 않는다(§8) — 화면이 밝힐 수 있어야 한다. */
+  provider: ProviderId;
 }
 
 const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
@@ -164,6 +167,7 @@ function parseRow(row: Record<string, unknown>): PlaceResult | null {
     kind: category && type ? `${category}:${type}` : (category ?? type),
     providerId: osmType && osmId !== null ? `${osmType}/${osmId}` : null,
     address: parseAddress(row['address']),
+    provider: 'nominatim',
   };
 }
 
@@ -179,11 +183,159 @@ export function parseNominatimResults(json: unknown): PlaceResult[] {
   return out;
 }
 
-/** 장소 검색 — Nominatim 호출 후 파싱. 실패 시 throw(호출부에서 안내). */
-export async function searchPlaces(query: string, opts: GeocodeOptions = {}): Promise<PlaceResult[]> {
+/** 장소 검색(Nominatim 단독) — 실패 시 throw(호출부에서 안내). */
+export async function searchNominatim(query: string, opts: GeocodeOptions = {}): Promise<PlaceResult[]> {
   const q = query.trim();
   if (!q) return [];
   const res = await fetch(buildNominatimUrl(q, opts), { headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error(`장소 검색 실패 (HTTP ${res.status})`);
-  return parseNominatimResults(await res.json());
+  return parseNominatimResults(await res.json()).map((p) => ({ ...p, provider: 'nominatim' as ProviderId }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B단계 — 제공자 라우팅 (사용자 결정 2026-07-30: 한국 + 해외 여행지 둘 다)
+// ─────────────────────────────────────────────────────────────────────────────
+// Nominatim은 키가 없어 브라우저가 직접 부른다. 국내 제공자는 키가 필요하므로 **Edge Function
+// 뒤**에 있다(§0 — 키를 번들에 넣지 않는다). 여기서는 "누구에게 먼저 묻고, 못 받으면 누구로
+// 내려가는가"만 조립한다. 순서 규칙 자체는 `domain/place/provider.ts`(순수)가 갖는다.
+
+const PROXY_FN = 'geocode';
+
+/** Edge Function이 돌려주는 표준 행 — supabase/functions/geocode의 NormalizedRow와 같은 모양. */
+interface ProxyRow {
+  provider?: unknown;
+  name?: unknown;
+  displayName?: unknown;
+  lat?: unknown;
+  lng?: unknown;
+  placeRank?: unknown;
+  bbox?: unknown;
+  kind?: unknown;
+  providerId?: unknown;
+  address?: unknown;
+}
+
+/**
+ * 프록시 행 → PlaceResult(순수).
+ *
+ * 🔴 **정밀도는 여기서 다시 판정한다** — 서버가 보낸 등급을 그대로 믿지 않는다. 등급 규칙은
+ * 앱에 한 벌만 있어야 하고(§7 2층), 그래야 Nominatim과 국내 제공자가 **같은 자**로 재진다.
+ * 서버가 옛 판이어도 앱의 자가 바뀌면 화면은 같이 바뀐다.
+ */
+export function parseProxyRows(json: unknown, fallbackProvider: ProviderId): PlaceResult[] {
+  const rows = (json as { rows?: unknown })?.rows;
+  if (!Array.isArray(rows)) return [];
+  const out: PlaceResult[] = [];
+  for (const r of rows as ProxyRow[]) {
+    if (!r || typeof r !== 'object') continue;
+    const lat = num(r.lat);
+    const lng = num(r.lng);
+    const name = str(r.name);
+    if (lat === null || lng === null || !name) continue;
+    const bbox = parseBBox(r.bbox);
+    out.push({
+      name,
+      displayName: str(r.displayName) ?? name,
+      lat,
+      lng,
+      precision: classifyPlace({ placeRank: num(r.placeRank), bbox }),
+      bbox,
+      kind: str(r.kind),
+      providerId: str(r.providerId),
+      address: parseAddress(r.address),
+      provider: (str(r.provider) as ProviderId | null) ?? fallbackProvider,
+    });
+  }
+  return out;
+}
+
+/**
+ * 사용 가능 제공자를 **세션에 한 번만** 묻는다.
+ *
+ * 매 검색마다 `capabilities`를 되물으면 검색 한 번에 왕복이 둘이 된다. 이 값은 서버 시크릿
+ * 구성이라 세션 중에 바뀌지 않는다 — 바뀌었다면 새로고침이 정상적인 반영 경로다.
+ */
+let cachedProviders: ProviderId[] | null = null;
+export async function ensureProviders(client: ProxyClient | null): Promise<ProviderId[]> {
+  if (cachedProviders) return cachedProviders;
+  cachedProviders = await proxyProviders(client);
+  return cachedProviders;
+}
+
+/** 검사용 — 캐시를 비운다. 제품 코드에서 부르지 않는다. */
+export function resetProviderCache(): void {
+  cachedProviders = null;
+}
+
+/** 프록시에 붙어 있는 국내 제공자 목록. 프록시가 없거나 실패하면 **빈 배열**(조용히 Nominatim만). */
+export async function proxyProviders(client: ProxyClient | null): Promise<ProviderId[]> {
+  if (!client) return [];
+  try {
+    const r = await client.functions.invoke(PROXY_FN, { body: { op: 'capabilities' } });
+    if (r.error) return [];
+    const list = (r.data as { providers?: unknown })?.providers;
+    if (!Array.isArray(list)) return [];
+    return list.filter((p): p is ProviderId => p === 'kakao' || p === 'vworld');
+  } catch {
+    return [];
+  }
+}
+
+/** 프록시 호출에 필요한 최소 모양만 요구한다(전체 Supabase 타입에 묶이지 않게). */
+export interface ProxyClient {
+  functions: {
+    invoke(
+      name: string,
+      args: { body: Record<string, unknown> },
+    ): Promise<{ data: unknown; error: { message: string } | null }>;
+  };
+}
+
+async function searchViaProxy(
+  client: ProxyClient,
+  provider: ProviderId,
+  query: string,
+): Promise<PlaceResult[]> {
+  const r = await client.functions.invoke(PROXY_FN, { body: { op: 'search', q: query, provider } });
+  if (r.error) throw new Error(r.error.message);
+  return parseProxyRows(r.data, provider);
+}
+
+export interface RoutedOptions extends GeocodeOptions {
+  /** 로그인된 Supabase 클라이언트. 없으면 국내 제공자는 건너뛴다(로그인 없이도 검색은 된다). */
+  client?: ProxyClient | null;
+  /** 이미 알아낸 사용 가능 제공자(매 검색마다 capabilities를 되묻지 않게). */
+  available?: readonly ProviderId[];
+}
+
+/**
+ * 장소 검색 — **순서대로 묻고, 답이 있으면 멈춘다.**
+ *
+ * 정직한 설계 선택 두 가지:
+ *  1. **Nominatim은 언제나 마지막에 있다.** 국내 제공자가 없거나·실패하거나·빈 결과를 줘도
+ *     앱은 답을 낸다. 설정 0에서 동작하는 것이 기본값이고, 국내 제공자는 개선이지 전제가 아니다.
+ *  2. **앞선 제공자가 답을 주면 거기서 멈춘다.** 전부 부른 뒤 합치면 더 많아 보이지만,
+ *     결과 목록이 길어질수록 사용자가 옳은 것을 고르기는 **어려워진다** — 원래 신고가
+ *     "어느 대학로인지 모르겠다"였다는 걸 잊으면 안 된다.
+ *
+ * 실패는 삼키지 않는다: 전부 실패하면 마지막 오류를 던져 호출부가 사유를 보여준다.
+ */
+export async function searchPlaces(query: string, opts: RoutedOptions = {}): Promise<PlaceResult[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const order = providerOrder(q, { available: opts.available ?? [], near: opts.near ?? null });
+  let lastError: unknown = null;
+  for (const provider of order) {
+    try {
+      const found =
+        provider === 'nominatim' || !opts.client
+          ? await searchNominatim(q, opts)
+          : await searchViaProxy(opts.client, provider, q);
+      if (found.length) return dedupePlaces(found);
+    } catch (e) {
+      lastError = e; // 다음 제공자로 내려간다 — 하나가 죽었다고 검색이 죽지 않는다
+    }
+  }
+  if (lastError) throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  return [];
 }

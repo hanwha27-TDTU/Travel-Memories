@@ -640,6 +640,8 @@ button.chip { border: 0; font-family: inherit; }
 .place-result-name { font-size: 0.88rem; color: var(--ink); }
 .place-result-full { font-size: 0.72rem; color: var(--ink-soft); line-height: 1.4; }
 .place-none { padding: 8px 10px; font-size: 0.82rem; }
+/* 출처 한 줄 — 어느 지오코더가 답했는지 밝힌다(§8). 결과마다 붙이면 소음이라 목록 위에 한 번만. */
+.place-source { padding: 2px 10px 4px; font-size: 0.7rem; }
 /* 정밀도 등급 — 「무엇을 가리키는가」를 결과마다 말한다(§8).
    기본은 조용하고(정상은 침묵), 넓은 대상(길·동네·행정구역)만 색으로 눈에 띈다. */
 .place-result-grade { font-size: 0.7rem; color: var(--ink-soft); line-height: 1.4; }

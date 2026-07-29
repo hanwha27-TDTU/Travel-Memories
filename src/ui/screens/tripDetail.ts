@@ -42,7 +42,9 @@ import { momentCoord } from '../../domain/place/geojson';
 // 보조 화면은 반드시 lazyScreens를 거친다(정적 import 금지 — check-lazy-screens).
 import { openMapView, openMapPicker, openDiagnosticsHub } from '../lazyScreens';
 import type { MapPoint } from './mapView';
-import { searchPlaces } from '../../services/geocode';
+import { ensureProviders, searchPlaces, type PlaceResult } from '../../services/geocode';
+import { providerLabel } from '../../domain/place/provider';
+import { supabase } from '../../services/supabase/client';
 import { needsRefine, precisionGlyph, precisionLabel, type PrecisionVerdict } from '../../domain/place/precision';
 
 /** 장소 입력 + 🔍 검색(Nominatim) + 결과 선택. 결과 텍스트는 textContent로만(외부 데이터·XSS 방지). */
@@ -104,6 +106,32 @@ function buildPickedBadge(onClear: () => void): PickedBadge {
   return { badge, hint, set };
 }
 
+/**
+ * 검색 결과 목록을 그린다.
+ *
+ * 두 가지를 **결과마다** 말한다: 무엇인지(이름·주소)와 **얼마나 정밀한지**. 예전엔 뒤가
+ * 없어서 도(道) 중심점과 건물 출입구가 화면에서 구별되지 않았다(2026-07-30 신고).
+ * 어느 제공자가 답했는지는 목록 위에 **한 번만** 적는다 — 행마다 붙이면 소음이 된다.
+ */
+function renderPlaceResults(
+  host: HTMLElement,
+  places: readonly PlaceResult[],
+  onPick: (p: PlaceResult) => void,
+): void {
+  const src = places[0]!.provider;
+  host.appendChild(el('div', 'place-source muted small', `${providerLabel(src)} 검색 결과`));
+  for (const p of places) {
+    const b = el('button', 'place-result') as HTMLButtonElement;
+    b.type = 'button';
+    b.append(el('b', 'place-result-name', p.name), el('span', 'place-result-full', p.displayName));
+    const grade = el('span', 'place-result-grade', `${precisionGlyph(p.precision)} ${precisionLabel(p.precision)}`);
+    if (needsRefine(p.precision)) grade.classList.add('is-coarse');
+    b.appendChild(grade);
+    b.addEventListener('click', () => onPick(p));
+    host.appendChild(b);
+  }
+}
+
 function buildPlaceField(initial: { name: string; lat: number | null; lng: number | null }): PlaceField {
   const wrap = el('div', 'place-field');
   const row = el('div', 'place-row');
@@ -163,30 +191,24 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
     results.textContent = '검색 중…';
     void (async () => {
       try {
-        const places = await searchPlaces(q);
+        // 이미 좌표가 있으면 그 근처를 우선한다 — 「대학로」가 전국에 여럿일 때 지금 보고 있는
+        // 도시가 먼저 나오는 것이 맞다. 경계 밖을 **버리지는 않는다**(해외 검색을 막지 않게).
+        const near = lat !== null && lng !== null ? { lat, lng } : null;
+        const client = supabase();
+        const available = await ensureProviders(client);
+        const places = await searchPlaces(q, { client, available, near });
         results.innerHTML = '';
         if (places.length === 0) {
           results.appendChild(el('div', 'place-none', '결과가 없어요. 다른 검색어로 시도해 보세요.'));
         } else {
-          for (const p of places) {
-            const b = el('button', 'place-result') as HTMLButtonElement;
-            b.type = 'button';
-            b.append(el('b', 'place-result-name', p.name), el('span', 'place-result-full', p.displayName));
-            // 🔴 **이 결과가 얼마나 정밀한지 말한다**(§8 — 모르는 것은 확인 불가다).
-            // 예전엔 도(道) 중심점과 건물 출입구가 화면에서 **구별되지 않았다.**
-            const grade = el('span', 'place-result-grade', `${precisionGlyph(p.precision)} ${precisionLabel(p.precision)}`);
-            if (needsRefine(p.precision)) grade.classList.add('is-coarse');
-            b.appendChild(grade);
-            b.addEventListener('click', () => {
-              input.value = p.name;
-              lat = p.lat;
-              lng = p.lng;
-              mapPicked = false; // 검색 좌표는 이름과 묶임
-              results.hidden = true;
-              setPicked(p.displayName, p.precision); // 선택 확인 피드백 + 정밀도
-            });
-            results.appendChild(b);
-          }
+          renderPlaceResults(results, places, (p) => {
+            input.value = p.name;
+            lat = p.lat;
+            lng = p.lng;
+            mapPicked = false; // 검색 좌표는 이름과 묶임
+            results.hidden = true;
+            setPicked(p.displayName, p.precision); // 선택 확인 피드백 + 정밀도
+          });
         }
       } catch (err) {
         results.textContent = `검색 실패: ${err instanceof Error ? err.message : String(err)}`;

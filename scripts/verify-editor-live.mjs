@@ -1570,6 +1570,13 @@ const grades = await page.evaluate(() => {
   }));
 });
 check('🔍 검색 버튼을 누르면 결과가 실제로 그려진다', grades.length === 2, JSON.stringify(grades));
+// 어느 지오코더가 답했는지 밝히는가(§8 출처). 국내 제공자를 붙이면 이 줄이 바뀌어야 한다.
+const source = await page.evaluate(() => document.querySelector('.place-source')?.textContent ?? null);
+check(
+  '장소 검색: 어디서 온 답인지 밝힌다(제공자가 늘어나도 사용자가 출처를 안다)',
+  typeof source === 'string' && source.includes('OpenStreetMap'),
+  String(source),
+);
 const road = grades.find((g) => g.name === '대학로');
 const bldg = grades.find((g) => g.name === '경복궁');
 check(
