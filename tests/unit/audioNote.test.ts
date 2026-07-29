@@ -112,6 +112,7 @@ describe('🔴 ③ 백업 왕복 — 오디오는 서버에 안 가므로 **백�
     media: [],
     expenses: [],
     audio: [audio(3, [1, 2, 3, 4, 5]), audio(4, [9, 8, 7])],
+    places: [],
   });
 
   it('JSON: 넣은 만큼 그대로 돌아온다', async () => {
@@ -149,7 +150,7 @@ describe('🔴 ③ 백업 왕복 — 오디오는 서버에 안 가므로 **백�
   });
 
   it('오디오가 없어도 백업은 정상이다(빈 배열이 형식을 깨지 않는다)', async () => {
-    const back = deserializeJson(await serializeJson({ ...rows(), audio: [] }));
+    const back = deserializeJson(await serializeJson({ ...rows(), audio: [], places: [] }));
     expect(back.audio).toEqual([]);
     expect(back.trips).toHaveLength(1);
   });
@@ -183,7 +184,7 @@ describe('🔴 ④ ZIP 안 파일명 — 사진과 **같은 규칙**이어야 �
   });
 
   it('ZIP 안 실제 경로가 그 규칙을 따른다(조립하는 쪽까지 확인)', async () => {
-    const blob = await serializeZip({ trips: [trip()], moments: [], media: [], expenses: [], audio: [audio(3, [1, 2])] });
+    const blob = await serializeZip({ trips: [trip()], moments: [], media: [], expenses: [], audio: [audio(3, [1, 2])], places: [] });
     const names = deserializeZipNames(await blob.arrayBuffer());
     const hit = names.find((n) => n.includes('/audio/'));
     expect(hit).toBeDefined();

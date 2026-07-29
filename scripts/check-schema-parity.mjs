@@ -23,6 +23,7 @@ const ROW_TO_TABLE = {
   MediaRow: 'media',
   ExpenseRow: 'expenses',
   AudioRow: 'audio',
+  PlaceRow: 'places',
 };
 
 const SQL_KEYWORDS = new Set(['constraint', 'foreign', 'unique', 'primary', 'check', 'create']);

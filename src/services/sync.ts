@@ -12,6 +12,7 @@ import { toMomentRow, fromMomentRow, type MomentRow } from '../domain/moment/row
 import { toExpenseRow, fromExpenseRow, type ExpenseRow } from '../domain/expense/rowmap';
 import { toMediaRow, fromMediaRow, mediaStoragePath, type MediaRow } from '../domain/media/rowmap';
 import { toAudioRow, fromAudioRow, audioStoragePath, type AudioRow } from '../domain/audio/rowmap';
+import { toPlaceRow, fromPlaceRow, type PlaceRow } from '../domain/place/rowmap';
 import { compressForStorage } from '../media/compress';
 import { mergeDecision, isEmptyCloudAnomaly, classifyError, retryDelayMs, isRetryDue } from '../sync/merge';
 import type { JourneyClient } from './supabase/client';
@@ -664,6 +665,128 @@ export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; 
  * 그 소리는 영영 서버에 못 가면서 아무도 그 사실을 모른다. 남겨 두면 진단의 「서버에 없는
  * 소리」가 그걸 말한다(모르는 것을 처리한 척하지 않는다 — 비타협 원칙 #4).
  */
+/**
+ * 장소 라이브러리 포트.
+ *
+ * 형제 중 **가장 단순하다** — 바이트가 없어 업로드/다운로드가 없고(좌표와 이름뿐),
+ * 부모가 없어 push 순서 제약도 없다. 그 두 가지가 곧 장소가 형제와 다른 점이다.
+ */
+export interface PlacesRemote {
+  upsert(row: PlaceRow): Promise<{ error?: string | undefined; status?: number | undefined }>;
+  getById(id: string): Promise<{ data: PlaceRow | null; error?: string | undefined; status?: number | undefined }>;
+  listAll(): Promise<{ data: PlaceRow[]; error?: string | undefined }>;
+}
+
+export function placesRemote(client: JourneyClient): PlacesRemote {
+  return {
+    async upsert(row) {
+      try {
+        const r = await client.from('places').upsert(row, { onConflict: 'id' });
+        return { error: r.error?.message, status: r.status };
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+    },
+    async getById(id) {
+      try {
+        const r = await client.from('places').select('*').eq('id', id).maybeSingle();
+        return { data: (r.data as PlaceRow | null) ?? null, error: r.error?.message, status: r.status };
+      } catch (e) {
+        return { data: null, error: (e as Error).message };
+      }
+    },
+    async listAll() {
+      try {
+        const r = await client.from('places').select('*');
+        return { data: (r.data as PlaceRow[] | null) ?? [], error: r.error?.message };
+      } catch (e) {
+        return { data: [], error: (e as Error).message };
+      }
+    },
+  };
+}
+
+/**
+ * 장소 push — upsert → **되읽기** → 서버시각 반영 → 큐 op 제거.
+ *
+ * 되읽기에서 **좌표를 대조한다**(비용이 금액을 대조하는 것과 같은 자리). 200 응답은 "받았다"
+ * 이지 "그 값으로 있다"가 아니다 — 그리고 장소에서 틀리면 안 되는 값은 좌표다.
+ */
+export async function pushPendingPlaces(
+  remote: PlacesRemote,
+  userId: string,
+): Promise<{ pushed: number; failed: number }> {
+  const d = db();
+  const items = dueOps(
+    (await d.syncQueue.orderBy('createdAt').toArray()).filter(
+      (q) => q.state === 'local_only' || q.state === 'retryable_failed',
+    ),
+  );
+  let pushed = 0;
+  let failed = 0;
+
+  for (const op of items) {
+    if (op.entityType !== 'place') continue;
+    const place = await d.localPlaces.get(op.entityId);
+    if (!place) {
+      await d.syncQueue.delete(op.operationId);
+      continue;
+    }
+
+    const up = await remote.upsert(toPlaceRow(place, userId, deviceStamp()));
+    if (up.error) {
+      await markFail(op, up.status);
+      failed++;
+      continue;
+    }
+
+    const back = await remote.getById(place.id);
+    // 좌표까지 되읽어 확인한다 — 여기서 어긋나면 지도가 다른 곳을 가리킨다.
+    if (back.error || !back.data || back.data.longitude !== place.longitude || back.data.latitude !== place.latitude) {
+      await markFail(op, back.status);
+      failed++;
+      continue;
+    }
+
+    const serverPlace = fromPlaceRow(back.data);
+    await d.transaction('rw', d.localPlaces, d.syncQueue, async () => {
+      const cur = await d.localPlaces.get(place.id);
+      if (cur) await d.localPlaces.put({ ...cur, updatedAt: serverPlace.updatedAt, version: serverPlace.version });
+      await d.syncQueue.delete(op.operationId);
+    });
+    pushed++;
+  }
+  return { pushed, failed };
+}
+
+/** 서버의 내 장소를 로컬에 병합(교체 아님, 빈-클라우드 가드, LWW/tombstone). */
+export async function pullPlaces(remote: PlacesRemote): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
+  const d = db();
+  const res = await remote.listAll();
+  if (res.error) throw new Error(res.error);
+  const serverRows = res.data;
+
+  const purged = await purgedIdSet();
+  const localActive = (await d.localPlaces.toArray()).filter((p) => p.deletedAt === null).length;
+  if (isEmptyCloudAnomaly(serverRows.length, localActive)) {
+    return { pulled: 0, skippedEmptyCloud: true };
+  }
+
+  let pulled = 0;
+  for (const r of serverRows) {
+    if (purged.has(r.id)) continue; // 이 기기에서 영구히 치운 것 — 되살리지 않는다
+    const server = fromPlaceRow(r);
+    const local = await d.localPlaces.get(server.id);
+    if (mergeDecision(local, server) === 'take-server') {
+      await d.localPlaces.put(server);
+      pulled++;
+    } else {
+      await requeueIfServerStillActive('place', local, server);
+    }
+  }
+  return { pulled, skippedEmptyCloud: false };
+}
+
 export async function pushPendingAudio(remote: AudioRemote, userId: string): Promise<{ pushed: number; failed: number }> {
   const d = db();
   const items = dueOps(
@@ -1089,7 +1212,7 @@ async function backfillAudioOnce(): Promise<void> {
  * 알 수 없다는 게 뿌리였다 — 서버와 대조하면 그 모호함이 사라진다.
  */
 async function requeueIfServerStillActive(
-  entityType: 'trip' | 'moment' | 'media' | 'expense' | 'audio',
+  entityType: 'trip' | 'moment' | 'media' | 'expense' | 'audio' | 'place',
   local: { id: string; deletedAt: string | null } | undefined,
   server: { deletedAt: string | null },
 ): Promise<void> {
@@ -1656,10 +1779,16 @@ export async function runSync(
   const eRemote = expensesRemote(client);
   const dRemote = mediaRemote(client);
   const aRemote = audioRemote(client);
+  const plRemote = placesRemote(client);
   // **복원 되돌리기가 가장 먼저다.** 원장이 남아 있으면 아래 push가 트리거에 막힌다.
   const pRemote0 = purgeRemote(client);
   const pu = await pushUnpurges(pRemote0);
   const p = await pushPending(remote, userId);
+  // 🔴 **장소는 순간보다 먼저다.** 0023의 `moments.place_id`가 복합 FK로 `journey.places`를
+  // 참조하므로, 순간이 먼저 가면 아직 서버에 없는 장소를 가리켜 거부당한다(H-02와 같은 규율 —
+  // 다만 여기서는 **장소가 부모 쪽**이다). 장소 자신은 부모가 없어 여행보다 앞에 둬도 되지만,
+  // 「부모 먼저」 목록을 읽는 사람이 순서를 한 줄로 이해하도록 여행 다음에 놓는다.
+  const ppl = await pushPendingPlaces(plRemote, userId);
   const pm = await pushPendingMoments(mRemote, userId);
   const pd = await pushPendingMedia(dRemote, userId);
   const pe = await pushPendingExpenses(eRemote, userId);
@@ -1683,11 +1812,17 @@ export async function runSync(
   const qd = await pullMedia(dRemote);
   const qe = await pullExpenses(eRemote);
   const qa = await pullAudio(aRemote);
+  const qpl = await pullPlaces(plRemote);
   return {
-    pushed: pu.pushed + p.pushed + pm.pushed + pd.pushed + pe.pushed + pa.pushed + pp.pushed,
-    failed: pu.failed + p.failed + pm.failed + pd.failed + pe.failed + pa.failed + pp.failed,
-    pulled: q.pulled + qm.pulled + qd.pulled + qe.pulled + qa.pulled,
+    pushed: pu.pushed + p.pushed + ppl.pushed + pm.pushed + pd.pushed + pe.pushed + pa.pushed + pp.pushed,
+    failed: pu.failed + p.failed + ppl.failed + pm.failed + pd.failed + pe.failed + pa.failed + pp.failed,
+    pulled: q.pulled + qm.pulled + qd.pulled + qe.pulled + qa.pulled + qpl.pulled,
     skippedEmptyCloud:
-      q.skippedEmptyCloud || qm.skippedEmptyCloud || qd.skippedEmptyCloud || qe.skippedEmptyCloud || qa.skippedEmptyCloud,
+      q.skippedEmptyCloud ||
+      qm.skippedEmptyCloud ||
+      qd.skippedEmptyCloud ||
+      qe.skippedEmptyCloud ||
+      qa.skippedEmptyCloud ||
+      qpl.skippedEmptyCloud,
   };
 }

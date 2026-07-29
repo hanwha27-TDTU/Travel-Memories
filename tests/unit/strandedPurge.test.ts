@@ -32,7 +32,7 @@ beforeEach(async () => {
 /** 개수 대조 쪽은 이 검사의 관심이 아니라 전부 0으로 둔다. */
 function port(tombstoned: string[]): StoreStatePort {
   return {
-    activeCounts: () => Promise.resolve({ trip: 0, moment: 0, media: 0, expense: 0, audio: 0 }),
+    activeCounts: () => Promise.resolve({ trip: 0, moment: 0, media: 0, expense: 0, audio: 0, place: 0 }),
     deviceStamps: () => Promise.resolve([]),
     remnantCounts: () => Promise.resolve({ tombstoned: tombstoned.length, purged: 0 }),
     mediaRowIds: () => Promise.resolve([]),

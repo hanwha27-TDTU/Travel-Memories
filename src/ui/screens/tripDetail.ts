@@ -18,6 +18,7 @@ import {
   createMomentLocalFirst,
   listMoments,
   updateMomentLocalFirst,
+  type UpdateMomentPatch,
   softDeleteMomentLocalFirst,
   restoreMomentLocalFirst,
 } from '../../services/moments';
@@ -44,14 +45,20 @@ import { openMapView, openMapPicker, openDiagnosticsHub } from '../lazyScreens';
 import type { MapPoint } from './mapView';
 import { ensureProviders, searchPlaces, type PlaceResult } from '../../services/geocode';
 import { providerLabel } from '../../domain/place/provider';
+import { listPlaces, savePlace } from '../../services/places';
 import { supabase } from '../../services/supabase/client';
-import { needsRefine, precisionGlyph, precisionLabel, type PrecisionVerdict } from '../../domain/place/precision';
+import { needsRefine, precisionGlyph, precisionLabel, verdictFromStored, type PrecisionVerdict } from '../../domain/place/precision';
 
 /** 장소 입력 + 🔍 검색(Nominatim) + 결과 선택. 결과 텍스트는 textContent로만(외부 데이터·XSS 방지). */
 interface PlaceField {
   el: HTMLElement;
   getName: () => string;
   getCoords: () => { lat: number; lng: number } | null;
+  /**
+   * 장소 라이브러리 링크(있을 때만). 검색 결과나 「내 장소」에서 고르면 라이브러리에 담기고
+   * 그 id가 여기로 나온다. 자유 입력·지도 직접 지정은 **null이 정상**이다(0023).
+   */
+  getPlaceId: () => string | null;
   reset: () => void;
 }
 /**
@@ -106,6 +113,142 @@ function buildPickedBadge(onClear: () => void): PickedBadge {
   return { badge, hint, set };
 }
 
+
+
+
+/**
+ * 장소 필드 → 순간 입력의 **장소 네 칸**.
+ *
+ * 왜 한 곳에서 만드나(§7 2층): 이름·위도·경도·링크는 **함께 움직여야** 한다. 손으로 네 줄을
+ * 적는 자리가 둘(생성 폼·편집 폼)이면 언젠가 한쪽만 필드를 늘린다 — 그리고 링크만 빠지면
+ * 「저장은 됐는데 장소별 모아보기에 안 나오는」 조용한 결함이 된다.
+ */
+function placeInputOf(field: PlaceField): {
+  placeName: string;
+  placeId: string | null;
+  placeLat: number | null;
+  placeLng: number | null;
+} {
+  const coords = field.getCoords();
+  return {
+    placeName: field.getName(),
+    placeId: field.getPlaceId(),
+    placeLat: coords?.lat ?? null,
+    placeLng: coords?.lng ?? null,
+  };
+}
+
+/** `runPlaceSearch`가 고른 결과를 폼에 되돌려 주는 모양. 한 곳으로 모아 누락을 막는다. */
+interface PickedPlace {
+  name: string;
+  lat: number;
+  lng: number;
+  detail: string;
+  precision: PrecisionVerdict | null;
+  placeId: string | null;
+  mapPicked: boolean;
+}
+
+interface PlaceSearchContext {
+  results: HTMLElement;
+  near: { lat: number; lng: number } | null;
+  apply: (picked: PickedPlace) => void;
+  /** 라이브러리 저장이 **나중에** 끝났을 때 링크만 늦게 붙인다(저장을 기다리게 하지 않는다). */
+  linkPlace: (id: string | null) => void;
+}
+
+/**
+ * 장소 검색 한 번 — 「내 장소」를 먼저 그리고, 지오코더 결과를 그 아래 그린다.
+ *
+ * `buildPlaceField`에서 떼어낸 이유는 래칫(`check-fn-size`)이지만 떼고 보니 이게 맞다:
+ * *검색해서 고르는 일*과 *폼의 상태를 들고 있는 일*은 다른 관심사다(§11 「게이트가 설계를
+ * 밀어준다」). 상태는 `apply`로만 되돌아가므로, 새 결과 종류를 더해도 폼이 알 필요가 없다.
+ */
+async function runPlaceSearch(q: string, ctx: PlaceSearchContext): Promise<void> {
+  const { results } = ctx;
+  try {
+    const client = supabase();
+    const available = await ensureProviders(client);
+    // **담아 둔 장소를 먼저 본다.** 네트워크보다 빠르고, 오프라인에서도 답이 나온다.
+    const needle = q.toLowerCase();
+    const saved = (await listPlaces()).filter((p) => p.name.toLowerCase().includes(needle)).slice(0, 5);
+    const places = await searchPlaces(q, { client, available, near: ctx.near });
+    results.innerHTML = '';
+    renderSavedPlaces(results, saved, (p) =>
+      ctx.apply({
+        name: p.name,
+        lat: p.latitude,
+        lng: p.longitude,
+        detail: p.formattedAddress || p.name,
+        // 라이브러리에 등급을 적어 뒀으므로 **그대로 다시 말한다.** 두 번째로 고를 때
+        // 조용해지면 같은 사실에 대해 앱이 두 번 다르게 말하는 셈이다(§7·§8).
+        precision: verdictFromStored(p.precision, p.spanMeters),
+        placeId: p.id,
+        mapPicked: p.mapPicked,
+      }),
+    );
+    if (places.length === 0) {
+      if (!saved.length) results.appendChild(el('div', 'place-none', '결과가 없어요. 다른 검색어로 시도해 보세요.'));
+      return;
+    }
+    renderPlaceResults(results, places, (p) => {
+      ctx.apply({
+        name: p.name,
+        lat: p.lat,
+        lng: p.lng,
+        detail: p.displayName,
+        precision: p.precision,
+        placeId: null, // 아직 안 담겼다 — 담기면 아래 linkPlace가 붙인다
+        mapPicked: false, // 검색 좌표는 이름과 묶임
+      });
+      // 라이브러리에 담는다(멱등 — 같은 곳을 열 번 골라도 행은 하나).
+      // **실패해도 순간 저장을 막지 않는다**: 링크는 부가정보이고, 좌표·이름은 이미 순간에
+      // 적혔다. 여기서 throw하면 부가기능이 기억 저장을 막는 셈이 된다.
+      void savePlace({
+        name: p.name,
+        latitude: p.lat,
+        longitude: p.lng,
+        formattedAddress: p.displayName,
+        provider: p.provider,
+        providerPlaceId: p.providerId,
+        countryCode: p.address.countryCode,
+        country: p.address.country,
+        region: p.address.region,
+        city: p.address.city,
+        district: p.address.district,
+        postcode: p.address.postcode,
+        category: p.kind,
+        precision: p.precision.precision,
+        spanMeters: p.precision.spanMeters,
+      })
+        .then((savedPlace) => ctx.linkPlace(savedPlace.id))
+        .catch(() => ctx.linkPlace(null)); // 못 담았으면 링크도 없다 — 지어내지 않는다
+    });
+  } catch (err) {
+    results.textContent = `검색 실패: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+/**
+ * 「내 장소」 — 이미 담아 둔 장소 중 질의에 맞는 것.
+ *
+ * 검색 결과보다 **위에** 그린다. 두 번째 방문부터는 네트워크가 답을 주기 전에 이미 옳은
+ * 답이 화면에 있고, 비행기 모드에서도 그렇다(로컬 우선). 원래 신고가 *"같은 곳을 다시
+ * 찾을 때마다 부정확한 검색을 반복한다"*는 문제이기도 했다.
+ */
+function renderSavedPlaces(host: HTMLElement, saved: readonly LocalPlace[], onPick: (p: LocalPlace) => void): void {
+  if (!saved.length) return;
+  host.appendChild(el('div', 'place-source muted small', '내 장소'));
+  for (const p of saved) {
+    const b = el('button', 'place-result is-saved') as HTMLButtonElement;
+    b.type = 'button';
+    const where = [p.region, p.city].filter(Boolean).join(' ');
+    b.append(el('b', 'place-result-name', `⭐ ${p.name}`), el('span', 'place-result-full', p.formattedAddress || where || ''));
+    b.addEventListener('click', () => onPick(p));
+    host.appendChild(b);
+  }
+}
+
 /**
  * 검색 결과 목록을 그린다.
  *
@@ -157,12 +300,15 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
   // 좌표를 지도에서 직접 찍었는지 여부. 지도로 찍은 좌표는 이름을 나중에 적어도 유지한다
   // (사용자가 이름과 위치를 따로 입력하는 흐름). 검색 결과 좌표는 이름과 묶여 있으므로 손편집 시 무효화한다.
   let mapPicked = false;
+  // 라이브러리 링크. 좌표가 무효화되면 함께 사라진다 — 링크만 남으면 엉뚱한 장소를 가리킨다.
+  let placeId: string | null = null;
 
   // 해제는 배지 자신이 그릴 수 있으므로 `picked.set`을 직접 부른다(선언 전 참조를 만들지 않는다).
   const picked: PickedBadge = buildPickedBadge(() => {
     lat = null;
     lng = null;
     mapPicked = false;
+    placeId = null;
     picked.set(null);
   });
   const setPicked = picked.set;
@@ -180,6 +326,7 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
     }
     lat = null;
     lng = null;
+    placeId = null; // 좌표가 무효면 링크도 무효다 — 링크만 남으면 엉뚱한 곳을 가리킨다
     setPicked(null);
   });
 
@@ -189,33 +336,26 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
     searchBtn.disabled = true;
     results.hidden = false;
     results.textContent = '검색 중…';
-    void (async () => {
-      try {
-        // 이미 좌표가 있으면 그 근처를 우선한다 — 「대학로」가 전국에 여럿일 때 지금 보고 있는
-        // 도시가 먼저 나오는 것이 맞다. 경계 밖을 **버리지는 않는다**(해외 검색을 막지 않게).
-        const near = lat !== null && lng !== null ? { lat, lng } : null;
-        const client = supabase();
-        const available = await ensureProviders(client);
-        const places = await searchPlaces(q, { client, available, near });
-        results.innerHTML = '';
-        if (places.length === 0) {
-          results.appendChild(el('div', 'place-none', '결과가 없어요. 다른 검색어로 시도해 보세요.'));
-        } else {
-          renderPlaceResults(results, places, (p) => {
-            input.value = p.name;
-            lat = p.lat;
-            lng = p.lng;
-            mapPicked = false; // 검색 좌표는 이름과 묶임
-            results.hidden = true;
-            setPicked(p.displayName, p.precision); // 선택 확인 피드백 + 정밀도
-          });
-        }
-      } catch (err) {
-        results.textContent = `검색 실패: ${err instanceof Error ? err.message : String(err)}`;
-      } finally {
-        searchBtn.disabled = false;
-      }
-    })();
+    void runPlaceSearch(q, {
+      results,
+      // 이미 좌표가 있으면 그 근처를 우선한다 — 「대학로」가 전국에 여럿일 때 지금 보고 있는
+      // 도시가 먼저 나오는 것이 맞다. 경계 밖을 **버리지는 않는다**(해외 검색을 막지 않게).
+      near: lat !== null && lng !== null ? { lat, lng } : null,
+      apply: (picked) => {
+        input.value = picked.name;
+        lat = picked.lat;
+        lng = picked.lng;
+        placeId = picked.placeId;
+        mapPicked = picked.mapPicked;
+        results.hidden = true;
+        setPicked(picked.detail, picked.precision);
+      },
+      linkPlace: (id) => {
+        placeId = id;
+      },
+    }).finally(() => {
+      searchBtn.disabled = false;
+    });
   };
   searchBtn.addEventListener('click', doSearch);
   input.addEventListener('keydown', (e) => {
@@ -249,11 +389,13 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
     el: wrap,
     getName: () => input.value,
     getCoords: () => (lat !== null && lng !== null ? { lat, lng } : null),
+    getPlaceId: () => placeId,
     reset: () => {
       input.value = '';
       lat = null;
       lng = null;
       mapPicked = false;
+      placeId = null;
       results.hidden = true;
       results.innerHTML = '';
       setPicked(null);
@@ -266,7 +408,7 @@ import { localTime } from '../../domain/time';
 import { groupMomentsByDay, type DayGroup } from '../../domain/moment/timeline';
 import { requestSync } from '../../services/autoSync';
 import type { Route } from '../../app/router';
-import type { LocalMoment, LocalTrip, LocalMedia, LocalExpense } from '../../offline/db';
+import type { LocalMoment, LocalTrip, LocalMedia, LocalExpense, LocalPlace } from '../../offline/db';
 
 /** 금액 입력(콤마·공백 허용) → 양수 숫자 또는 null. */
 function parseAmount(raw: string): number | null {
@@ -1100,17 +1242,14 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       const files = photoInput.files ? Array.from(photoInput.files) : [];
       void (async () => {
         try {
-          const placeCoords = placeField.getCoords();
-          const occurredAt = whenField.value();
           const moment = await createMomentLocalFirst({
             tripId: trip!.id,
             title: input.value,
             emotion: emotion.value(),
-            placeName: placeField.getName(),
-            placeLat: placeCoords?.lat ?? null,
-            placeLng: placeCoords?.lng ?? null,
+            note: '',
+            ...placeInputOf(placeField),
             // 비었으면 넘기지 않는다 — 서비스가 `now`로 채운다(계약을 두 곳에 쓰지 않는다).
-            ...(occurredAt ? { occurredAt } : {}),
+            ...(whenField.value() ? { occurredAt: whenField.value()! } : {}),
           });
           // 비용(선택): 금액이 유효하면 순간에 딸린 비용으로 저장.
           const amountVal = parseAmount(amountIn.value);
@@ -1313,15 +1452,8 @@ function buildMomentEditForm(
   trip: { startDate: string | null; endDate: string | null; timeZone?: string } | null,
   existingExpense: LocalExpense | undefined,
   onSave: (
-    patch: {
-      title: string;
-      emotion: string;
-      placeName: string;
-      placeLat: number | null;
-      placeLng: number | null;
-      note: string;
-      occurredAt?: string;
-    },
+    // 서비스의 계약 타입을 그대로 쓴다 — 필드가 늘 때 화면·서비스 두 곳을 고치지 않는다(SSOT).
+    patch: UpdateMomentPatch,
     expenseIntent: { amount: number | null; currency: string },
   ) => Promise<void>,
   onCancel: () => void,
@@ -1388,21 +1520,11 @@ function buildMomentEditForm(
   panel.addEventListener('submit', (e) => {
     e.preventDefault();
     save.disabled = true;
-    const placeCoords = placeField.getCoords();
-    const patch: {
-      title: string;
-      emotion: string;
-      placeName: string;
-      placeLat: number | null;
-      placeLng: number | null;
-      note: string;
-      occurredAt?: string;
-    } = {
+    // 인라인 타입 대신 **서비스의 계약 타입**을 쓴다 — 필드가 늘 때 두 곳을 고치지 않는다(SSOT).
+    const patch: UpdateMomentPatch = {
       title: titleIn.value,
       emotion: emotion.value(),
-      placeName: placeField.getName(),
-      placeLat: placeCoords?.lat ?? null,
-      placeLng: placeCoords?.lng ?? null,
+      ...placeInputOf(placeField),
       note: noteIn.value,
     };
     const occ = timeField.value();

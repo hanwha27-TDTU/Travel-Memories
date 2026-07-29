@@ -64,6 +64,7 @@ const NO_OP_REQUIRED = new Map([
   ['pushPendingExpenses', 'pushPending과 같은 이유 — 큐 소비자.'],
   ['pushPendingMedia', 'pushPending과 같은 이유 — 큐 소비자.'],
   ['pushPendingAudio', 'pushPending과 같은 이유 — 큐 소비자.'],
+  ['pushPendingPlaces', 'pushPending과 같은 이유 — 큐 소비자.'],
 ]);
 
 /**

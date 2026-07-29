@@ -1619,9 +1619,12 @@ check(
 );
 check('장소 선택: 정밀도 안내가 가로 넘침을 만들지 않는다', afterPick.overflow === 0, `overflow=${afterPick.overflow}`);
 // 점을 고르면 **조용해야** 한다(정상은 침묵 — 늘 뜨면 경고가 벽지가 된다).
+// 🔴 **이름으로 고른다(인덱스 금지).** 처음엔 nth(1)로 골랐는데, 장소 라이브러리가 생기면서
+// 목록 맨 위에 「내 장소」가 끼어들어 nth(1)이 다른 줄을 가리켰다 — 검사가 조용히 엉뚱한
+// 것을 재기 시작한 것이다(팝업을 배열 인덱스로 식별하지 말라는 map-place-dev §3과 같은 형태).
 await page.locator('.place-search').first().click();
 await page.waitForSelector('.place-result', { timeout: 5000 });
-await page.locator('.place-result').nth(1).click();
+await page.locator('.place-result', { hasText: '경복궁' }).first().click();
 await page.waitForTimeout(200);
 const afterPoint = await page.evaluate(() => ({
   hintHidden: document.querySelector('.place-picked-hint')?.hidden ?? null,
@@ -1631,6 +1634,35 @@ check(
   '장소 선택: 건물(점)을 고르면 한정 문장이 **사라진다**(정상은 침묵 §8)',
   afterPoint.hintHidden === true && afterPoint.hint === '',
   JSON.stringify(afterPoint),
+);
+
+// ── 🔴 v1.24: 「내 장소」에서 **다시** 고를 때도 같은 말을 하는가 ──────────────────
+// 라이브 검사가 잡은 실제 결함(2026-07-30): 라이브러리에서 다시 고르면 등급을 **알고 있는데도**
+// 화면이 조용해졌다. 처음엔 「길 전체를 가리켜요」라 해놓고 두 번째엔 아무 말도 안 한 것이다 —
+// 같은 사실에 대해 앱이 두 번 다르게 말하면 사용자는 어느 쪽을 믿을지 판단해야 한다(§7·§8).
+await page.fill('.place-input', '대학로');
+await page.locator('.place-search').first().click();
+await page.waitForSelector('.place-result', { timeout: 5000 });
+const savedRow = await page.evaluate(() => {
+  const head = document.querySelector('.place-source');
+  const first = document.querySelector('.place-result.is-saved .place-result-name');
+  return { head: head?.textContent ?? null, name: first?.textContent ?? null };
+});
+check(
+  '내 장소: 한 번 고른 장소가 다음 검색에서 목록 맨 위에 뜬다(오프라인에서도 답이 나온다)',
+  savedRow.head === '내 장소' && (savedRow.name ?? '').includes('대학로'),
+  JSON.stringify(savedRow),
+);
+await page.locator('.place-result.is-saved').first().click();
+await page.waitForTimeout(200);
+const afterSaved = await page.evaluate(() => ({
+  hintHidden: document.querySelector('.place-picked-hint')?.hidden ?? null,
+  hint: document.querySelector('.place-picked-hint')?.textContent ?? '',
+}));
+check(
+  '🔴 내 장소: 다시 골라도 **같은 한정 문장**을 말한다(등급을 저장해 뒀으면 그대로 말한다)',
+  afterSaved.hintHidden === false && afterSaved.hint.includes('길 전체'),
+  JSON.stringify(afterSaved),
 );
 
 // ── v0.89: 플랫폼 지도(무엇이 어디서 도나) — **생성물이 실제로 그려지는가** ──────────

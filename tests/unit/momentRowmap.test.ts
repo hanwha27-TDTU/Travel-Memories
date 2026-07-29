@@ -14,6 +14,8 @@ const base: LocalMoment = {
   placeName: '협재 해변',
   placeLat: 33.3937,
   placeLng: 126.2396,
+  // 장소 라이브러리 링크(0023) — **왕복해야 한다.** 빠지면 다른 기기에서 링크만 사라진다.
+  placeId: 'pl-1',
   version: 3,
   createdAt: '2026-07-10T09:20:00.000Z',
   updatedAt: '2026-07-10T09:25:00.000Z',
@@ -29,12 +31,18 @@ describe('moment rowmap 경계', () => {
     expect(row.place_name).toBe('협재 해변');
     expect(row.place_lat).toBe(33.3937);
     expect(row.place_lng).toBe(126.2396);
+    expect(row.place_id).toBe('pl-1');
     expect(row.occurred_at).toBe('2026-07-10T09:20:00.000Z');
   });
 
   it('fromMomentRow ∘ toMomentRow = 항등(핵심 필드)', () => {
     const round = fromMomentRow(toMomentRow(base, 'user-9'));
     expect(round).toEqual(base);
+  });
+
+  it('링크가 없는 순간(자유 입력)도 왕복한다 — null이 정상이다', () => {
+    const round = fromMomentRow(toMomentRow({ ...base, placeId: null }, 'u'));
+    expect(round.placeId).toBeNull();
   });
 
   it('빈 occurredAt은 null로, 되읽으면 다시 빈 문자열', () => {

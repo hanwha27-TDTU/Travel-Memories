@@ -74,6 +74,11 @@ export const SKILL_ROUTES = [
   { match: /^src\/services\/(fx|expenses)/, skill: 'expense-fx-dev' },
   { match: /^src\/domain\/expense\//, skill: 'expense-fx-dev' },
   { match: /^src\/(services\/geocode|domain\/place)/, skill: 'map-place-dev' },
+  // 장소 라이브러리(2026-07-30 · 마이그레이션 0022). **두 헌장이 다 걸린다**: 무엇을 장소로
+  // 볼지·좌표의 출처 규율은 장소 헌장이고, 저장·큐 op·tombstone·백업 규율은 동기화 헌장이다.
+  // 한쪽만 읽으면 반쪽이 된다 — 실제로 오디오가 그렇게 다섯 곳을 비운 채 태어났다(M-0033).
+  { match: /^src\/services\/places\.ts/, skill: 'map-place-dev' },
+  { match: /^src\/services\/places\.ts/, skill: 'sync-offline-dev' },
   // 바깥 지도(구글)로 나가는 동의 상태. 위치가 **기기 밖으로 나가는** 유일한 경로라 규율은
   // 장소 헌장에 있다(PRIVACY「개인자료 기본 비공개」의 예외를 사용자 확인으로 다루는 자리).
   { match: /^src\/services\/externalMapConsent/, skill: 'map-place-dev' },

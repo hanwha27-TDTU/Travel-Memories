@@ -15,6 +15,8 @@ export interface CreateMomentInput {
   placeName?: string;
   placeLat?: number | null;
   placeLng?: number | null;
+  /** 장소 라이브러리 링크(선택 · 0023). 없는 것이 정상 — 자유 입력 장소는 링크가 없다. */
+  placeId?: string | null;
   note?: string;
   occurredAt?: string;
 }
@@ -36,6 +38,7 @@ export async function createMomentLocalFirst(input: CreateMomentInput): Promise<
     placeName: input.placeName?.trim() ?? '',
     placeLat: input.placeLat ?? null,
     placeLng: input.placeLng ?? null,
+    placeId: input.placeId ?? null,
     version: 1,
     createdAt: now,
     updatedAt: now,
@@ -74,6 +77,8 @@ export interface UpdateMomentPatch {
   placeName?: string;
   placeLat?: number | null;
   placeLng?: number | null;
+  /** 장소 라이브러리 링크(선택 · 0023). 없는 것이 정상 — 자유 입력 장소는 링크가 없다. */
+  placeId?: string | null;
   note?: string;
   occurredAt?: string;
 }
@@ -96,6 +101,7 @@ export async function updateMomentLocalFirst(id: string, patch: UpdateMomentPatc
     ...(patch.placeName !== undefined ? { placeName: patch.placeName.trim() } : {}),
     ...(patch.placeLat !== undefined ? { placeLat: patch.placeLat } : {}),
     ...(patch.placeLng !== undefined ? { placeLng: patch.placeLng } : {}),
+    ...(patch.placeId !== undefined ? { placeId: patch.placeId } : {}),
     ...(patch.note !== undefined ? { note: patch.note.trim() } : {}),
     ...(patch.occurredAt !== undefined ? { occurredAt: patch.occurredAt } : {}),
     version: cur.version + 1,

@@ -642,6 +642,10 @@ button.chip { border: 0; font-family: inherit; }
 .place-none { padding: 8px 10px; font-size: 0.82rem; }
 /* 출처 한 줄 — 어느 지오코더가 답했는지 밝힌다(§8). 결과마다 붙이면 소음이라 목록 위에 한 번만. */
 .place-source { padding: 2px 10px 4px; font-size: 0.7rem; }
+/* 「내 장소」(이미 담아 둔 곳)는 검색 결과와 **구별돼야** 한다 — 같은 이름이 두 줄 나올 때
+   어느 것이 내가 확정해 둔 좌표인지 알아야 하기 때문이다. 색이 아니라 왼쪽 띠로 구분한다
+   (색만 쓰면 흑백·색각이상에서 사라진다 — 글리프 ⭐가 이름에 함께 붙는다). */
+.place-result.is-saved { border-left: 3px solid var(--sem-teal); padding-left: 7px; }
 /* 정밀도 등급 — 「무엇을 가리키는가」를 결과마다 말한다(§8).
    기본은 조용하고(정상은 침묵), 넓은 대상(길·동네·행정구역)만 색으로 눈에 띈다. */
 .place-result-grade { font-size: 0.7rem; color: var(--ink-soft); line-height: 1.4; }

@@ -53,6 +53,15 @@ export interface LocalMoment extends SyncMeta {
   placeName: string; // 장소명(선택)
   placeLat?: number | null; // 장소 좌표(지오코딩 선택) — 있으면 지도에 표시
   placeLng?: number | null;
+  /**
+   * 장소 라이브러리 링크(선택 · 마이그레이션 0023).
+   *
+   * 🔴 위 세 칸을 **대체하지 않는다.** 저 셋은 *그때 그렇게 기록한 사실*이고, 이 링크는
+   * "라이브러리의 그 장소를 골라 적었다"는 부가 정보다. 라이브러리의 좌표를 나중에 고쳐도
+   * 과거 순간의 기록은 바뀌지 않는다(사용자가 쓴 것을 앱이 고쳐 쓰지 않는다).
+   * 자유 입력·지도 직접 지정은 링크가 없는 것이 **정상**이다.
+   */
+  placeId?: string | null;
 }
 
 // 사진(Media) — 로컬 전용(3a). 원본 Blob은 절대 수정하지 않는다(§0).
@@ -142,6 +151,45 @@ export interface LocalAudio extends SyncMeta {
   storagePath?: string;
 }
 
+/**
+ * 장소 라이브러리 항목(마이그레이션 0022).
+ *
+ * 🔴 **여행의 자식이 아니다.** 형제(media·expenses·audio)는 전부 `momentId`/`tripId`를 갖고
+ * 부모가 지워지면 함께 지워진다. 장소는 **사용자 소유**다 — 한 장소는 여러 여행에 걸치고,
+ * 작년 여행을 지웠다고 그 카페를 잊어야 할 이유가 없다. 이 비대칭은 설계 단계에서 심사한
+ * 것이며 이유를 여기 적어 둔다(§7 — 안 적으면 다음 사람이 "형제들처럼" 고친다).
+ */
+export interface LocalPlace extends SyncMeta {
+  /** 사용자가 부르는 이름. 자유 입력 — 지오코더에 없는 곳도 담아야 한다(map-place-dev §1 3항). */
+  name: string;
+  formattedAddress: string | null;
+  /** 어느 지오코더가 준 답인가. 지도에서 직접 찍었으면 null(그것도 사실이다). */
+  provider: string | null;
+  providerPlaceId: string | null;
+  /**
+   * `provider/providerPlaceId` 합성 인덱스 키 — Dexie는 복합 유니크를 못 걸어서
+   * **한 칸으로 합쳐** 인덱스한다. 둘 중 하나라도 없으면 `undefined`(인덱스에서 빠진다 —
+   * 지도로 찍은 장소끼리는 중복 판정을 하지 않는다. 같은 이름이어도 다른 지점일 수 있다).
+   */
+  providerKey?: string;
+  countryCode: string | null;
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  district: string | null;
+  postcode: string | null;
+  category: string | null;
+  memo: string | null;
+  /** 좌표의 진실원. 서버의 `location`(생성 컬럼)은 이 둘에서 유도된다 — 앱은 쓰지 않는다. */
+  longitude: number;
+  latitude: number;
+  /** 이 좌표가 무엇을 가리키는가. `domain/place/precision.ts`의 등급과 같은 어휘. */
+  precision: string | null;
+  spanMeters: number | null;
+  /** 사용자가 지도에서 직접 찍어 확정했는가 — 검색 좌표보다 강한 진실이다. */
+  mapPicked: boolean;
+}
+
 // 환율 표(FxRateTable) 로컬 캐시 — **파생·재취득 가능한 공개 데이터**이지 사용자의 기억이 아니다.
 // 그래서 동기화하지 않고 백업에도 담지 않는다(syncQueue와 같은 성격 — check-backup-coverage 제외 목록).
 // 과거 날짜의 기준환율은 확정값이라 한 번 받으면 안 바뀐다 → 캐시가 표시 안정성을 보장한다.
@@ -201,7 +249,7 @@ export interface PurgedId {
    * id만 담으므로(자료를 남기지 않는 것이 목적) 다른 기기가 알려준 영구삭제는 종류를 모른다.
    * 모르는 것을 아는 척 적지 않는다(비타협 원칙 #4).
    */
-  entityType: 'trip' | 'moment' | 'media' | 'expense' | 'audio' | 'unknown';
+  entityType: 'trip' | 'moment' | 'media' | 'expense' | 'audio' | 'place' | 'unknown';
   purgedAt: string;
 }
 
@@ -211,6 +259,7 @@ export class JourneyDB extends Dexie {
   localMedia!: Table<LocalMedia, string>;
   localExpenses!: Table<LocalExpense, string>;
   localAudio!: Table<LocalAudio, string>;
+  localPlaces!: Table<LocalPlace, string>;
   localFxRates!: Table<LocalFxRate, string>;
   purgedIds!: Table<PurgedId, string>;
   syncQueue!: Table<SyncQueueItem, string>;
@@ -250,6 +299,13 @@ export class JourneyDB extends Dexie {
     // **기존 버전을 고치지 않고 새 version을 추가한다**(버전 체인 규율 — sync-offline SKILL §0).
     this.version(7).stores({
       localAudio: 'id, momentId, tripId, updatedAt',
+    });
+    // v8: 장소 라이브러리(마이그레이션 0022). **여행의 자식이 아니라 사용자 소유**라
+    // tripId/momentId 인덱스가 없다 — 한 장소는 여러 여행에 걸친다(0022 주석 참조).
+    // 근처 검색은 서버(PostGIS)와 로컬(전수 스캔) 둘 다 가능하다: 개인 앱 규모(수백 건)에서
+    // 전수 스캔은 밀리초라, 로컬에 공간 인덱스를 흉내 내는 복잡도를 들일 이유가 없다.
+    this.version(8).stores({
+      localPlaces: 'id, updatedAt, providerKey',
     });
   }
 }

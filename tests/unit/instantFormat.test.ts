@@ -83,7 +83,8 @@ describe('② 서버 경계 4곳 전부가 정규화한다 (§7 — 형제를 �
   });
 
   it('moment', () => {
-    const r = fromMomentRow({ id: U(2), user_id: U(9), trip_id: U(1), occurred_at: PG, tz_offset_min: null, title: '', note: '', emotion: '', place_name: '', place_lat: null, place_lng: null, version: 1, client_operation_id: null, ...stamps });
+    const r = fromMomentRow({ id: U(2), user_id: U(9), trip_id: U(1), occurred_at: PG, tz_offset_min: null, title: '', note: '', emotion: '', place_name: '', place_lat: null, place_lng: null,
+    place_id: null, version: 1, client_operation_id: null, ...stamps });
     expect([r.createdAt, r.updatedAt, r.deletedAt]).toEqual([JS, JS, JS]);
   });
 
@@ -198,7 +199,8 @@ describe('⑤ withCanonicalStamps — 이미 저장된 행을 데려오는 변�
 // 형제 목록을 **파일 단위**로만 뽑고 **필드 단위**로는 안 뽑은 §7 미완이었다.
 describe('⑥ 시각 컬럼을 **빠짐없이** 정규화한다 (§7 — 형제는 파일이 아니라 필드다)', () => {
   it('순간의 발생 시각(occurred_at)도 정규 표기로 온다', () => {
-    const r = fromMomentRow({ id: U(2), user_id: U(9), trip_id: U(1), occurred_at: PG, tz_offset_min: null, title: '', note: '', emotion: '', place_name: '', place_lat: null, place_lng: null, version: 1, client_operation_id: null, created_at: PG, updated_at: PG, deleted_at: null });
+    const r = fromMomentRow({ id: U(2), user_id: U(9), trip_id: U(1), occurred_at: PG, tz_offset_min: null, title: '', note: '', emotion: '', place_name: '', place_lat: null, place_lng: null,
+    place_id: null, version: 1, client_operation_id: null, created_at: PG, updated_at: PG, deleted_at: null });
     expect(r.occurredAt).toBe(JS);
   });
 
@@ -208,7 +210,8 @@ describe('⑥ 시각 컬럼을 **빠짐없이** 정규화한다 (§7 — 형제�
   });
 
   it('서버가 null이면 빈 문자열 그대로(없는 시각을 지어내지 않는다)', () => {
-    const r = fromMomentRow({ id: U(2), user_id: U(9), trip_id: U(1), occurred_at: null, tz_offset_min: null, title: '', note: '', emotion: '', place_name: '', place_lat: null, place_lng: null, version: 1, client_operation_id: null, created_at: PG, updated_at: PG, deleted_at: null });
+    const r = fromMomentRow({ id: U(2), user_id: U(9), trip_id: U(1), occurred_at: null, tz_offset_min: null, title: '', note: '', emotion: '', place_name: '', place_lat: null, place_lng: null,
+    place_id: null, version: 1, client_operation_id: null, created_at: PG, updated_at: PG, deleted_at: null });
     expect(r.occurredAt).toBe('');
   });
 

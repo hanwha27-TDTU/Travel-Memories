@@ -91,6 +91,25 @@ export function classifyPlace(input: { placeRank: number | null; bbox: BBox | nu
   return { precision, spanMeters, pinpoint: precision === 'point' };
 }
 
+const PRECISIONS: readonly PlacePrecision[] = ['point', 'street', 'area', 'settlement', 'region', 'unknown'];
+
+/**
+ * 저장해 둔 등급 문자열 → 판정.
+ *
+ * 🔴 왜 필요한가(2026-07-30 라이브 검사가 잡았다): 장소 라이브러리에서 다시 고른 장소는
+ * **이미 등급을 알고 있는데** 화면이 그걸 말하지 않고 있었다. 처음 고를 때는 「길 전체를
+ * 가리켜요」라고 해놓고, 같은 장소를 두 번째로 고르면 조용해졌다 — 같은 사실에 대해 앱이
+ * 두 번 다르게 말한 것이다(§7 사용자 대면 대칭 · §8).
+ *
+ * 저장된 값이 우리가 아는 등급이 아니면(옛 데이터·손상) **unknown**이다. 모르는 것을
+ * 정밀한 쪽으로 반올림하지 않는다.
+ */
+export function verdictFromStored(precision: string | null, spanMeters: number | null): PrecisionVerdict {
+  const known = PRECISIONS.find((p) => p === precision) ?? 'unknown';
+  const span = Number.isFinite(spanMeters) ? spanMeters : null;
+  return { precision: known, spanMeters: span, pinpoint: known === 'point' };
+}
+
 /** 범위(m) → 사람이 읽는 거리. 모르면 null(«대략»이라고도 말하지 않는다). */
 export function spanText(spanMeters: number | null): string | null {
   if (spanMeters === null || !Number.isFinite(spanMeters) || spanMeters < 0) return null;
