@@ -19,7 +19,7 @@ export interface SourceDomain {
   readonly form: StorageForm;
   readonly implemented: boolean;
   /** 실카운트용 Dexie 프로퍼티(implemented일 때). */
-  readonly localTable?: 'localTrips' | 'localMoments' | 'localMedia' | 'localExpenses' | 'localAudio';
+  readonly localTable?: 'localTrips' | 'localMoments' | 'localMedia' | 'localExpenses' | 'localAudio' | 'localPlaces';
   readonly hasRowmap?: boolean; // src/domain/<key>/rowmap.ts 존재(게이트 검증)
   readonly hasSync?: boolean; // sync.ts에 table push/pull 배선(게이트 검증)
   // 🔴 여기 `localOnlyReason?: string`이 있었다(2026-07-27 오전). 오디오가 서버 테이블 없이
@@ -39,8 +39,11 @@ export const SOURCES: readonly SourceDomain[] = [
   { key: 'audio', label: '소리', table: 'audio', form: 'bundle', implemented: true, localTable: 'localAudio', hasRowmap: true, hasSync: true },
   // 오디오 노트 — 2026-07-27부터 **로컬+서버+백업 세 계층**(사진과 같다). 예전엔 여기 `localOnlyReason`이
   // 붙어 있었다; 그 예외는 사용자 결정으로 사라졌다(마이그레이션 0019 · services/audio.ts 머리주석).
+  // 장소 — 2026-07-30부터 **1급 도메인**(마이그레이션 0022·0023). 순간의 장소 필드를
+  // 대체하지 않는다: 링크(`moments.place_id`)는 선택이고, 순간에 적힌 이름·좌표가 기록 당시의
+  // 사실로 그대로 남는다(0022 설계 결정 1). 여행의 자식이 아니라 **사용자 소유**다.
+  { key: 'place', label: '장소', table: 'places', form: 'table', implemented: true, localTable: 'localPlaces', hasRowmap: true, hasSync: true },
   // 계획(DOMAIN_REGISTRY엔 있으나 아직 미실장 — 정직하게 로드맵으로 표시)
-  { key: 'place', label: '장소', table: 'places', form: 'table', implemented: false },
   { key: 'reflection', label: '회고', table: 'reflections', form: 'table', implemented: false },
   { key: 'companion', label: '동행', table: 'companions', form: 'table', implemented: false },
   { key: 'tripDay', label: '여행 하루', table: 'trip_days', form: 'table', implemented: false },
@@ -73,7 +76,7 @@ export interface ScreenNode {
 }
 export const SCREENS: readonly ScreenNode[] = [
   { key: 'home', label: '홈 · 여행 목록', file: 'home.ts', route: 'home', feeds: ['trip'] },
-  { key: 'tripDetail', label: '여행 상세 · 타임라인', file: 'tripDetail.ts', route: 'trip-detail', feeds: ['trip', 'moment', 'media', 'expense', 'audio'] },
+  { key: 'tripDetail', label: '여행 상세 · 타임라인', file: 'tripDetail.ts', route: 'trip-detail', feeds: ['trip', 'moment', 'media', 'expense', 'audio', 'place'] },
   { key: 'mapView', label: '지도', file: 'mapView.ts', route: 'map', feeds: ['moment', 'media'] },
   { key: 'dataManager', label: '데이터 관리 · 백업', file: 'dataManager.ts', feeds: ['trip', 'moment', 'media', 'expense'] },
   { key: 'aboutApp', label: '개발자 정보', file: 'aboutApp.ts', feeds: [] },

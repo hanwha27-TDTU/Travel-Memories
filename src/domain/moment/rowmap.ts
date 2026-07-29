@@ -17,6 +17,8 @@ export interface MomentRow {
   place_name: string;
   place_lat: number | null;
   place_lng: number | null;
+  /** 장소 라이브러리 링크(선택 · 0023). 없는 것이 정상 — 자유 입력 장소는 링크가 없다. */
+  place_id: string | null;
   version: number;
   created_at: string;
   updated_at: string;
@@ -40,6 +42,7 @@ export function toMomentRow(m: LocalMoment, userId: string, device?: string): Mo
     place_name: m.placeName,
     place_lat: m.placeLat ?? null,
     place_lng: m.placeLng ?? null,
+    place_id: m.placeId ?? null,
     version: m.version,
     created_at: m.createdAt,
     updated_at: m.updatedAt,
@@ -64,6 +67,7 @@ export function fromMomentRow(r: MomentRow): WithInstants<LocalMoment> {
     placeName: r.place_name,
     placeLat: r.place_lat,
     placeLng: r.place_lng,
+    placeId: r.place_id ?? null,
     version: r.version,
     createdAt: isoInstant(r.created_at),
     updatedAt: isoInstant(r.updated_at),

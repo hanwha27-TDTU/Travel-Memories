@@ -16,7 +16,8 @@
 //  - 빈-데이터 가드: 백업이 비었는데 로컬에 활성 데이터가 있으면 로컬을 지우지 않는다.
 //  - 사진 원본은 읽기만 하고 수정하지 않는다(§0). 고아 행(부모 없는 순간/사진/비용)도 유실 없이 담는다.
 
-import { db, type LocalTrip, type LocalMoment, type LocalMedia, type LocalExpense, type LocalAudio, type SyncMeta } from '../offline/db';
+import type { Table } from 'dexie';
+import { db, type LocalTrip, type LocalMoment, type LocalMedia, type LocalExpense, type LocalAudio, type LocalPlace, type SyncMeta } from '../offline/db';
 import { mergeDecision, isEmptyCloudAnomaly } from '../sync/merge';
 import { zipStore, unzip, looksLikeZip, type ZipEntry } from './zip';
 import { encryptBytes, decryptBytes, isEncryptedEnvelope } from './backupCrypto';
@@ -40,6 +41,14 @@ export interface CollectedRows {
   expenses: LocalExpense[];
   /** 오디오 노트(≤60초). 서버에 안 가므로 **백업이 두 번째 계층**이다 — 빠지면 계층이 하나뿐이다. */
   audio: LocalAudio[];
+  /**
+   * 장소 라이브러리(마이그레이션 0022). 별도 테이블이라 `check-backup-coverage`가 강제한다.
+   *
+   * 순간의 `placeName`/좌표와 **중복이 아니다**: 저건 그때 그렇게 기록한 사실이고, 이건
+   * 사용자가 모아 둔 장소들(메모·분류·고쳐 확정한 좌표 포함)이다. 빠뜨리면 복원한 기기에서
+   * 라이브러리만 텅 빈다.
+   */
+  places: LocalPlace[];
 }
 
 export interface BackupStats {
@@ -48,6 +57,7 @@ export interface BackupStats {
   media: number;
   expenses: number;
   audio: number;
+  places: number;
 }
 
 export interface ImportResult {
@@ -57,6 +67,8 @@ export interface ImportResult {
   expenses: number;
   /** 복원된 오디오 노트 수. 화면이 「소리 N개」로 말한다(조용히 넘기지 않는다). */
   audio: number;
+  /** 복원된 장소 수. 형제와 같은 규율 — 조용히 넘기지 않는다. */
+  places: number;
   skippedEmptyGuard: boolean;
   /**
    * 서버 영구삭제 원장에서 **되돌리기를 요청한 건수**(복원이 되살린 id 중 새로 큐에 올린 수).
@@ -66,7 +78,7 @@ export interface ImportResult {
 }
 
 function statsOf(rows: CollectedRows): BackupStats {
-  return { trips: rows.trips.length, moments: rows.moments.length, media: rows.media.length, expenses: rows.expenses.length, audio: rows.audio.length };
+  return { trips: rows.trips.length, moments: rows.moments.length, media: rows.media.length, expenses: rows.expenses.length, audio: rows.audio.length, places: rows.places.length };
 }
 
 // ═══════════════ db 접근층: 모든 사용자 데이터 테이블을 여기서만 읽고/병합한다 ═══════════════
@@ -76,14 +88,45 @@ function statsOf(rows: CollectedRows): BackupStats {
 /** export 수집: 전 테이블(tombstone 포함)을 로컬에서 읽는다. */
 export async function exportCollectRows(): Promise<CollectedRows> {
   const d = db();
-  const [trips, moments, media, expenses, audio] = await Promise.all([
+  const [trips, moments, media, expenses, audio, places] = await Promise.all([
     d.localTrips.toArray(),
     d.localMoments.toArray(),
     d.localMedia.toArray(),
     d.localExpenses.toArray(),
     d.localAudio.toArray(),
+    d.localPlaces.toArray(),
   ]);
-  return { trips, moments, media, expenses, audio };
+  return { trips, moments, media, expenses, audio, places };
+}
+
+
+/** 백업 복원이 다루는 도메인 이름. `enqueue`·`mergeDomain`이 같은 어휘를 쓴다. */
+type BackupDomain = 'trip' | 'moment' | 'media' | 'expense' | 'audio' | 'place';
+
+/**
+ * 한 도메인의 행들을 병합한다 — **여섯 곳에 손으로 쓰던 같은 루프를 한 곳으로**.
+ *
+ * 🔴 왜 뽑았나(§7 2층 · §11 「게이트가 설계를 밀어준다」): 예전에는 도메인마다 루프를 손으로
+ * 복사했고, 그 안에는 **`enqueue`를 부르는 줄**이 있었다. 오디오를 추가할 때 그 줄이 빠져
+ * *"복원한 녹음이 이 기기에만 남는"* 상태가 실제로 있었다(M-0033의 형태). 루프가 하나면
+ * 다음 도메인은 **빠뜨릴 자리 자체가 없다** — 규율을 조항이 아니라 구조가 지킨다.
+ *
+ * 트랜잭션 안에서 호출해야 한다(호출부가 그렇게 한다). 반환값은 실제로 반영된 행 수다.
+ */
+async function mergeDomain<T extends SyncMeta & { id: string }>(
+  table: Table<T, string>,
+  incoming: readonly T[],
+  entityType: BackupDomain,
+  enqueue: (entityType: BackupDomain, row: SyncMeta & { id: string }) => Promise<void>,
+): Promise<number> {
+  let n = 0;
+  for (const row of incoming) {
+    if (mergeDecision(await table.get(row.id), row) !== 'take-server') continue;
+    await table.put(row);
+    await enqueue(entityType, row);
+    n += 1;
+  }
+  return n;
 }
 
 /**
@@ -101,6 +144,8 @@ export async function importMergeRows(incoming: CollectedRows): Promise<ImportRe
     media: incoming.media.map(withCanonicalStamps),
     expenses: incoming.expenses.map(withCanonicalStamps),
     audio: (incoming.audio ?? []).map(withCanonicalStamps),
+    // 옛 백업 파일에는 places가 아예 없다 — 없는 것은 빈 배열이지 결함이 아니다.
+    places: (incoming.places ?? []).map(withCanonicalStamps),
   };
 
   const backupTotal = rows.trips.length + rows.moments.length;
@@ -109,7 +154,7 @@ export async function importMergeRows(incoming: CollectedRows): Promise<ImportRe
     localTrips.filter((t) => t.deletedAt === null).length +
     localMoments.filter((m) => m.deletedAt === null).length;
   if (isEmptyCloudAnomaly(backupTotal, localActive)) {
-    return { trips: 0, moments: 0, media: 0, expenses: 0, audio: 0, skippedEmptyGuard: true, unpurged: 0 };
+    return { trips: 0, moments: 0, media: 0, expenses: 0, audio: 0, places: 0, skippedEmptyGuard: true, unpurged: 0 };
   }
 
   let tc = 0;
@@ -117,11 +162,12 @@ export async function importMergeRows(incoming: CollectedRows): Promise<ImportRe
   let mdc = 0;
   let ec = 0;
   let ac = 0;
+  let pc = 0;
   // 복원한 행은 **서버로도 전파돼야** 한다. op를 만들지 않으면 그 기억은 이 기기에만 남고
   // 다른 기기·서버에 영영 닿지 않는다(재해 복구의 절반이 빠진 상태). 2026-07-25 감사 F2.
   /** 이번 복원이 되살린 id들 — 서버 원장에서도 빼야 한다(아래 requestUnpurge). */
   const restoredIds = new Set<string>();
-  const enqueue = async (entityType: 'trip' | 'moment' | 'media' | 'expense' | 'audio', row: SyncMeta & { id: string }): Promise<void> => {
+  const enqueue = async (entityType: BackupDomain, row: SyncMeta & { id: string }): Promise<void> => {
     await d.syncQueue.add({
       operationId: crypto.randomUUID(),
       entityType,
@@ -151,53 +197,24 @@ export async function importMergeRows(incoming: CollectedRows): Promise<ImportRe
   //
   // 그래서 값을 **트랜잭션 콜백의 반환값으로** 받는다. 밖으로 옮기려면 반환 경로가 끊기므로
   // 다음 사람이 무심코 되돌릴 수 없다(§7 2층 — 규율을 구조가 지킨다).
-  const unpurged = await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.syncQueue, d.purgedIds], async () => {
-    for (const t of rows.trips) {
-      if (mergeDecision(await d.localTrips.get(t.id), t) === 'take-server') {
-        await d.localTrips.put(t);
-        await enqueue('trip', t);
-        tc += 1;
-      }
-    }
-    for (const m of rows.moments) {
-      if (mergeDecision(await d.localMoments.get(m.id), m) === 'take-server') {
-        await d.localMoments.put(m);
-        await enqueue('moment', m);
-        mc += 1;
-      }
-    }
-    for (const me of rows.media) {
-      if (mergeDecision(await d.localMedia.get(me.id), me) === 'take-server') {
-        await d.localMedia.put(me);
-        await enqueue('media', me);
-        mdc += 1;
-      }
-    }
-    for (const ex of rows.expenses) {
-      if (mergeDecision(await d.localExpenses.get(ex.id), ex) === 'take-server') {
-        await d.localExpenses.put(ex);
-        await enqueue('expense', ex);
-        ec += 1;
-      }
-    }
+  const unpurged = await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.localPlaces, d.syncQueue, d.purgedIds], async () => {
+    tc = await mergeDomain(d.localTrips, rows.trips, 'trip', enqueue);
+    mc = await mergeDomain(d.localMoments, rows.moments, 'moment', enqueue);
+    mdc = await mergeDomain(d.localMedia, rows.media, 'media', enqueue);
+    ec = await mergeDomain(d.localExpenses, rows.expenses, 'expense', enqueue);
     // 오디오 노트 — **형제와 완전히 같다**(2026-07-27~). 예전 이 자리엔 *"서버로 안 가므로
-    // op를 만들지 않는다"*가 적혀 있었다. 소리가 서버로 가게 된 지금 그대로 두면 **복원한
-    // 녹음이 이 기기에만 남고 다른 기기에는 영영 안 간다** — 복원이 반쪽이 되는 자리다.
-    // (이 줄을 고치지 않는 것이 정확히 M-0033의 형태다: 새 규율이 옛 자리를 지나치지 않게.)
-    for (const a of rows.audio) {
-      if (mergeDecision(await d.localAudio.get(a.id), a) === 'take-server') {
-        await d.localAudio.put(a);
-        await enqueue('audio', a);
-        ac += 1;
-      }
-    }
+    // op를 만들지 않는다"*가 적혀 있었고, 소리가 서버로 가게 된 뒤에도 그대로 두면 **복원한
+    // 녹음이 이 기기에만 남는다**. 이제 그 실수를 할 자리가 없다 — 루프가 하나뿐이다.
+    ac = await mergeDomain(d.localAudio, rows.audio, 'audio', enqueue);
+    // 장소 라이브러리(2026-07-30) — 같은 루프를 지나므로 op 생성이 자동으로 따라온다.
+    pc = await mergeDomain(d.localPlaces, rows.places, 'place', enqueue);
     // 서버 원장 되돌리기 의사를 **같은 커밋에** 남긴다. 여기서 바로 서버를 부르지 않는 이유:
     // 복원은 오프라인에서도 되고 호출은 실패할 수 있는데, 그냥 넘어가면 다음 동기화가 원장을
     // pull해 **복원한 것을 다시 지운다**(2026-07-26에 실제로 그랬다). 남겨야 재시도된다.
     return requestUnpurge([...restoredIds]);
   });
 
-  return { trips: tc, moments: mc, media: mdc, expenses: ec, audio: ac, skippedEmptyGuard: false, unpurged };
+  return { trips: tc, moments: mc, media: mdc, expenses: ec, audio: ac, places: pc, skippedEmptyGuard: false, unpurged };
 }
 
 // ═══════════════ 순수 직렬화층: base64 · blob 유틸(FileReader 미사용 — Node/브라우저 공통) ═══════════════
@@ -255,6 +272,8 @@ export interface BackupFile {
   /** 오디오 노트. 옛 백업 파일에는 없다(하위호환 — 없으면 빈 배열로 읽는다). */
   audio?: AudioExport[];
   expenses: LocalExpense[];
+  /** 장소 라이브러리. 옛 백업 파일에는 없다(하위호환 — 없으면 빈 배열로 읽는다). */
+  places?: LocalPlace[];
 }
 
 /** 순수: CollectedRows → JSON 문자열(사진 base64 내장). db 접근 없음(왕복 드릴 가능). */
@@ -282,6 +301,8 @@ export async function serializeJson(rows: CollectedRows): Promise<string> {
     media: mediaOut,
     expenses: rows.expenses,
     audio: audioOut,
+    // 장소는 blob이 없어 그대로 담긴다(좌표와 글자뿐).
+    places: rows.places,
   };
   return JSON.stringify(file);
 }
@@ -313,12 +334,16 @@ export function deserializeJson(text: string): CollectedRows {
     media,
     expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
     audio,
+    // 옛 백업 파일에는 places가 없다 — 없으면 빈 배열(형식 하위호환).
+    places: Array.isArray(parsed.places) ? parsed.places : [],
   };
 }
 
 // ═══════════════════════ 형식 2: 여행별 폴더 ZIP (순수 직렬화) ═══════════════════════
 
 const ZIP_FORMAT = 'zip-per-trip-v1';
+/** 최상위 장소 파일 — 장소는 여행의 자식이 아니라 사용자 소유라 폴더 밖에 산다(0022). */
+const PLACES_JSON = 'places.json';
 const ORPHAN_FOLDER = '_orphans';
 
 type MediaMetaEntry = Omit<LocalMedia, 'originalBlob' | 'displayBlob' | 'thumbBlob'> & {
@@ -437,6 +462,10 @@ export async function serializeZip(rows: CollectedRows, includeOriginals = true)
     entries.push({ name: jsonName, data: enc.encode(JSON.stringify(payload)) });
   }
 
+  // 🔴 장소는 **여행 폴더에 들어가지 않는다** — 여행의 자식이 아니기 때문이다(0022).
+  // 한 장소는 여러 여행에 걸치므로 어느 폴더에 넣어도 거짓말이 된다. 그래서 최상위 파일이다.
+  entries.push({ name: PLACES_JSON, data: enc.encode(JSON.stringify({ app: BACKUP_APP_TAG, places: rows.places })) });
+
   const manifest: ZipManifest = {
     app: BACKUP_APP_TAG,
     backupVersion: BACKUP_VERSION,
@@ -471,6 +500,18 @@ export function deserializeZip(buf: ArrayBuffer): CollectedRows {
   const media: LocalMedia[] = [];
   const expenses: LocalExpense[] = [];
   const audio: LocalAudio[] = [];
+
+  // 최상위 장소 파일. **옛 백업에는 없다** — 없으면 빈 배열이고 그건 결함이 아니다.
+  const places: LocalPlace[] = (() => {
+    const raw = byName.get(PLACES_JSON);
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(dec.decode(raw)) as { places?: LocalPlace[] };
+      return Array.isArray(parsed.places) ? parsed.places : [];
+    } catch {
+      return []; // 깨진 조각 하나가 나머지 복원을 막지 않는다
+    }
+  })();
 
   for (const f of files) {
     const isTrip = f.name.endsWith('/trip.json');
@@ -508,7 +549,7 @@ export function deserializeZip(buf: ArrayBuffer): CollectedRows {
       media.push({ ...rest, originalBlob, displayBlob, thumbBlob });
     }
   }
-  return { trips, moments, media, expenses, audio };
+  return { trips, moments, media, expenses, audio, places };
 }
 
 // ═══════════════════════ 공개 API: db + 직렬화 + (선택)암호화 결합 ═══════════════════════
@@ -557,7 +598,7 @@ export async function importBackupAuto(
 ): Promise<ImportResult & { needsPassphrase?: boolean }> {
   let bytes = new Uint8Array(buf);
   if (isEncryptedEnvelope(bytes)) {
-    if (!passphrase) return { trips: 0, moments: 0, media: 0, expenses: 0, audio: 0, skippedEmptyGuard: false, unpurged: 0, needsPassphrase: true };
+    if (!passphrase) return { trips: 0, moments: 0, media: 0, expenses: 0, audio: 0, places: 0, skippedEmptyGuard: false, unpurged: 0, needsPassphrase: true };
     const plain = await decryptBytes(bytes, passphrase); // 실패 시 throw(암호 틀림)
     bytes = plain;
   }

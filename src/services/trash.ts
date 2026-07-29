@@ -26,6 +26,7 @@ import { restoreMomentLocalFirst } from './moments';
 import { restoreMediaLocalFirst } from './media';
 import { restoreExpenseLocalFirst } from './expenses';
 import { restoreAudio } from './audio';
+import { restorePlace } from './places';
 
 /** 여행이 아닌 도메인. 여행은 `listDeletedTrips`가 따로 다룬다. */
 export type ChildDomain = Exclude<TrashDomain, 'trip'>;
@@ -45,6 +46,7 @@ export const CHILD_LABEL: Record<ChildDomain, string> = {
   media: '사진',
   expense: '비용',
   audio: '소리',
+  place: '장소',
 };
 
 /** 한 도메인의 tombstone 행을 휴지통 줄로 바꾸는 규칙. */
@@ -100,6 +102,23 @@ const CHILD_SOURCE: Record<ChildDomain, ChildSource> = {
         const head = when ? `${when} 녹음` : '녹음';
         return { id: a.id, tripId: a.tripId, deletedAt: a.deletedAt, label: `${head} · ${formatDuration(a.durationSec)}` };
       }),
+  },
+  place: {
+    // 🔴 장소에는 **부모 여행이 없다**(0022 — 한 장소는 여러 여행에 걸친다). 그래서 `tripId`가
+    // 빈 문자열이고, 아래 「부모가 죽었으면 숨긴다」 필터에 **절대 걸리지 않는다** — 그게 맞다.
+    // 여행을 지웠다고 장소가 휴지통에서 사라지면 되살릴 길이 없어진다.
+    //
+    // 빈 문자열이 마음에 걸리지만 대안(`tripId`를 선택 필드로)은 형제 넷의 계약을 느슨하게
+    // 만든다. 부모 없는 도메인이 하나 더 생기면 그때 `ChildSource`를 나눈다(§7 — 지금
+    // 나누면 쓰는 곳이 하나뿐인 추상이 된다).
+    rows: async () =>
+      (await db().localPlaces.toArray()).map((p) => ({
+        id: p.id,
+        tripId: '',
+        deletedAt: p.deletedAt,
+        // 형제와 **같은 어휘**: 사람이 알아볼 한 줄. 이름 + (있으면) 어느 동네인지.
+        label: p.city || p.region ? `${p.name} · ${[p.region, p.city].filter(Boolean).join(' ')}` : p.name,
+      })),
   },
 };
 
@@ -209,6 +228,10 @@ export async function restoreTrashedChild(domain: ChildDomain, id: string): Prom
   }
   if (domain === 'audio') {
     await restoreAudio(id);
+    return;
+  }
+  if (domain === 'place') {
+    await restorePlace(id);
     return;
   }
   // 순간을 되살리면 **그 순간에 딸린 tombstone 사진·비용·소리도 함께** 되살아나야 한다.

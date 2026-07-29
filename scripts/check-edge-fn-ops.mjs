@@ -16,7 +16,7 @@
 // 왜 유닛이 아니라 게이트인가: 소스 파일을 읽어야 하는데 `node:fs`는 유닛 TS 설정 밖이다.
 //   같은 이유로 예전에도 소스 구조 검사를 게이트 층으로 옮겼다 — 검사는 제 집에 있어야 한다.
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -114,15 +114,55 @@ if (op === 'list') { }`;
   selfTestCount = cases.length;
 }
 
-if (!existsSync(join(ROOT, FN_PATH))) {
-  console.error(`check-edge-fn-ops: ${FN_PATH} 를 찾지 못했습니다 — 경로가 바뀌었으면 이 게이트도 함께 고치세요.`);
+/**
+ * 🔴 대상은 **손으로 세지 않고 디렉터리에서 뽑는다**(§7 — 형제 목록을 손으로 세지 마라).
+ *
+ * 2026-07-30까지 이 게이트는 `media-sign` **한 개를 상수로** 갖고 있었다. 그래서 두 번째
+ * 함수(`geocode`)를 만드는 순간, 새 형제는 형제들이 지키는 계약을 **하나도 안 받은 채**
+ * 태어날 수 있었다 — `check-domain-symmetry`가 접미사 규약에 기대다 오디오를 통째로
+ * 놓쳤던 것과 **정확히 같은 근본형**이다(그 주석이 이 파일 위쪽에 이미 적혀 있었다).
+ *
+ * 이제 `supabase/functions` 아래 모든 `<함수>/index.ts`를 훑는다. 다음 함수는
+ * **아무것도 안 해도** 이 검사에 들어온다.
+ * (글로브를 주석에 그대로 적지 않는다 — 별표+슬래시가 블록 주석을 거기서 닫아버린다.)
+ */
+function edgeFunctionPaths() {
+  const dir = join(ROOT, 'supabase/functions');
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && existsSync(join(dir, e.name, 'index.ts')))
+    .map((e) => `supabase/functions/${e.name}/index.ts`)
+    .sort();
+}
+
+const targets = edgeFunctionPaths();
+if (targets.length === 0) {
+  // 대상 0에서 조용히 통과하면 그건 통과가 아니라 **안 잰 것**이다(§4).
+  console.error('check-edge-fn-ops: 검사할 Edge Function을 찾지 못했습니다 — 경로가 바뀌었으면 이 게이트도 함께 고치세요.');
   process.exit(1);
 }
-const problems = audit(readFileSync(join(ROOT, FN_PATH), 'utf8'));
-if (problems.length) {
-  for (const p of problems) console.error(`  ✗ ${p}`);
+// 옛 상수가 가리키던 함수는 **여전히 목록에 있어야 한다**(디렉터리 스캔이 조용히 좁아지지 않게).
+if (!targets.includes(FN_PATH)) {
+  console.error(`check-edge-fn-ops: ${FN_PATH} 가 스캔 결과에 없습니다 — 스캔이 좁아졌거나 함수가 사라졌습니다.`);
+  process.exit(1);
+}
+
+let failed = false;
+let opTotal = 0;
+for (const rel of targets) {
+  const src = readFileSync(join(ROOT, rel), 'utf8');
+  const problems = audit(src);
+  if (problems.length) {
+    failed = true;
+    for (const p of problems) console.error(`  ✗ ${rel}: ${p}`);
+  } else {
+    opTotal += declaredOps(src)?.size ?? 0;
+  }
+}
+if (failed) {
   console.error('check-edge-fn-ops: 함수의 능력 선언과 구현이 어긋납니다.');
   process.exit(1);
 }
-const declared = declaredOps(readFileSync(join(ROOT, FN_PATH), 'utf8'));
-console.log(`check-edge-fn-ops: OK (셀프테스트 ${selfTestCount}건 · 선언·구현 op ${declared.size}종 대칭)`);
+console.log(
+  `check-edge-fn-ops: OK (셀프테스트 ${selfTestCount}건 · 함수 ${targets.length}개 · 선언·구현 op ${opTotal}종 대칭)`,
+);

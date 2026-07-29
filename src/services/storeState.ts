@@ -387,14 +387,15 @@ type LocalRow = { id: string; deletedAt: string | null };
  */
 async function allLocalRows(): Promise<Record<PurgeDomain, LocalRow[]>> {
   const d = db();
-  const [trip, moment, media, expense, audio] = await Promise.all([
+  const [trip, moment, media, expense, audio, place] = await Promise.all([
     d.localTrips.toArray(),
     d.localMoments.toArray(),
     d.localMedia.toArray(),
     d.localExpenses.toArray(),
     d.localAudio.toArray(),
+    d.localPlaces.toArray(),
   ]);
-  return { trip, moment, media, expense, audio };
+  return { trip, moment, media, expense, audio, place };
 }
 
 /** 로컬 활성 개수 — 서버와 **같은 기준**(tombstone 제외)으로 센다. 기준이 다르면 대조가 거짓이 된다. */
@@ -551,4 +552,5 @@ export const DOMAIN_LABEL: Record<PurgeDomain, string> = {
   media: '사진',
   expense: '비용',
   audio: '소리',
+  place: '장소',
 };

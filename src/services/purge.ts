@@ -34,7 +34,7 @@
 import type { Table } from 'dexie';
 import { db, type PurgedId } from '../offline/db';
 
-export const PURGE_DOMAINS = ['trip', 'moment', 'media', 'expense', 'audio'] as const;
+export const PURGE_DOMAINS = ['trip', 'moment', 'media', 'expense', 'audio', 'place'] as const;
 export type PurgeDomain = (typeof PURGE_DOMAINS)[number];
 
 interface DomainPurge {
@@ -81,6 +81,17 @@ export const DOMAIN_PURGE: Record<PurgeDomain, DomainPurge> = {
     table: () => db().localAudio as unknown as Table<{ id: string }, string>,
     remoteTable: 'audio',
     hasRemoteBytes: true,
+  },
+  place: {
+    // 장소는 바이트가 없다(좌표와 글자뿐) — 지울 원격 객체가 없다.
+    //
+    // 🔴 장소를 영구삭제하면 그 장소를 가리키던 순간의 링크는 서버에서 **끊긴다**
+    // (`moments.place_id`의 `on delete set null` — 0023). 그래도 **순간의 기억은 남는다**:
+    // 이름·좌표는 순간 자신이 갖고 있기 때문이다. 링크만 잃고 기록은 잃지 않는다 —
+    // 그것이 장소를 부가정보로 설계한 이유다.
+    table: () => db().localPlaces as unknown as Table<{ id: string }, string>,
+    remoteTable: 'places',
+    hasRemoteBytes: false,
   },
 };
 

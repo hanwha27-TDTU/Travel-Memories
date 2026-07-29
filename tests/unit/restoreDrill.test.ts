@@ -36,7 +36,7 @@ function expense(id: string): LocalExpense {
     createdAt: '2024-05-02T04:00:00.000Z', updatedAt: '2024-05-02T04:00:00.000Z', version: 1, deletedAt: null,
   };
 }
-const sample = (): CollectedRows => ({ trips: [trip('t1')], moments: [moment('m1', 't1')], media: [media('md1')], expenses: [expense('e1')], audio: [] });
+const sample = (): CollectedRows => ({ trips: [trip('t1')], moments: [moment('m1', 't1')], media: [media('md1')], expenses: [expense('e1')], audio: [], places: [] });
 
 beforeEach(async () => {
   const d = db();
@@ -60,22 +60,22 @@ describe('실기기 복원 드릴(importMergeRows over Dexie)', () => {
 
   it('빈-데이터 가드: 활성 데이터가 있는데 빈 백업을 넣으면 건너뛰고 로컬 보존', async () => {
     await importMergeRows(sample());
-    const res = await importMergeRows({ trips: [], moments: [], media: [], expenses: [], audio: [] });
+    const res = await importMergeRows({ trips: [], moments: [], media: [], expenses: [], audio: [], places: [] });
     expect(res.skippedEmptyGuard).toBe(true);
     expect((await exportCollectRows()).trips.length).toBe(1); // 지워지지 않음
   });
 
   it('LWW: 더 오래된 version은 로컬을 덮어쓰지 않는다', async () => {
-    await importMergeRows({ trips: [trip('t1', { version: 3, title: '최신' })], moments: [], media: [], expenses: [], audio: [] });
-    const res = await importMergeRows({ trips: [trip('t1', { version: 2, title: '옛것' })], moments: [], media: [], expenses: [], audio: [] });
+    await importMergeRows({ trips: [trip('t1', { version: 3, title: '최신' })], moments: [], media: [], expenses: [], audio: [], places: [] });
+    const res = await importMergeRows({ trips: [trip('t1', { version: 2, title: '옛것' })], moments: [], media: [], expenses: [], audio: [], places: [] });
     expect(res.trips).toBe(0); // 반영 안 됨
     expect((await db().localTrips.get('t1'))!.title).toBe('최신');
   });
 
   it('tombstone 우위: 더 높은 version의 삭제는 활성 로컬을 삭제로 전이', async () => {
-    await importMergeRows({ trips: [trip('t1', { version: 1 })], moments: [], media: [], expenses: [], audio: [] });
+    await importMergeRows({ trips: [trip('t1', { version: 1 })], moments: [], media: [], expenses: [], audio: [], places: [] });
     await importMergeRows({
-      trips: [trip('t1', { version: 2, deletedAt: '2024-07-01T00:00:00.000Z' })], moments: [], media: [], expenses: [], audio: []
+      trips: [trip('t1', { version: 2, deletedAt: '2024-07-01T00:00:00.000Z' })], moments: [], media: [], expenses: [], audio: [], places: []
     });
     expect((await db().localTrips.get('t1'))!.deletedAt).toBe('2024-07-01T00:00:00.000Z');
   });

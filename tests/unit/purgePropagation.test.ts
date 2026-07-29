@@ -408,12 +408,14 @@ describe('③ 서버 원장이 알려준 영구삭제를 이 기기에 적용한
 });
 
 describe('④ 도메인 등록부가 완전한가', () => {
-  it('다섯 도메인 전부가 등록부에 있다', () => {
+  it('여섯 도메인 전부가 등록부에 있다', () => {
     expect(Object.keys(DOMAIN_PURGE).sort()).toEqual([...PURGE_DOMAINS].sort());
-    // 🔴 2026-07-27에 4→5가 됐다(소리가 서버로 간다). 이 숫자를 손으로 적는 이유는
-    //    "도메인이 조용히 사라지는 것"도 결함이기 때문이다 — 전제가 바뀌면 여기를 먼저 고친다.
-    expect(PURGE_DOMAINS.length).toBe(5);
+    // 🔴 2026-07-27에 4→5가 됐고(소리가 서버로 간다), 2026-07-30에 5→6이 됐다(장소가 1급
+    //    도메인이 된다). 이 숫자를 손으로 적는 이유는 "도메인이 조용히 사라지는 것"도
+    //    결함이기 때문이다 — 전제가 바뀌면 여기를 먼저 고친다.
+    expect(PURGE_DOMAINS.length).toBe(6);
     expect(PURGE_DOMAINS).toContain('audio');
+    expect(PURGE_DOMAINS).toContain('place');
   });
 
   it('각 도메인이 로컬 테이블과 서버 테이블 이름을 갖는다', () => {
