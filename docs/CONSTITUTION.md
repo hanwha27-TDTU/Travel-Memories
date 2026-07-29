@@ -1,19 +1,3 @@
-# CLAUDE.md · Bugeon Journey
-
-> **이 파일은 어댑터다.** 아래 마커 사이는 `docs/CONSTITUTION.md`에서 **자동으로 심긴다** —
-> Codex가 읽는 `AGENTS.md`와 **글자 단위로 같은 내용**이다(두 AI가 다르게 알면 그 자체가 결함).
->
-> 🔴 **여기를 직접 고치지 마라.** `docs/CONSTITUTION.md`를 고치고
-> `node scripts/gen-adapters.mjs`를 돌린다. `check-adapter-parity`가 드리프트를 RED로 잡는다.
-
-## Claude Code 전용 메모
-
-- 착수 절차와 검증 명령은 아래 공통 계약(**§9**·**검증 명령**)에 있다 — 여기 다시 적지 않는다.
-- 반드시 차단해야 하는 행위는 `.claude/settings.json`의 hooks로 통제한다(Phase 0에서 활성화).
-- 에이전트 정의는 `.claude/agents/`, 스킬 문서는 `.claude/skills/`.
-
-<!--CONSTITUTION:BEGIN — 생성됨. 고치려면 docs/CONSTITUTION.md를 고치고 node scripts/gen-adapters.mjs-->
-
 # 헌법 · Bugeon Journey (공통 계약)
 
 > 🔴 **이 파일이 정본이다.** `CLAUDE.md`(Claude Code)와 `AGENTS.md`(Codex)는 이 내용을
@@ -471,5 +455,3 @@ npm run live                  # 라이브만 (build 다음에)
 
 **`docs/HANDOFF_CODEX.md`(처음 들어온 AI를 위한 완전 인계서 — 맥락 없이도 이어서 일할 수 있게)** · `docs/PROJECT_SPEC.md`(요구사항·최상위) · `ARCHITECTURE.md` · `DATA_MODEL.md` · `SECURITY.md` · `PRIVACY.md` · `SYNC_PROTOCOL.md` · `MEDIA_PIPELINE.md` · `DEPLOYMENT.md`(배포 계약) · `AGENT_REGISTRY.md` · `LESSONS.md` · `ROADMAP.md` · `TEST_PLAN.md` · `DECISIONS.md` · `ASSUMPTIONS.md` · `HANDOFF.md` · `CHANGELOG.md` · `REPOSITORY_AUDIT.md` · `CONFLICT_REPORT.md` · `ACTIVE_TASKS.md`. v0.2 원본은 `docs/reference/v0.2/`.
 충돌하면 공유 문서(SPEC)가 이긴다. 특정 AI 도구 대화가 아니라 이 문서들이 기준이다.
-
-<!--CONSTITUTION:END-->
