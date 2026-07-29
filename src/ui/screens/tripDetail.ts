@@ -43,6 +43,7 @@ import { momentCoord } from '../../domain/place/geojson';
 import { openMapView, openMapPicker, openDiagnosticsHub } from '../lazyScreens';
 import type { MapPoint } from './mapView';
 import { searchPlaces } from '../../services/geocode';
+import { needsRefine, precisionGlyph, precisionLabel, type PrecisionVerdict } from '../../domain/place/precision';
 
 /** 장소 입력 + 🔍 검색(Nominatim) + 결과 선택. 결과 텍스트는 textContent로만(외부 데이터·XSS 방지). */
 interface PlaceField {
@@ -51,6 +52,58 @@ interface PlaceField {
   getCoords: () => { lat: number; lng: number } | null;
   reset: () => void;
 }
+/**
+ * 선택 확인 배지 + 정밀도 안내 줄.
+ *
+ * `buildPlaceField`에서 떼어낸 이유는 래칫(`check-fn-size`)이지만, 떼고 보니 이게 맞다 —
+ * 「무엇을 골랐는지 사용자에게 말하는 일」은 「장소를 고르는 일」과 다른 관심사다(§11의
+ * *게이트가 설계를 밀어준다*).
+ *
+ * `set(detail, precision)`이 `precision`을 받으면 **정밀하지 않다는 사실을 숨기지 않는다.**
+ * 예전엔 무엇을 골랐든 「📍 위치 지정됨」 한 문장이었고, 그래서 「대학로」(길이 1.1km인 길)를
+ * 고른 사용자는 자기가 *점*을 골랐다고 믿었다. 그게 2026-07-30 실기기 신고의 본체였다(§8·§12).
+ */
+interface PickedBadge {
+  badge: HTMLElement;
+  hint: HTMLElement;
+  set: (detail: string | null, precision?: PrecisionVerdict | null) => void;
+}
+function buildPickedBadge(onClear: () => void): PickedBadge {
+  const badge = el('div', 'place-picked');
+  badge.setAttribute('role', 'status');
+  // 해제 버튼 — **선택했으면 해제할 수 있어야 한다**(결함군, 2026-07-26 사용자 지적).
+  // 지도로 찍은 좌표는 이름을 지워도 유지되는데(의도된 동작), 그러면 되돌릴 길이 없었다.
+  const clearBtn = el('button', 'chip-clear', '✕') as HTMLButtonElement;
+  clearBtn.type = 'button';
+  clearBtn.setAttribute('aria-label', '지정한 위치 해제');
+  clearBtn.title = '위치 해제';
+  const text = el('span', 'place-picked-text');
+  badge.append(text, clearBtn);
+  clearBtn.addEventListener('click', onClear);
+
+  // 정밀도 안내는 배지에 욱여넣지 않고 아래 줄로 뺀다(길어지면 읽히지 않는다).
+  const hint = el('p', 'place-picked-hint muted small');
+  hint.hidden = true;
+
+  const set = (detail: string | null, precision?: PrecisionVerdict | null): void => {
+    if (detail === null) {
+      badge.hidden = true;
+      text.textContent = '';
+      hint.hidden = true;
+      hint.textContent = '';
+      return;
+    }
+    badge.hidden = false;
+    text.textContent = detail ? `📍 위치 지정됨 · ${detail}` : '📍 위치 지정됨';
+    const coarse = precision != null && needsRefine(precision);
+    hint.hidden = !coarse;
+    hint.textContent = coarse
+      ? `${precisionGlyph(precision)} ${precisionLabel(precision)} — 정확한 지점은 [🗺 지도]로 찍어 주세요.`
+      : '';
+  };
+  return { badge, hint, set };
+}
+
 function buildPlaceField(initial: { name: string; lat: number | null; lng: number | null }): PlaceField {
   const wrap = el('div', 'place-field');
   const row = el('div', 'place-row');
@@ -70,39 +123,22 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
   row.append(input, searchBtn, mapBtn);
   const results = el('div', 'place-results');
   results.hidden = true;
-  // 선택 확인 배지 — 좌표가 지정되면 "위치 지정됨"을 보여 무반응처럼 보이지 않게 한다.
-  const picked = el('div', 'place-picked');
-  picked.setAttribute('role', 'status');
-  wrap.append(row, results, picked);
 
   let lat: number | null = initial.lat;
   let lng: number | null = initial.lng;
   // 좌표를 지도에서 직접 찍었는지 여부. 지도로 찍은 좌표는 이름을 나중에 적어도 유지한다
   // (사용자가 이름과 위치를 따로 입력하는 흐름). 검색 결과 좌표는 이름과 묶여 있으므로 손편집 시 무효화한다.
   let mapPicked = false;
-  // 해제 버튼 — **선택했으면 해제할 수 있어야 한다**(결함군, 2026-07-26 사용자 지적).
-  // 지도로 찍은 좌표는 이름을 지워도 유지되는데(의도된 동작), 그러면 되돌릴 길이 없었다.
-  const clearPlace = el('button', 'chip-clear', '✕') as HTMLButtonElement;
-  clearPlace.type = 'button';
-  clearPlace.setAttribute('aria-label', '지정한 위치 해제');
-  clearPlace.title = '위치 해제';
-  const pickedText = el('span', 'place-picked-text');
-  picked.append(pickedText, clearPlace);
-  const setPicked = (detail: string | null): void => {
-    if (detail === null) {
-      picked.hidden = true;
-      pickedText.textContent = '';
-    } else {
-      picked.hidden = false;
-      pickedText.textContent = detail ? `📍 위치 지정됨 · ${detail}` : '📍 위치 지정됨';
-    }
-  };
-  clearPlace.addEventListener('click', () => {
+
+  // 해제는 배지 자신이 그릴 수 있으므로 `picked.set`을 직접 부른다(선언 전 참조를 만들지 않는다).
+  const picked: PickedBadge = buildPickedBadge(() => {
     lat = null;
     lng = null;
     mapPicked = false;
-    setPicked(null);
+    picked.set(null);
   });
+  const setPicked = picked.set;
+  wrap.append(row, results, picked.badge, picked.hint);
   setPicked(lat !== null && lng !== null ? '' : null); // 기존 좌표가 있으면 배지 표시
   // 손으로 텍스트를 바꾸면 이전 검색 좌표는 다른 장소일 수 있으니 무효화한다.
   // 단, 지도에서 직접 찍은 좌표는 이름과 독립적이므로 유지한다(이름만 갱신).
@@ -136,13 +172,18 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
             const b = el('button', 'place-result') as HTMLButtonElement;
             b.type = 'button';
             b.append(el('b', 'place-result-name', p.name), el('span', 'place-result-full', p.displayName));
+            // 🔴 **이 결과가 얼마나 정밀한지 말한다**(§8 — 모르는 것은 확인 불가다).
+            // 예전엔 도(道) 중심점과 건물 출입구가 화면에서 **구별되지 않았다.**
+            const grade = el('span', 'place-result-grade', `${precisionGlyph(p.precision)} ${precisionLabel(p.precision)}`);
+            if (needsRefine(p.precision)) grade.classList.add('is-coarse');
+            b.appendChild(grade);
             b.addEventListener('click', () => {
               input.value = p.name;
               lat = p.lat;
               lng = p.lng;
               mapPicked = false; // 검색 좌표는 이름과 묶임
               results.hidden = true;
-              setPicked(p.displayName); // 선택 확인 피드백
+              setPicked(p.displayName, p.precision); // 선택 확인 피드백 + 정밀도
             });
             results.appendChild(b);
           }

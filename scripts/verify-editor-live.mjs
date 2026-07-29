@@ -139,9 +139,21 @@ const PNG_1X1 = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
   'base64',
 );
-await page.route('**://tile.openstreetmap.org/**', (route) =>
-  route.fulfill({ status: 200, contentType: 'image/png', body: PNG_1X1 }),
-);
+/**
+ * 요청된 타일의 **확대수준(z)** 기록.
+ *
+ * 왜 이걸 재는가(2026-07-30 M-0050): 「지도가 부정확하다」 신고의 절반은 좌표가 아니라
+ * **확대수준**이었다 — 지점이 하나뿐일 때 zoom이 초기값 10에 남아, 핀 하나가 김포~남양주가
+ * 다 보이는 화면 위에 떠 있었다. MapLibre의 `map` 객체는 화면 밖(클로저 안)이라 DOM으로는
+ * 볼 수 없는데, **앱이 어느 z의 타일을 실제로 요청했는지**는 밖에서 관측된다.
+ * 자료구조가 아니라 *앱이 실제로 한 일*을 재는 자리다(§10 ③).
+ */
+const tileZooms = [];
+await page.route('**://tile.openstreetmap.org/**', (route) => {
+  const m = /\/(\d+)\/\d+\/\d+\.png/.exec(route.request().url());
+  if (m) tileZooms.push(Number(m[1]));
+  return route.fulfill({ status: 200, contentType: 'image/png', body: PNG_1X1 });
+});
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(String(e)));
@@ -968,6 +980,30 @@ check('지도 링크: 가로 넘침 0', ext.overflow === 0, `overflow=${ext.over
 // 좌표가 있는 장소이므로 「이름으로 찾았다」 단서는 **없어야** 한다(있으면 거짓 경보다).
 check('좌표가 있으면 「이름으로 찾음」 단서를 달지 않는다', ext.note === null, String(ext.note));
 
+// ── 🔴 v1.24 (M-0050): 지점이 **하나**일 때의 확대수준 ──
+// 사용자 실기기 신고 2026-07-30: *"기본맵이 너무 부정확해요."* 스크린샷의 축척 기준점으로
+// 핀을 역산하니 127.00E/37.587N — **대학로 위**였다. 좌표는 맞았다. 틀린 것은 확대수준이다.
+// 예전 코드는 `points.length === 1`일 때 `setCenter`만 부르고 zoom을 **안 건드려** 초기값
+// 10이 남았다. 형제(목록 행 클릭)는 `flyTo({zoom:14})`로 제대로 하고 있었다 — §7 비대칭.
+//
+// 지금 열려 있는 지도는 위치 칩에서 연 것이라 지점이 **하나**다. 그 상태에서 앱이 실제로
+// 요청한 타일의 z를 잰다. 자료구조가 아니라 **앱이 한 일**이다.
+await page.waitForTimeout(1200); // 타일 요청이 나갈 시간
+const zoomSeen = { max: tileZooms.length ? Math.max(...tileZooms) : -1, n: tileZooms.length };
+check(
+  '지도: 타일을 실제로 요청했다(0건이면 아래 판정이 공허하다 — §4)',
+  zoomSeen.n > 0,
+  `타일 ${zoomSeen.n}건 · z=${[...new Set(tileZooms)].sort((a, b) => a - b).join(',')}`,
+);
+check(
+  '🔴 지도: 지점이 하나면 그 지점까지 확대한다(옛 결함은 z=10에 머물렀다)',
+  zoomSeen.max >= 15,
+  `요청된 최대 z=${zoomSeen.max} (기대: ≥15 · 옛 결함값: 10)`,
+);
+// 지도는 **닫지 않는다** — 바로 아래 바깥지도 버튼 검사가 이 오버레이 안의 버튼을 누른다.
+// (처음에 여기서 닫았다가 그 4건을 통째로 죽였다. 검사끼리도 형제다 — 하나가 상태를 치우면
+//  다음 형제가 조용히 빈손이 된다.)
+
 // 클릭이 **새 창으로** 나가는지 — 같은 탭을 뺏으면 사용자가 앱을 잃는다.
 // 실제 외부 접속은 하지 않는다(샌드박스·외부 네트워크). window.open을 가로채 인자만 잰다.
 // 동의 키는 **제공자별**이다(구글 동의가 얀덱스 동의가 아니다) — 그래서 넷을 다 미리 넣는다.
@@ -1483,6 +1519,112 @@ const placeClear = await page.evaluate(() => {
   return { exists: Boolean(btn), label: btn?.getAttribute('aria-label') ?? '' };
 });
 check('장소: 지정 해제 버튼이 존재한다', placeClear.exists, JSON.stringify(placeClear));
+
+// ── 🔴 v1.24 (M-0050): 검색 결과가 **얼마나 정밀한지 말하는가** ─────────────────────
+// 헌법 §13 4항: *"버튼은 눌러 봐야 확인한 것이다."* 유닛은 `precisionLabel()`이 옳은 문자열을
+// 만드는지 잰다. 그런데 M-0022·M-0046이 정확히 그 틈이었다 — **자료구조는 옳고 화면 문장만
+// 틀린** 결함은 유닛이 전부 초록인 채로 배포된다. 그래서 여기서 재는 것은 세 가지다:
+//   ① 🔍 검색 버튼을 **실제로 눌렀을 때** 결과가 그려지는가
+//   ② 길(대학로)과 건물(경복궁)이 **화면에서 구별되는가**  ← 신고의 본체
+//   ③ 넓은 결과를 고르면 배지 아래에 **한정 문장**이 뜨는가
+//
+// 샌드박스는 nominatim 호스트를 막으므로 응답을 주입한다. 주입값은 **실제 Nominatim이 주는
+// 모양**이다(우리가 만든 문자열을 되읽는 왕복 검사는 M-0034에서 이미 한 번 뚫렸다).
+await page.evaluate(() => {
+  const rows = [
+    {
+      osm_type: 'way', osm_id: 520463101, lat: '37.5870', lon: '127.0016',
+      name: '대학로', display_name: '대학로, 종로구, 서울특별시, 대한민국',
+      category: 'highway', type: 'secondary', place_rank: 26,
+      boundingbox: ['37.5745', '37.5878', '126.9985', '127.0015'],
+      address: { road: '대학로', borough: '종로구', state: '서울특별시', country_code: 'kr' },
+    },
+    {
+      osm_type: 'node', osm_id: 1, lat: '37.5796', lon: '126.9770',
+      name: '경복궁', display_name: '경복궁, 종로구, 서울특별시, 대한민국',
+      category: 'tourism', type: 'attraction', place_rank: 30,
+      boundingbox: ['37.5794', '37.5798', '126.9768', '126.9772'],
+      address: { borough: '종로구', state: '서울특별시', country_code: 'kr' },
+    },
+  ];
+  const real = window.fetch;
+  window.fetch = (input, init) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (url.includes('nominatim.openstreetmap.org')) {
+      return Promise.resolve(new Response(JSON.stringify(rows), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      }));
+    }
+    return real(input, init);
+  };
+});
+await page.fill('.place-input', '대학로');
+await page.locator('.place-search').first().click();
+await page.waitForSelector('.place-result', { timeout: 5000 });
+const grades = await page.evaluate(() => {
+  const rows = [...document.querySelectorAll('.place-result')];
+  return rows.map((r) => ({
+    name: r.querySelector('.place-result-name')?.textContent ?? '',
+    grade: r.querySelector('.place-result-grade')?.textContent ?? '',
+    coarse: r.querySelector('.place-result-grade')?.classList.contains('is-coarse') ?? false,
+  }));
+});
+check('🔍 검색 버튼을 누르면 결과가 실제로 그려진다', grades.length === 2, JSON.stringify(grades));
+const road = grades.find((g) => g.name === '대학로');
+const bldg = grades.find((g) => g.name === '경복궁');
+check(
+  '🔴 장소 검색: 길은 「길 전체를 가리켜요」로 한정된다(신고의 본체)',
+  Boolean(road) && road.grade.includes('길 전체') && road.coarse === true,
+  JSON.stringify(road),
+);
+check(
+  '장소 검색: 길에는 거리 범위가 함께 나온다(얼마나 넓은지 숫자로)',
+  Boolean(road) && /약 1\.\d?km/.test(road.grade),
+  JSON.stringify(road),
+);
+check(
+  '장소 검색: 건물은 점으로 표시되고 경고를 달지 않는다(정상은 조용하다 §8)',
+  Boolean(bldg) && bldg.grade.includes('건물·지점') && bldg.coarse === false,
+  JSON.stringify(bldg),
+);
+check(
+  '🔴 장소 검색: 색만으로 구분하지 않는다 — 글리프가 함께 나간다(§7 사용자 대면 대칭)',
+  Boolean(road) && road.grade.includes('⚠') && Boolean(bldg) && bldg.grade.includes('📍'),
+  `${road?.grade} / ${bldg?.grade}`,
+);
+// ③ 넓은 결과를 **고르면** 그 사실이 배지 아래에 남는가(고르고 나서 조용해지면 M-0022 재발).
+await page.locator('.place-result').first().click();
+await page.waitForTimeout(200);
+const afterPick = await page.evaluate(() => {
+  const hint = document.querySelector('.place-picked-hint');
+  return {
+    badge: document.querySelector('.place-picked-text')?.textContent ?? '',
+    hintHidden: hint?.hidden ?? null,
+    hint: hint?.textContent ?? '',
+    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  };
+});
+check('장소 선택: 배지가 위치 지정을 확인해 준다', afterPick.badge.includes('위치 지정됨'), afterPick.badge);
+check(
+  '🔴 장소 선택: 넓은 대상을 고르면 **한정 문장이 화면에 남는다**(자료구조에만 있으면 M-0022)',
+  afterPick.hintHidden === false && afterPick.hint.includes('길 전체') && afterPick.hint.includes('지도'),
+  JSON.stringify(afterPick),
+);
+check('장소 선택: 정밀도 안내가 가로 넘침을 만들지 않는다', afterPick.overflow === 0, `overflow=${afterPick.overflow}`);
+// 점을 고르면 **조용해야** 한다(정상은 침묵 — 늘 뜨면 경고가 벽지가 된다).
+await page.locator('.place-search').first().click();
+await page.waitForSelector('.place-result', { timeout: 5000 });
+await page.locator('.place-result').nth(1).click();
+await page.waitForTimeout(200);
+const afterPoint = await page.evaluate(() => ({
+  hintHidden: document.querySelector('.place-picked-hint')?.hidden ?? null,
+  hint: document.querySelector('.place-picked-hint')?.textContent ?? '',
+}));
+check(
+  '장소 선택: 건물(점)을 고르면 한정 문장이 **사라진다**(정상은 침묵 §8)',
+  afterPoint.hintHidden === true && afterPoint.hint === '',
+  JSON.stringify(afterPoint),
+);
 
 // ── v0.89: 플랫폼 지도(무엇이 어디서 도나) — **생성물이 실제로 그려지는가** ──────────
 // 정적 게이트는 platformMap.gen.ts가 코드와 맞는지만 본다. 그게 **화면에 실제로 나오는지**는

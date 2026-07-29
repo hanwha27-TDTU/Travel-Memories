@@ -640,6 +640,16 @@ button.chip { border: 0; font-family: inherit; }
 .place-result-name { font-size: 0.88rem; color: var(--ink); }
 .place-result-full { font-size: 0.72rem; color: var(--ink-soft); line-height: 1.4; }
 .place-none { padding: 8px 10px; font-size: 0.82rem; }
+/* 정밀도 등급 — 「무엇을 가리키는가」를 결과마다 말한다(§8).
+   기본은 조용하고(정상은 침묵), 넓은 대상(길·동네·행정구역)만 색으로 눈에 띈다. */
+.place-result-grade { font-size: 0.7rem; color: var(--ink-soft); line-height: 1.4; }
+.place-result-grade.is-coarse {
+  /* --color-warning(#c98a3a)을 쓰지 않는 이유: 그 토큰엔 **테마별 ink 변형이 없어** 라이트
+     테마에서 대비가 3:1 아래로 무너진다(tokens.css의 경고가 정확히 이 부류다). 검증된
+     테마 인지 토큰만 쓴다. 색 단독이 아니라 글리프(⚠)와 **함께** 나간다 — precisionGlyph(). */
+  color: var(--sem-pink-ink);
+  font-weight: 700;
+}
 .place-picked {
   display: flex; align-items: center; gap: var(--space-2);
   font-size: 0.8rem; font-weight: 700;
@@ -651,6 +661,8 @@ button.chip { border: 0; font-family: inherit; }
 }
 .place-picked[hidden] { display: none; }
 .place-picked-text { flex: 1 1 auto; min-width: 0; }
+/* 「점이 아니다」를 말하는 줄. 배지 안에 넣으면 길어져 안 읽힌다 — 아래 줄로 뺀다. */
+.place-picked-hint { margin: 4px 2px 0; line-height: 1.45; color: var(--sem-pink-ink); }
 
 /* ===== 선택 해제 공용 어휘 (§7 사용자 대면 대칭) =====
    실제 사고(2026-07-26 사용자 지적): 저장된 사진에는 ✕가 있는데 **저장 전 선택분에는 없어서**

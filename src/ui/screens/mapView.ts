@@ -8,6 +8,7 @@
 
 import { el } from '../dom';
 import { toFeatureCollection, type LocatedPoint } from '../../domain/place/geojson';
+import { zoomForSpan } from '../../domain/place/precision';
 import { localDateTime } from '../../domain/time';
 import { externalMapTargets, externalMapConsentText, type PlaceLike } from '../../domain/place/externalMap';
 import { hasAgreedExternalMap, rememberAgreedExternalMap } from '../../services/externalMapConsent';
@@ -77,6 +78,37 @@ const OSM_STYLE = {
   },
   layers: [{ id: 'osm', type: 'raster' as const, source: 'osm' }],
 };
+
+/**
+ * 지점이 하나뿐일 때의 확대수준. **규칙의 출처는 `precision.ts` 한 곳**이다 —
+ * 여기서 숫자를 손으로 적으면 목록 행 클릭(`flyTo`)과 또 갈라진다(§7 2층: 구조로 막는다).
+ */
+const SINGLE_POINT_ZOOM = zoomForSpan(null);
+
+/**
+ * 마커를 놓고 **화면을 지점들에 맞춘다.**
+ *
+ * 🔴 지점이 **하나**일 때 zoom을 안 건드리면 초기값이 그대로 남는다(2026-07-30 실기기 신고).
+ * 예전엔 이 자리가 `setCenter`뿐이라 핀 하나가 zoom 10 — 김포~남양주가 다 보이는 화면 —
+ * 위에 떠 있었고, 사용자는 그걸 「좌표가 부정확하다」고 읽었다. **좌표는 맞았다.**
+ * 형제(목록 행 클릭)는 `flyTo({zoom:14})`로 제대로 하고 있었다 — 같은 규율이 두 곳에 손으로
+ * 구현돼 한쪽만 빠진 §7 비대칭이다. 이제 확대수준의 출처는 `SINGLE_POINT_ZOOM` 하나다.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function placeMarkersAndFrame(maplibregl: any, map: any, points: MapPoint[], objectUrls: string[]): void {
+  const bounds = new maplibregl.LngLatBounds();
+  for (const p of points) {
+    const popup = new maplibregl.Popup({ offset: 24, closeButton: true }).setDOMContent(pointNode(p, objectUrls));
+    new maplibregl.Marker({ color: '#f0836c' }).setLngLat([p.lng, p.lat]).setPopup(popup).addTo(map);
+    bounds.extend([p.lng, p.lat]);
+  }
+  if (points.length === 1) {
+    map.setCenter([points[0]!.lng, points[0]!.lat]);
+    map.setZoom(SINGLE_POINT_ZOOM);
+  } else {
+    map.fitBounds(bounds, { padding: 48, maxZoom: 14, duration: 0 });
+  }
+}
 
 function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
@@ -216,7 +248,7 @@ export function openMapView(tripTitle: string, points: MapPoint[], focusPlace?: 
     row.addEventListener('click', () => {
       if (map) {
         try {
-          map.flyTo({ center: [p.lng, p.lat], zoom: 14 });
+          map.flyTo({ center: [p.lng, p.lat], zoom: SINGLE_POINT_ZOOM });
         } catch {
           /* 지도 없으면 무시 */
         }
@@ -250,7 +282,8 @@ export function openMapView(tripTitle: string, points: MapPoint[], focusPlace?: 
         container: mapEl,
         style: styleUrl && styleUrl.length > 0 ? styleUrl : (OSM_STYLE as unknown as string),
         center: [points[0]!.lng, points[0]!.lat],
-        zoom: 10,
+        // 초기값도 최종값과 맞춰 둔다 — 다르면 타일이 두 번 로드되고 화면이 한 번 튄다.
+        zoom: points.length === 1 ? SINGLE_POINT_ZOOM : 10,
         attributionControl: { compact: true },
       });
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
@@ -258,19 +291,7 @@ export function openMapView(tripTitle: string, points: MapPoint[], focusPlace?: 
       map.on('load', () => {
         mapLoaded = true;
         clearTimeout(degradeTimer);
-        const bounds = new maplibregl.LngLatBounds();
-        for (const p of points) {
-          const popup = new maplibregl.Popup({ offset: 24, closeButton: true }).setDOMContent(
-            pointNode(p, objectUrls),
-          );
-          new maplibregl.Marker({ color: '#f0836c' })
-            .setLngLat([p.lng, p.lat])
-            .setPopup(popup)
-            .addTo(map);
-          bounds.extend([p.lng, p.lat]);
-        }
-        if (points.length === 1) map.setCenter([points[0]!.lng, points[0]!.lat]);
-        else map.fitBounds(bounds, { padding: 48, maxZoom: 14, duration: 0 });
+        placeMarkersAndFrame(maplibregl, map, points, objectUrls);
         mapEl.classList.add('is-ready');
       });
       map.on('error', () => {
@@ -355,7 +376,7 @@ export function openMapPicker(initial: { lat: number; lng: number } | null): Pro
           container: mapEl,
           style: styleUrl && styleUrl.length > 0 ? styleUrl : (OSM_STYLE as unknown as string),
           center,
-          zoom: picked ? 14 : 6,
+          zoom: picked ? SINGLE_POINT_ZOOM : 6,
           attributionControl: { compact: true },
         });
         map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
