@@ -66,6 +66,10 @@ const gates = [
   // 그중 「완료의 정의」는 서로를 포함하지 않았다 — Codex는 화면을 안 보고, Claude는 배포
   // 확인 없이 「완료」라 할 수 있었다(M-0046이 그 형태). 정본은 docs/CONSTITUTION.md 하나다.
   { name: 'check-adapter-parity', cmd: 'node scripts/check-adapter-parity.mjs' },
+  // 위 게이트의 **앞단**: 애초에 등록되지 않아 비교 대상에도 못 들어오는 것을 막는다.
+  // 새 `docs/*.md`가 지도에 없거나(실측 25개 중 4개가 그랬다), 새 AI 지시문이 어댑터로
+  // 등록되지 않으면 그 도구만 다른 계약을 읽는다(CONSTITUTION 「지시·계약 문서를 바꿀 때」).
+  { name: 'check-doc-governance', cmd: 'node scripts/check-doc-governance.mjs' },
   { name: 'check-platform-map', cmd: 'node scripts/check-platform-map.mjs' },
   { name: 'check-lazy-screens', cmd: 'node scripts/check-lazy-screens.mjs' },
   { name: 'check-font-subsets', cmd: 'node scripts/check-font-subsets.mjs' },

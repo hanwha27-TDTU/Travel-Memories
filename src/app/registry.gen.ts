@@ -26,6 +26,7 @@ export const REGISTRY = {
   'check-blueprint',
   'check-registry-gen',
   'check-adapter-parity',
+  'check-doc-governance',
   'check-platform-map',
   'check-lazy-screens',
   'check-font-subsets',
@@ -40,7 +41,7 @@ export const REGISTRY = {
   'verify-editor-live',
   'verify-diagnostics-live',
   ] as const,
-  gateCount: 34,
+  gateCount: 35,
   /** 최신 앱 버전(정본: src/app/changelog.ts의 첫 항목). 첫 로드 화면은 이걸 읽는다. */
   appVersion: '1.22',
   agentCount: 28,

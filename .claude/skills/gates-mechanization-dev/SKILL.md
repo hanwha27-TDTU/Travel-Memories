@@ -18,6 +18,7 @@ description: 게이트·기계화 개발 프롬프트 — scripts/*.mjs(harness�
 | `scripts/gen-registry.mjs` | SSOT들 → `src/app/registry.gen.ts` 자동 집계 + 문서 마커 재심기 |
 | `docs/CONSTITUTION.md` | **두 AI 공통 계약의 정본.** `CLAUDE.md`·`AGENTS.md`는 여기서 심어 받는 어댑터 |
 | `scripts/gen-adapters.mjs` | 정본 → 어댑터 마커 사이에 심는다. `check-adapter-parity`가 「커밋본 == 재생성본」 강제 |
+| `scripts/check-doc-governance.mjs` | 그 **앞단** — 새 `docs/*.md`가 지도에 있는가, 새 AI 지시문이 어댑터로 등록됐는가(등록 안 되면 비교 대상에도 못 들어온다) |
 | `src/app/registry.gen.ts` | **GENERATED — 손편집 금지** |
 | `src/app/gates.ts` | 게이트 한 줄 설명·카테고리(화면 표시용 편집 메타) |
 | `src/app/blueprint.ts` | 설계 개요도(배선맵) 선언 — `check-blueprint`가 현실과 대조 |

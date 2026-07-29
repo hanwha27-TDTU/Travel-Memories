@@ -466,10 +466,54 @@ npm run live                  # 라이브만 (build 다음에)
 
 139개 논리 역할(`docs/AGENT_REGISTRY.md`)을 통합·디자인 세트로 `.claude/agents/`에 구현(개수는 손으로 세지 않고 `src/app/registry.gen.ts` 자동 집계·`check-registry-gen`이 드리프트 차단). 동시에 다 돌리지 않고 Orchestrator가 필요한 역할만 호출한다. 규칙은 `AGENTS.md`.
 
+## 지시·계약 문서를 바꿀 때 (§14 — 두 AI가 다르게 알지 않게)
+
+> **사용자 지시(2026-07-29)**: *"문서규정 및 기준 그리고 프롬프트 등이 변경 시 CLAUDE.md와
+> agents.md를 비교 분석해서 업데이트 누락되지 않게 헌법에 박아두세요."*
+>
+> 그리고 그 직전에 대조해 보니 **실제로 네 군데가 갈라져 있었다.** 가장 무거운 것은
+> 「완료의 정의」가 서로를 포함하지 않은 것 — *Codex는 화면을 안 보고, Claude는 배포 확인
+> 없이* 「완료」라 할 수 있었다. **M-0046이 정확히 그 형태였다.**
+
+### 절차 (외울 필요 없다 — 어기면 게이트가 막는다)
+
+```
+① 공통 계약(두 AI가 같이 알아야 할 것)을 바꾼다  → docs/CONSTITUTION.md **만** 고친다
+② 재생성                                          → npm run gen:adapters
+③ 확인                                            → npm run gates  (약 6초)
+④ 커밋                                            → 정본 + 두 어댑터를 **같은 커밋**에
+```
+
+- 🔴 **`CLAUDE.md`·`AGENTS.md`를 직접 고치지 않는다.** 마커 사이는 생성물이다.
+  고치면 `check-adapter-parity`가 「커밋본 != 재생성본」으로 RED.
+- **어느 쪽에 적을지 헷갈리면 정본이다.** 도구별 서문에는 *그 도구에서만 참인 것*만 적는다
+  (파일 위치·도구 이름). 공통 사실을 서문에 적는 순간 그게 **다음 드리프트의 씨앗**이다.
+- **새 `docs/*.md`를 만들면 「문서 지도」에 올린다.** 안 올리면 다음 사람은 그 문서가 있는 줄도
+  모른다 — 실측(2026-07-29) 25개 중 **4개가 빠져 있었고**, 그중 `DISASTER_RECOVERY.md`는
+  전용 감사 에이전트가 참조하는 **계약 문서**였다. `check-doc-governance`가 막는다.
+- **새 AI 도구를 들이면 그 지시문도 어댑터로 등록한다**(`gen-adapters.mjs`의 `ADAPTERS`).
+  안 하면 그 AI만 다른 계약을 읽는다 — 이 조항이 막으려는 바로 그 상태다.
+- **스킬 문서(`.claude/skills/*`)는 어댑터가 아니다.** 그건 *영역별 작업 헌장*이고 정본은
+  각자다. 다만 **헌법과 모순되면 헌법이 이긴다**(권위 순서) — 모순을 발견하면 §9 2단계에서
+  그 자리에서 고친다.
+
+### 이 조항이 기대는 세 층 (§7)
+
+| 층 | 무엇 | 어디 |
+|---|---|---|
+| ① 조항 | 이 절 | `docs/CONSTITUTION.md` |
+| ② 구조 | 공통 계약을 **한 곳에만** 두고 어댑터는 마커로 심어 받는다 | `scripts/gen-adapters.mjs` |
+| ③ 기계 | 「커밋본 == 재생성본」 + 두 어댑터 **글자 단위** 대조 · 미등록 문서/지시문 차단 | `check-adapter-parity` · `check-doc-governance` |
+
+**정직한 한계**: 기계는 **내용의 모순을 못 본다.** 스킬 문서가 헌법과 반대되는 말을 해도
+게이트는 조용하다. 그 자리는 **§9 2단계(정독 중 구멍 메우기)**가 유일한 층이고, 그래서
+착수 절차에 들어 있다. 게이트가 하는 일은 *"내용이 맞다"의 보증*이 아니라
+**"등록되지 않은 지시문이 조용히 생기는 것의 차단"**이다.
+
 ## 문서 지도 (SSOT)
 
 
-**`docs/HANDOFF_CODEX.md`(처음 들어온 AI를 위한 완전 인계서 — 맥락 없이도 이어서 일할 수 있게)** · `docs/PROJECT_SPEC.md`(요구사항·최상위) · `ARCHITECTURE.md` · `DATA_MODEL.md` · `SECURITY.md` · `PRIVACY.md` · `SYNC_PROTOCOL.md` · `MEDIA_PIPELINE.md` · `DEPLOYMENT.md`(배포 계약) · `AGENT_REGISTRY.md` · `LESSONS.md` · `ROADMAP.md` · `TEST_PLAN.md` · `DECISIONS.md` · `ASSUMPTIONS.md` · `HANDOFF.md` · `CHANGELOG.md` · `REPOSITORY_AUDIT.md` · `CONFLICT_REPORT.md` · `ACTIVE_TASKS.md`. v0.2 원본은 `docs/reference/v0.2/`.
+**`docs/HANDOFF_CODEX.md`(처음 들어온 AI를 위한 완전 인계서 — 맥락 없이도 이어서 일할 수 있게)** · `docs/PROJECT_SPEC.md`(요구사항·최상위) · `ARCHITECTURE.md` · `DATA_MODEL.md` · `SECURITY.md` · `PRIVACY.md` · `SYNC_PROTOCOL.md` · `MEDIA_PIPELINE.md` · `DEPLOYMENT.md`(배포 계약) · `AGENT_REGISTRY.md` · `LESSONS.md` · `ROADMAP.md` · `TEST_PLAN.md` · `DECISIONS.md` · `ASSUMPTIONS.md` · `HANDOFF.md` · `CHANGELOG.md` · `REPOSITORY_AUDIT.md` · `CONFLICT_REPORT.md` · `ACTIVE_TASKS.md` · `DISASTER_RECOVERY.md`(백업·복원 계약 — 전용 감사 에이전트가 참조). v0.2 원본은 `docs/reference/v0.2/`.
 충돌하면 공유 문서(SPEC)가 이긴다. 특정 AI 도구 대화가 아니라 이 문서들이 기준이다.
 
 <!--CONSTITUTION:END-->
