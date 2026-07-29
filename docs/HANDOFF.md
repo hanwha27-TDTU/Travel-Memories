@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.22<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->122<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->58<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.23<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->123<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->59<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->21<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -53,7 +53,7 @@
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.22<!--/reg-->) Pages 성공.
+**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.23<!--/reg-->) Pages 성공.
 
 ### 현재 기능 지도 (새 AI는 이 표로 기능 표면을 즉시 파악)
 
@@ -268,6 +268,49 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0018 · v1.23 · **그 자리의 시계** + 지시문서 정본화 (M-0049 · 2026-07-29)
+
+**계기**: 사용자가 타임라인의 「Day 1 · 7월 29일 (수) · 19:08」을 동그라미 치며 — *"사진 찍은 나라 또는 지역의 시간으로 적용되게 고정하고, 사진에 장소정보가 없다면 사용자가 지정한 장소를 기준으로 하고, 적당한 위치에 한국시간으로 자동 환산해주면 좋을 거 같아요."*
+
+**한 줄**: 방향은 옳았고, **파고 보니 결함이 둘이었다.** 지적된 표시 결함보다 **저장 결함이 더 무거웠다** — EXIF 벽시계를 *넣는 기기*의 시간대로 읽어 **절대시각 자체가 틀어지고** 있었다.
+
+| | 무엇 | 상태 |
+|---|---|---|
+| ① 표시 | 시각·Day 그룹이 **보는 기기** 시간대 | ⏳ 다음 판 |
+| ② 저장 | 🔴 EXIF 벽시계를 **넣는 기기** 시간대로 해석(2시간 오차) · `OffsetTimeOriginal` 미독 | ✅ **이번 판** |
+
+**데이터셋 0바이트로 됐다**: 좌표→시간대는 경계 데이터셋(수 MB)이 필요하지만 **IANA id → 그 순간의 오프셋**은 브라우저 tzdata에 이미 있다. DST도 자동(파리 7월 +120 / 1월 +60), 목록도 브라우저가 준다(418개).
+
+**근거 사다리**: EXIF 오프셋 → 여행 시간대 → 기기(`tzSource='device'`로 **추정임을 밝힌다**).
+**옛 여행에 추측을 써 넣지 않았다** — 사용자가 말한 적 없는 사실이 기록에 남으면 안 된다.
+
+### 같은 세션에 함께 한 것
+
+| 무엇 | 왜 |
+|---|---|
+| **하네스 빠른 차선**(91초 → **6초**) | 실측하니 정적 28개가 다 합쳐 1.8초였다. 🔴 판정문이 「통과」가 아니라 **「4개는 아예 안 쟀습니다」**라고 말한다 |
+| **라이브 게이트 포트 분리** | `verify-editor-live`와 `verify-diagnostics-live`가 **둘 다 4174**를 쓰고 있었다(잠복 결함) |
+| 🔴 **지시문서 정본화**(§14) | `CLAUDE.md`↔`AGENTS.md`가 **네 군데 갈라져 있었다.** 「완료의 정의」가 서로를 포함하지 않아 *Codex는 화면을 안 보고, Claude는 배포 확인 없이* 「완료」라 할 수 있었다 |
+| **게이트 2종 신설** | `check-adapter-parity`(두 AI가 같은 계약을 읽는가) · `check-doc-governance`(등록 없이 생기는 지시·계약 문서 차단) |
+
+### 게이트가 나를 세 번 잡았다
+
+- **라이브 게이트**: *"모르면 만들지 않는다"*가 너무 빡빡해 **기존 여행 전부**에서 EXIF 시각 추천이 죽었다 → 근거 등급을 밝히는 쪽으로 고쳤다.
+- **`exif.test.ts`**: **옛 결함을 정상으로 못박고** 있었다(기대값이 검사 기기의 시간대). 케이스를 먼저 뒤집었다(§11 ②).
+- **commit-msg 훅**: `perf(...)`를 거부했다 — 허용 type이 아니다. 내가 규약을 몰라도 기계가 막았다.
+
+### 검증
+
+하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **745**(+23) · live 165+22 · build OK.
+**주입 RED**: 시간대 3종 · 어댑터 2종 · 문서 등록 3종.
+**마이그레이션 0021 적용·되읽기 완료**(배포 순서 계약: 마이그레이션 → 함수(무변경) → 앱).
+
+### 남은 것
+
+**M-0049 후반(표시)** — 타임라인 시각·Day 그룹을 오프셋 기준으로 · 여행 시간대 고르기 화면 · 순간별 예외 · 한국시간 환산(`homeConversion`은 이미 있다) · **`check-timezone` 갱신**(지금 규칙이 *"기기 로컬로 계산하라"*라 새 규칙과 부딪힌다).
 
 ---
 
