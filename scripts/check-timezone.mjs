@@ -15,7 +15,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execSync } from 'node:child_process';
+import { execSync, execFile } from 'node:child_process';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'src');
@@ -89,14 +89,36 @@ if (violations.length > 0) {
 }
 
 // ── (B) 동적 검사: UTC가 아닌 시간대에서 유닛 스위트 재실행 ──
-for (const tz of TZS) {
-  try {
-    execSync('npm run -s test', { cwd: ROOT, stdio: 'pipe', env: { ...process.env, TZ: tz } });
-  } catch (e) {
-    console.error(`check-timezone: TZ=${tz} 에서 유닛 실패 — 시간대 의존 가정이 있습니다.`);
-    if (e.stdout) process.stderr.write(e.stdout.toString().split('\n').slice(-40).join('\n'));
-    process.exit(1);
+//
+// 🔴 **병렬로 돈다**(2026-07-29, 실측 후). 시간대 패스는 서로 독립인데 직렬로 돌고 있어
+// 이 게이트 하나가 15.5초 — 하네스 91초 중 17%였다. 각 패스는 자기 `TZ`만 다른 별개
+// 프로세스이므로 동시에 돌려도 서로를 오염시키지 않는다.
+//
+// **검사 강도는 그대로다**: 여전히 모든 시간대에서 전체 스위트를 돌리고, 하나라도 실패하면
+// RED다. 줄인 것은 기다리는 시간뿐이지 재는 범위가 아니다 — 속도를 위해 커버리지를 깎으면
+// 그건 개선이 아니라 §2-G가 금지한 「조용한 통과」다.
+const runs = await Promise.all(
+  TZS.map(
+    (tz) =>
+      new Promise((resolve) => {
+        execFile(
+          process.platform === 'win32' ? 'npm.cmd' : 'npm',
+          ['run', '-s', 'test'],
+          { cwd: ROOT, env: { ...process.env, TZ: tz }, maxBuffer: 32 * 1024 * 1024 },
+          (err, stdout) => resolve({ tz, err, stdout }),
+        );
+      }),
+  ),
+);
+// 실패는 **전부** 보고한다 — 첫 번째에서 멈추면 "서울은 되는데 호놀룰루는?"을 다음 실행까지
+// 모르게 된다(한 번에 알 수 있는 것을 두 번에 나눠 알지 않는다).
+const bad = runs.filter((r) => r.err);
+if (bad.length) {
+  for (const r of bad) {
+    console.error(`check-timezone: TZ=${r.tz} 에서 유닛 실패 — 시간대 의존 가정이 있습니다.`);
+    if (r.stdout) process.stderr.write(String(r.stdout).split('\n').slice(-40).join('\n'));
   }
+  process.exit(1);
 }
 
 console.log(

@@ -22,6 +22,22 @@
 //      전제를 갖출 수 있는 곳에서까지 건너뛰면 ①은 그냥 변명이 된다.
 import { execSync } from 'node:child_process';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 빠른 차선 (`--fast` · `npm run gates`) — 2026-07-29, 실측 후 신설
+// ─────────────────────────────────────────────────────────────────────────────
+// 33개를 다 돌면 **91초**인데, 재보니 그중 28개(정적)는 다 합쳐 **1.8초**였다.
+// 나머지가 89초를 먹는다: verify-editor-live 54s · check-timezone 15.5s ·
+// verify-diagnostics-live 8s · unit-tests 7.5s.
+//
+// 그래서 편집 루프용 차선을 둔다 — `slow: true`를 뺀 나머지(정적 + typecheck ≈ 6초).
+// typecheck는 뺄 수 없다: 타입이 깨지면 나머지 초록이 아무 뜻도 없다.
+//
+// 🔴 **이 차선의 유일한 계약**: 무엇을 **안 쟀는지** 반드시 말한다. 오늘(M-0047) 커버리지
+// 게이트가 SKIP된 층을 「덮음」이라 말해 Required의 초록이 선택 게이트의 침묵을 덮었다.
+// 같은 실수를 속도 개선으로 다시 저지르지 않는다 — 빠른 차선의 판정문은 **「통과」가 아니라
+// 「일부만 쟀다」**이다(§2-G · §8).
+const FAST = process.argv.includes('--fast');
+
 const gates = [
   { name: 'typecheck', cmd: 'npm run -s typecheck' },
   { name: 'check-secret-leak', cmd: 'node scripts/check-secret-leak.mjs' },
@@ -53,10 +69,10 @@ const gates = [
   { name: 'check-sw', cmd: 'node scripts/check-sw.mjs' },
   { name: 'check-hand-counts', cmd: 'node scripts/check-hand-counts.mjs' },
   { name: 'check-doc-counts', cmd: 'node scripts/check-doc-counts.mjs' },
-  { name: 'check-timezone', cmd: 'node scripts/check-timezone.mjs' },
+  { slow: true, name: 'check-timezone', cmd: 'node scripts/check-timezone.mjs' },
   { name: 'check-instant-normalization', cmd: 'node scripts/check-instant-normalization.mjs' },
   { name: 'check-exif-strip-on-share', cmd: 'node scripts/check-exif-strip-on-share.mjs' },
-  { name: 'unit-tests', cmd: 'npm run -s test' },
+  { slow: true, name: 'unit-tests', cmd: 'npm run -s test' },
   // 런타임 층 — 실제 Chromium이 `dist`를 열어 **화면에 나가는 것**을 잰다.
   // 전제(playwright + 최신 dist)가 없으면 SKIP, 돌았는데 위반이면 FAIL(위 계약 참조).
   //
@@ -64,8 +80,8 @@ const gates = [
   // 진단은 **전달**(사용자에게 가는 문장·자리·버튼)을 잰다. 후자는 2026-07-28 M-0046 때
   // **아예 없던 층**이다 — 게이트 31종·유닛 686건이 전부 초록인 채로 거짓 안내가 배포됐고,
   // 30분 뒤 사용자 실기기 스크린샷이 잡았다(§10 ③).
-  { name: 'verify-editor-live', cmd: 'node scripts/verify-editor-live.mjs', optional: true },
-  { name: 'verify-diagnostics-live', cmd: 'node scripts/verify-diagnostics-live.mjs', optional: true },
+  { slow: true, name: 'verify-editor-live', cmd: 'node scripts/verify-editor-live.mjs', optional: true },
+  { slow: true, name: 'verify-diagnostics-live', cmd: 'node scripts/verify-diagnostics-live.mjs', optional: true },
 ];
 
 /**
@@ -84,7 +100,12 @@ const EXIT_PRECONDITION = 2;
 
 let failed = 0;
 const skipped = [];
+const notMeasured = [];
 for (const g of gates) {
+  if (FAST && g.slow) {
+    notMeasured.push(g.name);
+    continue;
+  }
   process.stdout.write(`▶ ${g.name} ... `);
   try {
     execSync(g.cmd, { stdio: 'pipe' });
@@ -111,7 +132,12 @@ if (failed > 0) {
 }
 
 // 마지막 줄이 이 실행의 **판정문**이다. 건너뛴 것이 있는데 "모두 통과"라고 쓰면 거짓말이 된다.
-if (skipped.length > 0) {
+if (FAST) {
+  // 「통과」라고 쓰지 않는다 — 이 실행은 무거운 층을 **아예 안 돌렸다.**
+  console.log(`\nharness(빠른 차선): 재본 ${gates.length - notMeasured.length}개 통과 · **${notMeasured.length}개는 아예 안 쟀습니다**`);
+  console.log(`  · 안 잰 것: ${notMeasured.join(', ')}`);
+  console.log('  → 커밋 전에는 반드시 전체를 돌리세요: npm run build && npm run harness');
+} else if (skipped.length > 0) {
   console.log(`\nharness: Required 게이트 통과 · 선택 ${skipped.length}개 **건너뜀**`);
   for (const s of skipped) console.log(`  · ${s.name} — 재지 못했습니다: ${s.why}`);
   console.log('  → 이 실행은 위 층을 확인하지 않았습니다. 갖추고 돌리려면: npm run build && npm run live');

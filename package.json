@@ -13,7 +13,8 @@
     "harness": "node scripts/harness.mjs",
     "live": "node scripts/verify-editor-live.mjs && node scripts/verify-diagnostics-live.mjs",
     "brief": "node scripts/brief.mjs",
-    "check:secrets": "node scripts/check-secret-leak.mjs"
+    "check:secrets": "node scripts/check-secret-leak.mjs",
+    "gates": "node scripts/harness.mjs --fast"
   },
   "engines": {
     "node": ">=22"

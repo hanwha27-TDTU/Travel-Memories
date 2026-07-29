@@ -252,8 +252,12 @@ try {
   process.exit(2);
 }
 
-const appServer = await serveDir(DIST, BASE, 4174);
-const fixServer = await serveDir(join(TMP, 'out'), '/', 4175);
+// 🔴 포트는 **라이브 게이트마다 갈라 쓴다**(2026-07-29 · 속도 측정 중에 발견).
+// `verify-editor-live`가 4173(앱)과 **4174**(오프라인 재현용)를 쓰는데 이 게이트도 4174를
+// 쓰고 있었다. 지금은 직렬이라 안 터지지만 **앞 게이트가 죽어 포트를 남기면 뒤가 실패**하고,
+// 병렬로 돌리면 반드시 부딪힌다. 겹침은 「아직 안 터진 결함」이지 「안전」이 아니다.
+const appServer = await serveDir(DIST, BASE, 4184);
+const fixServer = await serveDir(join(TMP, 'out'), '/', 4185);
 
 let browser;
 try {
@@ -282,7 +286,7 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice
  * 적으면 허브 진입이 바뀌는 날 한쪽만 고쳐진다.
  */
 async function openDiagnosticsHub(pg) {
-  await pg.goto(`http://127.0.0.1:4174${BASE}`, { waitUntil: 'networkidle' });
+  await pg.goto(`http://127.0.0.1:4184${BASE}`, { waitUntil: 'networkidle' });
   await pg.waitForTimeout(400);
   await pg.getByRole('button', { name: /데이터 관리/ }).first().click();
   await pg.waitForTimeout(400);
@@ -344,7 +348,7 @@ if (toolNames.length === 0) {
 // ═══════════════════════════════════════════════════════════════════════════
 // B층 — 주입 판정: **사용자에게 나가는 문장**이 사본 유무에 따라 갈리는가 (M-0046)
 // ═══════════════════════════════════════════════════════════════════════════
-await page.goto('http://127.0.0.1:4175/', { waitUntil: 'networkidle' });
+await page.goto('http://127.0.0.1:4185/', { waitUntil: 'networkidle' });
 await page.waitForFunction(() => !document.body.textContent.includes('확인 중…'), null, { timeout: 15000 });
 
 const b = await page.evaluate(() => {
