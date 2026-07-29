@@ -7,6 +7,7 @@ const base: LocalMoment = {
   id: 'm1',
   tripId: 't1',
   occurredAt: '2026-07-10T09:20:00.000Z',
+  tzOffsetMin: 420, // 순간별 시간대 예외도 왕복해야 한다(M-0049)
   title: '협재 노을',
   note: '',
   emotion: '🥹',

@@ -3,7 +3,24 @@
 // 실패/미지원은 조용히 빈 결과 — 파이프라인은 계속 진행(파생 시각은 파일 mtime 폴백).
 
 export interface ExifData {
-  takenAt?: string; // ISO 8601 (로컬시간 가정 — 원본 문자열 기반)
+  /**
+   * 🔴 **시간대가 없는 벽시계** — `YYYY-MM-DDTHH:mm:ss`. **절대시각이 아니다.**
+   *
+   * 2026-07-29(M-0049)까지 이 필드는 `takenAt: string`이었고 주석에 *"로컬시간 가정"*이라
+   * 적혀 있었다. 그 가정이 결함이었다: `new Date('2026-07-29T19:08:00')`은 **넣는 기기의
+   * 시간대**로 해석된다. 베트남에서 찍고 한국 와서 넣으면 절대시각이 **2시간 틀어졌다.**
+   * 여행 중엔 안 보이고 집에 와서 넣으면 틀어지는 형태다(§10 ② 상태 의존).
+   *
+   * 그래서 이 모듈은 **파일이 말한 것만** 돌려준다. 절대시각을 만드는 것은 오프셋을 아는
+   * 쪽(인테이크 — 여행 시간대를 안다)의 일이다. 이름을 바꾼 덕에 컴파일러가 호출부를
+   * 전부 데려왔다(§7 2층).
+   */
+  takenAtWall?: string;
+  /**
+   * EXIF `OffsetTimeOriginal`(0x9011)이 있으면 그 오프셋(분). **가장 강한 근거**다 —
+   * 그 카메라가 그 자리에서 적은 값이기 때문이다. 없으면 `undefined`(여행 시간대로 내려간다).
+   */
+  tzOffsetMin?: number;
   gpsLat?: number;
   gpsLng?: number;
 }
@@ -64,12 +81,30 @@ function readDMS(view: DataView, tiffStart: number, e: Entry, little: boolean): 
 }
 
 /** "YYYY:MM:DD HH:MM:SS" → ISO. 실패 시 undefined. */
-function exifDateToIso(s: string): string | undefined {
+/**
+ * EXIF 표기(`2026:07:29 19:08:00`) → **벽시계**(`2026-07-29T19:08:00`).
+ *
+ * 🔴 여기서 `new Date(...)`를 부르지 않는다. 그 한 줄이 M-0049였다 — 시간대 없는 문자열을
+ * `Date`에 넣으면 **기기 시간대**로 해석되고, 그 순간 절대시각이 조용히 틀어진다.
+ */
+function exifDateToWall(s: string): string | undefined {
   const m = /^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(s.trim());
   if (!m) return undefined;
   const [, y, mo, d, h, mi, se] = m;
-  const iso = `${y}-${mo}-${d}T${h}:${mi}:${se}`;
-  return Number.isNaN(Date.parse(iso)) ? undefined : new Date(iso).toISOString();
+  const wall = `${y}-${mo}-${d}T${h}:${mi}:${se}`;
+  // 달력상 말이 되는지만 본다(2026-13-45 같은 것을 거른다). 해석은 UTC로 — 여기서 만드는 것은
+  // **판정**이지 값이 아니다.
+  return Number.isNaN(Date.parse(`${wall}Z`)) ? undefined : wall;
+}
+
+/** `+09:00`·`-05:30`·`+00:00` → 분. 형식이 아니면 `undefined`(0으로 반올림하지 않는다). */
+export function parseExifOffset(s: string): number | undefined {
+  const m = /^([+-])(\d{2}):(\d{2})$/.exec(s.trim());
+  if (!m) return undefined;
+  const [, sign, hh, mm] = m;
+  const v = Number(hh) * 60 + Number(mm);
+  if (!Number.isFinite(v) || Number(hh) > 14 || Number(mm) > 59) return undefined;
+  return sign === '-' ? -v : v;
 }
 
 function parseTiff(view: DataView, tiffStart: number): ExifData {
@@ -87,8 +122,15 @@ function parseTiff(view: DataView, tiffStart: number): ExifData {
     const exifIfd = readEntries(view, tiffStart, view.getUint32(exifPtr.valueOffset, little), little);
     const dto = exifIfd.get(0x9003) ?? exifIfd.get(0x9004); // DateTimeOriginal | DateTimeDigitized
     if (dto && dto.type === 2) {
-      const iso = exifDateToIso(readAscii(view, tiffStart, dto, little));
-      if (iso) out.takenAt = iso;
+      const wall = exifDateToWall(readAscii(view, tiffStart, dto, little));
+      if (wall) out.takenAtWall = wall;
+    }
+    // OffsetTimeOriginal(0x9011) → OffsetTimeDigitized(0x9012) → OffsetTime(0x9010).
+    // 순서는 위 `dto`와 같은 우선순위다 — **촬영 시점의 것**이 가장 강하다(EXIF 2.31+).
+    const off = exifIfd.get(0x9011) ?? exifIfd.get(0x9012) ?? exifIfd.get(0x9010);
+    if (off && off.type === 2) {
+      const min = parseExifOffset(readAscii(view, tiffStart, off, little));
+      if (min !== undefined) out.tzOffsetMin = min;
     }
   }
 

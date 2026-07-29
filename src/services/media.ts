@@ -6,6 +6,7 @@
 import { db, type LocalMedia, type SyncQueueItem } from '../offline/db';
 import { quotaVerdict, estimateLocalBytes, type StorageEstimateLike } from '../domain/media/quota';
 import { readJpegExif } from '../media/exif';
+import { wallClockToInstant, zoneOffsetAtWall, deviceZone } from '../domain/time';
 import { compressForStorage } from '../media/compress';
 import type { EditState } from '../media/editor-core';
 
@@ -57,6 +58,19 @@ export interface PhotoMeta {
   takenAt: string | null;
   gpsLat: number | null;
   gpsLng: number | null;
+  /**
+   * 🔴 이 촬영시각이 **어떤 오프셋으로 해석됐는지**(분). `null`이면 EXIF가 오프셋을 안 줬고
+   * 호출부가 넘긴 폴백으로 해석했다는 뜻 — 화면은 그걸 **추정**으로 말해야 한다(M-0049).
+   */
+  tzOffsetMin: number | null;
+  /**
+   * 이 오프셋의 **근거 등급**. 화면은 이걸로 「추정」이라 말할지 정한다.
+   *  · `exif` — 파일이 직접 말했다(EXIF `OffsetTimeOriginal`). 가장 강하다.
+   *  · `trip` — 여행에 지정된 시간대에서 파생했다.
+   *  · `device` — 🔴 **둘 다 없어 이 기기의 시간대로 읽었다.** 현장에서 바로 넣으면 맞지만,
+   *    집에 와서 넣으면 틀린다(M-0049가 정확히 그 자리다). 여행 시간대를 정하면 사라진다.
+   */
+  tzSource: 'exif' | 'trip' | 'device';
 }
 
 /**
@@ -102,14 +116,43 @@ export function resolveTakenAt(
   return new Date(fileLastModified || Date.now()).toISOString();
 }
 
-export async function readPhotoMeta(file: File): Promise<PhotoMeta> {
+/**
+ * 사진 한 장의 촬영 메타를 읽는다.
+ *
+ * 🔴 **`fallbackOffsetMin`을 기본값 없이 받는다**(M-0049). EXIF `DateTimeOriginal`은 시간대가
+ * 없는 벽시계라 **누군가는 오프셋을 정해야** 하고, 그걸 아는 것은 여행을 아는 호출부다.
+ * 기본값을 두면 *"안 넘겨도 컴파일되는"* 길이 생기고, 그 길은 예전처럼 조용히 기기 시간대로
+ * 흘러간다 — 정확히 그 결함을 고치는 중이다.
+ *
+ * @param fallbackZone EXIF에 오프셋이 없을 때 벽시계를 해석할 **IANA 시간대 id**(여행의 것).
+ *   오프셋이 아니라 id를 받는 이유: 벽시계에서 DST를 풀려면 시간대를 알아야 한다
+ *   (`zoneOffsetAtWall`). 여행이 시간대를 안 정했으면 `''`을 넘긴다.
+ *
+ * 🔴 **`''`일 때 촬영시각을 포기하지 않는다**(2026-07-29, 라이브 게이트가 잡았다). 처음엔
+ * *"모르면 만들지 않는다"*로 짰는데, 시간대를 안 정한 **기존 여행 전부**에서 EXIF 시각 추천이
+ * 통째로 죽었다. 우리가 고치려는 위험은 *모르는 것*이 아니라 **조용히 잘못 읽는 것**이다.
+ * 그래서 기기 시간대로 읽되 `tzSource: 'device'`로 **근거를 밝힌다** — 화면이 「추정」이라
+ * 말할 수 있고, 여행 시간대를 정하는 순간 사라진다.
+ */
+export async function readPhotoMeta(file: File, fallbackZone: string): Promise<PhotoMeta> {
   let takenAt: string | null = null;
   let gpsLat: number | null = null;
   let gpsLng: number | null = null;
+  let tzOffsetMin: number | null = null;
+  let tzSource: PhotoMeta['tzSource'] = 'device';
   if (/jpe?g/i.test(file.type)) {
     try {
       const exif = readJpegExif(await file.slice(0, EXIF_HEAD_BYTES).arrayBuffer());
-      if (exif.takenAt) takenAt = exif.takenAt;
+      if (exif.takenAtWall) {
+        // 근거 사다리 — 파일 → 여행 → 기기. 어느 단을 밟았는지 **함께 돌려준다.**
+        const fromTrip = fallbackZone ? zoneOffsetAtWall(exif.takenAtWall, fallbackZone) : null;
+        const off = exif.tzOffsetMin ?? fromTrip ?? zoneOffsetAtWall(exif.takenAtWall, deviceZone());
+        if (off !== null && off !== undefined) {
+          takenAt = wallClockToInstant(exif.takenAtWall, off);
+          tzOffsetMin = off;
+          tzSource = exif.tzOffsetMin !== undefined ? 'exif' : fromTrip !== null ? 'trip' : 'device';
+        }
+      }
       if (exif.gpsLat !== undefined && exif.gpsLng !== undefined) {
         gpsLat = exif.gpsLat;
         gpsLng = exif.gpsLng;
@@ -118,7 +161,7 @@ export async function readPhotoMeta(file: File): Promise<PhotoMeta> {
       /* EXIF 실패는 null로 둔다 — 폴백은 부르는 쪽의 몫이다. */
     }
   }
-  return { takenAt, gpsLat, gpsLng };
+  return { takenAt, gpsLat, gpsLng, tzOffsetMin, tzSource };
 }
 
 export async function addPhotoToMoment(
@@ -138,7 +181,9 @@ export async function addPhotoToMoment(
   if (!q.allow) throw new Error(q.message);
 
   // 1) EXIF 먼저(압축 전) — `readPhotoMeta` 한 곳에서. 화면의 시각 추측도 **같은 함수**를 쓴다.
-  const meta = await readPhotoMeta(file);
+  // 여행의 시간대를 넘긴다 — EXIF에 오프셋이 없으면 이걸로 벽시계를 해석한다(M-0049).
+  const trip = await db().localTrips.get(target.tripId);
+  const meta = await readPhotoMeta(file, trip?.timeZone ?? '');
   // EXIF가 없으면(스크린샷·저장한 이미지) **그 사진이 속한 순간의 발생 시각**을 쓴다.
   // 파일 수정시각은 "기기에 저장된 시각"이라 *앱에 넣은 날*이 되어 버린다 — 사용자는 이미
   // 이 사진을 그 순간에 넣어 "언제의 것인지" 말해 줬다. 그게 더 나은 근거다(2026-07-27).

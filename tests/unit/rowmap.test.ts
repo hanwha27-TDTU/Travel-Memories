@@ -12,6 +12,7 @@ const trip: LocalTrip = {
   startDate: '2026-08-01',
   endDate: '2026-08-05',
   status: 'planned',
+  timeZone: 'Asia/Ho_Chi_Minh', // 여행지 시간대도 왕복해야 한다(M-0049)
   version: 3,
   createdAt: '2026-07-22T10:00:00.000Z',
   updatedAt: '2026-07-22T11:30:00.000Z',
