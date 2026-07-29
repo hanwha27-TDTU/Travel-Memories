@@ -281,7 +281,7 @@ interface WhenField {
 }
 
 function buildWhenField(
-  trip: { startDate: string | null; endDate: string | null } | null,
+  trip: { startDate: string | null; endDate: string | null; timeZone?: string } | null,
   /** 이 여행에서 가장 늦은 순간의 시각 — 사진이 없을 때 물려받는다. 편집 폼은 넘기지 않는다. */
   latestMomentAt: () => string | null = () => null,
 ): WhenField {
@@ -325,7 +325,7 @@ function buildWhenField(
       // 앞 256KB만 읽는다 — 9장을 고른 순간 전체를 읽으면 수십 MB가 한꺼번에 뜬다(저메모리 기기).
       // **EXIF가 없는 사진은 세지 않는다**(null 제거): 스크린샷의 파일 수정시각을 근거로 쓰면
       // 화면이 「📷 사진에서」라고 말하면서 실은 *앱에 넣은 시각*을 보여주게 된다 — 거짓 근거다.
-      const metas = await Promise.all(files.map((f) => readPhotoMeta(f)));
+      const metas = await Promise.all(files.map((f) => readPhotoMeta(f, trip?.timeZone ?? '')));
       const photoTakenAts = metas.map((m) => m.takenAt).filter((t): t is string => t !== null);
       apply(
         guessOccurredAt({
@@ -1247,7 +1247,7 @@ async function processPhotosIntoMoment(
 function buildMomentEditForm(
   m: LocalMoment,
   /** 여행 기간 — 기간 밖 경고에 쓴다(생성 폼과 같은 필드·같은 문장, §7). */
-  trip: { startDate: string | null; endDate: string | null } | null,
+  trip: { startDate: string | null; endDate: string | null; timeZone?: string } | null,
   existingExpense: LocalExpense | undefined,
   onSave: (
     patch: {

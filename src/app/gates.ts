@@ -42,6 +42,10 @@ export const GATE_DESC: Record<string, string> = {
   'check-backup-coverage': '모든 사용자 테이블이 백업 export/import에 다 있는지',
   'check-blueprint': '설계 개요도(배선맵) 선언 ↔ 실제 구조 일치',
   'check-registry-gen': '자동 집계 카운트·목록이 SSOT와 일치(손 스냅샷 드리프트 차단)',
+  'check-adapter-parity':
+    'Claude와 Codex가 **같은 계약**을 읽는지(두 지시문서가 갈라지면 두 AI가 다르게 판단한다)',
+  'check-doc-governance':
+    '새 규정·기준 문서와 새 AI 지시문이 **등록 없이 생기지 않는지**(등록 안 되면 비교 대상에도 못 들어온다)',
   'check-platform-map': '어느 데이터가 어느 서비스에 사는지의 지도가 실제 코드와 일치',
   'check-lazy-screens': '어쩌다 여는 화면이 첫 로드 번들에 딸려 오지 않는지',
   'check-font-subsets': '제목 폰트 조각 선언 ↔ 실제 파일·구간·선언순서 정합',
@@ -83,6 +87,8 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-backup-coverage': 'static',
   'check-blueprint': 'generated',
   'check-registry-gen': 'generated',
+  'check-adapter-parity': 'generated',
+  'check-doc-governance': 'generated',
   'check-platform-map': 'generated',
   'check-lazy-screens': 'static',
   'check-font-subsets': 'generated',

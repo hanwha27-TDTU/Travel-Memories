@@ -44,9 +44,15 @@ function craftJpegWithDate(dateStr: string): ArrayBuffer {
 }
 
 describe('readJpegExif', () => {
-  it('DateTimeOriginal을 ISO로 추출한다', () => {
+  // 🔴 2026-07-29(M-0049): 이 케이스는 **옛 결함을 정상으로 못박고 있었다.**
+  // 기대값이 `new Date('2020-01-02T03:04:05')` — 즉 *검사를 돌리는 기기의 시간대*로 해석한
+  // 값이었다. 검사와 코드가 같은 실수를 하고 있으니 영원히 초록이었다.
+  // 전제가 바뀌면 **케이스부터 뒤집는다**(§11 ②). 통과시키려고 로직을 되돌리지 않는다.
+  it('DateTimeOriginal을 **벽시계 그대로** 준다(절대시각으로 바꾸지 않는다)', () => {
     const exif = readJpegExif(craftJpegWithDate('2020:01:02 03:04:05'));
-    expect(exif.takenAt).toBe(new Date('2020-01-02T03:04:05').toISOString());
+    expect(exif.takenAtWall).toBe('2020-01-02T03:04:05');
+    // 시간대를 모르는 파일이므로 오프셋은 **없다** — 0으로 반올림하지 않는다.
+    expect(exif.tzOffsetMin).toBeUndefined();
   });
 
   it('JPEG가 아니면 빈 결과', () => {

@@ -27,12 +27,12 @@ const noExif = (mtime: string): File =>
 
 describe('① readPhotoMeta는 EXIF가 없으면 **모른다고 말한다**', () => {
   it('EXIF 없는 파일이면 takenAt이 null — 파일 수정시각으로 채우지 않는다', async () => {
-    const meta = await readPhotoMeta(noExif('2026-07-27T02:25:00.000Z'));
+    const meta = await readPhotoMeta(noExif('2026-07-27T02:25:00.000Z'), 'Asia/Seoul');
     expect(meta.takenAt).toBeNull();
   });
 
   it('GPS도 없으면 null (모르는 것을 0으로 반올림하지 않는다)', async () => {
-    const meta = await readPhotoMeta(noExif('2026-07-27T02:25:00.000Z'));
+    const meta = await readPhotoMeta(noExif('2026-07-27T02:25:00.000Z'), 'Asia/Seoul');
     expect(meta.gpsLat).toBeNull();
     expect(meta.gpsLng).toBeNull();
   });

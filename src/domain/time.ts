@@ -138,3 +138,164 @@ export function localDateTime(iso: string): string {
   if (Number.isNaN(d.getTime())) return '';
   return `${d.getFullYear()}.${p2(d.getMonth() + 1)}.${p2(d.getDate())} ${localTime(iso)}`;
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// 「그 자리의 시계」 — 여행지 시간대 (2026-07-29 사용자 지적)
+//
+// 사용자: *"사진 찍은 나라 또는 지역의 시간으로 적용되게 고정하고, 사진에 장소정보가 없다면
+// 사용자가 지정한 장소를 기준으로 하고, 적당한 위치에 한국시간으로 자동 환산해주면 좋겠다."*
+//
+// 맞다. 여행의 기억은 **"저녁 7시에 연극을 봤다"**이지 UTC가 아니다. 그런데 이 파일의 위
+// 절반(`localDate`/`localTime`)은 **보는 기기의 시간대**로 계산한다 — 베트남에서 저녁 7시에
+// 기록한 순간을 한국에서 열면 21:08이 되고, 자정 근처면 **Day 묶음까지 하루 밀린다.**
+//
+// 🔴 그리고 더 무거운 결함이 저장 쪽에 있었다(M-0049): EXIF `DateTimeOriginal`은 **시간대가
+// 없는 벽시계 문자열**인데 `new Date('2026-07-29T19:08:00')`로 파싱하면 **넣는 기기의
+// 시간대**로 해석된다. 베트남에서 찍고 한국 와서 넣으면 절대시각이 **2시간 틀어진다.**
+// 여행 중엔 안 보이고 집에 와서 넣으면 틀어지는 형태다(§10 ② 상태 의존).
+//
+// ─────────────────────────────────────────────────────────────────────────
+// 왜 데이터셋이 필요 없나
+// ─────────────────────────────────────────────────────────────────────────
+// 좌표→시간대는 경계 데이터셋(수 MB)이 필요하지만, **IANA 시간대 id → 그 순간의 오프셋**은
+// 브라우저에 이미 있다(`Intl` + tzdata). DST도 자동이다(파리 7월 +2, 1월 +1). 그래서
+// **여행에 시간대 id 하나**를 두면 데이터셋 0바이트로 정확해진다. 목록도 브라우저가 준다
+// (`Intl.supportedValuesOf('timeZone')` — 418개).
+//
+// ─────────────────────────────────────────────────────────────────────────
+// 두 종류의 「로컬」을 섞지 않는다 — 이 파일에서 가장 중요한 구분
+// ─────────────────────────────────────────────────────────────────────────
+// | 무엇을 재나 | 쓸 함수 | 예 |
+// |---|---|---|
+// | **기억**(그 자리에서 겪은 일) | `atOffset` — 여행지 오프셋 | 순간 시각·Day 그룹·사진 촬영시각·비용 발생일 |
+// | **앱 조작·오늘**(지금 이 기기에서) | `localDate`/`localTime` — 기기 시간대 | 오늘 환율 조회일·휴지통에 넣은 날 |
+//
+// 섞으면 사용자가 화면 안에서 어긋난 날짜를 본다 — M-utc-slice가 정확히 그 형태였다.
+// `check-timezone` 게이트가 **기억 필드**(`occurredAt`·`takenAt`·`recordedAt`)에 기기 로컬
+// 함수를 쓰는 것을 막는다.
+// ───────────────────────────────────────────────────────────────────────────
+
+/** 이 기기의 IANA 시간대 id. 못 알아내면 `'UTC'`(모르는 것을 조용히 서울로 만들지 않는다). */
+export function deviceZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
+/**
+ * **그 순간, 그 시간대의 오프셋(분).** 모르면 `null`.
+ *
+ * DST를 포함한다 — 오프셋은 시간대의 성질이 아니라 **시간대 × 순간**의 성질이기 때문이다.
+ * (파리는 여름 +120, 겨울 +60. 여행이 전환일을 걸치면 순간마다 답이 다르다.)
+ */
+export function zoneOffsetMin(instant: string, timeZone: string): number | null {
+  const t = Date.parse(instant);
+  if (Number.isNaN(t) || !timeZone) return null;
+  try {
+    const f = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+    const g: Record<string, string> = {};
+    for (const p of f.formatToParts(new Date(t))) if (p.type !== 'literal') g[p.type] = p.value;
+    // `hour`가 24로 나오는 구현이 있다(자정). 0으로 접는다.
+    const hh = Number(g.hour) % 24;
+    const asUtc = Date.UTC(Number(g.year), Number(g.month) - 1, Number(g.day), hh, Number(g.minute), Number(g.second));
+    return Math.round((asUtc - t) / 60000);
+  } catch {
+    return null; // 알 수 없는 시간대 id — 「확인 불가」이지 0이 아니다
+  }
+}
+
+/**
+ * **시간대 결정 사다리.** 위에서부터 먼저 맞는 것을 쓴다.
+ *
+ *  1. `momentOffsetMin` — 이 순간에 **직접 적힌** 오프셋. EXIF `OffsetTimeOriginal`이 있었거나
+ *     사용자가 예외를 지정한 경우. *그 카메라가 그 자리에서 적은 값*이므로 가장 강하다.
+ *  2. `tripZone` — 여행에 지정된 시간대(대부분의 여행은 하나다).
+ *  3. `null` — **모른다.** 기기 시간대로 반올림하지 않는다(§8: 모르는 것은 '확인 불가').
+ *     화면이 폴백을 고르되 **추정임을 말해야** 한다.
+ *
+ * 🔴 기본값을 두지 않는 이유: 인자를 생략해도 컴파일되면 그게 규율이 조용히 빠지는 길이다
+ * (M-0048에서 `otherDevices`로 같은 선택을 했고, 컴파일러가 호출부를 전부 데려왔다).
+ */
+export function resolveOffsetMin(
+  instant: string,
+  momentOffsetMin: number | null | undefined,
+  tripZone: string,
+): number | null {
+  if (typeof momentOffsetMin === 'number' && Number.isFinite(momentOffsetMin)) return momentOffsetMin;
+  return zoneOffsetMin(instant, tripZone);
+}
+
+/**
+ * **그 오프셋에서의 벽시계.** 순간(절대시각)을 사람이 겪은 시각으로 되돌린다.
+ *
+ * 정렬·LWW·동기화는 **계속 절대시각**으로 한다 — 표시만 여기를 지난다. 섞으면 M-0034 재발이다.
+ */
+export function atOffset(instant: string, offsetMin: number): { date: string; time: string; dateTime: string } {
+  const t = Date.parse(instant);
+  if (Number.isNaN(t) || !Number.isFinite(offsetMin)) return { date: '', time: '', dateTime: '' };
+  const d = new Date(t + offsetMin * 60000);
+  const date = `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}`;
+  const time = `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`;
+  return { date, time, dateTime: `${date.replace(/-/g, '.')} ${time}` };
+}
+
+/**
+ * **벽시계 + 오프셋 → 절대시각.** EXIF `DateTimeOriginal`처럼 시간대가 없는 문자열을 읽을 때.
+ *
+ * 🔴 `new Date('2026-07-29T19:08:00')`을 쓰지 마라 — **넣는 기기의 시간대**로 해석된다.
+ * 그게 M-0049였다: 베트남에서 찍고 한국에서 넣으면 절대시각이 2시간 틀어진다.
+ *
+ * @param wall `YYYY-MM-DDTHH:mm:ss` 또는 `YYYY-MM-DD HH:mm(:ss)`
+ */
+export function wallClockToInstant(wall: string, offsetMin: number): Instant | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(wall.trim());
+  if (!m || !Number.isFinite(offsetMin)) return null;
+  const [, y, mo, d, h, mi, se] = m;
+  const t = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(se ?? '0')) - offsetMin * 60000;
+  if (Number.isNaN(t)) return null;
+  return isoInstant(new Date(t).toISOString());
+}
+
+/**
+ * 환산 꼬리표 — **다를 때만** 문자열을 준다(§8 「침묵이 정상」).
+ *
+ * 국내 여행에서 매번 「한국시간 19:08」이 붙으면 그건 정보가 아니라 소음이다. 시각이 같으면
+ * 빈 문자열을 돌려주고 화면은 아무것도 그리지 않는다.
+ *
+ * @param homeLabel 사용자가 읽을 이름(예: '한국'). 표기는 호출부가 정한다.
+ */
+export function homeConversion(instant: string, offsetMin: number, homeZone: string, homeLabel: string): string {
+  const home = zoneOffsetMin(instant, homeZone);
+  if (home === null || home === offsetMin) return '';
+  const { time } = atOffset(instant, home);
+  if (!time) return '';
+  const there = atOffset(instant, offsetMin);
+  // 날짜까지 달라지면 시각만 보여주면 헷갈린다 — 그때는 날짜를 함께 말한다.
+  return there.date === atOffset(instant, home).date ? `${homeLabel} ${time}` : `${homeLabel} ${atOffset(instant, home).dateTime}`;
+}
+
+/**
+ * **벽시계 읽기 → 그때 그 시간대의 오프셋(분).** 모르면 `null`.
+ *
+ * 닭과 달걀을 푼다: 오프셋을 알아야 절대시각이 나오는데, DST는 절대시각에 달렸다.
+ * 두 번 재서 수렴시킨다 — 벽시계를 UTC로 읽어 대략의 순간을 만들고(최대 ±14시간 오차),
+ * 그 순간의 오프셋으로 다시 잰다.
+ *
+ * **정직한 한계**: DST 전환 **당일 몇 시간** 안에서는 한 시간 어긋날 수 있다(그 벽시계가
+ * 두 번 존재하거나 아예 없는 구간). 그 자리는 사용자가 순간별 예외로 고칠 수 있고,
+ * 어차피 「존재하지 않는 벽시계」에는 정답이 없다.
+ */
+export function zoneOffsetAtWall(wall: string, timeZone: string): number | null {
+  const rough = zoneOffsetMin(`${wall.replace(' ', 'T')}Z`, timeZone);
+  if (rough === null) return null;
+  const t = Date.parse(`${wall.replace(' ', 'T')}Z`);
+  if (Number.isNaN(t)) return null;
+  return zoneOffsetMin(new Date(t - rough * 60000).toISOString(), timeZone);
+}

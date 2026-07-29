@@ -1,16 +1,54 @@
 # CLAUDE.md · Bugeon Journey
 
-이 파일은 프로젝트 맥락 제공용이다. **반드시 차단해야 하는 행위는 `.claude/settings.json`의 hooks로 통제할 예정이다**(Phase 0에서 활성화; 현재 `settings.json` hooks는 비어 있음). 이 문서는 판단 기준과 작업 규율을 제공한다. 저장소 자체가 최종 정보원이다.
+> **이 파일은 어댑터다.** 아래 마커 사이는 `docs/CONSTITUTION.md`에서 **자동으로 심긴다** —
+> Codex가 읽는 `AGENTS.md`와 **글자 단위로 같은 내용**이다(두 AI가 다르게 알면 그 자체가 결함).
+>
+> 🔴 **여기를 직접 고치지 마라.** `docs/CONSTITUTION.md`를 고치고
+> `node scripts/gen-adapters.mjs`를 돌린다. `check-adapter-parity`가 드리프트를 RED로 잡는다.
+
+## Claude Code 전용 메모
+
+- 착수 절차와 검증 명령은 아래 공통 계약(**§9**·**검증 명령**)에 있다 — 여기 다시 적지 않는다.
+- 반드시 차단해야 하는 행위는 `.claude/settings.json`의 hooks로 통제한다(Phase 0에서 활성화).
+- 에이전트 정의는 `.claude/agents/`, 스킬 문서는 `.claude/skills/`.
+
+<!--CONSTITUTION:BEGIN — 생성됨. 고치려면 docs/CONSTITUTION.md를 고치고 node scripts/gen-adapters.mjs-->
+
+# 헌법 · Bugeon Journey (공통 계약)
+
+> 🔴 **이 파일이 정본이다.** `CLAUDE.md`(Claude Code)와 `AGENTS.md`(Codex)는 이 내용을
+> **자동으로 심어 받는 어댑터**다. 두 파일의 마커 사이는 `node scripts/gen-adapters.mjs`가
+> 생성하고 `check-adapter-parity`가 「커밋본 == 재생성본」을 강제한다.
+>
+> **왜 복사가 아니라 생성인가**: 도구 제약상 각 AI는 자기 파일만 읽으므로 본문이 양쪽에
+> 있어야 한다. 그런데 §1이 말하듯 *"손편집 중복 자체가 결함"*이다 — 실제로 2026-07-29에
+> 비교해 보니 두 문서가 **네 군데에서 갈라져 있었다**(아래 「합치면서 정리한 상충」).
+> 불가피한 중복은 손으로 하지 말고 **기계화한다**(`gen-registry`와 같은 패턴).
+>
+> **고칠 때는 이 파일만 고친다.** 어댑터를 직접 고치면 게이트가 RED로 잡는다.
+
+## 합치면서 정리한 상충 (2026-07-29)
+
+두 어댑터를 실제로 대조해 나온 것들이다. **협업하는 두 AI가 다르게 알고 있었다.**
+
+| # | 무엇이 달랐나 | 어떻게 정리했나 |
+|---|---|---|
+| 1 | 🔴 **「완료의 정의」가 서로를 포함하지 않았다.** CLAUDE엔 §13(화면·버튼)과 Acceptance가 있고 **배포 확인이 없었고**, AGENTS엔 배포 그린·CHANGELOG가 있고 **§13이 없었다** | **둘을 합쳤다.** Codex가 화면을 안 보고 「완료」라 하거나 Claude가 배포 확인 없이 「완료」라 하는 길을 둘 다 막는다 — **M-0046이 정확히 그 형태였다**(배포는 됐고 화면은 안 봤다) |
+| 2 | 브랜치 규칙이 달랐다. AGENTS의 `feature/TASK-번호-설명`은 **실제와 다르다**(실제는 `claude/travel-log-app-r2xd5f`) | 실제 관행(`claude/*`·`codex/*` 네임스페이스)으로 통일하고, TASK 번호 형식은 선택으로 내렸다 |
+| 3 | 실행 규율이 6개 vs 5개 — AGENTS에 **「게이트는 비공허하게」(§4)**와 **「결함군 승격」(§6)**이 없었다 | 6개로 통일. 이 저장소에서 가장 많이 인용되는 두 규율이 한쪽에만 있었다 |
+| 4 | 🔴 **헌법 조항 §7~§13을 Claude만 알고 있었다**(대칭성·진단·착수절차·게이트 한계·검사의 결함·§12·§13). 반대로 거버넌스(출력계약·활성 task 소유권·보증 매트릭스)는 Codex만 알았다 | **양쪽이 전부 안다.** 이 파일 하나가 둘 다에게 심긴다 |
 
 ---
 
 ## 북극성 (North Star)
+
 
 > 사진, 장소, 비용과 짧은 감정을 자동으로 연결하여, **여행 당시의 기억과 여행이 나에게 남긴 의미를 다시 찾아주는** 개인 여행기록 앱.
 
 모든 기능·설계·코드는 한 가지 질문으로 판단한다: **"이게 그 목적을 더 잘 이루는가?"**
 
 ## 비타협 원칙 (목적의 일부이지, 목적과 맞바꿀 대상이 아니다)
+
 
 1. **사용자의 기억을 잃지 않는다.** **내구성 로컬 커밋(Dexie entity+operation atomic commit) 이후 앱 원인 유실은 0**이다(브라우저 축출·사용자의 사이트데이터 삭제는 앱 통제 밖 → 백업·persist()·경고로 완화, `docs/SYNC_PROTOCOL.md`). 원본 사진은 사용자 기기에서 변경/삭제하지 않는다.
 2. **사용자 기록과 AI 생성물을 섞지 않는다.** AI 출력은 사용자 필드가 아니라 **`ai_artifacts` 테이블(Phase 7)**에만 저장하고, AI 결과를 사용자 작성글처럼 표시하지 않는다.
@@ -19,6 +57,7 @@
 5. **복구 가능성 우선.** 위험한 작업은 사전검증·작업기록·실패복구·재시도·되돌리기·결과확인을 갖춘다.
 
 ## 절대 위반 금지 (§0)
+
 
 - 사용자 원본 자료를 임의로 삭제/덮어쓰지 않는다.
 - Supabase `service_role` 키/DB 비밀번호/관리자 JWT를 프론트엔드·번들·저장소·로그·리포트에 넣지 않는다. 클라이언트는 anon/publishable 키만.
@@ -34,18 +73,28 @@
 
 ## 기술 스택
 
+
 TypeScript(strict) · Vite · Vanilla TS 컴포넌트 · Supabase(Auth/Postgres/Storage) · Dexie(IndexedDB) · MapLibre GL JS · GeoJSON · Web Worker+OffscreenCanvas(WebP) · Service Worker · Vitest · Playwright · GitHub Actions.
 
 > 프레임워크는 MVP에서 추가하지 않는다. Vanilla 구조가 유지 불가능하다고 **실제 측정**된 경우에만 기술변경 제안서를 쓴다.
 
 ## 순간(Moment) 중심 도메인
 
+
 `Trip → TripDay → Moment → Media / Place / Expense / Companion / Reflection`
 여행을 긴 글 하나로 저장하지 않는다. 상세는 `docs/DATA_MODEL.md`.
 
 ---
 
+## 권위 순서 (문서 충돌 해소)
+
+
+실행 코드/migration/테스트/검증 인프라(관찰된 현실) > Foundation(가치) > Contracts(데이터·보안·배선) > Procedures > Playbooks > Records(역사적) > 생성된 맵(그 생성기가 권위).
+현실이 계약과 충돌하면 조용히 고르지 말고 **불일치 기록 → 사용자 데이터 보호 → 코드 수정 또는 계약을 게이트와 함께 개정**.
+`docs/records/coding-mistakes.md`는 이 권위 순서의 **Records 계층 실수 원장**으로, 반복 실수를 기록하고 게이트로 기계화하는 근거다(현재 계약을 무효화하지는 않음).
+
 ## 작업 규율 (모델 이식 가능 — Claude Code와 Codex 공통)
+
 
 품질은 모델이 아니라 규율에서 나온다.
 
@@ -271,27 +320,200 @@ npm run brief            # 또는: npm run brief <고칠 파일들>
 - 파이프라인 생성 행(`source=pipeline`)은 소비 기기에서 읽기전용. 로컬에 없다고 tombstone 하지 않는다(오래된 기기가 신선한 클라우드 데이터를 지운다).
 - 카메라/EXIF 등 기계 파생 값은 `needs_review`로 시작하고, 재생성이 검토·tombstone된 행을 덮어쓰지 않는다.
 
+## 검증 명령 (두 도구 공통)
+
+```bash
+npm run brief <고칠 파일들>   # 착수 전 — 읽을 스킬 문서·형제 목록·그 영역의 과거 실수
+npm run gates                 # 편집 루프 (약 6초 · 정적 + typecheck)
+npm run build                 # tsc --noEmit + vite build
+npm run harness               # 전체 (약 88초 · 유닛·시간대·라이브 포함)
+npm run live                  # 라이브만 (build 다음에)
+```
+
+- 🔴 **`npm run gates`는 「통과」가 아니다.** 판정문이 *"재본 N개 통과 · **M개는 아예 안
+  쟀습니다**"*라고 말하고 안 잰 이름을 나열한다. **커밋 전에는 반드시 전체를 돈다.**
+- `npm run live`는 `dist`가 소스보다 낡으면 **스스로 멈춘다**(exit 2). 낡은 번들을 재면
+  검사가 공허해지기 때문이다 — 반드시 `npm run build` 다음에.
+- **SKIP은 통과가 아니다.** 선택 게이트가 건너뛰었으면 그 실행은 그 층을 **재지 않은 것**이다.
+
 ## 완료의 정의 (Definition of Done)
 
-구현 완료 → 단위검사 통과 → 통합검사 통과 → 보안검사 통과 → 회귀검사 통과 → **화면을 바꿨으면 열어서 보고, 버튼을 만들었으면 눌러 봄(§13)** → 문서 갱신 → 사용자 흐름 확인 → Acceptance 승인. **일부가 아니라 전부** 통과해야 한다.
+> 🔴 **두 어댑터가 서로 다른 정의를 갖고 있었다**(2026-07-29에 발견). CLAUDE엔 화면·버튼
+> 확인은 있고 **배포 확인이 없었고**, AGENTS엔 배포 그린은 있고 **§13이 없었다.**
+> 그래서 *"Codex는 화면을 안 보고 완료라 하고, Claude는 배포 확인 없이 완료라 하는"* 길이
+> 양쪽에 하나씩 열려 있었다 — **M-0046이 정확히 그 형태였다.** 아래가 합친 정의다.
+
+```
+구현 완료
+  → 전체 하네스 통과(일부 아님 · SKIP은 통과가 아니다)
+  → 🔴 화면을 바꿨으면 열어서 보고, 버튼을 만들었으면 눌러 봄(§13)
+  → 버전(changelog +0.01)·문서 갱신(HANDOFF·필요하면 ADR·스킬)
+  → PR 그린 → 병합 → **배포 성공 확인**
+  → 사용자 흐름 확인 · Acceptance 승인
+  → 정직한 보고(통과/스킵/미실행을 구분)
+```
+
+**일부가 아니라 전부** 통과해야 한다. 자동검사를 통과하지 않은 변경을 완료로 표시하지 않는다.
 
 > 🔴 **「화면을 열어서 봄」을 건너뛰었으면 「라이브 렌더 미실행」이라고 적는다**(원칙 #4).
 > 「검사 통과」와 「화면을 봤음」은 다른 말이다 — M-0046은 전자가 전부 초록인 채로 배포됐다.
 > 그리고 **「화면을 봤음」과 「버튼이 돈다」도 다른 말이다.** M-0046·M-0048은 둘 다 버튼이
 > 결함이었는데, 그때 라이브 검사는 버튼의 **라벨만 읽고 있었다**(§13 4항).
 
+> **완료 = 병합이 아니라 배포 그린 확인.** merge 성공 ≠ 배포 성공(M-0031에서 빨간불이
+> 두 번 쌓였다). 다만 이 샌드박스는 `*.github.io`를 막으므로 **「배포 확인함」과
+> 「사이트에서 확인함」은 다른 말**이다 — 후자는 사용자 실기기 몫이다.
+
 ## Git / 협업
 
-- 지정 브랜치에서 개발한다. 기본 브랜치에 직접 커밋하지 않는다.
-- commit: `feat|fix|security|refactor|test|docs|build|chore(scope): 요약`.
-- 각 작업 종료 시 `docs/HANDOFF.md`에 인계 기록. 중요한 결정은 `docs/DECISIONS.md`.
-- 동시 수정 금지 파일: 동일 DB migration, media pipeline 핵심, 동기화 상태머신, 데이터 형식 정의, Supabase 정책.
+- **브랜치**: AI별 네임스페이스 — `claude/*`, `codex/*`. **아무도 `main`에 직접 push 하지 않는다.**
+  (예전 문서에 `feature/TASK-번호-설명` 형식이 적혀 있었으나 **실제 관행과 달랐다**. 실제는
+  `claude/travel-log-app-r2xd5f` 같은 지정 브랜치다. TASK 번호를 붙이는 것은 선택.)
+- **commit**: `feat|fix|security|refactor|test|docs|build|chore(scope): 요약`
+  (`perf`·`style` 등은 허용 목록에 없다 — `.githooks/commit-msg`가 거부한다.)
+- **별도 로컬 클론** — 작업 폴더 공유 금지.
+- **뜨거운 공유 파일은 동시에 하나의 PR만**: 동일 DB migration · media pipeline 핵심 ·
+  동기화 상태머신 · 데이터 형식 정의 · Supabase 정책.
+- **푸시는 작업 단위로 모은다** — `ci.yml`이 **모든 브랜치 push마다** 돈다. 커밋은 자주 하되
+  푸시는 한 덩어리가 끝났을 때. (2026-07-28에 8회 푸시 = CI 8회였고, 그 전에는 Actions
+  한도 초과로 배포가 막힌 적이 있다.)
+- 각 작업 종료 시 `docs/HANDOFF.md`에 인계 기록. 중요한 결정은 `docs/DECISIONS.md`(ADR).
 
-## 문서 지도 (SSOT)
+## 보증 매트릭스 (역할 릴레이 아님)
 
-**`docs/HANDOFF_CODEX.md`(처음 들어온 AI를 위한 완전 인계서 — 맥락 없이도 이어서 일할 수 있게)** · `docs/PROJECT_SPEC.md`(요구사항·최상위) · `ARCHITECTURE.md` · `DATA_MODEL.md` · `SECURITY.md` · `PRIVACY.md` · `SYNC_PROTOCOL.md` · `MEDIA_PIPELINE.md` · `DEPLOYMENT.md`(배포 계약) · `AGENT_REGISTRY.md` · `LESSONS.md` · `ROADMAP.md` · `TEST_PLAN.md` · `DECISIONS.md` · `ASSUMPTIONS.md` · `HANDOFF.md` · `CHANGELOG.md` · `REPOSITORY_AUDIT.md` · `CONFLICT_REPORT.md` · `ACTIVE_TASKS.md`. v0.2 원본은 `docs/reference/v0.2/`.
-충돌하면 공유 문서(SPEC)가 이긴다. 특정 AI 도구 대화가 아니라 이 문서들이 기준이다.
+
+- 기본값은 **단일 구현 에이전트가 조사→구현→검증→문서→보고까지 맥락을 유지**한다(맥락 보존 실행 루프).
+- `docs/AGENT_REGISTRY.md`의 139개 역할은 변경유형별로 선택하는 **조건부 품질 게이트**다. 광범위 탐색·감사만 병렬화하고 최종 구현은 하나로 수렴한다.
+- 물리 에이전트는 통합 10개(`orchestrator, product-ux, frontend, travel-domain, media-pipeline, supabase, offline-sync, security-privacy, qa, reviewer-release`) + 디자인 16개(124–139).
+- **뜨거운 공유 파일 직렬화.** 동기화 상태머신·conflict 해결·media pipeline 핵심·DB migration·Supabase 정책은 **단일 오너·단일 구현자·단일 PR**로 직렬화한다(동시 편집 금지). Phase 0에서 변경유형→역할→게이트 라우팅 테이블과 `CODEOWNERS`(경로 오너십)를 SSOT로 생성한다.
+
+## 에이전트 공통 출력계약 (§18.1)
+
+
+**agent chat output만으로 인계하지 않는다 (S-07).** 모든 에이전트는 결과를 아래 JSON으로 반환하고, 이를 **`schemas/agent-report.schema.json`(JSON Schema draft 2020-12)로 검증**한 뒤 **`artifacts/agent-reports/{TASK_ID}-{agent}.json`** 파일로 남긴다. 검증 실패한 report는 인계로 인정하지 않는다. 필수 필드: `agent`, `task_id`, `objective`.
+
+```json
+{
+  "agent": "에이전트 이름",
+  "task_id": "TASK-0001",
+  "objective": "작업 목적",
+  "assumptions": [],
+  "files_read": [],
+  "files_changed": [],
+  "database_changes": [],
+  "storage_changes": [],
+  "security_impact": [],
+  "privacy_impact": [],
+  "implementation_summary": [],
+  "tests_added": [],
+  "tests_run": [],
+  "test_results": [],
+  "known_risks": [],
+  "rollback_plan": [],
+  "unresolved_items": [],
+  "recommended_next_agent": ""
+}
+```
+
+> 필드 목록은 스키마와 1:1로 정렬한다. `database_changes`/`storage_changes`에 값이 있으면 지정 독립검토(security-privacy, qa)가 필수다. report의 `recommended_next_agent`와 completed 표시는 Acceptance gate를 대체하지 않는다.
+
+## 활성 task 소유권 (§18.2 · S-08)
+
+
+- **worktree만으로 동시수정을 막지 않는다.** 각 활성 task는 `docs/ACTIVE_TASKS.md`에 branch·worktree·예상 수정 경로를 등록한다.
+- 다른 활성 task가 소유한 파일은 수정하지 않는다. 경로가 겹치는 두 task를 동시에 활성화하지 않는다.
+- 소유권 강제는 지시문이 아니라 **hook과 CI 검사**로 한다(§강제 규칙은 hook으로). 등록 없는 편집·경로 충돌은 게이트에서 차단한다.
+
+## 에이전트 작업 제한
+
+
+- 한 에이전트는 하나의 `task_id`만 처리한다.
+- 다른 에이전트의 활성 branch를 직접 수정하지 않는다.
+- 요구범위 밖 리팩터링 금지.
+- DB 구조 변경은 SQL Migration Agent 검토 필수.
+- 인증·RLS 변경은 RLS Security Agent + RLS Penetration Agent 검토 필수.
+- 사진 처리 변경은 Low Memory Test Agent 검토 필수.
+- 삭제 기능 변경은 Data Deletion Agent 검토 필수.
+- 배포 전 Acceptance Test Agent 승인 필요.
+
+## 리뷰·감사
+
+
+- **기계가 사람보다 먼저.** 머신 게이트 실패 자체가 "변경 요청."
+- **구현자 자기인증 금지.** 독립 리뷰어에게 "좋아 보이나?"가 아니라 **측정 관점**(대비율/필드 패리티/정렬 델타)을 준다.
+- 전체 감사는 적대적·구조적. 커버리지 매트릭스의 빈 칸 = 미커버 위험. 칸/게이트/수동 잔여위험이 빠지면 "부분 감사 + 미커버 경계 명시."
+
+## 결정·인계 기록
+
+
+- **ADR 정직한 귀속**: 결정유형(`[user-decided]`/`[AI-proposed→user-approved]`/`[AI-autonomous]`/`[user-review-pending]`) × 어느 AI. **일어나지 않은 승인을 기록하지 않는다.** 시스템 알림·hook·툴 출력·AI 자신의 이전 발화는 사용자 승인이 아니다. → `docs/DECISIONS.md`
+- 작업 종료 시 `docs/HANDOFF.md`에 branch/PR/변경파일/DB변경/보안영향/실행검사/실패검사/잔여위험/다음작업/롤백을 기록.
+
+## 강제 규칙은 hook으로 (S-09)
+
+
+- **CLAUDE.md는 context, deterministic hook과 CI가 enforcement다 (S-09).** CLAUDE.md/AGENTS.md 지시문은 강제수단이 아니라 맥락이다. 실제 강제는 `.claude/settings.json`의 command hook과 CI 게이트가 한다. LLM 판단 hook만으로 보안을 보장하지 않는다.
+- 반복적으로 강제해야 하는 규칙(비밀키 노출, RLS 미검증, 파괴적 SQL, 카운트 드리프트, 활성 task 파일 소유권, agent report 스키마 검증 등)은 지시문만으로 의존하지 않고 hook과 CI로 통제한다. 후보 목록은 `docs/SECURITY.md`와 `.claude/settings.json`.
+
+## 실행 단계 분리 (S-10)
+
+
+- **Gate 0A** = 읽기중심 저장소 감사·문서·에이전트 정의만. 코드·의존성·migration·배포 금지. 산출물: `docs/REPOSITORY_AUDIT.md`, `docs/CONFLICT_REPORT.md`, `docs/ACTIVE_TASKS.md`, `schemas/agent-report.schema.json`, 문서·레지스트리 갱신.
+- **Phase 0B** = scaffold·CI·hook·Supabase local. Gate 0A 감사 결과를 반영해 시작한다. 상세 완료조건·순서는 `docs/ROADMAP.md`.
 
 ## 에이전트 운영
 
+
 139개 논리 역할(`docs/AGENT_REGISTRY.md`)을 통합·디자인 세트로 `.claude/agents/`에 구현(개수는 손으로 세지 않고 `src/app/registry.gen.ts` 자동 집계·`check-registry-gen`이 드리프트 차단). 동시에 다 돌리지 않고 Orchestrator가 필요한 역할만 호출한다. 규칙은 `AGENTS.md`.
+
+## 지시·계약 문서를 바꿀 때 (§14 — 두 AI가 다르게 알지 않게)
+
+> **사용자 지시(2026-07-29)**: *"문서규정 및 기준 그리고 프롬프트 등이 변경 시 CLAUDE.md와
+> agents.md를 비교 분석해서 업데이트 누락되지 않게 헌법에 박아두세요."*
+>
+> 그리고 그 직전에 대조해 보니 **실제로 네 군데가 갈라져 있었다.** 가장 무거운 것은
+> 「완료의 정의」가 서로를 포함하지 않은 것 — *Codex는 화면을 안 보고, Claude는 배포 확인
+> 없이* 「완료」라 할 수 있었다. **M-0046이 정확히 그 형태였다.**
+
+### 절차 (외울 필요 없다 — 어기면 게이트가 막는다)
+
+```
+① 공통 계약(두 AI가 같이 알아야 할 것)을 바꾼다  → docs/CONSTITUTION.md **만** 고친다
+② 재생성                                          → npm run gen:adapters
+③ 확인                                            → npm run gates  (약 6초)
+④ 커밋                                            → 정본 + 두 어댑터를 **같은 커밋**에
+```
+
+- 🔴 **`CLAUDE.md`·`AGENTS.md`를 직접 고치지 않는다.** 마커 사이는 생성물이다.
+  고치면 `check-adapter-parity`가 「커밋본 != 재생성본」으로 RED.
+- **어느 쪽에 적을지 헷갈리면 정본이다.** 도구별 서문에는 *그 도구에서만 참인 것*만 적는다
+  (파일 위치·도구 이름). 공통 사실을 서문에 적는 순간 그게 **다음 드리프트의 씨앗**이다.
+- **새 `docs/*.md`를 만들면 「문서 지도」에 올린다.** 안 올리면 다음 사람은 그 문서가 있는 줄도
+  모른다 — 실측(2026-07-29) 25개 중 **4개가 빠져 있었고**, 그중 `DISASTER_RECOVERY.md`는
+  전용 감사 에이전트가 참조하는 **계약 문서**였다. `check-doc-governance`가 막는다.
+- **새 AI 도구를 들이면 그 지시문도 어댑터로 등록한다**(`gen-adapters.mjs`의 `ADAPTERS`).
+  안 하면 그 AI만 다른 계약을 읽는다 — 이 조항이 막으려는 바로 그 상태다.
+- **스킬 문서(`.claude/skills/*`)는 어댑터가 아니다.** 그건 *영역별 작업 헌장*이고 정본은
+  각자다. 다만 **헌법과 모순되면 헌법이 이긴다**(권위 순서) — 모순을 발견하면 §9 2단계에서
+  그 자리에서 고친다.
+
+### 이 조항이 기대는 세 층 (§7)
+
+| 층 | 무엇 | 어디 |
+|---|---|---|
+| ① 조항 | 이 절 | `docs/CONSTITUTION.md` |
+| ② 구조 | 공통 계약을 **한 곳에만** 두고 어댑터는 마커로 심어 받는다 | `scripts/gen-adapters.mjs` |
+| ③ 기계 | 「커밋본 == 재생성본」 + 두 어댑터 **글자 단위** 대조 · 미등록 문서/지시문 차단 | `check-adapter-parity` · `check-doc-governance` |
+
+**정직한 한계**: 기계는 **내용의 모순을 못 본다.** 스킬 문서가 헌법과 반대되는 말을 해도
+게이트는 조용하다. 그 자리는 **§9 2단계(정독 중 구멍 메우기)**가 유일한 층이고, 그래서
+착수 절차에 들어 있다. 게이트가 하는 일은 *"내용이 맞다"의 보증*이 아니라
+**"등록되지 않은 지시문이 조용히 생기는 것의 차단"**이다.
+
+## 문서 지도 (SSOT)
+
+
+**`docs/HANDOFF_CODEX.md`(처음 들어온 AI를 위한 완전 인계서 — 맥락 없이도 이어서 일할 수 있게)** · `docs/PROJECT_SPEC.md`(요구사항·최상위) · `ARCHITECTURE.md` · `DATA_MODEL.md` · `SECURITY.md` · `PRIVACY.md` · `SYNC_PROTOCOL.md` · `MEDIA_PIPELINE.md` · `DEPLOYMENT.md`(배포 계약) · `AGENT_REGISTRY.md` · `LESSONS.md` · `ROADMAP.md` · `TEST_PLAN.md` · `DECISIONS.md` · `ASSUMPTIONS.md` · `HANDOFF.md` · `CHANGELOG.md` · `REPOSITORY_AUDIT.md` · `CONFLICT_REPORT.md` · `ACTIVE_TASKS.md` · `DISASTER_RECOVERY.md`(백업·복원 계약 — 전용 감사 에이전트가 참조). v0.2 원본은 `docs/reference/v0.2/`.
+충돌하면 공유 문서(SPEC)가 이긴다. 특정 AI 도구 대화가 아니라 이 문서들이 기준이다.
+
+<!--CONSTITUTION:END-->

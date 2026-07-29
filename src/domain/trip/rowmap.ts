@@ -11,6 +11,7 @@ export interface TripRow {
   user_id: string;
   title: string;
   start_date: string | null;
+  time_zone: string | null;
   end_date: string | null;
   status: LocalTrip['status'];
   version: number;
@@ -34,6 +35,7 @@ export function toRow(t: LocalTrip, userId: string, device?: string): TripRow {
     updated_by_device: device ?? null,
     title: t.title,
     start_date: t.startDate || null,
+    time_zone: t.timeZone || null,
     end_date: t.endDate || null,
     status: t.status,
     version: t.version,
@@ -54,6 +56,7 @@ export function fromRow(r: TripRow): WithInstants<LocalTrip> {
     id: r.id,
     title: r.title,
     startDate: r.start_date ?? '',
+    timeZone: r.time_zone ?? '',
     endDate: r.end_date ?? '',
     status: r.status,
     version: r.version,

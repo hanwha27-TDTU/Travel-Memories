@@ -22,12 +22,31 @@ export interface LocalTrip extends SyncMeta {
   startDate: string;
   endDate: string;
   status: 'planned' | 'active' | 'completed' | 'archived';
+  /**
+   * 🔴 **이 여행을 겪은 시간대**(IANA id, 예 `'Asia/Ho_Chi_Minh'`). 비어 있으면 **미지정**.
+   *
+   * 왜 오프셋이 아니라 id인가: 오프셋은 시간대의 성질이 아니라 **시간대 × 순간**의 성질이다
+   * (파리는 여름 +120, 겨울 +60). id를 두면 브라우저의 tzdata가 DST까지 처리한다 —
+   * 데이터셋 0바이트(`domain/time.ts` 머리주석).
+   *
+   * **미지정을 기기 시간대로 채우지 않는다**(M-0049). 옛 여행에 추측을 써 넣으면 그건
+   * 사용자가 말한 적 없는 사실이 기록에 남는 것이다. 화면이 「추정」이라 말하고 사용자가 정한다.
+   */
+  timeZone?: string;
 }
 
 // 순간(Moment) — 여행 안의 한 기억. 선택 필드는 null 대신 ''로 통일(과적재 금지, SYNC_PROTOCOL).
 export interface LocalMoment extends SyncMeta {
   tripId: string;
-  occurredAt: string; // ISO — 발생 시각(정렬·날짜 그룹 기준)
+  occurredAt: string; // ISO — 발생 시각(정렬·날짜 그룹 **기준값은 절대시각**)
+  /**
+   * 이 순간의 **오프셋 예외**(분). 여행 시간대와 다를 때만 채운다 — 사진 EXIF
+   * `OffsetTimeOriginal`이 알려줬거나, 사용자가 직접 고쳤을 때.
+   *
+   * `undefined`/`null`이면 **여행 시간대에서 파생**한다(`resolveOffsetMin` 사다리).
+   * 한 여행이 여러 시간대를 걸치는 경우(환승·국경)를 이 필드 하나가 감당한다.
+   */
+  tzOffsetMin?: number | null;
   title: string; // 한 줄 기록
   note: string; // 추가 메모(선택)
   emotion: string; // 감정 이모지(선택)
