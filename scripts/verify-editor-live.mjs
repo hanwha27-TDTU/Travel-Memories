@@ -1547,6 +1547,7 @@ await page.evaluate(() => {
       address: { borough: '종로구', state: '서울특별시', country_code: 'kr' },
     },
   ];
+  window.__placeRowsForLive = rows; // 아래 「검색 실패」 블록이 상태를 되돌릴 때 다시 쓴다(§1)
   const real = window.fetch;
   window.fetch = (input, init) => {
     const url = typeof input === 'string' ? input : input.url;
@@ -1599,6 +1600,83 @@ check(
   Boolean(road) && road.grade.includes('⚠') && Boolean(bldg) && bldg.grade.includes('📍'),
   `${road?.grade} / ${bldg?.grade}`,
 );
+// ── 🔴 v1.26: 검색이 **실패했을 때** 막다른 길이 아닌가 (사용자 제안 2026-07-30) ────────
+// *"카카오 네이버 구글 좌표를 얻기 위한 링크를 칩 형태로 제공해주는게 어때요?"*
+// 예전엔 「네이버·카카오·구글에서 찾아 붙여넣으세요」라고 **말만** 했다 — 앱이 검색어를 이미
+// 쥐고 있으면서 사용자에게 *다른 앱을 열고 같은 말을 다시 치게* 시킨 것이다(§12).
+// 여기서 재는 것: ①빈 결과에 칩이 뜨는가 ②넷 다 있는가(§7 — 얀덱스만 빠지지 않는가)
+// ③**눌렀을 때 그 검색어로 열리는가**(§13 4항 — 라벨만 읽지 않는다).
+await page.evaluate(() => {
+  const real = window.fetch;
+  window.fetch = (input, init) => {
+    const url = typeof input === 'string' ? input : input.url;
+    // 이번엔 **빈 배열** — 「결과가 없어요」 경로를 만든다.
+    if (url.includes('nominatim.openstreetmap.org')) {
+      return Promise.resolve(new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }
+    return real(input, init);
+  };
+  // 바깥으로 실제로 나가지 않게 가로챈다. **인자는 기록한다** — 샌드박스가 외부 접속을
+  // 막으므로 「무엇을 열려 했는가」까지가 내가 잴 수 있는 층이다(정직한 경계).
+  window.__extOpened = [];
+  window.open = (u) => { window.__extOpened.push(String(u)); return null; };
+  window.confirm = () => true; // 제공자별 동의는 유닛이 따로 잰다
+});
+await page.fill('.place-input', '없을만한가게이름ZZ');
+await page.locator('.place-search').first().click();
+await page.waitForSelector('.place-none', { timeout: 5000 });
+const noneChips = await page.evaluate(() => ({
+  text: document.querySelector('.place-none')?.innerText ?? '',
+  ids: [...document.querySelectorAll('.place-none [data-ext-map]')].map((b) => b.getAttribute('data-ext-map')),
+  labels: [...document.querySelectorAll('.place-none [data-ext-map]')].map((b) => b.textContent?.trim()),
+  overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+}));
+check(
+  '🔴 검색 실패: 막다른 길이 아니다 — 바깥 지도 칩이 뜬다(사용자 제안)',
+  noneChips.ids.length > 0,
+  JSON.stringify(noneChips.labels),
+);
+check(
+  '🔴 검색 실패: 제공자 **넷 다** 있다(§7 — 하나만 조용히 빠지지 않는다)',
+  ['google', 'naver', 'kakao', 'yandex'].every((id) => noneChips.ids.includes(id)),
+  JSON.stringify(noneChips.ids),
+);
+check(
+  '검색 실패: 이름으로 찾는다는 사실을 말한다(좌표로 집은 것처럼 굴지 않는다 §8)',
+  /이름/.test(noneChips.text),
+  noneChips.text.replace(/\s+/g, ' ').slice(0, 120),
+);
+check('검색 실패: 칩 줄이 가로 넘침을 만들지 않는다(412px)', noneChips.overflow <= 0, `overflow=${noneChips.overflow}`);
+// 🔴 **눌러 본다.** 파괴적 행동이 아니고(바깥 링크 열기), 실제로 나가지도 않는다(가로챘다).
+await page.locator('.place-none [data-ext-map="kakao"]').click();
+await page.waitForTimeout(200);
+const opened = await page.evaluate(() => window.__extOpened ?? []);
+check(
+  '🔴 칩을 누르면 **그 검색어로** 열린다(라벨만 읽지 않는다 — §13 4항)',
+  opened.length === 1 && /kakao/.test(opened[0]) && opened[0].includes(encodeURIComponent('없을만한가게이름ZZ')),
+  JSON.stringify(opened),
+);
+
+// 🔴 **자기가 바꾼 상태를 자기가 되돌린다**(`ui-responsive-dev` §3-C). 이 블록은 빈 결과를
+// 만들려고 fetch를 갈아 끼웠는데, 아래 ③은 **앞선 검색 결과가 화면에 남아 있다고 가정**한다.
+// 되돌리지 않으면 뒤따르는 검사가 화면을 잃는다 — 실제로 그렇게 한 번 깨뜨렸다.
+await page.evaluate(() => {
+  const rows = window.__placeRowsForLive;
+  const real = window.fetch;
+  window.fetch = (input, init) => {
+    const url = typeof input === 'string' ? input : input.url;
+    if (url.includes('nominatim.openstreetmap.org')) {
+      return Promise.resolve(new Response(JSON.stringify(rows), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      }));
+    }
+    return real(input, init);
+  };
+});
+await page.fill('.place-input', '대학로');
+await page.locator('.place-search').first().click();
+await page.waitForSelector('.place-result', { timeout: 5000 });
+
 // ③ 넓은 결과를 **고르면** 그 사실이 배지 아래에 남는가(고르고 나서 조용해지면 M-0022 재발).
 await page.locator('.place-result').first().click();
 await page.waitForTimeout(200);

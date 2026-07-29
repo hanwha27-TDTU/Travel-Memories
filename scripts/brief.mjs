@@ -43,6 +43,10 @@ export const SKILL_ROUTES = [
   // 보조 화면 지연 로드의 단일 관문. 화면을 다루는 파일이므로 UI 헌장을 읽되,
   // 이 파일을 바꾼다는 건 "무엇이 첫 로드에 들어가는가"를 바꾼다는 뜻이다(check-lazy-screens).
   { match: /^src\/ui\/lazyScreens/, skill: 'ui-responsive-dev' },
+  // 바깥 지도 칩 줄(구글·네이버·카카오·얀덱스). **UI 부품이지만 규율은 장소 헌장**이다 —
+  // 여기 담긴 것이 좌표·장소명이 기기 밖으로 나가는 유일한 경로의 동의 절차이기 때문이다
+  // (`externalMapConsent`와 같은 판단).
+  { match: /^src\/ui\/externalMapRow/, skill: 'map-place-dev' },
   { match: /^src\/ui\/(photoEditor|photoViewer|editor)/, skill: 'photo-editor-dev' },
   { match: /^src\/media\//, skill: 'photo-editor-dev' },
   { match: /^src\/ui\/panels\/(verdict|diagnostics)/, skill: 'diagnostics-dev' },
