@@ -8,16 +8,20 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.23<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->123<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->59<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.24<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->124<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->60<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->23<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
 
-### 🕐 직전 세션에서 무슨 일이 있었나 (2026-07-28 · 새 AI는 이것부터)
+### 🕐 직전 세션에서 무슨 일이 있었나 (2026-07-30 · 새 AI는 이것부터)
 
 > **이 절은 "지금 이 순간"이다.** 아래 기능 지도가 *무엇이 있는가*를, 이 절이 *방금 무슨 일이 있었고 무엇이 아직 안 끝났는가*를 말한다.
 
-**한 줄**: 소리를 서버로 보냈고(v1.20), **배포 30분 만에 사용자 스크린샷이 거짓 안내를 잡았고**(v1.21), 같은 결함군이 **기기 축에서 한 번 더** 났다(v1.22). 그 사이 사용자가 규율 셋을 세웠고 — 셋 다 같은 뿌리였다: **내가 재볼 수 있는 것을 사람에게 시키고 있었다.**
+**한 줄(2026-07-30 · v1.24)**: *"기본맵이 너무 부정확해요"* — **재보니 좌표는 맞았고**, 앱이 두 가지를 말하지 않고 있었다(확대수준·정밀도). 제안받은 「Mapbox로 교체」는 **재지 않은 처방**이었고, 대신 **재는 도구**를 만들었다. 장소를 1급 도메인으로 승격(0022·0023)했지만 **실서버 적용은 아직**이다 — 아래 HANDOFF-0019의 「잔여 위험」 4가지가 다음 작업이다.
+
+<details><summary>그 이전(2026-07-28 · v1.20~v1.22)</summary>
+
+소리를 서버로 보냈고(v1.20), **배포 30분 만에 사용자 스크린샷이 거짓 안내를 잡았고**(v1.21), 같은 결함군이 **기기 축에서 한 번 더** 났다(v1.22). 그 사이 사용자가 규율 셋을 세웠고 — 셋 다 같은 뿌리였다: **내가 재볼 수 있는 것을 사람에게 시키고 있었다.**
 
 | # | 무엇 | 결과 |
 |---|---|---|
@@ -30,6 +34,8 @@
 | 7 | **설계 수정**(사용자: *"이거 신경 안 쓰도록 설계를 수정해야 할 거 같은데…"*) | **A** 동기화가 스스로 바이트를 대조·복구 · **B** 기기 축을 판정에(파괴적 버튼을 **만들지 않는다**) · **C** 요약 문장이 종류 이름을 부른다 |
 | 8 | **버튼을 눌러 본다**(사용자: *"버튼을 만들게 된다면 니가 직접 눌러봐서 확인할 수 있지 않아?"*) | 라이브에 **C층** 신설(누르면 ①결과 문장 ②재판정 ③실패 사유 ④잠김을 잰다). 헌법 §13 **4항**으로 못박음 |
 | 9 | **부탁했던 것을 내가 쟀다**(사용자: *"나에게 부탁한 거 니가 스크린샷으로 확인가능하지 않아?"*) | 실기기 확인 셋 중 **둘을 회수**: **D층**(요약 문장을 실제 렌더러로) + **이음매 통합검사 7건**(`r2ListObjects`만 갈아 끼우고 나머지는 진짜) |
+
+</details>
 
 ### 오늘의 근본형 (다음 사람이 같은 자리에서 넘어지지 않게)
 
@@ -53,7 +59,7 @@
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.23<!--/reg-->) Pages 성공.
+**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.24<!--/reg-->) Pages 성공.
 
 ### 현재 기능 지도 (새 AI는 이 표로 기능 표면을 즉시 파악)
 
@@ -270,6 +276,23 @@ npm run dev                            # 홈 화면 확인 (선택)
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
 
 ---
+
+## HANDOFF-0019 · v1.24 · **지도가 부정확하다 — 좌표는 맞았다** (M-0050 · 2026-07-30)
+
+- **브랜치**: `claude/travel-log-app-r2xd5f` · 커밋 4개(A·B·C·문서)
+- **발단**: 사용자 실기기 스크린샷 + 다른 AI의 제안(Mapbox + PostGIS)을 함께 가져옴. *"구현가능한가요? 더 정확도 높은 걸로?"*
+- 🔴 **먼저 쟀다**: 스크린샷 축척 기준점으로 핀 역산 → **127.00E/37.587N = 대학로 북쪽 끝.** **좌표는 틀리지 않았다.** 원인은 둘 다 우리 코드였다 — ①단일 지점 zoom이 초기값 10에 남음(§7 비대칭) ②파서가 정밀도 근거를 버려 도(道) 중심점과 건물을 같은 문장으로 말함(§8).
+- **변경 파일**(주요): `domain/place/{precision,provider,rowmap}.ts`(신설) · `services/{geocode,places}.ts` · `services/{sync,backup,trash,purge,storeState,moments}.ts` · `ui/screens/{mapView,tripDetail}.ts` · `supabase/functions/geocode/`(신설) · `supabase/migrations/0022·0023`(신설) · `offline/db.ts`(v8) · `app/blueprint.ts` · 게이트 3종 · `scripts/compare-geocoders.mjs`(신설)
+- **DB 변경**: `journey.places`(PostGIS · 생성 컬럼 `location` · GiST 인덱스 · RLS 4정책 · 좀비/원장 트리거 · GRANT 4종) + `journey.moments.place_id`(복합 FK · `on delete set null`)
+- **보안 영향**: 국내 지오코더 키는 **Edge Function 시크릿에만**(§0). JWT 매 요청 직접 확인(공짜 프록시 차단). **검색어를 로그에 찍지 않는다**(어디를 찾아봤는지 = 어디에 갔는지, 원칙 #3).
+- **실행 검사**: 전체 하네스 통과(SKIP 없음) · 유닛 849건 · 라이브 203건 · §4 주입 3종 RED 확인 · 화면 캡처 2장 육안 확인 · 「내 장소」 버튼 실제 클릭(§13 4항)
+- 🔴 **실패했다가 고친 것(라이브가 잡음)**: ①라이브러리에서 **다시** 고르면 등급을 알고도 침묵 → `verdictFromStored()` ②라이브 검사가 `nth(1)`로 골라 「내 장소」가 끼어들자 엉뚱한 줄을 잼 → 이름으로 고르게 수정(map-place-dev §3의 검사판 재발)
+- 🔴 **잔여 위험 / 다음 작업**:
+  1. **마이그레이션 0022·0023을 실서버에 적용해야 한다.** 그 전까지 장소 push는 실패로 큐에 남는다(설계상 재시도). PostGIS 확장이 이 프로젝트에서 켜지는지 **확인 필요**.
+  2. **국내 제공자는 아직 아무것도 안 붙었다.** 시크릿(`KAKAO_REST_KEY` 또는 `VWORLD_KEY`)을 넣고 `geocode` 함수를 배포해야 켜진다. 안 넣으면 Nominatim만 쓰고 **그게 정상 동작**이다.
+  3. **「국내 제공자가 더 정확하다」는 아직 측정되지 않았다.** 실기기에서 `npm run compare:geocoders`를 돌려 숫자를 보고 결정한다.
+  4. 지도 화면에 저장된 장소를 **점으로 표시**하는 것은 아직 없다(라이브러리는 순간 편집 폼에서만 쓰인다).
+- **롤백**: `drop table journey.places cascade;` + `alter table journey.moments drop column place_id;` + syncQueue의 `place` op 비우기. 시크릿을 지우면 국내 제공자는 자동으로 빠진다.
 
 ## HANDOFF-0018 · v1.23 · **그 자리의 시계** + 지시문서 정본화 (M-0049 · 2026-07-29)
 

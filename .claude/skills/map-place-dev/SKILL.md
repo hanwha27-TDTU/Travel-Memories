@@ -13,7 +13,12 @@ description: 지도·장소 개발 프롬프트 — ui/screens/mapView.ts·servi
 | 파일 | 역할 | 성격 |
 |---|---|---|
 | `src/domain/place/geojson.ts` | `momentCoord`(사진 GPS→순간 좌표)·`toFeatureCollection` | **순수 → 유닛테스트 대상** |
-| `src/services/geocode.ts` | Nominatim URL 조립·응답 파싱(`buildNominatimUrl`·`parseNominatimResults`) | URL/파싱은 순수(테스트 대상), fetch만 부수효과 |
+| `src/services/geocode.ts` | 지오코더 URL 조립·응답 파싱 + **제공자 라우팅**(`searchPlaces`) | URL/파싱은 순수(테스트 대상), fetch만 부수효과 |
+| `src/domain/place/precision.ts` | 결과가 **무엇을 가리키는가** 판정(등급·범위·확대수준·글리프) | **순수 → 유닛테스트 대상**. 사용자 문장이 여기서 나온다(§10 ③) |
+| `src/domain/place/provider.ts` | 어느 지오코더에게 먼저 물을지(한글/좌표 → 국내 우선) · 중복 접기 | **순수 → 유닛테스트 대상** |
+| `src/domain/place/rowmap.ts` | 장소 라이브러리 직렬화 경계(0022) | 순수. `check-schema-parity` 대상 |
+| `src/services/places.ts` | 장소 저장·수정·삭제·복원 + 근처 검색 | 큐 op·tombstone 규율은 **sync-offline-dev**가 정본 |
+| `supabase/functions/geocode/` | 국내 지오코더 프록시(키는 여기에만 — §0) | Deno. 순수 변환부는 유닛 대상 |
 | `src/ui/screens/mapView.ts` | MapLibre 지도 보기 + **좌표 지정(picker)** | DOM |
 | `src/ui/screens/tripDetail.ts` | 장소 입력 필드(`buildPlaceField`) | DOM |
 
@@ -33,6 +38,19 @@ description: 지도·장소 개발 프롬프트 — ui/screens/mapView.ts·servi
 ## 2. 타일 제공자 (바꾸려면 이 조건 확인)
 
 - 기본값: **OpenStreetMap 래스터** — 키·계정 불필요, 정적 배포 호환, 귀속 표시 필수.
+
+### 지오코더는 하나로 고정하지 않는다 (2026-07-30 · 사용자: 한국+해외 둘 다)
+
+- **Nominatim은 언제나 마지막에 있다** — 키가 필요 없으므로 시크릿 0에서도 앱이 돈다.
+  국내 제공자(카카오·VWorld)는 **개선이지 전제가 아니다.**
+- 한글이 섞이거나 좌표가 한국 안이면 국내 제공자 먼저. **해외 질의에는 국내 제공자를 아예
+  부르지 않는다**(답 없을 걸 알면서 부르지 않는다).
+- 키가 필요한 제공자는 **반드시 Edge Function 뒤**(§0). 검색어는 로그에 찍지 않는다 —
+  어디를 찾아봤는지가 곧 어디에 갔는지다(원칙 #3).
+- 🔴 **정밀도는 앱이 다시 판정한다.** 서버가 보낸 등급을 믿지 않는다 — 등급 규칙이 한 벌이어야
+  제공자들이 **같은 자**로 재진다(§7 2층).
+- 🔴 **「더 정확하다」는 재고 말한다**: `npm run compare:geocoders`(응답률·정밀도 분포·제공자 간
+  1순위 거리). 승자를 정하지 않는다. 외부 호스트가 막힌 환경에서는 **SKIP(exit 2)**이다.
 - `VITE_MAP_STYLE_URL`로 교체 가능(사용자 자신의 MapTiler/Stadia 등). 교체 시 CSP 호스트도 함께.
 - **정직**: OSM 타일 사용정책은 대량 트래픽 앱을 권장하지 않는다 — 개인·저트래픽이라 수용하되, 규모가 커지면 전용 제공자로 옮긴다.
 - 인라인 래스터 스타일을 쓰므로 스타일 JSON 외부 fetch가 없다(글리프·스프라이트 없음). 벡터로 바꾸면 이 전제가 깨지니 CSP를 재점검.
@@ -45,6 +63,10 @@ description: 지도·장소 개발 프롬프트 — ui/screens/mapView.ts·servi
 | 지도로 좌표를 찍고 이름을 적으면 좌표가 사라짐 | 좌표 무효화 규칙을 출처 구분 없이 적용 | `mapPicked` 플래그로 지도 좌표는 이름과 독립 유지 |
 | (예방) 검색 결과를 `innerHTML`로 렌더할 뻔 | 외부 문자열을 신뢰 | `textContent` 전용 + CSP 게이트 |
 | (예방) 지도 팝업이 재렌더 때 엉뚱한 순간을 가리킴 | 팝업을 배열 인덱스로 식별 | **안정 id**로 식별(인덱스 금지) |
+| 🔴 지점이 **하나**일 때 지도가 광역으로 남음(M-0050) | 확대수준 규율을 두 곳에 손으로 구현해 한쪽만 빠짐(§7) | 출처를 `zoomForSpan()` **한 곳**으로 + 라이브가 **실제 요청된 타일 z**를 잰다 |
+| 🔴 도(道) 중심점과 건물 출입구를 **같은 문장**으로 말함(M-0050) | 파서가 `place_rank`·`boundingbox`를 버려 정밀도를 **모르면서 아는 척**(§8) | `domain/place/precision.ts`(순수) — 등급·범위·글리프. 점이 아니면 지도 미세조정을 권한다 |
+| 🔴 라이브러리에서 **다시** 고르면 등급을 말하지 않음 | 같은 사실을 앱이 두 번 다르게 말함(§7 사용자 대면 대칭) | `verdictFromStored()` — 저장해 둔 등급을 그대로 다시 말한다 |
+| 🔴 라이브 검사가 `nth(1)`로 결과를 골라 조용히 엉뚱한 줄을 잼 | **검사 쪽의 인덱스 식별** — 위 팝업 결함과 같은 근본형이 검사에서 재발 | 라이브는 **이름(hasText)으로** 고른다 |
 
 ## 4. 검증 레시피
 
