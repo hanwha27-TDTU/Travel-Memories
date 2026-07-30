@@ -922,10 +922,29 @@ PR을 **스쿼시**로 병합하면 브랜치 커밋이 `main`의 조상으로 �
 다음 PR을 열면 **트리가 완전히 같은데도 충돌**이 난다(병합 기준점이 옛것이라 git이 *같은 변경을
 양쪽에서 새로 한 것*으로 본다). 실제로 #132에서 막혔다.
 
-- **되돌리는 법**: 병합 직후 브랜치에 `git merge -s ours origin/main`으로 **내용 변화 없이
-  main을 조상으로만 흡수**한다. 그러면 이후 PR이 깨끗하게 갈린다.
-- **유실이 없음을 증거로 확인하라**: `git diff origin/main..HEAD`가 **당신의 순증분과 바이트 단위로
-  같아야** 한다. 같지 않으면 흡수하지 말고 원인을 찾아라.
+🔴 **처방을 「PR 열기 전 점검」으로 두라 — 「병합 직후」로 두면 잊는다.** 이 문서의 초안은
+*"병합 직후 흡수하라"*로 적었고, **그것을 쓴 세션이 바로 다음 PR(#134)에서 그걸 안 했다.**
+규율을 직접 써놓고 같은 자리에서 어기는 형태(M-0012·M-0033)를 또 한 것이다. 사후 습관은
+새어 나가고, **막히는 자리에 붙은 점검은 안 새어 나간다.**
+
+```bash
+# PR을 열기 전에 한 번 — 이미 조상이면 아무 일도 일어나지 않는다(무해하고 멱등적이다)
+git fetch origin main
+git merge-base --is-ancestor origin/main HEAD || {
+  # ① main의 트리가 내 이전 커밋과 같은지 먼저 확인한다(같아야 흡수가 안전하다)
+  git diff --stat origin/main..<직전_스쿼시된_커밋>      # 빈 결과여야 한다
+  # ② 내용 변화 없이 조상으로만 흡수
+  git merge -s ours origin/main -m "chore(merge): main을 브랜치의 조상으로 흡수"
+  # ③ 🔴 유실이 없음을 **증거로** 확인 — 두 diff가 바이트 단위로 같아야 한다
+  git diff origin/main..HEAD > /tmp/a.diff
+  git diff <직전_스쿼시된_커밋>..<내_새_커밋> > /tmp/b.diff
+  diff /tmp/a.diff /tmp/b.diff && echo "IDENTICAL — 유실 없음"
+}
+```
+
+- ②의 전제(`main` 트리 == 내 이전 커밋 트리)가 **깨져 있으면 흡수하지 마라.** 그건 다른 사람이
+  main에 뭔가를 더 올렸다는 뜻이고, 그때는 진짜 병합(충돌 해소)이 필요하다. `-s ours`는
+  **「main에는 내가 모르는 것이 없다」가 참일 때만** 옳다.
 - 이 환경에서는 **force push가 권한 정책에 막힌다.** 그래서 rebase 대신 위 방법을 골랐고,
   공유 브랜치의 히스토리를 다시 쓰지 않는다는 이점도 있다.
 
@@ -940,8 +959,9 @@ PR을 **스쿼시**로 병합하면 브랜치 커밋이 `main`의 조상으로 �
 □ 재발·체크포인트 통과 실수는 docs/records/coding-mistakes.md에 같은 커밋으로
 □ commit(허용 타입만: feat|fix|security|refactor|test|docs|build|chore) → push(작업 단위로 모아서)
 □ PR — .github/pull_request_template.md 항목 전부. **자동층만 「통과」**로 적는다
+□ 🔴 **PR 열기 전**: git merge-base --is-ancestor origin/main HEAD 확인
+   (아니면 위 「스쿼시 병합의 뒤끝」의 흡수 절차 — 안 하면 병합이 405 충돌로 막힌다)
 □ CI 그린 → 스쿼시 병합 → 🔴 **배포 워크플로 그린 확인**(merge ≠ 배포)
-□ 병합 후 브랜치에 main 흡수(위 「스쿼시 병합의 뒤끝」)
 □ 실기기에 남긴 항목을 사용자에게 **분리해서** 보고
 ```
 
