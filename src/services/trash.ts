@@ -19,7 +19,8 @@
 // 그래서 **부모가 살아 있는(활성) 것만** 골라낸다. 그게 지금 어디에도 안 보이는 바로 그것이다.
 
 import { db } from '../offline/db';
-import { localDate, compareInstants } from '../domain/time';
+import { momentWhen, compareInstants, type TripClock } from '../domain/time';
+import { homeZone } from './homeZone';
 import { TRASH_DOMAINS, localTableOf, purgeOpType, type TrashDomain } from './purge';
 import { formatDuration } from '../domain/audio/note';
 import { restoreMomentLocalFirst } from './moments';
@@ -52,8 +53,17 @@ export const CHILD_LABEL: Record<ChildDomain, string> = {
 /** 한 도메인의 tombstone 행을 휴지통 줄로 바꾸는 규칙. */
 interface ChildSource {
   /** 이 도메인의 삭제된 행들. `tripId`는 부모 생사 판정에 쓴다. */
-  rows: () => Promise<{ id: string; tripId: string; deletedAt: string | null; label: string }[]>;
+  rows: (clockOf: ClockOf) => Promise<{ id: string; tripId: string; deletedAt: string | null; label: string }[]>;
 }
+
+/**
+ * 여행 id → 그 여행의 시계. 라벨의 날짜를 **그 자리 기준**으로 적기 위해 필요하다.
+ *
+ * 🔴 인자로 받는 이유(§7 2층): 도메인마다 각자 `localTrips`를 다시 읽으면 ①같은 표를 다섯 번
+ * 읽고 ②한 도메인이 옛 방식(기기 시계)을 쓰는 것이 조용해진다. 등록부가 **주는** 도구로 두면
+ * 새 도메인이 태어날 때 같은 도구를 손에 들고 태어난다.
+ */
+export type ClockOf = (tripId: string) => TripClock;
 
 /**
  * 도메인별 휴지통 규칙 **등록부**.
@@ -66,6 +76,7 @@ interface ChildSource {
  */
 const CHILD_SOURCE: Record<ChildDomain, ChildSource> = {
   moment: {
+    // 순간은 라벨이 **제목**이라 시각이 필요 없다 — `clockOf`를 받지 않는 것이 맞다.
     rows: async () =>
       (await db().localMoments.toArray()).map((m) => ({
         id: m.id,
@@ -75,12 +86,16 @@ const CHILD_SOURCE: Record<ChildDomain, ChildSource> = {
       })),
   },
   media: {
-    rows: async () =>
+    rows: async (clockOf) =>
       (await db().localMedia.toArray()).map((m) => {
         // 사진은 제목이 없다 — 촬영시각이 사용자가 알아볼 유일한 단서다(id 앞자리는 hex라 §6 위반).
         // **잘라 쓰지 않는다**: ISO를 slice하면 UTC 날짜가 나와 사용자의 날짜와 어긋난다(게이트가 잡아줬다).
+        // 그리고 **기기 시계로도 적지 않는다**(M-0049 후반): 「7월 16일 촬영」이 보는 기기에
+        // 따라 15일로 보이면, 사용자는 자기가 찾는 사진이 아니라고 판단해 지나친다.
+        // 사진에는 순간별 오프셋 필드가 없어 여행 시간대로 잰다 — 라벨은 「어느 것인가」를
+        // 말하는 자리라 그 정밀도로 충분하다(정밀한 자리는 뷰어·타임라인이 담당한다).
         const iso = m.takenAt || m.createdAt || '';
-        const when = iso ? localDate(iso) : '';
+        const when = iso ? momentWhen(iso, null, clockOf(m.tripId)).date : '';
         return { id: m.id, tripId: m.tripId, deletedAt: m.deletedAt, label: when ? `${when} 촬영` : '사진' };
       }),
   },
@@ -94,11 +109,12 @@ const CHILD_SOURCE: Record<ChildDomain, ChildSource> = {
       })),
   },
   audio: {
-    rows: async () =>
+    rows: async (clockOf) =>
       (await db().localAudio.toArray()).map((a) => {
         // 사진과 **같은 자리에 같은 어휘**(§7 사용자 대면 대칭): 「날짜 + 무엇」 뒤에 길이를 붙인다.
         // 길이는 화면 칩과 **같은 함수**를 쓴다 — 같은 값이 두 곳에서 다르게 보이지 않게.
-        const when = a.recordedAt ? localDate(a.recordedAt) : '';
+        // 자도 형제와 같은 것을 쓴다(그 자리의 시계).
+        const when = a.recordedAt ? momentWhen(a.recordedAt, null, clockOf(a.tripId)).date : '';
         const head = when ? `${when} 녹음` : '녹음';
         return { id: a.id, tripId: a.tripId, deletedAt: a.deletedAt, label: `${head} · ${formatDuration(a.durationSec)}` };
       }),
@@ -134,9 +150,15 @@ export async function listTrashedChildren(): Promise<TrashedChild[]> {
   const deadTrips = new Set(trips.filter((t) => t.deletedAt !== null).map((t) => t.id));
   const out: TrashedChild[] = [];
 
+  // 시계는 **여기서 한 번** 만들어 등록부에 내린다(표를 다섯 번 읽지 않는다).
+  // 부모가 없는 도메인(장소)은 `zone: ''`이 되고, 그 도메인은 어차피 날짜를 안 쓴다.
+  const home = homeZone();
+  const zoneById = new Map(trips.map((t) => [t.id, t.timeZone ?? '']));
+  const clockOf: ClockOf = (tripId) => ({ zone: zoneById.get(tripId) ?? '', homeZone: home });
+
   // 등록부를 **돈다** — 도메인마다 루프를 손으로 쓰지 않는다. 다음 형제가 자동으로 따라온다.
   for (const domain of CHILD_DOMAINS) {
-    for (const r of await CHILD_SOURCE[domain].rows()) {
+    for (const r of await CHILD_SOURCE[domain].rows(clockOf)) {
       if (r.deletedAt === null || deadTrips.has(r.tripId)) continue;
       out.push({ domain, id: r.id, label: r.label, deletedAt: r.deletedAt });
     }

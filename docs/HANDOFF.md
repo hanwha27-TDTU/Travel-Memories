@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.26<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->126<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.27<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->127<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->23<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -61,7 +61,7 @@
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.26<!--/reg-->) Pages 성공.
+**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.27<!--/reg-->) Pages 성공.
 
 ### 현재 기능 지도 (새 AI는 이 표로 기능 표면을 즉시 파악)
 
@@ -276,6 +276,57 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0022 · v1.27 · **그 자리의 시계 — 표시 계층까지 마쳤다** (M-0049 후반 · M-0051) (2026-07-30)
+
+**계기**: 사용자가 7/29에 짚은 그 화면(「Day 1 · 7월 29일 (수) · 19:08」)의 **나머지 절반**. 저장 계층은 v1.23에서 고쳤고 표시가 남아 있었다.
+
+**한 줄**: 기억 시각을 화면에 내보내는 문을 **하나로** 만들었다(`momentWhen`). 타임라인 시각·**Day 묶기**·입력 칸·사진 뷰어 제목·지도 팝업·휴지통 라벨·**환율 사용일**이 전부 그 문을 지난다. 그리고 「한국시간 환산」은 **다를 때만** 나온다.
+
+### 왜 문이 하나여야 하나
+
+사다리(`resolveOffsetMin`)는 **`null`을 줄 수 있다**(시간대 미지정). 그때 화면마다 폴백을 각자 고르면 **같은 순간이 화면마다 다른 시각**이 된다 — M-0048이 정확히 그 형태였다(같은 자료, 두 기기, **반대 판정**). 그래서 폴백도 한 곳에서 고르고, **폴백을 썼다는 사실을 값에 담아** 내보낸다(`basis`·`caveat`).
+
+- **폴백은 쓰지만 말한다.** 시각은 안 보여줄 수 없다(빈 칸이 곧 거짓말). 기기 시계로 그리되 타임라인 맨 위에 **한 번** 고지하고, §12대로 **「여행 시간대 정하기」 버튼**으로 고칠 자리까지 데려간다.
+- **`mapView`는 이제 시각을 계산하지 않는다** — `MapPoint.whenText`를 받는다. 틀릴 방법 자체를 없애는 것이 규율을 적어 두는 것보다 강하다(§7 2층).
+- **입력 칸도 같은 시계**다. 타임라인이 19:08인데 편집 칸이 21:08이면 저장할 때마다 시각이 바뀌는 것처럼 보인다(실제로는 안 바뀌는데 그렇게 보이는 게 더 나쁘다 — 앱을 못 믿게 된다). 칸 아래에 「🕒 인도차이나 시각으로 적어요」를 **늘** 적는다.
+
+### 화면
+
+- 여행 편집에 **시간대 두 칸**: 「여행 시간대(그 자리의 시계)」 + 「집 시간대(환산 기준)」. 목록은 브라우저가 준다(`Intl.supportedValuesOf` 418개, `<datalist>`로 타이핑 좁히기 — 목록을 못 주는 브라우저에서는 그냥 입력 칸이 된다).
+- 고르면 **「인도차이나 · 지금 그곳은 08:01 (UTC+7)」** 미리보기. id만 보고는 아무도 모른다(§12). 오타(`Asia/Seuol`)는 **조용히 UTC가 되지 않고** 「알 수 없어요」라고 말한다.
+- 타임라인: **08:00**(크게) + **한국 10:00**(작게·muted). 국내 여행이면 환산 줄이 **아예 만들어지지 않는다**(§8).
+- **비우는 것을 막지 않는다.** 「미지정」은 결함이 아니라 사실이다 — 어디였는지 모르는 옛 여행이 있다.
+
+### M-0051 — 계약 문서가 게이트를 앞질러 있었다
+
+`domain/time.ts` 주석이 *"check-timezone 게이트가 기억 필드에 기기 로컬 함수를 쓰는 것을 **막는다**"*고 **완료형으로** 말하고 있었는데, **그 층은 없었다.** 실제로 만들어 돌리자 **다섯 곳이 즉시 걸렸다**(timeline·tripDetail·photoViewer·mapView·trash). 근본형: **문서가 기계보다 앞서 쓰이면 그 문서는 안심시키는 일만 한다** — M-0047의 문서판.
+
+- `check-timezone` **(C)** 신설: 기억 필드 4종 × 기기 시계 함수 3종. 예외는 `// device-clock-ok: <이유>`.
+- 🔴 **못 잡는 것을 적었다**: 한 단계 거친 값(`const iso = m.takenAt || …; localDate(iso)`)은 정적으로 못 본다. 실제로 `trash.ts`가 그 형태여서 게이트가 조용했고 사람이 읽어서 찾았다. *못 잡는 것을 잡는다고 적은 것이 이 M의 원인이므로* 같은 실수를 반복하지 않는다.
+
+### 래칫이 설계를 밀어줬다(§11)
+
+`check-fn-size`가 세 함수의 증가를 막았고, 우회하지 않고 덜어냈다:
+`buildMoneyRow`(두 폼에 **손편집 두 벌**이었고 이미 한쪽만 `value`를 채우는 **드리프트가 시작돼 있었다**) · `timeGutter` · `toMapPoints` · `pinchDist`/`pinchMid`(순수 계산이 DOM 클로저에 갇혀 있었다).
+셋 다 기록보다 **짧아져서** 래칫을 낮췄다: `renderTripDetail` 618→**595** · `openPhotoViewer` 259→**251** · `buildMomentEditForm` 93→**84**.
+
+### 검증
+
+하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **918**(신규 `tripClock.test.ts` 29건 + 시간대 계약 케이스 확장) · `verify-editor-live` **216/216**(신규 18건) · `verify-diagnostics-live` 22/22 · build OK.
+
+- **§4 비공허**: 자체검사 주입 3종 + 오탐 2종. 그리고 `dayKey`를 옛 `localDate(m.occurredAt)`으로 **실제로 되돌려** 게이트가 그 줄을 가리키는 것을 확인(RED).
+- **§11 ②**: `timeline`·`whenDefault`·`fx` 테스트가 「기기 로컬」 전제를 담고 있었다. 지우지 않고 **나눴다** — 옛 계약(UTC 절단 금지)은 명시 시계로 유지하고, 새 계약(여행 시간대)은 별도 블록으로 잠갔다.
+- **§13 1·4항 — 열어서 보고 눌렀다**: 폴드5 접은 폭(344px)으로 세 화면 캡처(미지정 고지 / 시간대 두 칸 / 환산 붙은 타임라인). 고지 버튼을 **눌러** 편집 패널 열림 + 시간대 칸 **초점** + 버튼 미잠김을 쟀다. 가로 넘침 0.
+- **§3-C**: 이 라이브 블록은 여행·집 시간대를 바꾼다 → 끝에서 **둘 다 되돌리고** 되돌아온 것까지 검사한다. (되돌리기를 일부러 어겼을 때 뒤 검사 2건이 RED로 떴다 — 되돌리기가 실제로 필요했다는 증거.)
+
+### 확인이 필요한 항목(실기기)
+
+- 기존 기록의 **표시 시각이 그대로**인가(시간대를 정하지 않은 여행은 바뀌지 않아야 한다 — 저장된 절대시각은 손대지 않았다).
+- 여행 시간대를 정한 뒤 타임라인·Day 묶음·비용 환율일이 **의도대로** 움직이는가.
+- 폰 키보드에서 `<datalist>` 자동완성이 실제로 뜨는가(안드로이드 크롬 구현 차이).
 
 ---
 

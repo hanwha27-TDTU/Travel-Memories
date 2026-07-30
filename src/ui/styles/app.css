@@ -412,6 +412,16 @@
   font-size: 0.75rem; font-weight: 800; color: var(--ink-soft);
   font-variant-numeric: tabular-nums; letter-spacing: 0.02em; margin-bottom: 6px;
 }
+/* 집 시간 환산 — **그 자리의 시각보다 작고 조용하게.** 주인공은 여행지 시각이다.
+   환산은 「지금 한국은 몇 시였나」를 곁눈으로 확인하는 값이라 위계가 아래다.
+   시간대 홈이 같으면 이 줄은 **아예 만들어지지 않는다**(§8 침묵이 정상) — 국내 여행에서
+   매줄 「대한민국 19:08」이 붙으면 그건 정보가 아니라 소음이다.
+   좁은 시간 열에서 넘치지 않게 줄바꿈을 허용한다(폴드5 접은 화면 기준). */
+.tl-time-home {
+  font-size: 0.66rem; font-weight: 600; line-height: 1.25;
+  font-variant-numeric: tabular-nums; margin-top: -4px; margin-bottom: 6px;
+  overflow-wrap: anywhere;
+}
 .moment-card {
   background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--radius-medium); padding: var(--space-3) var(--space-4);
@@ -604,6 +614,24 @@ button.chip { border: 0; font-family: inherit; }
   border-radius: var(--radius-pill); align-self: flex-start;
 }
 .when-warn[hidden] { display: none; }
+/* 🕒 「어느 시계로 적는 중인가」 — 근거 줄(.when-note)과 **같은 무게**다. 둘 다 보조 정보이고
+   둘 다 숨기지 않는다. 다른 크기로 두면 하나가 더 중요해 보이는데 그건 사실이 아니다. */
+.when-clock { margin: 0; }
+/* 🕒 시간대 미지정 고지 — 타임라인 맨 위에 한 번. **말하고 끝내지 않고 갈 곳을 준다**(§12).
+   경고가 아니라 안내다: 겁주는 색을 쓰지 않고, 정보 톤(--bg-2)에 글리프(🕒)를 함께 둔다. */
+.zone-notice {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3); margin-bottom: var(--space-3);
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius-medium);
+}
+.zone-notice-msg { font-size: 0.78rem; color: var(--ink-soft); flex: 1; min-width: 0; }
+/* 갈 곳 버튼은 터치 최소 높이를 지킨다 — 좁은 화면에서 줄바꿈되어 아래로 내려간다. */
+.zone-notice-fix { min-height: var(--touch-target-min); white-space: nowrap; }
+/* 시간대 칸: 입력 + 미리보기 한 줄. 여행 시간대와 집 시간대가 **같은 모양**을 쓴다(§7 화면 대칭). */
+.zone-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.zone-field .zone-input { width: 100%; min-width: 0; }
+/* 미리보기는 판정이 아니라 확인용이라 조용하다. 줄바꿈을 허용한다 — 시간대 이름이 길 수 있다. */
+.zone-preview { margin: 0; overflow-wrap: anywhere; }
 .edit-dates { display: flex; align-items: center; gap: var(--space-2); }
 .edit-dates .edit-input { flex: 1; min-width: 0; }
 .edit-sep { color: var(--ink-soft); font-weight: 700; }

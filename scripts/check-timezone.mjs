@@ -28,6 +28,38 @@ const SLICE_DATE = /\.slice\(\s*0\s*,\s*10\s*\)/;
 /** 이 줄은 날짜가 아니라는 명시적 예외(해시 등). 남용 방지를 위해 줄 단위로만 허용. */
 const OPT_OUT = /not-a-date/;
 
+// ── (C) 「기억 필드」에 기기 시간대 함수를 쓰지 않는다 (M-0049 후반, 2026-07-30) ──
+//
+// 🔴 이 층은 **이미 계약으로 적혀 있었는데 구현이 없었다.** `domain/time.ts`에 *"check-timezone
+// 게이트가 기억 필드에 기기 로컬 함수를 쓰는 것을 막는다"*고 쓰여 있었지만 게이트는 (A)(B)만
+// 하고 있었다 — §9 2단계(정독 중 구멍 메우기)가 잡은 자리다. **문서가 게이트를 앞질렀다.**
+//
+// 무엇이 기억이고 무엇이 조작인가는 `domain/time.ts`의 두 「로컬」 구분 표가 정한다:
+//   기억(그 자리에서 겪은 일) → `momentWhen`/`atOffset` — 여행지 오프셋
+//   조작·오늘(지금 이 기기)   → `localDate`/`localTime` — 기기 시간대
+// 그래서 **기억 필드 이름이 기기 로컬 함수의 인자로 들어가는 것**만 잡는다. 이름이 아니라
+// 뜻을 재는 게 맞지만 정적으로는 이름이 최선이고, 오탐이면 `// device-clock-ok` + 이유로 뺀다.
+const MEMORY_FIELDS = ['occurredAt', 'takenAt', 'recordedAt', 'takenAtWall'];
+const DEVICE_FNS = ['localDate', 'localTime', 'localDateTime'];
+/** 이 자리는 정말 기기 시계가 맞다는 명시적 예외. **이유를 함께 적게** 한다(빈 예외는 결함). */
+const DEVICE_OK = /device-clock-ok/;
+
+const MEMORY_IN_DEVICE_FN = new RegExp(
+  `\\b(?:${DEVICE_FNS.join('|')})\\s*\\(\\s*[A-Za-z0-9_.?\\[\\]'"]*\\b(?:${MEMORY_FIELDS.join('|')})\\b`,
+);
+
+/** 기억 필드를 기기 로컬 함수에 넣는 줄을 찾는다(순수 — 자체검사가 직접 호출). */
+export function findDeviceClockViolations(text, label) {
+  const out = [];
+  text.split('\n').forEach((line, i) => {
+    const code = codePart(line);
+    if (MEMORY_IN_DEVICE_FN.test(code) && !DEVICE_OK.test(line)) {
+      out.push(`${label}:${i + 1}  ${line.trim()}`);
+    }
+  });
+  return out;
+}
+
 // 서사(prose) 데이터 파일 — 코드가 아니라 "무슨 일이 있었는지"를 적은 기록이다.
 // 금지 패턴을 **설명하는 문장**이 게이트를 울리면 안 된다(오탐). 같은 근본형이 두 번 재발해
 // (연구노트 seq32 마커 충돌 → seq38 여기) 체계적으로 제외한다: 이 파일들엔 날짜 파생 로직이 없다.
@@ -70,20 +102,42 @@ export function findSliceViolations(text, label) {
   if (ok.length !== 0) throw new Error('SELF-TEST 실패: not-a-date 예외가 동작하지 않음.');
   const cmt = findSliceViolations('// 옛 코드는 occurredAt.slice(0, 10)을 썼다(설명 주석)', 'fake.ts');
   if (cmt.length !== 0) throw new Error('SELF-TEST 실패: 주석까지 위반으로 잡음(오탐).');
+
+  // (C)의 주입 — §11 ①: 대상을 넓히면 **그 대상으로 주입을 다시 한다.** 여기 넷을 각각 깬다.
+  const dev = findDeviceClockViolations('const t = localTime(m.occurredAt);', 'fake.ts');
+  if (dev.length !== 1) throw new Error('SELF-TEST 실패: 기억 필드에 기기 시계를 쓴 줄을 못 잡음(게이트 공허).');
+  const devOpt = findDeviceClockViolations('const t = localTime(a.recordedAt); // device-clock-ok: 녹음은 기기 조작 시각', 'fake.ts');
+  if (devOpt.length !== 0) throw new Error('SELF-TEST 실패: device-clock-ok 예외가 동작하지 않음.');
+  const devFine = findDeviceClockViolations('const today = localDate(new Date().toISOString());', 'fake.ts');
+  if (devFine.length !== 0) throw new Error('SELF-TEST 실패: 기기 조작 시각(오늘)까지 위반으로 잡음(오탐).');
+  const devProse = findDeviceClockViolations('// 옛 코드는 localTime(m.occurredAt)이었다(설명 주석)', 'fake.ts');
+  if (devProse.length !== 0) throw new Error('SELF-TEST 실패: 주석까지 위반으로 잡음(오탐).');
 })();
 
-// ── (A) 정적 검사 ──
+// ── (A)(C) 정적 검사 ──
 const violations = [];
+const deviceClock = [];
 for (const file of walk(SRC)) {
   const rel = relative(ROOT, file).replace(/\\/g, '/');
   if (PROSE_FILES.has(rel)) continue; // 서사 기록 — 위 주석 참조
-  violations.push(...findSliceViolations(readFileSync(file, 'utf8'), rel));
+  const text = readFileSync(file, 'utf8');
+  violations.push(...findSliceViolations(text, rel));
+  deviceClock.push(...findDeviceClockViolations(text, rel));
 }
 if (violations.length > 0) {
   console.error(
     'check-timezone: ISO 문자열을 잘라 날짜를 만들고 있음(UTC 날짜 — 사용자의 날짜가 아님).\n' +
       violations.map((v) => '  - ' + v).join('\n') +
       "\n  → domain/time.ts의 localDate(iso)를 쓰세요. 날짜가 아니면 줄 끝에 '// not-a-date' 주석.",
+  );
+  process.exit(1);
+}
+if (deviceClock.length > 0) {
+  console.error(
+    'check-timezone: **기억 필드**를 기기 시간대 함수로 그리고 있음(그 자리의 시계가 아님 — M-0049).\n' +
+      deviceClock.map((v) => '  - ' + v).join('\n') +
+      '\n  → domain/time.ts의 momentWhen(instant, tzOffsetMin, clock) 또는 atOffset(instant, offsetMin)을 쓰세요.' +
+      "\n     정말 기기 조작 시각이면 줄 끝에 '// device-clock-ok: <이유>'.",
   );
   process.exit(1);
 }
@@ -122,5 +176,6 @@ if (bad.length) {
 }
 
 console.log(
-  `check-timezone: OK — ISO 절단 0건(서사 파일 ${PROSE_FILES.size}개 제외) · 유닛이 ${TZS.join('·')} 시간대에서도 통과.`,
+  `check-timezone: OK — ISO 절단 0건 · 기억 필드에 기기 시계 0건(${MEMORY_FIELDS.length}개 필드 × ${DEVICE_FNS.length}개 함수)` +
+    `(서사 파일 ${PROSE_FILES.size}개 제외) · 유닛이 ${TZS.join('·')} 시간대에서도 통과.`,
 );

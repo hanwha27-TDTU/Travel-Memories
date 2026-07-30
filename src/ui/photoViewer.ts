@@ -9,20 +9,43 @@
 // 원본 불변(§0): 회전·재편집은 표시본만 갱신하고 originalBlob은 건드리지 않는다.
 
 import { el } from './dom';
-import { localTime } from '../domain/time';
+import { momentWhen, type TripClock } from '../domain/time';
 import { openPhotoEditor } from './photoEditor';
 import { rotateMediaLocalFirst, reeditMediaLocalFirst } from '../services/media';
 import { requestSync } from '../services/autoSync';
 import type { LocalMedia } from '../offline/db';
 
+/** 화면에 있는 두 포인터 사이 거리 — 핀치 확대의 기준. */
+type Pts = Map<number, { x: number; y: number }>;
+
+/**
+ * 🔴 **래칫이 밀어준 추출**(2026-07-30). `clock`을 받으며 이 함수가 한 줄 길어졌고
+ * `check-fn-size`가 막았다. 주석을 줄이는 대신 **순수한 것을 밖으로 냈다** — 두 손가락
+ * 계산은 DOM이 필요 없으므로 최상위에 있어야 하고, 그래야 유닛이 닿는다(게이트의 원래 목적).
+ */
+function pinchDist(pts: Pts): number {
+  const [a, b] = [...pts.values()];
+  return Math.hypot(a!.x - b!.x, a!.y - b!.y);
+}
+
+/** 두 포인터의 중점 — 확대의 중심(손가락 사이가 화면에 고정돼 보이게). */
+function pinchMid(pts: Pts): { x: number; y: number } {
+  const [a, b] = [...pts.values()];
+  return { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 };
+}
+
 /**
  * 사진을 전체화면으로 연다.
  * @param onChanged 회전·재편집으로 사진이 바뀌면 호출(뒤 목록 썸네일 갱신).
+ * @param clock 이 사진들이 속한 여행의 시계. 편집기 제목의 촬영시각을 **그 자리 기준**으로
+ *   적는다 — 타임라인이 19:08이라 말한 사진을 열었더니 제목이 21:08이면 사용자는 다른
+ *   사진을 열었다고 생각한다(같은 값을 두 자로 재는 것 = M-utc-slice의 형태).
  */
 export function openPhotoViewer(
   list: LocalMedia[],
   startIndex: number,
   onChanged: () => Promise<void>,
+  clock: TripClock,
 ): void {
   let idx = Math.max(0, Math.min(startIndex, list.length - 1));
   let current = list[idx]!;
@@ -109,14 +132,6 @@ export function openPhotoViewer(
   let lastTap = 0;
   let lastTapX = 0;
   let lastTapY = 0;
-  const dist2 = (): number => {
-    const [a, b] = [...pts.values()];
-    return Math.hypot(a!.x - b!.x, a!.y - b!.y);
-  };
-  const mid2 = (): { x: number; y: number } => {
-    const [a, b] = [...pts.values()];
-    return { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 };
-  };
   img.addEventListener('pointerdown', (e) => {
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     try {
@@ -125,7 +140,7 @@ export function openPhotoViewer(
       /* 합성/종료 포인터 캡처 불가 시에도 추적은 계속 */
     }
     if (pts.size === 2) {
-      pinchStart = { dist: dist2(), scale };
+      pinchStart = { dist: pinchDist(pts), scale };
       dragStart = null;
     } else {
       dragStart = { x: e.clientX, y: e.clientY, tx, ty, moved: false };
@@ -135,8 +150,8 @@ export function openPhotoViewer(
     if (!pts.has(e.pointerId)) return;
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pinchStart && pts.size === 2) {
-      const m = mid2();
-      zoomAround(m.x, m.y, (pinchStart.scale * dist2()) / pinchStart.dist);
+      const m = pinchMid(pts);
+      zoomAround(m.x, m.y, (pinchStart.scale * pinchDist(pts)) / pinchStart.dist);
       return;
     }
     if (dragStart && scale > 1) {
@@ -238,7 +253,7 @@ export function openPhotoViewer(
       try {
         const r = await openPhotoEditor(
           current.originalBlob,
-          localTime(current.takenAt) || '사진 편집',
+          momentWhen(current.takenAt, null, clock).time || '사진 편집',
           current.editState ? { initialState: current.editState } : {},
         );
         if (r.action === 'apply') {

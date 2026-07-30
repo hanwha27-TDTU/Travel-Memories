@@ -739,6 +739,118 @@ await page.waitForTimeout(200);
 const hiddenAgain = await page.$eval('.fx-detail', (d) => d.hidden);
 check('환율 배지: 다시 탭하면 접힘', hiddenAgain === true, String(hiddenAgain));
 
+// ── 🔴 v1.27 (M-0049 후반): 「그 자리의 시계」가 **화면에 실제로 나오는가** ────────────
+// 사용자 지적(2026-07-29, 스크린샷): *"사진 찍은 나라 또는 지역의 시간으로 적용되게 고정하고,
+// 사진에 장소정보가 없다면 사용자가 지정한 장소를 기준으로 하고, 적당한 위치에 한국시간으로
+// 자동 환산해주면 좋을 거 같아요."*
+//
+// 유닛(`tripClock.test.ts` 29건)이 `momentWhen`의 값과 문장을 잰다. **그런데 그건 자료구조다.**
+// M-0022·M-0046이 정확히 그 틈이었다 — 숫자는 다 맞고 화면 문장만 틀렸다(§10 ③). 여기서는
+// 실제 DOM을 잰다: ①고지가 뜨는가 ②🔴 **고지의 버튼을 눌러** 고칠 자리로 데려가는가(§13 4항)
+// ③시간대를 넣으면 미리보기가 재판정되는가(§8) ④저장 후 타임라인 시각이 **바뀌는가**
+// ⑤환산 꼬리표가 붙는가 ⑥비우면 고지가 **되돌아오는가**.
+//
+// 🔴 §3-C — **이 블록은 여행의 시간대와 집 시간대를 바꾼다.** 뒤따르는 검사들이 타임라인
+// 시각을 보므로, 끝에서 **둘 다 원래대로 되돌린다**(2026-07-29~30에 두 번 어겼던 그 자리다).
+const homeZoneBefore = await page.evaluate(() => localStorage.getItem('bj.homeZone') ?? '');
+check('시계: 집 시간대가 처음 읽힐 때 기록돼 있다(여행 중에 환산이 사라지지 않게)', homeZoneBefore.length > 0, homeZoneBefore || '(없음)');
+
+const clock0 = await page.evaluate(() => {
+  const n = document.querySelector('.zone-notice');
+  return {
+    times: [...document.querySelectorAll('.tl-time')].map((e) => e.textContent ?? ''),
+    homes: document.querySelectorAll('.tl-time-home').length,
+    notice: n ? (n.querySelector('.zone-notice-msg')?.textContent ?? '') : '',
+    fixBtn: n ? (n.querySelector('[data-zone-fix]')?.textContent ?? '') : '',
+  };
+});
+check('시계: 타임라인에 순간 시각이 그려져 있다', clock0.times.length > 0 && /^\d{2}:\d{2}$/.test(clock0.times[0] ?? ''), JSON.stringify(clock0.times));
+check(
+  '시계: 시간대 미지정이면 **추정임을 화면에서 말한다**(M-0049 근본형 = 조용히 기기 시계를 썼다)',
+  clock0.notice.includes('이 기기 시간대'),
+  clock0.notice || '(고지 없음)',
+);
+check('시계: 고지가 **갈 곳을 준다**(§12 — 말하고 끝내지 않는다)', clock0.fixBtn.includes('여행 시간대'), clock0.fixBtn || '(버튼 없음)');
+
+// 🔴 §13 4항 — **누른다.** 라벨만 읽는 것은 확인한 것이 아니다(M-0046·M-0048이 둘 다 버튼 결함).
+await page.locator('[data-zone-fix]').first().click();
+await page.waitForTimeout(300);
+const afterFix = await page.evaluate(() => {
+  const zi = document.querySelector('[data-zone-input]');
+  const panel = zi?.closest('.edit-panel');
+  return {
+    panelOpen: panel instanceof HTMLElement ? !panel.hidden : false,
+    focused: document.activeElement === zi,
+    visible: zi ? zi.getBoundingClientRect().height > 0 : false,
+    btnStillEnabled: !document.querySelector('[data-zone-fix]')?.disabled,
+  };
+});
+check('시계: 고지 버튼을 누르면 편집 패널이 **열린다**', afterFix.panelOpen && afterFix.visible, JSON.stringify(afterFix));
+check('시계: 그리고 시간대 칸에 **초점이 간다**(어디를 고쳐야 하는지 손으로 찾게 두지 않는다)', afterFix.focused, JSON.stringify(afterFix));
+check('시계: 버튼이 잠긴 채 남지 않는다', afterFix.btnStillEnabled === true, JSON.stringify(afterFix));
+
+// 집 시간대를 명시로 고정한다 — 이 컨테이너의 기기 시간대에 기대면 검사가 환경에 흔들린다.
+await page.fill('[data-home-zone-input]', 'Asia/Seoul');
+await page.waitForTimeout(200);
+const homePrev = await page.evaluate(() => {
+  const i = document.querySelector('[data-home-zone-input]');
+  return i?.parentElement?.querySelector('.zone-preview')?.textContent ?? '';
+});
+check('시계: 집 시간대 미리보기가 **이름 + 현재 시각**을 말한다', /UTC\+9/.test(homePrev) && !homePrev.includes('Asia/'), homePrev || '(미리보기 없음)');
+
+// 오타는 조용히 UTC가 되지 않고 **모른다고 말한다**(§8 — 모르는 것은 확인 불가).
+await page.fill('[data-zone-input]', 'Asia/Seuol');
+await page.waitForTimeout(200);
+const typo = await page.evaluate(() => document.querySelector('.zone-field .zone-preview')?.textContent ?? '');
+check('시계: 알 수 없는 시간대는 **모른다고 말한다**(조용히 UTC로 만들지 않는다)', typo.includes('알 수 없어요'), typo);
+
+await page.fill('[data-zone-input]', 'Asia/Ho_Chi_Minh');
+await page.waitForTimeout(200);
+const preview = await page.evaluate(() => document.querySelector('.zone-field .zone-preview')?.textContent ?? '');
+check('시계: 고른 시간대를 **눈으로 확인**시킨다(id만 보고는 아무도 모른다 — §12)', /UTC\+7/.test(preview) && preview.includes('인도차이나'), preview);
+
+await page.locator('.edit-panel .btn-primary', { hasText: '저장' }).first().click();
+await page.waitForSelector('.tl-time', { timeout: 10000 });
+await page.waitForTimeout(500);
+const clock1 = await page.evaluate(() => ({
+  time: document.querySelector('.tl-time')?.textContent ?? '',
+  home: document.querySelector('.tl-time-home')?.textContent ?? '',
+  notice: document.querySelectorAll('.zone-notice').length,
+  hint: document.querySelector('.when-clock')?.textContent ?? '',
+  overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+}));
+check('시계: 시간대를 정하면 고지가 **사라진다**(고쳤으면 조용해져야 한다 — §8)', clock1.notice === 0, String(clock1.notice));
+check('시계: 타임라인 시각이 **여행지 기준으로 바뀐다**', /^\d{2}:\d{2}$/.test(clock1.time) && clock1.time !== clock0.times[0], `${clock0.times[0] ?? '?'} → ${clock1.time}`);
+check(
+  '시계: 집 시간 환산이 **다를 때만** 함께 나온다(사용자 요청 — 한국시간 자동 환산)',
+  /\d{2}:\d{2}/.test(clock1.home) && clock1.home !== clock1.time && !clock1.home.includes('Asia/'),
+  clock1.home || '(환산 없음)',
+);
+check('시계: 입력 칸이 **어느 시계로 적는지** 말한다', clock1.hint.includes('인도차이나'), clock1.hint || '(안내 없음)');
+check('시계: 환산 줄이 가로 넘침을 만들지 않는다(폴드5 접은 화면 대비)', clock1.overflow <= 0, String(clock1.overflow));
+
+// ── 되돌리기(§3-C) — 뒤따르는 검사들이 보는 화면을 내가 바꿔 놓지 않는다 ──
+await page.locator('.hero-edit').first().click();
+await page.waitForTimeout(200);
+await page.fill('[data-zone-input]', '');
+await page.fill('[data-home-zone-input]', homeZoneBefore);
+await page.waitForTimeout(150);
+await page.locator('.edit-panel .btn-primary', { hasText: '저장' }).first().click();
+await page.waitForSelector('.zone-notice', { timeout: 10000 });
+const restored = await page.evaluate(() => ({
+  notice: document.querySelectorAll('.zone-notice').length,
+  homes: document.querySelectorAll('.tl-time-home').length,
+  time: document.querySelector('.tl-time')?.textContent ?? '',
+  homeZone: localStorage.getItem('bj.homeZone') ?? '',
+}));
+check(
+  '시계: 시간대를 **비우면** 고지가 되돌아온다(미지정은 결함이 아니라 사실이다)',
+  restored.notice === 1 && restored.homes === 0,
+  JSON.stringify(restored),
+);
+check('시계: 되돌린 뒤 타임라인 시각이 원래대로', restored.time === clock0.times[0], `${clock0.times[0] ?? '?'} vs ${restored.time}`);
+check('시계: 집 시간대도 원래대로 되돌렸다(뒤 검사에 내 상태를 남기지 않는다)', restored.homeZone === homeZoneBefore, restored.homeZone);
+
 // ── v1.16: 소리 칩이 형제와 **같은 줄에 같은 높이로** 선다 ──
 // 실제 사고(2026-07-27 사용자 실기기): *"칩 디자인이 조잡하네요."* `.chip`이 flex가 아니어서
 // 소리 칩 안의 ✕가 **둘째 줄로 밀려났고**, 그 칩만 형제(장소)보다 두 배 높아 줄이 어긋났다.

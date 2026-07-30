@@ -550,7 +550,19 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
 }
 import { openPhotoEditor, type EditorResult } from '../photoEditor';
 import { openPhotoViewer } from '../photoViewer';
-import { localTime } from '../../domain/time';
+import {
+  momentWhen,
+  atOffset,
+  wallClockToInstant,
+  clockOffsetAtWall,
+  inputClockHint,
+  zoneOptions,
+  zonePreview,
+  isKnownZone,
+  zoneLabel,
+  type TripClock,
+} from '../../domain/time';
+import { homeZone, setHomeZone } from '../../services/homeZone';
 import { groupMomentsByDay, type DayGroup } from '../../domain/moment/timeline';
 import { requestSync } from '../../services/autoSync';
 import type { Route } from '../../app/router';
@@ -633,6 +645,12 @@ interface WhenField {
 
 function buildWhenField(
   trip: { startDate: string | null; endDate: string | null; timeZone?: string } | null,
+  /**
+   * 이 여행의 시계. 🔴 **입력 칸도 여행지 시각으로 적는다** — 타임라인이 19:08이라 말하는데
+   * 편집 칸을 열면 21:08이면, 사용자는 저장 버튼을 누르는 순간 시각이 바뀐다고 느낀다.
+   * (실제로는 안 바뀌는데도 그렇게 보인다. 그게 더 나쁘다 — 앱을 못 믿게 된다.)
+   */
+  clock: TripClock,
   /** 이 여행에서 가장 늦은 순간의 시각 — 사진이 없을 때 물려받는다. 편집 폼은 넘기지 않는다. */
   latestMomentAt: () => string | null = () => null,
 ): WhenField {
@@ -643,12 +661,21 @@ function buildWhenField(
   const note = el('p', 'when-note', '');
   const warn = el('p', 'when-warn', '');
   warn.setAttribute('role', 'status');
-  wrap.append(input, note, warn);
+  // 어느 시계로 적는 중인지 **늘 말한다**(§13 3항 — 추측을 숨기지 않는다).
+  const hint = el('p', 'when-clock muted small', inputClockHint(new Date().toISOString(), clock));
+  wrap.append(input, hint, note, warn);
+
+  /** 벽시계 → 절대시각. 오프셋은 **적힌 벽시계 기준**으로 재야 DST 경계가 맞는다. */
+  const read = (): string | undefined => fromLocalInputValue(input.value, clockOffsetAtWall(input.value, clock));
+  /** 절대시각 → 벽시계. 여행지 오프셋으로 그린다. */
+  const write = (iso: string): string => toLocalInputValue(iso, momentWhen(iso, null, clock).offsetMin);
 
   let touched = false;
   const refreshWarn = (): void => {
-    const iso = fromLocalInputValue(input.value);
-    const w = iso ? outsideTripWarning(iso, trip?.startDate ?? null, trip?.endDate ?? null) : null;
+    const iso = read();
+    const w = iso
+      ? outsideTripWarning(iso, trip?.startDate ?? null, trip?.endDate ?? null, momentWhen(iso, null, clock).offsetMin)
+      : null;
     warn.textContent = w ?? '';
     warn.hidden = w === null; // 기간 안이면 **사라진다**(침묵이 정상)
   };
@@ -663,7 +690,7 @@ function buildWhenField(
 
   const apply = (g: WhenGuess): void => {
     if (touched) return;
-    input.value = toLocalInputValue(g.at);
+    input.value = write(g.at);
     note.textContent = g.label;
     note.hidden = false;
     refreshWarn();
@@ -671,7 +698,7 @@ function buildWhenField(
 
   return {
     el: wrap,
-    value: () => fromLocalInputValue(input.value),
+    value: read,
     async suggestFromFiles(files) {
       // 앞 256KB만 읽는다 — 9장을 고른 순간 전체를 읽으면 수십 MB가 한꺼번에 뜬다(저메모리 기기).
       // **EXIF가 없는 사진은 세지 않는다**(null 제거): 스크린샷의 파일 수정시각을 근거로 쓰면
@@ -684,11 +711,12 @@ function buildWhenField(
           previousOccurredAt: latestMomentAt(),
           tripStartDate: trip?.startDate ?? null,
           now: new Date().toISOString(),
+          offsetMin: clockOffsetAtWall(`${trip?.startDate || '2000-01-01'}T12:00`, clock),
         }),
       );
     },
     set(iso) {
-      input.value = toLocalInputValue(iso);
+      input.value = write(iso);
       note.textContent = '';
       note.hidden = true;
       refreshWarn();
@@ -724,11 +752,9 @@ function buildEmotionRow(initial: string): { el: HTMLElement; value(): string; r
 }
 
 /** ISO(UTC) → datetime-local 입력값('YYYY-MM-DDTHH:mm', 로컬시각). */
-function toLocalInputValue(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const p = (n: number): string => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+function toLocalInputValue(iso: string, offsetMin: number): string {
+  const { date, time } = atOffset(iso, offsetMin);
+  return date ? `${date}T${time}` : '';
 }
 
 /**
@@ -752,7 +778,9 @@ function placeChip(m: { id: string; placeName: string; placeLat?: number | null;
     e.stopPropagation();
     const pts =
       lat !== null && lng !== null
-        ? [{ momentId: m.id, lat, lng, title: m.placeName, occurredAt: '', placeName: m.placeName }]
+        // 장소 칩에서 여는 지도는 **한 장소를 가리키는 것**이지 순간의 시각을 말하는 자리가
+        // 아니다 — `whenText: ''`가 그 사실이고, 팝업은 시각 줄을 아예 그리지 않는다.
+        ? [{ momentId: m.id, lat, lng, title: m.placeName, occurredAt: '', placeName: m.placeName, whenText: '' }]
         : [];
     void openMapView(m.placeName, pts, place);
   });
@@ -826,10 +854,9 @@ function groupByMoment<T extends { momentId: string }>(rows: T[]): Map<string, T
 }
 
 /** datetime-local 입력값(로컬시각) → ISO(UTC). 빈/무효는 undefined(변경 안 함). */
-function fromLocalInputValue(v: string): string | undefined {
+function fromLocalInputValue(v: string, offsetMin: number): string | undefined {
   if (!v) return undefined;
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+  return wallClockToInstant(v, offsetMin) ?? undefined;
 }
 
 function dayHeaderLabel(g: DayGroup): string {
@@ -858,6 +885,11 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       wrap.appendChild(nf);
       return;
     }
+
+    // 🕒 **이 여행의 시계를 여기서 한 번 만든다.** 아래 모든 시각 표시가 이것을 지난다 —
+    // 화면 안에서 자가 갈리지 않게(M-utc-slice의 근본형은 「같은 값을 두 자로 쟀다」였다).
+    // 여행 시간대를 고치면 화면이 통째로 재렌더되므로(onSave → renderTripDetail) const로 둔다.
+    const clock: TripClock = { zone: trip.timeZone ?? '', homeZone: homeZone() };
 
     // ===== 히어로 커버 =====
     const hero = el('header', `detail-hero cover--${coverIndex(trip.id)}`);
@@ -1003,24 +1035,16 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
 
 
     // 비용(선택) — 금액 + 통화. "10초 기록"을 방해하지 않도록 한 줄, 비우면 저장 안 함.
-    const moneyRow = el('div', 'moment-money');
-    const amountIn = el('input', 'moment-amount') as HTMLInputElement;
-    amountIn.type = 'text';
-    amountIn.inputMode = 'decimal';
-    amountIn.placeholder = '💰 비용 (선택)';
-    amountIn.maxLength = 15;
-    amountIn.setAttribute('aria-label', '비용 금액(선택)');
-    const currencyIn = currencySelect(DEFAULT_CURRENCY);
-    moneyRow.append(amountIn, currencyIn);
+    const money = buildMoneyRow(undefined);
 
     const save = el('button', 'btn-primary', '순간 저장') as HTMLButtonElement;
     save.type = 'submit';
 
     // 발생 시각 — **소급 입력이 주 흐름**이라(사용자 2026-07-27) 접어 두지 않고 항상 보인다.
-    const whenField = buildWhenField(trip, () => latestMomentAt);
+    const whenField = buildWhenField(trip, clock, () => latestMomentAt);
     void whenField.suggestFromFiles([]); // 사진 전에도 근거를 보여준다(직전 순간 / 여행 시작일)
 
-    form.append(input, emotion.el, whenField.el, placeField.el, moneyRow, photoLabel, photoPreview, save);
+    form.append(input, emotion.el, whenField.el, placeField.el, money.el, photoLabel, photoPreview, save);
     compose.appendChild(form);
 
     const note = el('p', 'sync-note', '');
@@ -1044,7 +1068,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
 
     /** 사용일(순간의 발생 시각) 기준 표를 캐시에서만 찾는다. */
     function fxTableFor(occurredAt: string): FxRateTable | null {
-      const key = fxKey(fxDateFor(occurredAt, todayDate()), fxBase());
+      const key = fxKey(fxDateFor(occurredAt, todayDate(), momentWhen(occurredAt, null, clock).offsetMin), fxBase());
       return fxCache.get(key) ?? null;
     }
 
@@ -1057,7 +1081,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       for (const ex of expenses) {
         if (ex.originalCurrency.toUpperCase() === base) continue; // 환산 불필요
         const m = byId.get(ex.momentId);
-        if (m) dates.add(fxDateFor(m.occurredAt, today));
+        if (m) dates.add(fxDateFor(m.occurredAt, today, momentWhen(m.occurredAt, m.tzOffsetMin, clock).offsetMin));
       }
       let added = false;
       for (const d of dates) {
@@ -1082,28 +1106,9 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       const audioByMoment = groupByMoment(audioAll);
       const byMoment = groupByMoment(media);
       const expByMoment = groupByMoment(expenses);
-      // 위치가 있는 순간(사진 EXIF GPS) → 지도 포인트.
-      locatedPoints = [];
-      for (const m of moments) {
-        const mediaList = byMoment.get(m.id) ?? [];
-        // 사용자가 고른 장소 좌표 우선, 없으면 사진 EXIF GPS.
-        const coord =
-          m.placeLat != null && m.placeLng != null ? { lat: m.placeLat, lng: m.placeLng } : momentCoord(mediaList);
-        if (coord) {
-          const point: MapPoint = {
-            momentId: m.id,
-            title: m.title,
-            occurredAt: m.occurredAt,
-            lat: coord.lat,
-            lng: coord.lng,
-            placeName: m.placeName,
-          };
-          if (mediaList[0]) point.previewBlob = mediaList[0].displayBlob; // 표시본(선명)
-          locatedPoints.push(point);
-        }
-      }
+      locatedPoints = toMapPoints(moments, byMoment, clock);
       renderTimeline(moments, byMoment, expByMoment, audioByMoment);
-      const groups = groupMomentsByDay(moments, trip!.startDate || undefined);
+      const groups = groupMomentsByDay(moments, clock, trip!.startDate || undefined);
       statRow.innerHTML = '';
       statRow.append(
         stat(String(moments.length), '순간'),
@@ -1158,6 +1163,17 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     ): void {
       resetUrls();
       timeline.innerHTML = '';
+      // 🕒 미지정 고지 — **순간이 하나라도 있을 때만.** 빈 화면에서는 「첫 순간을 남겨보세요」가
+      // 할 일이고, 그 위에 시간대 경고를 얹으면 시작하기 전에 숙제를 주는 셈이 된다.
+      const notice = moments.length
+        ? zoneNotice(momentWhen(moments[0]!.occurredAt, moments[0]!.tzOffsetMin, clock).caveat, () => {
+            editPanel.hidden = false;
+            const zi = editPanel.querySelector('[data-zone-input]');
+            if (zi instanceof HTMLInputElement) zi.focus();
+            editPanel.scrollIntoView({ block: 'nearest' });
+          })
+        : null;
+      if (notice) timeline.appendChild(notice);
       if (moments.length === 0) {
         const empty = el('div', 'empty-state');
         empty.appendChild(el('p', 'empty-emoji', '📝'));
@@ -1166,7 +1182,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         timeline.appendChild(empty);
         return;
       }
-      for (const g of groupMomentsByDay(moments, trip!.startDate || undefined)) {
+      for (const g of groupMomentsByDay(moments, clock, trip!.startDate || undefined)) {
         timeline.appendChild(el('h3', 'day-head', dayHeaderLabel(g)));
         const items = el('div', 'timeline');
         for (const m of g.items) {
@@ -1179,8 +1195,9 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     function buildMomentCard(m: LocalMoment, mediaList: LocalMedia[], expenseList: LocalExpense[], audioList: LocalAudio[]): HTMLElement {
       const item = el('div', 'tl-item');
       item.appendChild(el('span', 'tl-node'));
-      const t = localTime(m.occurredAt);
-      if (t) item.appendChild(el('div', 'tl-time', t));
+      // 🕒 **그 자리의 시각**이 크게, 집 시간 환산이 그 아래 작게. 같은 값을 두 번 말하지
+      // 않는다 — 환산은 시각이 **다를 때만** 나온다(`home`이 빈 문자열이면 침묵. §8).
+      item.append(...timeGutter(momentWhen(m.occurredAt, m.tzOffsetMin, clock)));
       const card = el('article', 'moment-card');
       const head = el('div', 'moment-head');
       head.appendChild(el('p', 'moment-say', m.title));
@@ -1232,6 +1249,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       const editForm = buildMomentEditForm(
         m,
         trip,
+        clock,
         existingExpense,
         async (patch, expenseIntent) => {
           await updateMomentLocalFirst(m.id, patch);
@@ -1325,7 +1343,9 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
                 }
                 fxDetail.dataset['for'] = ex.id;
                 fxDetail.innerHTML = '';
-                fxDetail.append(...fxDetailRows(ex, m.occurredAt, base, t, conv));
+                fxDetail.append(
+                  ...fxDetailRows(ex, m.occurredAt, momentWhen(m.occurredAt, m.tzOffsetMin, clock).offsetMin, base, t, conv),
+                );
                 fxDetail.hidden = false;
                 for (const b of chips.querySelectorAll('.chip-approx')) {
                   b.setAttribute('aria-expanded', String(b === approx));
@@ -1349,7 +1369,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           img.src = url;
           img.alt = '여행 사진';
           img.loading = 'lazy';
-          img.addEventListener('click', () => openPhotoViewer(mediaList, mdIdx, refresh));
+          img.addEventListener('click', () => openPhotoViewer(mediaList, mdIdx, refresh, clock));
           const pdel = el('button', 'photo-del', '✕') as HTMLButtonElement;
           pdel.type = 'button';
           pdel.setAttribute('aria-label', '이 사진 삭제');
@@ -1398,14 +1418,14 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
             ...(whenField.value() ? { occurredAt: whenField.value()! } : {}),
           });
           // 비용(선택): 금액이 유효하면 순간에 딸린 비용으로 저장.
-          const amountVal = parseAmount(amountIn.value);
+          const amountVal = parseAmount(money.amount());
           if (amountVal !== null) {
             try {
               await createExpenseLocalFirst({
                 momentId: moment.id,
                 tripId: trip!.id,
                 originalAmount: amountVal,
-                originalCurrency: currencyIn.value,
+                originalCurrency: money.currency(),
               });
             } catch {
               /* 비용 저장 실패는 순간 저장을 무르지 않는다 */
@@ -1418,8 +1438,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           input.value = '';
           placeField.reset();
           emotion.reset();
-          amountIn.value = '';
-          currencyIn.value = DEFAULT_CURRENCY;
+          money.reset();
           // 미리보기 URL 회수 + 개수 문구까지 한 번에(초기화 경로를 두 개 만들지 않는다).
           setFiles([]);
           setNote(note, '✅ 저장됨', 'ok', null); // 정상 — 조용하게(침묵이 정상이므로 갈 곳도 안 만든다)
@@ -1444,10 +1463,206 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
   })();
 }
 
-/** 여행 날짜·상태·제목 편집 패널 + 삭제. onSave(patch)/onDelete() 호출 후 상위에서 처리. */
+/**
+ * **여행 시간대 칸** — 「그 자리의 시계」를 정하는 단 하나의 자리.
+ *
+ * 왜 목록이 아니라 입력+목록인가: 시간대는 418개다. `<select>`로 만들면 폰에서 스크롤이
+ * 지옥이고, 사용자가 아는 단어(「서울」·「호치민」)로 찾을 수가 없다. `<datalist>`는 타이핑으로
+ * 좁히면서 목록도 준다 — 그리고 목록을 못 주는 브라우저에서는 **그냥 입력 칸이 된다**
+ * (기능이 사라지지 않는다).
+ *
+ * 🔴 **비우는 것을 막지 않는다.** 「미지정」은 결함이 아니라 사실이다 — 어디였는지 모르는
+ * 옛 여행이 있고, 그때는 앱이 **모른다고 말하는 것이 맞다**(§8 「모르는 것은 확인 불가」).
+ * 대신 미지정이면 타임라인이 「이 기기 시간대로 보여주고 있어요」를 붙인다.
+ */
+function buildZoneField(initial: string): { el: HTMLElement; value(): string } {
+  const wrap = el('div', 'zone-field');
+  const input = el('input', 'edit-input zone-input') as HTMLInputElement;
+  input.type = 'text';
+  input.value = initial;
+  input.placeholder = '예: Asia/Ho_Chi_Minh (비우면 미지정)';
+  input.setAttribute('aria-label', '여행 시간대');
+  input.setAttribute('data-zone-input', '1'); // 라이브 검사가 이 칸을 찾는 손잡이(§13)
+
+  const zones = zoneOptions();
+  if (zones.length) {
+    const list = el('datalist') as HTMLDataListElement;
+    list.id = 'trip-zone-list';
+    for (const z of zones) {
+      const o = el('option') as HTMLOptionElement;
+      o.value = z;
+      list.appendChild(o);
+    }
+    input.setAttribute('list', list.id);
+    wrap.appendChild(list);
+  }
+
+  // 고른 것이 맞는지 **눈으로 확인**시킨다 — id만 보고는 아무도 모른다(§12: 앱이 아는 것을 말한다).
+  const preview = el('p', 'zone-preview muted small');
+  preview.setAttribute('role', 'status');
+  const sync = (): void => {
+    const now = new Date().toISOString();
+    const z = input.value.trim();
+    preview.textContent = !z
+      ? '미지정 — 순간 시각을 이 기기 시간대로 보여줘요'
+      : isKnownZone(now, z)
+        ? `${zoneLabel(now, z)} · ${zonePreview(now, z)}`
+        : '이 시간대를 알 수 없어요 (목록에서 골라 주세요)';
+  };
+  input.addEventListener('input', sync);
+  sync();
+
+  wrap.append(input, preview);
+  return { el: wrap, value: () => input.value.trim() };
+}
+
+/**
+ * **집 시간대 칸** — 환산 꼬리표의 기준. 여행 시간대 바로 아래에 둔다(같은 성격이라 같은 자리).
+ *
+ * 이 값은 여행이 아니라 **이 기기의 표시 설정**이라 저장 위치가 다르다(localStorage).
+ * 그래서 즉시 저장한다 — 여행의 [저장] 버튼과 묶으면 "여행을 안 고쳤는데 왜 저장?"이 된다.
+ */
+function buildHomeZoneField(): HTMLElement {
+  const wrap = el('div', 'zone-field');
+  const input = el('input', 'edit-input zone-input') as HTMLInputElement;
+  input.type = 'text';
+  input.value = homeZone();
+  input.setAttribute('aria-label', '집 시간대');
+  input.setAttribute('data-home-zone-input', '1');
+  const zones = zoneOptions();
+  if (zones.length) input.setAttribute('list', 'trip-zone-list'); // 위 칸이 만든 목록을 함께 쓴다
+
+  const note = el('p', 'zone-preview muted small');
+  note.setAttribute('role', 'status');
+  const sync = (save: boolean): void => {
+    const now = new Date().toISOString();
+    const z = input.value.trim();
+    if (!z || !isKnownZone(now, z)) {
+      note.textContent = '이 시간대를 알 수 없어요 — 환산 꼬리표가 나오지 않아요';
+      return;
+    }
+    if (save) setHomeZone(z);
+    note.textContent = `${zoneLabel(now, z)} 기준으로 환산해요 (${zonePreview(now, z)})`;
+  };
+  input.addEventListener('input', () => sync(true));
+  sync(false);
+
+  wrap.append(input, note);
+  return wrap;
+}
+
+/**
+ * 위치가 있는 순간 → 지도 포인트. **시각 문장까지 여기서 만든다.**
+ *
+ * 최상위로 뽑은 이유(래칫이 밀어줬다 — 세 번째): 이 변환은 DOM을 만들지 않고 값만 바꾼다.
+ * 그리고 여기가 **지도 팝업의 시각이 정해지는 유일한 자리**가 됐으므로(`mapView`는 더 이상
+ * 계산하지 않는다) 그 사실이 화면 코드 깊숙이 묻히면 안 된다.
+ */
+function toMapPoints(
+  moments: LocalMoment[],
+  byMoment: Map<string, LocalMedia[]>,
+  clock: TripClock,
+): MapPoint[] {
+  const out: MapPoint[] = [];
+  for (const m of moments) {
+    const mediaList = byMoment.get(m.id) ?? [];
+    // 사용자가 고른 장소 좌표 우선, 없으면 사진 EXIF GPS.
+    const coord = m.placeLat != null && m.placeLng != null ? { lat: m.placeLat, lng: m.placeLng } : momentCoord(mediaList);
+    if (!coord) continue;
+    const point: MapPoint = {
+      momentId: m.id,
+      title: m.title,
+      occurredAt: m.occurredAt,
+      lat: coord.lat,
+      lng: coord.lng,
+      placeName: m.placeName,
+      // 시각 문장은 **시계를 아는 이곳에서** 만든다 — 지도 화면은 계산하지 않는다.
+      whenText: momentWhen(m.occurredAt, m.tzOffsetMin, clock).dateTime,
+    };
+    if (mediaList[0]) point.previewBlob = mediaList[0].displayBlob; // 표시본(선명)
+    out.push(point);
+  }
+  return out;
+}
+
+/**
+ * **비용 줄**(금액 + 통화) — 생성 폼과 편집 폼이 같은 구현을 쓴다(§7).
+ *
+ * 🔴 이 추출도 래칫이 밀어줬다(2026-07-30). 두 폼에 **같은 9줄이 손으로 두 벌** 있었고,
+ * 실제로 한쪽에만 `value` 채우기가 있었다 — 드리프트가 이미 시작돼 있었던 것이다.
+ * 우회하지 않고 덜어내니 중복이 사라졌다(§11 「게이트가 설계를 밀어준다」).
+ */
+function buildMoneyRow(existing: LocalExpense | undefined): {
+  el: HTMLElement;
+  amount(): string;
+  currency(): string;
+  /** 저장 후 초기화 — 감정 줄(`emotion.reset()`)과 **같은 어휘**를 쓴다(§7). */
+  reset(): void;
+} {
+  const row = el('div', 'moment-money');
+  const amountIn = el('input', 'moment-amount') as HTMLInputElement;
+  amountIn.type = 'text';
+  amountIn.inputMode = 'decimal';
+  amountIn.placeholder = '💰 비용 (선택)';
+  amountIn.maxLength = 15;
+  amountIn.value = existing ? String(existing.originalAmount) : '';
+  amountIn.setAttribute('aria-label', '비용 금액(선택)');
+  const currencyIn = currencySelect(existing ? existing.originalCurrency : DEFAULT_CURRENCY);
+  row.append(amountIn, currencyIn);
+  return {
+    el: row,
+    amount: () => amountIn.value,
+    currency: () => currencyIn.value,
+    reset: () => {
+      amountIn.value = '';
+      currencyIn.value = DEFAULT_CURRENCY;
+    },
+  };
+}
+
+/**
+ * **타임라인 시간 열** — 그 자리의 시각(크게) + 집 시간 환산(작게, **다를 때만**).
+ *
+ * 최상위로 뽑은 이유가 둘이다. ①`when`만 주면 되므로 DOM 클로저에 있을 필요가 없다.
+ * ②라이브 검사가 `.tl-time` / `.tl-time-home` 두 줄의 관계를 재는데, 그 규칙(환산은 다를
+ * 때만)이 화면 코드 깊숙이 있으면 다음 사람이 무심코 `|| ''`로 늘 그리게 만든다.
+ */
+function timeGutter(when: { time: string; home: string }): HTMLElement[] {
+  if (!when.time) return [];
+  const out = [el('div', 'tl-time', when.time)];
+  if (when.home) out.push(el('div', 'tl-time-home muted', when.home));
+  return out;
+}
+
+/**
+ * **시간대 미지정 고지** — 타임라인 맨 위에 **한 번만**. 없으면 `null`.
+ *
+ * 왜 순간마다가 아니라 한 번인가: 같은 문장이 100번 나오면 그건 고지가 아니라 배경이 된다.
+ * 그리고 §12 — 말하기만 하고 끝내지 않는다. **그 자리에서 고칠 버튼**을 함께 준다.
+ */
+function zoneNotice(caveat: string, onFix: () => void): HTMLElement | null {
+  if (!caveat) return null; // 시간대가 정해져 있으면 **아무것도 그리지 않는다**(§8 침묵이 정상)
+  const box = el('div', 'zone-notice');
+  box.setAttribute('role', 'status');
+  box.appendChild(el('span', 'zone-notice-msg', `🕒 ${caveat}`));
+  const fix = el('button', 'btn-ghost zone-notice-fix', '여행 시간대 정하기') as HTMLButtonElement;
+  fix.type = 'button';
+  fix.setAttribute('data-zone-fix', '1'); // 라이브 검사가 **눌러 보는** 손잡이(§13 4항)
+  fix.addEventListener('click', onFix);
+  box.appendChild(fix);
+  return box;
+}
+
+/** 여행 날짜·상태·제목·시간대 편집 패널 + 삭제. onSave(patch)/onDelete() 호출 후 상위에서 처리. */
 function buildEditPanel(
   trip: LocalTrip,
-  onSave: (patch: { title: string; startDate: string; endDate: string; status: LocalTrip['status'] }) => Promise<void>,
+  onSave: (patch: {
+    title: string;
+    startDate: string;
+    endDate: string;
+    status: LocalTrip['status'];
+    timeZone: string;
+  }) => Promise<void>,
   onDelete: () => Promise<void>,
 ): HTMLElement {
   const panel = el('form', 'edit-panel');
@@ -1517,6 +1732,8 @@ function buildEditPanel(
   confirmRow.append(confirmBtn, keepBtn);
   danger.append(delBtn, confirmRow);
 
+  const zone = buildZoneField(trip.timeZone ?? '');
+
   panel.append(
     el('label', 'edit-label', '제목'),
     titleIn,
@@ -1524,6 +1741,11 @@ function buildEditPanel(
     dates,
     el('label', 'edit-label', '상태'),
     status,
+    // 🕒 시간대 두 칸은 **붙여서** 둔다 — 「그곳」과 「집」은 한 쌍으로만 뜻이 있다.
+    el('label', 'edit-label', '여행 시간대 (그 자리의 시계)'),
+    zone.el,
+    el('label', 'edit-label', '집 시간대 (환산 기준)'),
+    buildHomeZoneField(),
     row,
     danger,
   );
@@ -1536,6 +1758,7 @@ function buildEditPanel(
       startDate: startIn.value,
       endDate: endIn.value,
       status: status.value as LocalTrip['status'],
+      timeZone: zone.value(),
     }).catch(() => {
       save.disabled = false;
     });
@@ -1596,6 +1819,8 @@ function buildMomentEditForm(
   m: LocalMoment,
   /** 여행 기간 — 기간 밖 경고에 쓴다(생성 폼과 같은 필드·같은 문장, §7). */
   trip: { startDate: string | null; endDate: string | null; timeZone?: string } | null,
+  /** 이 여행의 시계 — 생성 폼과 **같은 자**로 재야 한다(§7 사용자 대면 대칭). */
+  clock: TripClock,
   existingExpense: LocalExpense | undefined,
   onSave: (
     // 서비스의 계약 타입을 그대로 쓴다 — 필드가 늘 때 화면·서비스 두 곳을 고치지 않는다(SSOT).
@@ -1625,19 +1850,10 @@ function buildMomentEditForm(
   noteIn.setAttribute('aria-label', '메모(선택)');
 
   // 비용(선택): 금액 비우면 기존 비용 삭제, 채우면 생성/수정.
-  const moneyRow = el('div', 'moment-money');
-  const amountIn = el('input', 'moment-amount') as HTMLInputElement;
-  amountIn.type = 'text';
-  amountIn.inputMode = 'decimal';
-  amountIn.placeholder = '💰 비용 (선택)';
-  amountIn.maxLength = 15;
-  amountIn.value = existingExpense ? String(existingExpense.originalAmount) : '';
-  amountIn.setAttribute('aria-label', '비용 금액(선택)');
-  const currencyIn = currencySelect(existingExpense ? existingExpense.originalCurrency : DEFAULT_CURRENCY);
-  moneyRow.append(amountIn, currencyIn);
+  const money = buildMoneyRow(existingExpense);
 
   // 이미 정해진 값이므로 `set()`(추측이 아니라 근거 줄은 비운다).
-  const timeField = buildWhenField(trip);
+  const timeField = buildWhenField(trip, clock);
   timeField.set(m.occurredAt);
 
   const row = el('div', 'edit-actions');
@@ -1657,7 +1873,7 @@ function buildMomentEditForm(
     el('label', 'edit-label', '메모'),
     noteIn,
     el('label', 'edit-label', '비용'),
-    moneyRow,
+    money.el,
     el('label', 'edit-label', '발생 시각'),
     timeField.el,
     row,
@@ -1675,7 +1891,7 @@ function buildMomentEditForm(
     };
     const occ = timeField.value();
     if (occ !== undefined) patch.occurredAt = occ;
-    const expenseIntent = { amount: parseAmount(amountIn.value), currency: currencyIn.value };
+    const expenseIntent = { amount: parseAmount(money.amount()), currency: money.currency() };
     void onSave(patch, expenseIntent).catch(() => {
       save.disabled = false;
     });
@@ -1691,12 +1907,14 @@ function buildMomentEditForm(
 function fxDetailRows(
   ex: LocalExpense,
   occurredAt: string,
+  /** 여행지 오프셋(분) — 「사용일」은 그 돈을 쓴 자리의 날짜다. */
+  offsetMin: number,
   base: string,
   t: FxRateTable,
   conv: number,
 ): HTMLElement[] {
   const cur = ex.originalCurrency.toUpperCase();
-  const asked = fxDateFor(occurredAt, todayDate()); // 요청한 날(= 비용 사용일)
+  const asked = fxDateFor(occurredAt, todayDate(), offsetMin); // 요청한 날(= 비용 사용일)
   const rows: HTMLElement[] = [];
 
   const line = (label: string, value: string): HTMLElement => {

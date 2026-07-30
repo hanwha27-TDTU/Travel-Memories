@@ -286,7 +286,8 @@ describe('⑧ 정렬이 **가짜 차이**를 보지 않는다 (정직하게: 여
   it('시간순 자체는 유지된다(느슨해진 게 아니다)', () => {
     const early = '2026-07-16T09:30:00.400Z';
     const late = '2026-07-16T09:30:00.900Z';
-    const groups = groupMomentsByDay([mk(2, late), mk(3, early)] as never, '2026-07-16');
+    // 시계는 UTC로 고정한다 — 이 검사가 재는 것은 **정렬**이고, 시간대는 잡음이다.
+    const groups = groupMomentsByDay([mk(2, late), mk(3, early)] as never, { zone: 'UTC', homeZone: 'UTC' }, '2026-07-16');
     expect(groups[0]!.items.map((m) => m.occurredAt)).toEqual([early, late]);
   });
 
