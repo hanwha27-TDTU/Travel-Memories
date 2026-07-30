@@ -21,7 +21,7 @@
 // 틀렸을 때 알아챈다(비타협 원칙 #4 — 모르는 것을 정상으로 반올림하지 않는다).
 // 그래서 이 함수는 시각만이 아니라 **`source`와 사람이 읽는 라벨**을 함께 돌려준다.
 
-import { localDate, localTime, compareInstants } from '../time';
+import { atOffset, wallClockToInstant, compareInstants } from '../time';
 
 /** 시각을 어디서 가져왔는가. 화면이 이 값으로 아이콘·문구를 고른다. */
 export type WhenSource = 'photo' | 'previous' | 'tripStart' | 'now';
@@ -43,15 +43,26 @@ export interface WhenInput {
   tripStartDate: string | null;
   /** 지금(ISO). **주입받는다** — 순수하게 유지해야 유닛이 모든 갈래를 돌릴 수 있다. */
   now: string;
+  /**
+   * **여행지 오프셋(분).** 이 값으로 근거 문장의 시각을 적고 여행 시작일 자정을 만든다.
+   *
+   * 왜 인자인가: 기본값을 두면 `0`(UTC)이나 기기 시간대가 조용히 섞이고, 그게 M-0049였다.
+   * 화면은 `momentWhen(...).offsetMin`을 그대로 넘긴다 — 그러면 **입력 칸과 타임라인이
+   * 같은 자로 잰다.**
+   */
+  offsetMin: number;
 }
 
 /**
- * ISO → 사람이 읽는 `YYYY-MM-DD HH:MM`. **로컬 시각**.
- * 날짜·시각 파생은 `domain/time.ts` 한 곳을 쓴다(§7) — UTC로 자르면 하루가 밀린다(M-0018).
+ * ISO → 사람이 읽는 `YYYY-MM-DD HH:MM`, **그 자리 기준**.
+ *
+ * 옛 판은 인자가 하나였고 기기 시간대로 적었다. 그래서 베트남 여행을 한국에서 정리하면
+ * 근거 줄이 「📷 사진에서 · 2026-07-29 21:08」이라 말하는데 타임라인은 19:08을 보였다 —
+ * **같은 값을 두 자로 잰 것**이고, 사용자에게는 앱이 자기 안에서 다른 말을 하는 것으로 보인다.
  */
-export function humanWhen(iso: string): string {
-  const d = localDate(iso);
-  return d ? `${d} ${localTime(iso)}` : '(시각 없음)';
+export function humanWhen(iso: string, offsetMin: number): string {
+  const { date, time } = atOffset(iso, offsetMin);
+  return date ? `${date} ${time}` : '(시각 없음)';
 }
 
 /**
@@ -93,26 +104,27 @@ function validTimes(list: string[]): number[] {
  *  4. **지금** — 여행 날짜조차 없을 때의 마지막 수단.
  */
 export function guessOccurredAt(i: WhenInput): WhenGuess {
+  const say = (at: string): string => humanWhen(at, i.offsetMin);
   const photo = validTimes(i.photoTakenAts);
   if (photo.length > 0) {
     const at = new Date(Math.min(...photo)).toISOString();
     const many = photo.length > 1 ? ` (${photo.length}장 중 가장 이른 것)` : '';
-    return { at, source: 'photo', label: `📷 사진에서 · ${humanWhen(at)}${many}` };
+    return { at, source: 'photo', label: `📷 사진에서 · ${say(at)}${many}` };
   }
 
   if (i.previousOccurredAt && !Number.isNaN(Date.parse(i.previousOccurredAt))) {
     const at = i.previousOccurredAt;
-    return { at, source: 'previous', label: `⬆ 직전 순간과 같은 시각 · ${humanWhen(at)}` };
+    return { at, source: 'previous', label: `⬆ 직전 순간과 같은 시각 · ${say(at)}` };
   }
 
   if (i.tripStartDate && /^\d{4}-\d{2}-\d{2}$/.test(i.tripStartDate)) {
-    // 로컬 자정으로 만든다(`new Date('YYYY-MM-DD')`는 UTC로 해석돼 하루가 밀린다 — M-0018).
-    const [y, m, d] = i.tripStartDate.split('-').map(Number) as [number, number, number];
-    const at = new Date(y, m - 1, d, 0, 0, 0, 0).toISOString();
-    return { at, source: 'tripStart', label: `📅 여행 시작일 · ${humanWhen(at)} — 시각을 정해 주세요` };
+    // **여행지의** 자정이다. 기기 자정(`new Date(y, m-1, d)`)으로 만들면 시간대가 다를 때
+    // 여행 시작일 00:00이 전날 22:00 같은 값이 되어 Day 묶음이 하루 앞으로 새어 나간다.
+    const at = wallClockToInstant(`${i.tripStartDate}T00:00:00`, i.offsetMin);
+    if (at) return { at, source: 'tripStart', label: `📅 여행 시작일 · ${say(at)} — 시각을 정해 주세요` };
   }
 
-  return { at: i.now, source: 'now', label: `⏱ 지금 · ${humanWhen(i.now)}` };
+  return { at: i.now, source: 'now', label: `⏱ 지금 · ${say(i.now)}` };
 }
 
 /**
@@ -130,10 +142,14 @@ export function outsideTripWarning(
   occurredAt: string,
   startDate: string | null,
   endDate: string | null,
+  offsetMin: number,
 ): string | null {
   const t = Date.parse(occurredAt);
   if (Number.isNaN(t)) return null;
-  const day = localDate(occurredAt); // **로컬** 날짜 — 여행 날짜도 로컬 기준이라 같은 자로 잰다
+  // **여행지 기준** 날짜로 잰다 — 여행 시작·종료일도 그 자리의 달력이므로 같은 자여야 한다.
+  // 기기 기준으로 재면 시간대가 다를 때 첫날/마지막날 순간이 「기간 밖」으로 잘못 경고된다.
+  const day = atOffset(occurredAt, offsetMin).date;
+  if (!day) return null;
   // 한쪽만 있어도 그쪽은 판정한다 — 있는 근거는 쓴다.
   if (startDate && day < startDate) return `이 여행 기간(${startDate} ~ ${endDate ?? '미정'}) 이전이에요`;
   if (endDate && day > endDate) return `이 여행 기간(${startDate ?? '미정'} ~ ${endDate}) 이후예요`;

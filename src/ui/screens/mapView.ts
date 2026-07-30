@@ -9,13 +9,21 @@
 import { el } from '../dom';
 import { toFeatureCollection, type LocatedPoint } from '../../domain/place/geojson';
 import { zoomForSpan } from '../../domain/place/precision';
-import { localDateTime } from '../../domain/time';
 import type { PlaceLike } from '../../domain/place/externalMap';
 import { externalMapRow } from '../externalMapRow';
 
 export interface MapPoint extends LocatedPoint {
   placeName: string;
   previewBlob?: Blob; // 미리보기 이미지(표시본 ≤1600 — 썸네일보다 선명)
+  /**
+   * 팝업에 그대로 붙는 시각 문장(`YYYY.MM.DD HH:mm`). **없으면 빈 문자열.**
+   *
+   * 🔴 이 화면이 시각을 **계산하지 않는다**(2026-07-30). 예전엔 여기서 `localDateTime`을
+   * 불렀고 그건 **보는 기기의 시간대**였다 — 같은 순간이 타임라인에서 19:08, 지도 팝업에서
+   * 21:08로 보였다. 시계를 아는 곳(여행 상세)이 문장을 만들어 내려보내면, 이 화면에는
+   * 시간대를 틀릴 **방법이 없다**(§7 2층 — 규칙을 한 곳에만 두고 형제가 통과하게).
+   */
+  whenText: string;
 }
 
 /**
@@ -101,7 +109,7 @@ function pointNode(p: MapPoint, objectUrls: string[]): HTMLElement {
     box.appendChild(img);
   }
   box.appendChild(el('p', 'map-pop-title', p.title));
-  const meta = localDateTime(p.occurredAt);
+  const meta = p.whenText;
   if (p.placeName) box.appendChild(el('p', 'map-pop-meta', `📍 ${p.placeName}`));
   if (meta) box.appendChild(el('p', 'map-pop-meta', meta));
   return box;

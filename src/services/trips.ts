@@ -77,6 +77,11 @@ export interface UpdateTripPatch {
   startDate?: string;
   endDate?: string;
   status?: LocalTrip['status'];
+  /**
+   * 여행 시간대(IANA id). `''` = 미지정 — **비우는 것도 사용자의 선택**이므로 빈 문자열을
+   * 「값 없음」으로 뭉개지 않는다(`!== undefined`로 판단한다).
+   */
+  timeZone?: string;
 }
 
 /**
@@ -96,6 +101,7 @@ export async function updateTripLocalFirst(id: string, patch: UpdateTripPatch): 
     ...(patch.startDate !== undefined ? { startDate: patch.startDate } : {}),
     ...(patch.endDate !== undefined ? { endDate: patch.endDate } : {}),
     ...(patch.status !== undefined ? { status: patch.status } : {}),
+    ...(patch.timeZone !== undefined ? { timeZone: patch.timeZone } : {}),
     version: cur.version + 1,
     updatedAt: now,
     baseVersion: cur.version,

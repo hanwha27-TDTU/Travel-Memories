@@ -7,7 +7,7 @@
 // 확정값이라 한 번 받아두면 영원히 안 변한다 → 캐시가 곧 안정적 표시를 보장한다(값이 나중에 흔들리지 않음).
 // 기준통화 하나로 표를 받아두면 임의의 두 통화 사이를 이 표 하나로 왕복 환산할 수 있다(§rateOf).
 
-import { localDate } from '../time';
+import { atOffset, localDate } from '../time';
 
 export { localDate }; // 날짜 파생 SSOT는 domain/time.ts (결함군 M-utc-slice)
 
@@ -78,9 +78,16 @@ export function isFxFresh(
 /**
  * 요청할 환율 날짜를 정한다. 미래 날짜는 존재하지 않으므로 오늘로 당긴다.
  * (사용자가 발생 시각을 미래로 적어둔 경우를 조용히 실패시키지 않기 위함)
+ *
+ * @param offsetMin **여행지 오프셋(분).** 비용의 「사용일」은 그 돈을 쓴 자리의 달력 날짜다 —
+ *   기기 기준으로 재면 시차만큼 하루가 밀려 **엉뚱한 날의 기준환율**을 쓴다. 이 게 원래
+ *   사용자가 발견한 결함의 형태였다(*"7월 15일 사용금액인데 왜 7월 16일 환율?"* — M-utc-slice).
+ *   그때는 UTC 절단이 원인이었고, 이번엔 시차다. 자를 하나로 맞춘다.
+ * @param todayDate **기기 기준 오늘**이 맞다 — 「아직 오지 않은 날」은 이 기기가 지금 언제인지의
+ *   문제이지 여행지의 문제가 아니다(time.ts의 두 「로컬」 구분 표).
  */
-export function fxDateFor(occurredAtIso: string, todayDate: string): string {
-  const d = localDate(occurredAtIso);
+export function fxDateFor(occurredAtIso: string, todayDate: string, offsetMin: number): string {
+  const d = atOffset(occurredAtIso, offsetMin).date;
   if (!d) return todayDate;
   return d > todayDate ? todayDate : d;
 }

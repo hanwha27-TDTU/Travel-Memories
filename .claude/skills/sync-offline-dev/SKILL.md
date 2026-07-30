@@ -172,6 +172,37 @@ wallClockToInstant('2026-07-29T19:08:00', offsetMin)
   맞는 값이 나오고, CI는 UTC다. 그래서 검사는 **여러 시간대에서 같은 답**을 요구해야 한다
   (`tests/unit/tripZoneTime.test.ts` — UTC·서울·호놀룰루·뉴욕).
 
+### 표시할 때는 `momentWhen` **하나만** 쓴다 (2026-07-30 · M-0049 후반)
+
+기억 시각을 화면에 내보내는 문은 **한 개**다. 부품(`atOffset`·`resolveOffsetMin`)을 화면에서
+직접 조합하지 마라 — 사다리가 `null`을 줄 수 있고, 그때 화면마다 폴백을 각자 고르면
+**같은 순간이 화면마다 다른 시각**이 된다(M-0048이 그 형태였다: 같은 자료, 두 기기, 반대 판정).
+
+```ts
+const clock: TripClock = { zone: trip.timeZone ?? '', homeZone: homeZone() };
+const w = momentWhen(m.occurredAt, m.tzOffsetMin, clock);
+//  w.time / w.date / w.dateTime  — 그 자리 기준
+//  w.home    — 집 시간 환산. **다를 때만** 문자열(같으면 '' → 아무것도 그리지 않는다)
+//  w.caveat  — 폴백(기기 시계)을 썼을 때만 문자열. 화면이 **반드시** 어딘가에 그린다
+//  w.basis   — 'moment' | 'trip' | 'device'
+```
+
+- **폴백은 쓰지만 말한다.** 시각은 안 보여줄 수 없다(빈 칸이 곧 거짓말이다). 그래서 기기 시계로
+  그리되 `caveat`를 화면에 낸다. 조용히 기기 시계를 쓴 것이 M-0049의 근본형이었다.
+- **고지는 화면당 한 번.** 순간마다 같은 문장을 100번 내면 고지가 아니라 배경이 된다.
+  그리고 §12 — 말하고 끝내지 않고 **고칠 버튼**을 함께 준다(`zoneNotice`).
+- **입력 칸도 같은 시계다.** `datetime-local`은 기본이 기기 시계라 그냥 두면 타임라인과 어긋난다.
+  `toLocalInputValue(iso, off)` / `fromLocalInputValue(v, clockOffsetAtWall(v, clock))`을 쓰고,
+  `inputClockHint()`로 **어느 시계로 적는 중인지 늘 적는다**(이 자리는 침묵이 정상이 아니다 —
+  사용자가 치는 숫자의 뜻이 시계에 달렸다).
+- **화면이 계산하지 않게 만드는 것이 더 강하다.** `mapView`는 이제 시각을 아예 계산하지 않고
+  `MapPoint.whenText`를 받는다 — 시계를 아는 곳이 문장을 만들어 내려보낸다(§7 2층).
+- 🔴 **게이트가 강제한다**: `check-timezone` (C)가 기억 필드(`occurredAt`·`takenAt`·`recordedAt`·
+  `takenAtWall`)를 기기 시계 함수(`localDate`/`localTime`/`localDateTime`)에 넣는 줄을 RED로
+  잡는다. 정말 기기 조작 시각이면 줄 끝에 `// device-clock-ok: <이유>` — **이유 없는 예외는 결함.**
+  정직한 한계: **한 단계 거친 값은 못 본다**(`const iso = m.takenAt || …; localDate(iso)`).
+  그 형태를 쓰지 마라 — 게이트가 조용해진다.
+
 ## 3. 과거 결함 등록부
 
 | 버전 | 결함 | 근본형 | 재발 방지 |

@@ -299,3 +299,154 @@ export function zoneOffsetAtWall(wall: string, timeZone: string): number | null 
   if (Number.isNaN(t)) return null;
   return zoneOffsetMin(new Date(t - rough * 60000).toISOString(), timeZone);
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// 표시 계층 — 「기억 시각」을 화면에 내보내는 **단 하나의 문**
+//
+// 위쪽 절반이 부품(오프셋 계산·벽시계 변환)이라면 여기는 **화면이 실제로 부르는 곳**이다.
+// 왜 부품만으로는 안 되나: 사다리(`resolveOffsetMin`)가 `null`을 돌려줄 수 있고, 그때
+// 화면마다 폴백을 각자 고르면 **같은 순간이 화면마다 다른 시각으로 보인다** — M-0048이
+// 정확히 그 형태였다(같은 자료에 두 기기가 반대 판정). 그래서 폴백도 여기서 한 번만 고르고,
+// **폴백을 썼다는 사실을 값에 담아** 내보낸다(`basis`·`caveat`).
+//
+// §8 「모르는 것은 '확인 불가'」와 어떻게 양립하나: 시각은 *안 보여줄 수 없다*(빈 칸이 곧
+// 거짓말이다). 그래서 보여주되 **그게 추정임을 같은 자리에서 말한다.** 침묵하는 것은
+// 확실할 때뿐이다.
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * 「이 여행의 시계」 — 기억 시각을 그리는 데 필요한 것 전부.
+ *
+ * 화면이 이 묶음을 **한 번 만들어 아래로 내린다.** 개별 인자로 흩뿌리면 새 화면이 하나를
+ * 빼먹고, 그 빠짐이 조용하다(§7 — 누락이 컴파일 오류가 되게 묶는다).
+ */
+export interface TripClock {
+  /** 여행 시간대(IANA id). `''` = 미지정 — **자동으로 채우지 않는다**(사용자의 사실이다). */
+  zone: string;
+  /** 집 시간대(IANA id). 환산 꼬리표 전용 — 기억 시각 계산에는 쓰지 않는다. */
+  homeZone: string;
+}
+
+/** 이 시각을 **무엇을 근거로** 그렸는가. `'device'`만 추정이다. */
+export type WhenBasis = 'moment' | 'trip' | 'device';
+
+export interface WhenView {
+  /** 그 자리 기준 달력 날짜 `YYYY-MM-DD`. Day 묶기의 키가 이 값이다. */
+  date: string;
+  /** 그 자리 기준 `HH:mm`. */
+  time: string;
+  /** 그 자리 기준 `YYYY.MM.DD HH:mm`. */
+  dateTime: string;
+  offsetMin: number;
+  basis: WhenBasis;
+  /** 집 시간 환산 꼬리표. **같으면 `''`** — 국내 여행에서 매번 붙으면 소음이다(§8). */
+  home: string;
+  /** 추정이면 그 사실을 말하는 한 줄. 확실하면 `''`. */
+  caveat: string;
+}
+
+/**
+ * IANA id → 사람이 읽는 짧은 이름. 브라우저 tzdata가 준다(데이터셋 0바이트).
+ *
+ * `'Asia/Seoul'` → `'대한민국'`, `'Asia/Ho_Chi_Minh'` → `'인도차이나'`.
+ * 못 알아내면 id의 마지막 조각(`'Ho_Chi_Minh'` → `'Ho Chi Minh'`) — **id를 그대로 보여주는
+ * 것보다 낫고, 지어내는 것은 아니다.**
+ */
+export function zoneLabel(instant: string, timeZone: string): string {
+  const fallback = (timeZone.split('/').pop() ?? timeZone).replace(/_/g, ' ');
+  const t = Date.parse(instant);
+  if (Number.isNaN(t) || !timeZone) return fallback;
+  try {
+    const parts = new Intl.DateTimeFormat('ko', { timeZone, timeZoneName: 'long' }).formatToParts(new Date(t));
+    const name = parts.find((p) => p.type === 'timeZoneName')?.value ?? '';
+    // 'ko'는 「대한민국 표준시」·「인도차이나 시간」처럼 꼬리를 붙인다. 꼬리를 떼면 짧아지고,
+    // 꼬리가 없으면(예: 'GMT+7') 그대로 쓴다 — 손으로 표를 만들지 않는다.
+    return name.replace(/\s*(표준시|하계 시간|여름 시간|시간)$/, '') || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * 🔴 **기억 시각을 화면에 내보내는 유일한 함수.** 순간·사진·소리·비용이 전부 이 문을 지난다.
+ *
+ * @param momentOffsetMin 이 항목에 **직접 적힌** 오프셋(EXIF `OffsetTimeOriginal` 또는 사용자
+ *   예외). 없으면 `null`/`undefined` — 사다리가 여행 시간대로 내려간다.
+ *
+ * 폴백은 **기기 시간대**이고, 그때 `caveat`가 채워진다. 기기 시간대를 조용히 쓰는 것이
+ * M-0049였다 — 이제 쓰긴 쓰지만 **말한다.**
+ */
+export function momentWhen(
+  instant: string,
+  momentOffsetMin: number | null | undefined,
+  clock: TripClock,
+): WhenView {
+  const resolved = resolveOffsetMin(instant, momentOffsetMin, clock.zone);
+  const basis: WhenBasis =
+    typeof momentOffsetMin === 'number' && Number.isFinite(momentOffsetMin) ? 'moment' : resolved === null ? 'device' : 'trip';
+  const offsetMin = resolved ?? zoneOffsetMin(instant, deviceZone()) ?? 0;
+  const at = atOffset(instant, offsetMin);
+  return {
+    ...at,
+    offsetMin,
+    basis,
+    home: at.time ? homeConversion(instant, offsetMin, clock.homeZone, zoneLabel(instant, clock.homeZone)) : '',
+    caveat: basis === 'device' && at.time ? '여행 시간대를 정하지 않아 이 기기 시간대로 보여주고 있어요' : '',
+  };
+}
+
+/**
+ * 사용자가 **벽시계로 적은 값**(`datetime-local`)을 절대시각으로 바꿀 때 쓸 오프셋.
+ *
+ * `zoneOffsetAtWall`을 쓰는 이유: 입력값은 아직 절대시각이 아니라 벽시계라, 오프셋을
+ * 「그 순간」으로 물으면 닭과 달걀이 된다. DST 경계를 그 함수가 두 번 재서 푼다.
+ *
+ * 시간대 미지정이면 기기 시간대로 읽는다 — 입력을 **거부하지 않는다**. 그 대신 화면이
+ * 어느 시계로 적는 중인지 글자로 말한다(§13 — 추측은 해도 되지만 말해야 한다).
+ */
+export function clockOffsetAtWall(wall: string, clock: TripClock): number {
+  return zoneOffsetAtWall(wall, clock.zone) ?? zoneOffsetAtWall(wall, deviceZone()) ?? 0;
+}
+
+/**
+ * 입력 칸 아래 붙는 「어느 시계로 적는 중인가」 한 줄. **늘 말한다** — 이 자리는 침묵이
+ * 정상이 아니다(사용자가 적는 숫자의 뜻이 시계에 달렸으므로).
+ */
+export function inputClockHint(instant: string, clock: TripClock): string {
+  return clock.zone && isKnownZone(instant, clock.zone)
+    ? `🕒 ${zoneLabel(instant, clock.zone)} 시각으로 적어요`
+    : '🕒 이 기기 시간대로 적고 있어요 — 여행 시간대를 정하면 그곳 시각으로 바뀝니다';
+}
+
+/**
+ * 고를 수 있는 시간대 목록 — **브라우저가 준다**(418개). 우리가 표를 들고 있지 않다.
+ *
+ * 지원하지 않는 브라우저에서는 빈 배열이고, 그때 화면은 **직접 입력**으로 받는다
+ * (목록이 없다고 기능이 사라지지는 않는다).
+ */
+export function zoneOptions(): string[] {
+  try {
+    const f = (Intl as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf;
+    return typeof f === 'function' ? f.call(Intl, 'timeZone') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 이 문자열이 브라우저가 아는 시간대 id인가. 오프셋을 계산할 수 있으면 안다고 본다. */
+export function isKnownZone(instant: string, timeZone: string): boolean {
+  return zoneOffsetMin(instant, timeZone) !== null;
+}
+
+/**
+ * 시간대 칸 옆에 붙는 미리보기 — 「지금 그곳은 21:08 (UTC+7)」.
+ * 고른 것이 맞는지 **사용자가 눈으로 확인**할 수 있게 한다(id만 보고는 아무도 모른다).
+ */
+export function zonePreview(instant: string, timeZone: string): string {
+  const off = zoneOffsetMin(instant, timeZone);
+  if (off === null) return '';
+  const sign = off < 0 ? '-' : '+';
+  const a = Math.abs(off);
+  const hhmm = a % 60 === 0 ? `${Math.floor(a / 60)}` : `${Math.floor(a / 60)}:${p2(a % 60)}`;
+  return `지금 그곳은 ${atOffset(instant, off).time} (UTC${sign}${hhmm})`;
+}

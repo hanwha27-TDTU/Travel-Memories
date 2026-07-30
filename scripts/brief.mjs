@@ -66,6 +66,9 @@ export const SKILL_ROUTES = [
   // 서버·백업 경계가 전부 여기를 통과하므로 규율은 동기화 헌장에 있다. 분류가 낡으면
   // 착수 브리핑이 "읽을 것 없음"이라고 **거짓으로** 말한다.
   { match: /^src\/domain\/time/, skill: 'sync-offline-dev' },
+  // 「집 시간대」 하나만 든 파일. 표시 설정(localStorage)이지만 그 값이 **기억 시각의 환산
+  // 기준**이라 규율은 `domain/time`과 같은 곳이다 — 두 「로컬」을 섞지 않는다는 그 규율이다.
+  { match: /^src\/services\/homeZone/, skill: 'sync-offline-dev' },
   // 이름 규칙(R2 객체 키 + ZIP 폴더·파일명). 여기 한 글자가 바뀌면 **Edge Function의 파서**와
   // 어긋나 멀쩡한 사진이 「설명할 수 없는 파일」로 뜬다 — 그 계약은 동기화 헌장에 있다.
   { match: /^src\/domain\/media\/naming/, skill: 'sync-offline-dev' },
