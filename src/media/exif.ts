@@ -72,12 +72,18 @@ function readAscii(view: DataView, tiffStart: number, e: Entry, little: boolean)
 function readDMS(view: DataView, tiffStart: number, e: Entry, little: boolean): number | undefined {
   if ((e.type !== 5 && e.type !== 10) || e.count < 3) return undefined;
   const p = valuePtr(view, tiffStart, e, little);
-  const rat = (i: number): number => {
+  // 🔴 **분모 0을 0으로 반올림하지 않는다**(2026-07-31 · M-0057).
+  // 예전엔 `d === 0 ? 0 : n / d`였다 — *"못 읽었다"*를 **0도**로 만들었고, 세 자리가 다
+  // 그러면 좌표가 **0,0(기니만 앞바다)**이 된다. §8: 모르는 것을 정상으로도 문제로도
+  // 반올림하지 않는다. 못 읽으면 **좌표 자체가 없는 것**이다.
+  const rat = (i: number): number | null => {
     const n = view.getUint32(p + i * 8, little);
     const d = view.getUint32(p + i * 8 + 4, little);
-    return d === 0 ? 0 : n / d;
+    return d === 0 ? null : n / d;
   };
-  return rat(0) + rat(1) / 60 + rat(2) / 3600;
+  const [deg, min, sec] = [rat(0), rat(1), rat(2)];
+  if (deg === null || min === null || sec === null) return undefined;
+  return deg + min / 60 + sec / 3600;
 }
 
 /** "YYYY:MM:DD HH:MM:SS" → ISO. 실패 시 undefined. */
@@ -144,7 +150,17 @@ function parseTiff(view: DataView, tiffStart: number): ExifData {
     if (latE && lngE) {
       const lat = readDMS(view, tiffStart, latE, little);
       const lng = readDMS(view, tiffStart, lngE, little);
-      if (lat !== undefined && lng !== undefined) {
+      // 🔴 **0,0은 좌표가 아니다**(2026-07-31 · M-0057 · 사용자 실기기).
+      //
+      // 그 사진은 갤러리에서 「충청북도 청주시 상당구」로 정확히 나오는데 앱에는
+      // **0.0000, 0.0000**이 들어갔다. 즉 브라우저가 받은 바이트의 GPS 태그는
+      // **지워진 게 아니라 0으로 덮여** 있었다(안드로이드가 앱에 넘기며 가린 것으로 보인다).
+      //
+      // 0,0은 기니만 앞바다다. 사용자가 **정말 그 바다 한가운데서** 사진을 찍었을 확률보다
+      // **태그가 비어 있을** 확률이 압도적이다. 그리고 틀린 좌표를 넣는 것은
+      // 좌표를 안 넣는 것보다 **훨씬 나쁘다** — 기억이 엉뚱한 곳에 찍히고, 그건 조용하다.
+      // (0,0 하나라도 값이 있는 정상 좌표는 그대로 통과한다 — 막는 것은 **둘 다 0**일 때다.)
+      if (lat !== undefined && lng !== undefined && !(lat === 0 && lng === 0)) {
         const latSign = latRef && readAscii(view, tiffStart, latRef, little).startsWith('S') ? -1 : 1;
         const lngSign = lngRef && readAscii(view, tiffStart, lngRef, little).startsWith('W') ? -1 : 1;
         out.gpsLat = lat * latSign;

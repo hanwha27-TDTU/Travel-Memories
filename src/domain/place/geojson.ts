@@ -18,7 +18,14 @@ export interface LocatedPoint {
 /** 순간의 대표 좌표 = GPS가 있는 첫 사진. 없으면 null(대략위치를 지어내지 않음). */
 export function momentCoord(mediaList: readonly MediaGps[]): { lat: number; lng: number } | null {
   for (const m of mediaList) {
-    if (m.gpsLat !== null && m.gpsLng !== null && Number.isFinite(m.gpsLat) && Number.isFinite(m.gpsLng)) {
+    // 🔴 0,0은 좌표가 아니다(M-0057) — 지도에 기니만 앞바다 핀을 찍지 않는다.
+    if (
+      m.gpsLat !== null &&
+      m.gpsLng !== null &&
+      Number.isFinite(m.gpsLat) &&
+      Number.isFinite(m.gpsLng) &&
+      !(m.gpsLat === 0 && m.gpsLng === 0)
+    ) {
       return { lat: m.gpsLat, lng: m.gpsLng };
     }
   }

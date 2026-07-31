@@ -71,7 +71,15 @@ export interface PhotoHint {
  */
 export function photoHintOf(metas: readonly PhotoMetaLike[]): PhotoHint {
   const located = metas.filter(
-    (m) => m.gpsLat !== null && m.gpsLng !== null && Number.isFinite(m.gpsLat) && Number.isFinite(m.gpsLng),
+    (m) =>
+      m.gpsLat !== null &&
+      m.gpsLng !== null &&
+      Number.isFinite(m.gpsLat) &&
+      Number.isFinite(m.gpsLng) &&
+      // 🔴 **0,0은 좌표가 아니다**(2026-07-31 · M-0057). 파서에서도 막지만 여기서도 막는다 —
+      // 이미 0,0으로 저장된 옛 기록과, 파서를 안 지나는 다른 경로가 있기 때문이다.
+      // 기니만 앞바다에서 찍은 여행 사진일 확률보다 **태그가 비어 있을** 확률이 압도적이다.
+      !(m.gpsLat === 0 && m.gpsLng === 0),
   );
   // 시각을 아는 것들 중 가장 이른 것 → 없으면 고른 순서의 첫 장.
   // 못 읽는 시각(`Date.parse` NaN)은 **정렬에 끼우지 않는다** — 지어낸 순서를 만들지 않는다.
