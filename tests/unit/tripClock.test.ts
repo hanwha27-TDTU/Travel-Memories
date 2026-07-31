@@ -19,6 +19,7 @@ import {
   zonePreview,
   zoneOptions,
   isKnownZone,
+  zonesForCountry,
   clockOffsetAtWall,
   inputClockHint,
   deviceZone,
@@ -206,5 +207,36 @@ describe('zoneOptions — 목록은 브라우저가 준다(우리가 표를 들�
 
   it('기기 시간대는 늘 알 수 있는 id다(폴백이 스스로 무효가 되지 않게)', () => {
     expect(isKnownZone(EVENING, deviceZone())).toBe(true);
+  });
+});
+
+describe('zonesForCountry — 나라 → 시간대(데이터셋 0바이트)', () => {
+  // 사용자 제안(2026-07-30): *"여행시간대 초기값은 사진찍은 장소로 셋팅..어때?"*
+  // 좌표→시간대는 경계 데이터셋(수 MB)이 필요해 하지 않는다. 그런데 사진 GPS를 이미
+  // 역지오코딩해 **나라 코드**를 얻고 있고, 나라→시간대는 브라우저가 안다.
+  it('시간대가 하나뿐인 나라는 그것이 답이다', () => {
+    expect(zonesForCountry('KR')).toEqual(['Asia/Seoul']);
+    expect(zonesForCountry('VN')).toHaveLength(1);
+  });
+
+  it('🔴 여럿인 나라는 여럿으로 돌려준다 — 화면이 하나로 반올림하지 못하게(§8)', () => {
+    expect(zonesForCountry('US').length).toBeGreaterThan(5);
+    expect(zonesForCountry('UZ').length).toBeGreaterThan(1); // 사마르칸트·타슈켄트
+  });
+
+  it('돌려준 id는 실제로 오프셋을 계산할 수 있는 값이다(쓸 수 없는 값을 주지 않는다)', () => {
+    for (const z of zonesForCountry('VN')) expect(isKnownZone(EVENING, z)).toBe(true);
+    for (const z of zonesForCountry('KR')) expect(isKnownZone(EVENING, z)).toBe(true);
+  });
+
+  it('소문자·공백도 받는다(지오코더가 소문자로 준다 — kr)', () => {
+    expect(zonesForCountry(' kr ')).toEqual(['Asia/Seoul']);
+  });
+
+  it('나라 코드가 아니면 빈 배열 — 지어내지 않는다', () => {
+    expect(zonesForCountry('')).toEqual([]);
+    expect(zonesForCountry('KOR')).toEqual([]); // alpha-3은 이 함수의 입력이 아니다
+    expect(zonesForCountry('ZZ')).toEqual([]);
+    expect(zonesForCountry('1!')).toEqual([]);
   });
 });

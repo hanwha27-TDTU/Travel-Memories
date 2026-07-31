@@ -69,6 +69,10 @@ export const SKILL_ROUTES = [
   // 「집 시간대」 하나만 든 파일. 표시 설정(localStorage)이지만 그 값이 **기억 시각의 환산
   // 기준**이라 규율은 `domain/time`과 같은 곳이다 — 두 「로컬」을 섞지 않는다는 그 규율이다.
   { match: /^src\/services\/homeZone/, skill: 'sync-offline-dev' },
+  // 「처음 한 번만 확인」의 저장·판정. UI처럼 보이지만 담긴 것은 **개인정보 경계**라
+  // 규율은 장소 헌장이다(`externalMapConsent`와 같은 판단 — 좌표가 언제 밖으로 나가는가).
+  { match: /^src\/services\/consent/, skill: 'map-place-dev' },
+  { match: /^src\/domain\/place\/photoHint/, skill: 'map-place-dev' },
   // 이름 규칙(R2 객체 키 + ZIP 폴더·파일명). 여기 한 글자가 바뀌면 **Edge Function의 파서**와
   // 어긋나 멀쩡한 사진이 「설명할 수 없는 파일」로 뜬다 — 그 계약은 동기화 헌장에 있다.
   { match: /^src\/domain\/media\/naming/, skill: 'sync-offline-dev' },

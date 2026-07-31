@@ -337,6 +337,69 @@ function withExifDateTime(jpegBytes, dt /* 'YYYY:MM:DD HH:MM:SS' */) {
   return Buffer.concat([src.subarray(0, 2), app1, src.subarray(2)]); // SOI 뒤에 삽입
 }
 
+/**
+ * **EXIF GPS를 품은 JPEG**을 만든다 (2026-07-30 · 사용자 제안 「사진에서 장소를 가져오자」).
+ *
+ * 왜 필요한가: 캔버스 JPEG에는 GPS가 없다. 픽스처 없이 이 기능을 라이브로 재려면 **DOM에
+ * 값을 주입**해야 하는데, 그러면 재는 것이 *앱의 EXIF 파서*가 아니라 *내 주입*이 된다 —
+ * 공허한 검사다(§4). 진짜 GPS를 심어 **앱이 스스로 읽게** 한다.
+ *
+ * IFD0에 GPSInfoIFDPointer(0x8825) 하나를 더 두고, GPS IFD에 Ref/좌표 넷을 쓴다.
+ * 좌표는 RATIONAL 3쌍(도·분·초)이라 값이 IFD 밖에 붙는다 — `src/media/exif.ts`의 `readDMS`가
+ * 그 형식을 읽는다(같은 계약을 양쪽에서 지킨다).
+ */
+function withExifGps(jpegBytes, dt /* 'YYYY:MM:DD HH:MM:SS' */, lat, lng) {
+  const u16 = (n) => { const b = Buffer.alloc(2); b.writeUInt16BE(n); return b; };
+  const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32BE(n); return b; };
+  const dtBuf = Buffer.from(dt + '\0', 'latin1');
+  /** 도·분·초 RATIONAL 3쌍(24바이트). 초는 1/1000초 단위 분모로 적어 소수를 보존한다. */
+  const dms = (v) => {
+    const a = Math.abs(v);
+    const d = Math.floor(a);
+    const m = Math.floor((a - d) * 60);
+    const sec = Math.round(((a - d) * 60 - m) * 60 * 1000);
+    return Buffer.concat([u32(d), u32(1), u32(m), u32(1), u32(sec), u32(1000)]);
+  };
+  const entry = (tag, type, count, valueOrOffset) =>
+    Buffer.concat([u16(tag), u16(type), u32(count), valueOrOffset]);
+  /** ASCII 1글자는 값이 4바이트에 들어간다(왼쪽 정렬 + NUL). */
+  const ascii1 = (ch) => Buffer.from(ch + '\0\0\0', 'latin1');
+
+  const IFD0_LEN = 2 + 12 * 2 + 4;          // 항목 2개(ExifIFD·GPSIFD) + next
+  const exifOff = 8 + IFD0_LEN;
+  const EXIF_LEN = 2 + 12 + 4;              // 항목 1개(DateTimeOriginal) + next
+  const dtOff = exifOff + EXIF_LEN;
+  const gpsOff = dtOff + dtBuf.length;
+  const GPS_LEN = 2 + 12 * 4 + 4;           // 항목 4개 + next
+  const latValOff = gpsOff + GPS_LEN;
+  const lngValOff = latValOff + 24;
+
+  const tiff = Buffer.concat([
+    Buffer.from('MM', 'latin1'), u16(42), u32(8),
+    // IFD0
+    u16(2),
+    entry(0x8769, 4, 1, u32(exifOff)),
+    entry(0x8825, 4, 1, u32(gpsOff)),
+    u32(0),
+    // ExifIFD
+    u16(1), entry(0x9003, 2, dtBuf.length, u32(dtOff)), u32(0),
+    dtBuf,
+    // GPS IFD
+    u16(4),
+    entry(0x0001, 2, 2, ascii1(lat >= 0 ? 'N' : 'S')),
+    entry(0x0002, 5, 3, u32(latValOff)),
+    entry(0x0003, 2, 2, ascii1(lng >= 0 ? 'E' : 'W')),
+    entry(0x0004, 5, 3, u32(lngValOff)),
+    u32(0),
+    dms(lat),
+    dms(lng),
+  ]);
+  const app1Body = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), tiff]);
+  const app1 = Buffer.concat([Buffer.from([0xff, 0xe1]), u16(app1Body.length + 2), app1Body]);
+  const src = Buffer.from(jpegBytes);
+  return Buffer.concat([src.subarray(0, 2), app1, src.subarray(2)]);
+}
+
 const imgBuf = await page.evaluate(async () => {
   const c = document.createElement('canvas'); c.width = 600; c.height = 400;
   const x = c.getContext('2d');
@@ -739,6 +802,261 @@ await page.waitForTimeout(200);
 const hiddenAgain = await page.$eval('.fx-detail', (d) => d.hidden);
 check('환율 배지: 다시 탭하면 접힘', hiddenAgain === true, String(hiddenAgain));
 
+// ── 🔴 v1.28: 사진이 아는 것을 사람에게 다시 치게 하지 않는다 (사용자 제안 2026-07-30) ────
+//
+// *"장소도 사진 입력하면 사진정보에서 우선 가져오도록 하면 어떨까요?"*
+// *"비용을 입력할 때 간단하게 어떤 비용인지 적게하면 어떨까요?"*
+// *"여행시간대를 드롭다운해서 선택하게끔하고. 초기값은 사진찍은 장소로 셋팅..어때?"*
+//
+// 🔴 **진짜 EXIF GPS를 심어 앱이 스스로 읽게 한다.** DOM에 좌표를 주입하면 재는 것이
+// *앱의 파서*가 아니라 *내 주입*이 된다 — 공허한 검사다(§4).
+//
+// §3-C: 이 블록은 장소·비용 칸을 채우고 순간을 하나 더 만든다. 뒤 검사가 「첫 순간」을 보지
+// 않도록 **폼을 비우고** 끝낸다.
+await page.locator('.pick-clear-all').click().catch(() => {});
+await page.waitForTimeout(200);
+await page.setInputFiles('.moment-photo-input', [
+  { name: 'gps.jpg', mimeType: 'image/jpeg', buffer: withExifGps(imgBuf, '2026:07:16 09:30:00', 16.0544, 108.2022) },
+]);
+await page.waitForTimeout(700);
+const fromPhoto = await page.evaluate(() => {
+  const n = document.querySelector('.place-photo-note');
+  return {
+    note: n && !n.hidden ? (n.textContent ?? '') : '',
+    badge: document.querySelector('.place-picked')?.textContent ?? '',
+    typed: document.querySelector('.place-input')?.value ?? '',
+  };
+});
+check(
+  '사진 장소: EXIF GPS가 있으면 **좌표를 대신 채운다**(§12 — 앱이 아는 것을 사람에게 묻지 않는다)',
+  fromPhoto.note.includes('📷 사진 위치에서') && fromPhoto.note.includes('16.05440'),
+  fromPhoto.note || '(근거 줄 없음)',
+);
+check('사진 장소: 무엇이 지정됐는지 배지로 말한다', fromPhoto.badge.length > 0, fromPhoto.badge || '(배지 없음)');
+
+// **사용자가 손댄 것은 덮지 않는다** — 이름을 적은 뒤 다른 사진을 골라도 그대로다.
+await page.fill('.place-input', '내가 적은 장소');
+await page.setInputFiles('.moment-photo-input', [
+  { name: 'gps2.jpg', mimeType: 'image/jpeg', buffer: withExifGps(imgBuf, '2026:07:16 10:00:00', 21.0278, 105.8342) },
+]);
+await page.waitForTimeout(600);
+const keptPlace = await page.evaluate(() => document.querySelector('.place-input')?.value ?? '');
+check('사진 장소: 사용자가 적은 이름을 사진이 덮지 않는다(앱이 사용자를 이기지 않는다)', keptPlace === '내가 적은 장소', keptPlace);
+
+// GPS 없는 사진이면 **아무 말도 하지 않는다**(§8 침묵이 정상).
+await page.fill('.place-input', '');
+await page.setInputFiles('.moment-photo-input', [{ name: 'nogps.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgBuf) }]);
+await page.waitForTimeout(600);
+const silent = await page.evaluate(() => {
+  const n = document.querySelector('.place-photo-note');
+  return { hidden: n ? n.hidden : null, text: n?.textContent ?? '' };
+});
+check('사진 장소: 좌표 없는 사진이면 **침묵한다**(빈 근거 줄을 남기지 않는다)', silent.hidden === true, JSON.stringify(silent));
+
+// 🔴 동의를 **수락**하면 이름까지 채운다. 위 검사들은 Playwright가 대화상자를 자동 거절하므로
+// **거절 경로**를 재고 있었다 — 거절해도 좌표는 남는다는 것까지가 그 검사다. 여기서는 수락한다.
+// 🔴 배지의 ✕로 **좌표까지** 해제한다. 이름만 지우면 좌표는 남는데(사진 좌표는 이름과
+// 독립이라 그게 맞다) 그러면 「이미 손댔다」로 판정돼 제안이 안 돈다 — 실제 사용자 경로는 ✕다.
+await page.locator('.moment-form .place-picked .chip-clear').first().click(); // 생성 폼의 것(편집 폼들과 구분)
+await page.waitForTimeout(200);
+// 샌드박스는 Nominatim을 막는다. 스텁하지 않으면 **콘솔 네트워크 에러**가 남고(뒤의 「콘솔
+// 에러 0」이 RED), 무엇보다 *이름이 채워지는지*를 못 잰다 — 스텁이 검사를 더 강하게 만든다.
+await page.route('**/reverse**', (route) =>
+  route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      lat: '16.0544',
+      lon: '108.2022',
+      display_name: '미케 비치, 다낭, 베트남',
+      name: '미케 비치',
+      address: { country: '베트남', country_code: 'vn', city: '다낭' },
+    }),
+  }),
+);
+page.once('dialog', (d) => void d.accept());
+await page.setInputFiles('.moment-photo-input', [
+  { name: 'gps3.jpg', mimeType: 'image/jpeg', buffer: withExifGps(imgBuf, '2026:07:16 11:00:00', 16.0544, 108.2022) },
+]);
+await page.waitForTimeout(900);
+const consented = await page.evaluate(() => ({
+  ok: localStorage.getItem('bugeon:photoGeoOk'),
+  note: document.querySelector('.place-photo-note')?.textContent ?? '',
+}));
+check(
+  '사진 장소: 동의는 **처음 한 번만** 물어보고 기억한다(세 번째부터는 고지가 아니라 마찰이다)',
+  consented.ok === '1' && !consented.note.includes('직접 적어'),
+  JSON.stringify(consented),
+);
+const namedFromPhoto = await page.evaluate(() => document.querySelector('.place-input')?.value ?? '');
+check(
+  '사진 장소: 동의하면 **이름까지** 대신 채운다(§12 — 앱이 알아낼 수 있는 것을 타이핑시키지 않는다)',
+  namedFromPhoto === '미케 비치',
+  namedFromPhoto || '(빈 칸)',
+);
+await page.unroute('**/reverse**'); // §3-C — 내가 건 스텁을 내가 뗀다
+
+// ── 💰 비용 메모: 모델에 있던 note를 화면이 부르는가 ──
+const noteField = await page.evaluate(() => {
+  const i = document.querySelector('[data-expense-note]');
+  return { exists: !!i, visible: !!i && i.getBoundingClientRect().height > 0, ph: i?.placeholder ?? '' };
+});
+check('비용 메모: 칸이 **펼쳐진 채로** 있다(선택이지만 숨기지 않는다)', noteField.exists && noteField.visible, JSON.stringify(noteField));
+check('비용 메모: 무엇을 적는 자리인지 말한다', noteField.ph.includes('무엇에'), noteField.ph);
+
+await page.locator('.pick-clear-all').click().catch(() => {});
+await page.waitForTimeout(200);
+// 🔴 §3-C — **장소도 비운다.** 안 비우면 이 순간이 「미케 비치」를 달고 저장되고, 한참 뒤의
+// 「바깥 지도 링크」 검사가 그 좌표를 집어 서울 기대값과 어긋난다(실제로 3건이 RED로 떴다).
+// 내 블록이 만든 상태가 **다른 블록의 픽스처를 바꿔치기한** 것이다.
+await page.locator('.moment-form .place-picked .chip-clear').first().click().catch(() => {});
+await page.evaluate(() => {
+  const i = document.querySelector('.moment-form .place-input');
+  if (i instanceof HTMLInputElement) { i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); }
+});
+await page.waitForTimeout(200);
+await page.fill('input[placeholder^="이 순간을"]', '비용 메모 검증');
+await page.fill('input[placeholder^="💰 비용"]', '12000');
+await page.fill('[data-expense-note]', '반미 샌드위치');
+await page.getByRole('button', { name: '순간 저장' }).click();
+await page.waitForTimeout(1200);
+const moneyChip = await page.evaluate(() =>
+  [...document.querySelectorAll('.chip.money')].map((c) => c.textContent ?? '').join(' | '),
+);
+check(
+  '비용 메모: 저장하면 **금액과 함께** 보인다(숫자만 남은 비용은 한 달 뒤 의미를 잃는다)',
+  moneyChip.includes('반미 샌드위치'),
+  moneyChip.slice(0, 120),
+);
+const noteCleared = await page.evaluate(() => document.querySelector('[data-expense-note]')?.value ?? 'X');
+check('비용 메모: 저장 후 비워진다(형제 칸들과 같은 어휘)', noteCleared === '', noteCleared);
+
+// ── 🔴 🕒 사진이 찍힌 나라로 **여행 시간대를 제안**하는가, 그리고 **버튼이 도는가**(§13 4항) ──
+//
+// 이게 사용자 제안 3번의 본체다: *"초기값은 사진찍은 장소로 셋팅..어때?"*
+// 좌표→시간대는 데이터셋이 필요해 하지 않는다. 나라까지만 알아내고 **나라의 시간대가 하나일 때만**
+// 제안한다(베트남 1개 → 제안 / 미국 29개 → 침묵). 그리고 **자동으로 정하지 않는다** — 묻는다.
+await page.route('**/reverse**', (route) =>
+  route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      lat: '16.0544', lon: '108.2022',
+      display_name: '미케 비치, 다낭, 베트남', name: '미케 비치',
+      address: { country: '베트남', country_code: 'vn', city: '다낭' },
+    }),
+  }),
+);
+await page.setInputFiles('.moment-photo-input', [
+  { name: 'gps4.jpg', mimeType: 'image/jpeg', buffer: withExifGps(imgBuf, '2026:07:16 12:00:00', 16.0544, 108.2022) },
+]);
+await page.waitForTimeout(900);
+const zoneSug = await page.evaluate(() => {
+  const b = document.querySelector('.zone-suggest');
+  return {
+    shown: b instanceof HTMLElement ? !b.hidden : false,
+    msg: b?.querySelector('.zone-notice-msg')?.textContent ?? '',
+    btn: b?.querySelector('[data-zone-suggest]')?.textContent ?? '',
+  };
+});
+check(
+  '시간대 제안: 사진이 찍힌 **나라를 말하고** 어느 시간대인지 제안한다',
+  zoneSug.shown && zoneSug.msg.includes('베트남') && zoneSug.msg.includes('인도차이나'),
+  JSON.stringify(zoneSug),
+);
+check('시간대 제안: **묻는다**(자동으로 정하지 않는다 — §8)', zoneSug.msg.includes('할까요'), zoneSug.msg);
+check('시간대 제안: 받아들일 버튼이 있다', zoneSug.btn.includes('이 시간대로'), zoneSug.btn);
+
+// 🔴 §13 4항 — **누른다.** 라벨만 읽는 것은 확인한 것이 아니다.
+await page.locator('[data-zone-suggest]').first().click();
+await page.waitForSelector('.tl-time', { timeout: 10000 });
+await page.waitForTimeout(700);
+const afterApply = await page.evaluate(() => ({
+  notice: document.querySelectorAll('.zone-notice').length,
+  suggest: document.querySelectorAll('.zone-suggest:not([hidden])').length,
+  hint: document.querySelector('.when-clock')?.textContent ?? '',
+}));
+check('시간대 제안: 누르면 **실제로 적용된다**(미지정 고지가 사라진다)', afterApply.notice === 0, JSON.stringify(afterApply));
+check('시간대 제안: 적용 후 제안도 사라진다(할 일이 끝나면 조용해진다 — §8)', afterApply.suggest === 0, JSON.stringify(afterApply));
+check('시간대 제안: 입력 칸이 **그 시간대로** 적는다고 말한다', afterApply.hint.includes('인도차이나'), afterApply.hint);
+
+// §3-C 되돌리기 — 이 클릭은 **여행을 실제로 고쳤다.** 원래대로 돌려놓는다.
+await page.unroute('**/reverse**');
+await page.locator('.hero-edit').first().click();
+await page.waitForTimeout(300);
+await page.selectOption('[data-zone-input]', '');
+await page.waitForTimeout(150);
+await page.locator('.edit-panel .btn-primary', { hasText: '저장' }).first().click();
+await page.waitForSelector('.zone-notice', { timeout: 10000 });
+check(
+  '시간대 제안: 되돌렸다(내가 고친 여행을 뒤 검사에 남기지 않는다 — §3-C)',
+  (await page.evaluate(() => document.querySelectorAll('.zone-notice').length)) === 1,
+  'ok',
+);
+
+// ── 🕒 시간대: `<input list>`가 아니라 **진짜 드롭다운**인가 ──
+// 사용자 제안: *"드롭다운해서 선택하게끔"*. 이건 취향이 아니라 **내가 이미 flag한 위험**이었다 —
+// v1.27에서 「안드로이드 크롬에서 datalist 자동완성이 안 뜰 수 있다」를 실기기 확인 항목에 적었다.
+const openEditPanel = async () => {
+  // 🔴 토글을 부르지 않고 **열린 상태를 보장**한다. `.hero-edit`는 토글이라 앞선 검사가
+  // 열어 뒀으면 내 클릭이 **닫는다** — 그 상태 의존이 이 블록을 한 번 타임아웃시켰다(§3-C).
+  for (let i = 0; i < 2; i++) {
+    const open = await page.evaluate(() => {
+      const p = document.querySelector('[data-zone-input]')?.closest('.edit-panel');
+      return p instanceof HTMLElement ? !p.hidden : false;
+    });
+    if (open) return;
+    await page.locator('.hero-edit').first().click();
+    await page.waitForTimeout(300);
+  }
+};
+await openEditPanel();
+const zoneUi = await page.evaluate(() => {
+  const t = document.querySelector('[data-zone-input]');
+  const h = document.querySelector('[data-home-zone-input]');
+  return {
+    tripTag: t?.tagName ?? '',
+    homeTag: h?.tagName ?? '',
+    groups: t instanceof HTMLSelectElement ? t.querySelectorAll('optgroup').length : 0,
+    options: t instanceof HTMLSelectElement ? t.options.length : 0,
+    firstValue: t instanceof HTMLSelectElement ? t.options[0]?.value : null,
+    firstText: t instanceof HTMLSelectElement ? t.options[0]?.textContent : null,
+    datalists: document.querySelectorAll('datalist').length,
+  };
+});
+check('시간대: 드롭다운(select)이다 — 폰에서 네이티브 선택기가 뜬다', zoneUi.tripTag === 'SELECT', JSON.stringify(zoneUi));
+check('시간대: **집 시간대도 같은 모양**이다(§7 화면 대칭 — 한쪽만 낡지 않게)', zoneUi.homeTag === 'SELECT', zoneUi.homeTag);
+check('시간대: 대륙별로 묶여 있다(418개를 한 줄로 늘어놓지 않는다)', zoneUi.groups >= 5 && zoneUi.options > 100, JSON.stringify(zoneUi));
+check('시간대: 「미지정」이 맨 앞이고 빈 값이다(비우는 것은 사실이지 결함이 아니다)', zoneUi.firstValue === '' && (zoneUi.firstText ?? '').includes('미지정'), JSON.stringify(zoneUi));
+
+// 골라 보면 미리보기가 재판정된다(§8 — 고쳤다고 말하지 말고 다시 읽어라).
+//
+// 🔴 `Asia/Bangkok`을 쓴다(+7). `Asia/Ho_Chi_Minh`으로 썼더니 **타임아웃**이 났다 —
+// Chromium의 `supportedValuesOf`는 그 자리에 별칭 `Asia/Saigon`을 준다. 목록에 없는 값을
+// 고르라고 하면 Playwright는 영원히 기다린다. **id는 브라우저가 정한다**는 것을 검사도
+// 알아야 한다(그래서 `buildZoneSelect`에 `ensureOption`이 있다 — 저장된 별칭이 조용히
+// 「미지정」으로 바뀌지 않게).
+await page.selectOption('[data-zone-input]', 'Asia/Bangkok');
+await page.waitForTimeout(250);
+const zonePick = await page.evaluate(() => document.querySelector('.zone-field .zone-preview')?.textContent ?? '');
+check('시간대: 고르면 미리보기가 **다시 그려진다**', /UTC\+7/.test(zonePick), zonePick);
+
+// §3-C 되돌리기 — 뒤 검사들이 보는 화면을 바꿔 놓지 않는다.
+await page.selectOption('[data-zone-input]', '');
+await page.waitForTimeout(150);
+await page.locator('.hero-edit').first().click(); // 패널을 닫아 원래 상태로
+await page.waitForTimeout(250);
+const zoneRestored = await page.evaluate(() => {
+  const t = document.querySelector('[data-zone-input]');
+  return t instanceof HTMLSelectElement ? t.value : 'MISSING';
+});
+check('시간대: 되돌렸다(내 상태를 뒤 검사에 남기지 않는다 — §3-C)', zoneRestored === '', zoneRestored);
+// 🔴 **스크롤도 상태다.** 이 블록이 `scrollIntoView`로 페이지를 내렸는데, 넓은 화면 2단 검사는
+// `.detail-compose`(sticky)와 타임라인의 **top 차이**를 재므로 스크롤된 채로는 어긋난다.
+// goto·fetch 스텁·뷰포트에 이어 **네 번째** 형태다 — 되돌릴 것의 목록은 내가 생각한 것보다 길다.
+await page.evaluate(() => window.scrollTo(0, 0));
+await page.waitForTimeout(150);
+
 // ── 🔴 v1.27 (M-0049 후반): 「그 자리의 시계」가 **화면에 실제로 나오는가** ────────────
 // 사용자 지적(2026-07-29, 스크린샷): *"사진 찍은 나라 또는 지역의 시간으로 적용되게 고정하고,
 // 사진에 장소정보가 없다면 사용자가 지정한 장소를 기준으로 하고, 적당한 위치에 한국시간으로
@@ -790,7 +1108,7 @@ check('시계: 그리고 시간대 칸에 **초점이 간다**(어디를 고쳐�
 check('시계: 버튼이 잠긴 채 남지 않는다', afterFix.btnStillEnabled === true, JSON.stringify(afterFix));
 
 // 집 시간대를 명시로 고정한다 — 이 컨테이너의 기기 시간대에 기대면 검사가 환경에 흔들린다.
-await page.fill('[data-home-zone-input]', 'Asia/Seoul');
+await page.selectOption('[data-home-zone-input]', 'Asia/Seoul');
 await page.waitForTimeout(200);
 const homePrev = await page.evaluate(() => {
   const i = document.querySelector('[data-home-zone-input]');
@@ -798,13 +1116,16 @@ const homePrev = await page.evaluate(() => {
 });
 check('시계: 집 시간대 미리보기가 **이름 + 현재 시각**을 말한다', /UTC\+9/.test(homePrev) && !homePrev.includes('Asia/'), homePrev || '(미리보기 없음)');
 
-// 오타는 조용히 UTC가 되지 않고 **모른다고 말한다**(§8 — 모르는 것은 확인 불가).
-await page.fill('[data-zone-input]', 'Asia/Seuol');
-await page.waitForTimeout(200);
-const typo = await page.evaluate(() => document.querySelector('.zone-field .zone-preview')?.textContent ?? '');
-check('시계: 알 수 없는 시간대는 **모른다고 말한다**(조용히 UTC로 만들지 않는다)', typo.includes('알 수 없어요'), typo);
+// 🔴 **오타 경로가 사라졌다**(v1.28에서 `<select>`로 바꾸면서). 예전엔 「Asia/Seuol」을 칠 수
+// 있어서 「알 수 없어요」를 재는 검사가 있었는데, 이제 목록에서 고르므로 **원리적으로 불가능**하다.
+// 케이스를 지우지 않고 **뒤집는다**(§11 ②): 자유 입력이 없다는 것을 잰다.
+const noFreeText = await page.evaluate(() => {
+  const t = document.querySelector('[data-zone-input]');
+  return { tag: t?.tagName ?? '', values: t instanceof HTMLSelectElement ? [...t.options].every((o) => o.value === '' || o.value.includes('/') || o.value === 'UTC') : false };
+});
+check('시계: 오타를 칠 자리가 **없다**(드롭다운이라 값이 목록 안에서만 나온다)', noFreeText.tag === 'SELECT' && noFreeText.values, JSON.stringify(noFreeText));
 
-await page.fill('[data-zone-input]', 'Asia/Ho_Chi_Minh');
+await page.selectOption('[data-zone-input]', 'Asia/Bangkok');
 await page.waitForTimeout(200);
 const preview = await page.evaluate(() => document.querySelector('.zone-field .zone-preview')?.textContent ?? '');
 check('시계: 고른 시간대를 **눈으로 확인**시킨다(id만 보고는 아무도 모른다 — §12)', /UTC\+7/.test(preview) && preview.includes('인도차이나'), preview);
@@ -832,8 +1153,8 @@ check('시계: 환산 줄이 가로 넘침을 만들지 않는다(폴드5 접은
 // ── 되돌리기(§3-C) — 뒤따르는 검사들이 보는 화면을 내가 바꿔 놓지 않는다 ──
 await page.locator('.hero-edit').first().click();
 await page.waitForTimeout(200);
-await page.fill('[data-zone-input]', '');
-await page.fill('[data-home-zone-input]', homeZoneBefore);
+await page.selectOption('[data-zone-input]', '');
+await page.selectOption('[data-home-zone-input]', homeZoneBefore);
 await page.waitForTimeout(150);
 await page.locator('.edit-panel .btn-primary', { hasText: '저장' }).first().click();
 await page.waitForSelector('.zone-notice', { timeout: 10000 });
@@ -1167,6 +1488,13 @@ async function layoutAt(w, h) {
   await page.setViewportSize({ width: w, height: h });
   await page.waitForTimeout(220);
   return page.evaluate(() => {
+    // 🔴 **재기 전에 맨 위로 올린다.** `.detail-compose`는 넓은 화면에서 `position: sticky`라
+    // 스크롤된 상태에서는 타임라인과 top이 어긋나고, 그러면 2단인데도 「2단 아님」이 된다.
+    //
+    // 왜 여기서 고치나(§7 2층): 앞선 블록들이 `scrollIntoView`를 부른다 — 실제로 2026-07-30에
+    // 그것 때문에 이 검사가 두 번 RED로 떴다. *"스크롤한 블록이 되돌려라"*로 두면 **다음
+    // 블록이 또 잊는다.** 재는 쪽이 자기 전제를 스스로 세우면 그 뒤로는 아무도 기억할 필요가 없다.
+    window.scrollTo(0, 0);
     const de = document.documentElement;
     const c = document.querySelector('.detail-compose')?.getBoundingClientRect();
     const t = document.querySelector('.timeline-wrap')?.getBoundingClientRect();
