@@ -891,6 +891,56 @@ check(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴 **[📁 원본에서]를 실제로 눌러 본다** (v1.34 · §13 4항)
+//
+// 사용자 실기기 스크린샷이 증명했다: 갤러리는 그 사진의 위치를 지도로 보여준다 —
+// **파일 안에 GPS가 있다.** 지우는 것은 안드로이드 **사진 선택기**다(M-0054).
+// 그래서 이 버튼은 사진 선택기를 우회하도록 `accept`를 잠깐 바꿔 파일 선택기를 연다.
+//
+// 여기서 잴 수 있는 것과 없는 것을 나눈다(§13 3항):
+//   · 잰다 — 누르면 `accept`가 실제로 바뀌는가, 파일 대화상자가 열리는가, **되돌아오는가**.
+//   · 못 잰다 — 안드로이드가 그때 어떤 선택기를 띄우는가(실기기 몫이다).
+// 되돌리기를 재는 이유: 안 되돌리면 다음에 평소처럼 [사진 추가]를 눌러도 파일 선택기가
+// 열려, **사용자가 고치지 않은 동작이 조용히 바뀐다.**
+// ─────────────────────────────────────────────────────────────────────────────
+const acceptBefore = await page.evaluate(() => document.querySelector('.moment-form .moment-photo-input')?.accept ?? '');
+const chooserOpened = await Promise.all([
+  page.waitForEvent('filechooser', { timeout: 5000 }).then(
+    async (fc) => {
+      const acceptWhileOpen = await page.evaluate(
+        () => document.querySelector('.moment-form .moment-photo-input')?.accept ?? '',
+      );
+      await fc.setFiles([]); // 취소와 같은 자리 — 고르지 않고 닫는다
+      return acceptWhileOpen;
+    },
+    () => null,
+  ),
+  page.locator('.moment-form .pick-original').click(),
+]).then(([a]) => a);
+check(
+  '🔴 [📁 원본에서]: 누르면 **파일 대화상자가 실제로 열린다**(라벨만 읽지 않는다 — §13 4항)',
+  chooserOpened !== null,
+  String(chooserOpened),
+);
+check(
+  '🔴 [📁 원본에서]: 사진 선택기가 처리 못 하는 형식을 섞어 **파일 선택기로 내려보낸다**',
+  (chooserOpened ?? '').includes('application/octet-stream'),
+  String(chooserOpened),
+);
+await page.waitForTimeout(300);
+const acceptAfter = await page.evaluate(() => document.querySelector('.moment-form .moment-photo-input')?.accept ?? '');
+check(
+  '🔴 [📁 원본에서]: 끝나면 `accept`를 **되돌린다**(다음 [사진 추가]가 조용히 달라지지 않게)',
+  acceptAfter === acceptBefore && acceptAfter === 'image/*',
+  `${acceptBefore} → ${chooserOpened} → ${acceptAfter}`,
+);
+check(
+  '[📁 원본에서]: 편집 폼에도 **같은 버튼이 있다**(§7 — 한쪽만 고치지 않는다)',
+  (await page.locator('.pick-original').count()) >= 1,
+  String(await page.locator('.pick-original').count()),
+);
+
 // 🔴 **[📍 내 위치]를 실제로 눌러 본다** (§13 4항 — 그리는 것과 도는 것은 다른 층이다)
 //
 // 사용자 요구(2026-07-31): *"장소가 바로 입력되게 하고 싶은거야. 어떤 방식이든 결과가 중요함."*

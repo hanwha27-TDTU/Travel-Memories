@@ -18,6 +18,7 @@ import { readPhotoMeta, type PhotoMeta } from '../../services/media';
 import { photoHintOf, photoPlaceLabel, photoPlaceNotice, type PhotoMetaLike } from '../../domain/place/photoHint';
 import { hereFailMessage, hereLabel, hereVerdict } from '../../domain/place/here';
 import { readHere } from '../../services/here';
+import { wireOriginalPick } from '../pickOriginal';
 import { hasAgreed, rememberAgreed, PHOTO_GEO_CONSENT_KEY, PHOTO_GEO_CONSENT_TEXT } from '../../services/consent';
 import {
   createMomentLocalFirst,
@@ -302,6 +303,45 @@ function wireMapPickButton(
         mapBtn.disabled = false;
       });
   });
+}
+
+/**
+ * 「기존 순간에 사진 추가」 줄 — 입력칸 + 📷 라벨 + 📁 원본에서 + 진행 줄.
+ *
+ * 생성 폼의 사진 줄과 **같은 것을 두 벌 손으로 만들고 있었다.** 래칫이 밀어줘서 뽑았지만,
+ * 떼고 보니 이게 맞다 — 「사진을 어떤 선택기로 고르는가」는 이 앱에서 **위치 정보의 생사가
+ * 갈리는 지점**이라(M-0054), 화면 300줄 안에 묻혀 있으면 다음 사람이 못 본다.
+ */
+function buildAddPhotoRow(): { wrap: HTMLElement; input: HTMLInputElement; progress: HTMLElement } {
+  const wrap = el('div', 'moment-addphoto');
+  wrap.hidden = true;
+  const input = el('input', 'moment-photo-input') as HTMLInputElement;
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.multiple = true;
+  input.setAttribute('aria-label', '사진 추가');
+  const label = el('label', 'moment-photo-label moment-addphoto-btn');
+  label.append(document.createTextNode('📷 사진 추가 '), input);
+  const progress = el('span', 'moment-addphoto-note muted small');
+  progress.setAttribute('role', 'status');
+  // §7 — 두 경로가 **같은 부품**을 쓴다. 손으로 두 벌 만들면 한쪽이 낡는다.
+  wrap.append(label, originalPickButton(input));
+  return { wrap, input, progress };
+}
+
+/**
+ * 📁 **원본에서** 버튼 — 사진 선택기를 우회해 파일 선택기로 고른다(v1.34).
+ *
+ * 생성 폼과 「사진 추가」 **두 곳이 같은 부품을 쓴다**(§7 2층). 라벨·설명·배선을 손으로
+ * 두 벌 만들면 한쪽만 고쳐지는 날이 오고, 이 저장소는 그 사고를 이미 세 번 겪었다.
+ */
+function originalPickButton(input: HTMLInputElement): HTMLButtonElement {
+  const btn = el('button', 'btn-ghost pick-original', '📁 원본에서') as HTMLButtonElement;
+  btn.type = 'button';
+  btn.setAttribute('aria-label', '파일에서 원본 사진 고르기 — 위치 정보가 유지될 수 있어요');
+  btn.title = '사진의 위치 정보를 살리려면 이쪽으로 골라 보세요';
+  wireOriginalPick(input, btn);
+  return btn;
 }
 
 /**
@@ -1416,6 +1456,8 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       zoneHint.suggest(metas);
     }, () => trip?.timeZone ?? '');
     photoLabel.append(picks.count, photoInput);
+  // 📁 안드로이드 사진 선택기가 GPS를 지우므로(M-0054), **원본 파일로 가는 길**을 함께 둔다.
+  const origBtn = originalPickButton(photoInput);
 
 
 
@@ -1437,7 +1479,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const whenField = buildWhenField(trip, clock, () => latestMomentAt);
     whenField.suggestFrom([]); // 사진 전에도 근거를 보여준다(직전 순간 / 여행 시작일)
 
-    form.append(input, emotion.el, whenField.el, placeField.el, money.el, photoLabel, picks.el, save);
+    form.append(input, emotion.el, whenField.el, placeField.el, money.el, photoLabel, origBtn, picks.el, save);
     compose.appendChild(form);
 
     const note = el('p', 'sync-note', '');
@@ -1609,19 +1651,9 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       card.appendChild(head);
 
       // 편집 모드에서 기존 순간에 사진 추가(생성 흐름과 같은 배치 편집 경로 재사용).
-      const addPhotoWrap = el('div', 'moment-addphoto');
-      addPhotoWrap.hidden = true;
-      const addPhotoInput = el('input', 'moment-photo-input') as HTMLInputElement;
-      addPhotoInput.type = 'file';
-      addPhotoInput.accept = 'image/*';
-      addPhotoInput.multiple = true;
-      addPhotoInput.setAttribute('aria-label', '사진 추가');
-      const addPhotoLabel = el('label', 'moment-photo-label moment-addphoto-btn');
-      addPhotoLabel.append(document.createTextNode('📷 사진 추가 '), addPhotoInput);
-      const addProgress = el('span', 'moment-addphoto-note muted small');
-      addProgress.setAttribute('role', 'status');
+      const { wrap: addPhotoWrap, input: addPhotoInput, progress: addProgress } = buildAddPhotoRow();
       // 🎙 소리 남기기 — 사진 추가와 **같은 줄**에 둔다(둘 다 "이 순간에 뭔가 더하기"다).
-      addPhotoWrap.append(addPhotoLabel, buildRecordButton(m.id, trip!.id, addProgress, refresh), addProgress);
+      addPhotoWrap.append(buildRecordButton(m.id, trip!.id, addProgress, refresh), addProgress);
       // 사진 추가 배선은 최상위 `wireAddPhoto`가 한다(래칫이 밀어줬다 — 그리고 이 배선의
       // 규율은 「§0 굽기 전에 EXIF」라 화면 코드가 아니라 밖에 있는 편이 맞다).
 
