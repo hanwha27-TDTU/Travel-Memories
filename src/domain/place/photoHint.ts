@@ -19,6 +19,8 @@
 
 /** `readPhotoMeta`가 돌려주는 것 중 이 판단에 필요한 부분만. */
 export interface PhotoMetaLike {
+  /** EXIF 촬영시각(ISO). 없으면 `null` — **대표 사진을 고르는 기준**이다(아래 참조). */
+  takenAt: string | null;
   gpsLat: number | null;
   gpsLng: number | null;
   tzOffsetMin: number | null;
@@ -44,16 +46,29 @@ export interface PhotoHint {
 /**
  * 고른 사진들에서 **위치·시간대 힌트**를 뽑는다.
  *
- * 여러 장이면 **첫 장**(고른 순서)의 좌표를 쓴다. 평균을 내지 않는 이유는 시각과 같다 —
- * 평균 좌표는 **실제로 아무도 서 있지 않은 지점**이고, 그건 값을 지어내는 것이다.
- * (시각은 「가장 이른 것」을 쓴다. 순간의 *시작*이 그 순간이기 때문인데, 좌표에는 그런
- * 자연스러운 대표가 없다. 그래서 「사용자가 처음 고른 것」이라는 **설명 가능한** 규칙을 쓴다.)
+ * 🔴 여러 장이면 **가장 이른 촬영시각**의 사진을 쓴다(사용자 지적 2026-07-31:
+ * *"사진여러장이면 가장 앞 시간 사진을 기준으로"*).
+ *
+ * 처음엔 「고른 순서의 첫 장」이었다. 그런데 **시각은 이미 「가장 이른 것」을 쓰고 있었다**
+ * (`guessOccurredAt` — 순간의 *시작*이 그 순간이므로). 두 기준이 다르면 **시각과 장소가
+ * 서로 다른 사진을 가리킨다** — 3장을 역순으로 골랐으면 「09:30에 여기 있었다」가 되는데
+ * 09:30 사진은 다른 곳에서 찍힌 것이다. 사용자에게는 그 어긋남이 보이지 않고, 그래서 더 나쁘다
+ * (§7 사용자 대면 대칭 — 같은 성격의 값은 같은 자로 재야 한다).
+ *
+ * 촬영시각이 **없는** 사진만 있으면 고른 순서를 쓴다 — 정렬 기준이 없을 때의 유일하게
+ * 설명 가능한 규칙이다. 평균 좌표는 **실제로 아무도 서 있지 않은 지점**이라 쓰지 않는다.
  */
 export function photoHintOf(metas: readonly PhotoMetaLike[]): PhotoHint {
   const located = metas.filter(
     (m) => m.gpsLat !== null && m.gpsLng !== null && Number.isFinite(m.gpsLat) && Number.isFinite(m.gpsLng),
   );
-  const first = located[0];
+  // 시각을 아는 것들 중 가장 이른 것 → 없으면 고른 순서의 첫 장.
+  // 못 읽는 시각(`Date.parse` NaN)은 **정렬에 끼우지 않는다** — 지어낸 순서를 만들지 않는다.
+  const timed = located
+    .map((m) => ({ m, t: m.takenAt ? Date.parse(m.takenAt) : Number.NaN }))
+    .filter((x) => !Number.isNaN(x.t))
+    .sort((a, b) => a.t - b.t);
+  const first = timed[0]?.m ?? located[0];
   const exif = metas.find((m) => m.tzSource === 'exif' && m.tzOffsetMin !== null);
   return {
     coord: first ? { lat: first.gpsLat as number, lng: first.gpsLng as number } : null,
@@ -70,6 +85,6 @@ export function photoHintOf(metas: readonly PhotoMetaLike[]): PhotoHint {
  */
 export function photoPlaceLabel(hint: PhotoHint): string {
   if (!hint.coord) return '';
-  const many = hint.coordCount > 1 ? ` (${hint.coordCount}장 중 첫 장)` : '';
+  const many = hint.coordCount > 1 ? ` (${hint.coordCount}장 중 가장 이른 사진)` : '';
   return `📷 사진 위치에서 · ${hint.coord.lat.toFixed(5)}, ${hint.coord.lng.toFixed(5)}${many}`;
 }

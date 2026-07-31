@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest';
 import { photoHintOf, photoPlaceLabel, type PhotoMetaLike } from '../../src/domain/place/photoHint';
 
 const meta = (p: Partial<PhotoMetaLike> = {}): PhotoMetaLike => ({
+  takenAt: null,
   gpsLat: null,
   gpsLng: null,
   tzOffsetMin: null,
@@ -18,7 +19,7 @@ const meta = (p: Partial<PhotoMetaLike> = {}): PhotoMetaLike => ({
 });
 
 describe('photoHintOf — 좌표', () => {
-  it('좌표가 있는 첫 사진의 좌표를 쓴다(고른 순서)', () => {
+  it('시각을 모르면 좌표가 있는 첫 사진을 쓴다(고른 순서)', () => {
     const h = photoHintOf([
       meta(), // GPS 없는 스크린샷이 먼저 와도
       meta({ gpsLat: 16.0544, gpsLng: 108.2022 }), // 이게 답이다
@@ -26,6 +27,42 @@ describe('photoHintOf — 좌표', () => {
     ]);
     expect(h.coord).toEqual({ lat: 16.0544, lng: 108.2022 });
     expect(h.coordCount).toBe(2);
+  });
+
+  // 🔴 사용자 지적(2026-07-31): *"사진여러장이면 가장 앞 시간 사진을 기준으로"*
+  // 시각(`guessOccurredAt`)이 이미 「가장 이른 것」을 쓰므로, 장소도 같은 자를 써야
+  // **시각과 장소가 같은 사진을 가리킨다**(§7 사용자 대면 대칭).
+  it('🔴 촬영시각을 알면 **가장 이른 사진**의 좌표다(고른 순서가 아니라)', () => {
+    const h = photoHintOf([
+      meta({ takenAt: '2026-07-16T12:00:00.000Z', gpsLat: 21.0278, gpsLng: 105.8342 }), // 늦게 찍힘
+      meta({ takenAt: '2026-07-16T09:30:00.000Z', gpsLat: 16.0544, gpsLng: 108.2022 }), // 가장 이르다
+      meta({ takenAt: '2026-07-16T18:00:00.000Z', gpsLat: 10.7769, gpsLng: 106.7009 }),
+    ]);
+    expect(h.coord).toEqual({ lat: 16.0544, lng: 108.2022 });
+  });
+
+  it('시각을 아는 사진이 하나라도 있으면 그것이 이긴다(시각 없는 첫 장에 밀리지 않는다)', () => {
+    const h = photoHintOf([
+      meta({ gpsLat: 21.0278, gpsLng: 105.8342 }), // 시각 없음 · 먼저 고름
+      meta({ takenAt: '2026-07-16T09:30:00.000Z', gpsLat: 16.0544, gpsLng: 108.2022 }),
+    ]);
+    expect(h.coord).toEqual({ lat: 16.0544, lng: 108.2022 });
+  });
+
+  it('좌표 없는 사진의 시각은 끼어들지 않는다(그 사진은 위치를 말할 수 없다)', () => {
+    const h = photoHintOf([
+      meta({ takenAt: '2026-07-16T06:00:00.000Z' }), // 가장 이르지만 좌표가 없다
+      meta({ takenAt: '2026-07-16T09:30:00.000Z', gpsLat: 16.0544, gpsLng: 108.2022 }),
+    ]);
+    expect(h.coord).toEqual({ lat: 16.0544, lng: 108.2022 });
+  });
+
+  it('못 읽는 시각은 정렬에 끼우지 않는다 — 지어낸 순서를 만들지 않는다', () => {
+    const h = photoHintOf([
+      meta({ takenAt: 'not-a-date', gpsLat: 21.0278, gpsLng: 105.8342 }),
+      meta({ takenAt: '2026-07-16T09:30:00.000Z', gpsLat: 16.0544, gpsLng: 108.2022 }),
+    ]);
+    expect(h.coord).toEqual({ lat: 16.0544, lng: 108.2022 });
   });
 
   it('평균을 내지 않는다 — 아무도 서 있지 않은 지점을 지어내지 않는다', () => {
@@ -103,7 +140,7 @@ describe('photoPlaceLabel — 근거를 값과 함께 말한다', () => {
     const s = photoPlaceLabel(
       photoHintOf([meta({ gpsLat: 16.05, gpsLng: 108.2 }), meta({ gpsLat: 21.02, gpsLng: 105.83 })]),
     );
-    expect(s).toContain('2장 중 첫 장');
+    expect(s).toContain('2장 중 가장 이른 사진');
   });
 
   it('좌표 없는 사진은 세지 않는다 — 「3장 중」이라 말하면 거짓이다', () => {

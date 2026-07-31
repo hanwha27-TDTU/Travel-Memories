@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.28<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->128<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.29<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->129<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->23<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -61,7 +61,7 @@
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.28<!--/reg-->) Pages 성공.
+**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.29<!--/reg-->) Pages 성공.
 
 ### 현재 기능 지도 (새 AI는 이 표로 기능 표면을 즉시 파악)
 
@@ -276,6 +276,54 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0025 · v1.29 · **편집 폼에서도 사진이 장소를 넣는다** (2026-07-31)
+
+**계기**: 사용자 스크린샷 + *"여기에도 자동 기입되면 좋겠는데? 사진여러장이면 가장 앞 시간 사진을 기준으로"*
+
+**한 줄**: v1.28을 **생성 폼에만** 붙인 것이 §7 위반이었다 — 「기존 순간에 사진 추가」가 오히려 흔한 흐름인데 거기서만 장소를 손으로 쳐야 했다. 그리고 대표 사진 규칙이 시각과 어긋나 있었다.
+
+### 🔴 두 흐름은 **저장 시점이 다르다** — 같은 해법이 안 통했다
+
+처음엔 생성 폼처럼 **폼 칸을 채우는** 코드를 붙였다. 라이브 검사가 잡았다:
+
+| | 생성 폼 | 「사진 추가」(편집) |
+|---|---|---|
+| 사진을 넣으면 | 폼에 **머문다**(사용자가 [저장]을 눌러야 저장) | **곧바로 저장하고 재렌더**(사진이 보여야 하므로) |
+| 폼 칸을 채우면 | 사용자가 보고 고칠 수 있다 | **그 즉시 사라진다**(폼이 새로 만들어진다) |
+
+그래서 후자는 **순간의 장소를 실제로 써 넣는다**(`placeFromPhotos`). 대신:
+
+- 🔴 **비어 있을 때만.** 이름이든 좌표든 하나라도 있으면 손대지 않는다.
+- 🔴 **말하고 되돌릴 길을 준다** — 「📍 사진 위치로 장소를 넣었어요 · 미케 비치 [실행취소]」.
+  앱이 사용자 데이터를 스스로 바꿨으므로 §5(복구 가능성)가 그대로 걸린다.
+  **진행 줄로는 안 됐다** — 재렌더가 그 줄을 지운다. 토스트는 `document.body`에 붙어 살아남는다.
+- 이름 조회는 **이미 동의가 있을 때만**(여기서 새로 묻지 않는다 — 사진 굽는 중에 대화상자를 띄우면 흐름이 끊긴다). 없으면 좌표만 넣는다.
+
+### 🔴 대표 사진 규칙이 시각과 어긋나 있었다
+
+시각(`guessOccurredAt`)은 **가장 이른 사진**을 쓰는데(순간의 *시작*이 그 순간이므로), 장소는 **고른 순서의 첫 장**이었다. 3장을 역순으로 고르면 **시각과 장소가 서로 다른 사진**을 가리킨다 — 그리고 그 어긋남은 **사용자에게 보이지 않는다.** 같은 자로 맞췄다(§7 사용자 대면 대칭).
+
+라이브 픽스처가 두 규칙을 실제로 갈라 세운다: 늦게 찍힌 하노이를 **먼저** 넣고 이른 다낭을 나중에 넣는다 — 옛 규칙이면 하노이가 나온다.
+
+### 이번에도 라이브가 잡은 것
+
+1. **배선이 취소 콜백 안에** 들어가 있었다(파이썬 치환이 엉뚱한 자리를 잡았고 **컴파일은 통과했다**) — 취소를 눌러야만 도는 코드.
+2. 폼 칸을 채우는 방식이 **재렌더에 지워진다**(위 표).
+3. 「사진 추가」는 장당 **편집기를 연다** — 검사가 고정 대기로는 못 지나가고 「사진 편집… (1/2)」에서 멈춘다.
+4. 첫 카드를 골랐더니 **앞선 검사가 좌표를 넣어 둔 순간**이라 제안이 안 돌았다 → 검사가 **자기 픽스처를 스스로 만들게** 고쳤다.
+
+### 검증
+
+하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **943**(+4) · `verify-editor-live` **243/243**(+4) · `verify-diagnostics-live` 22/22 · build OK.
+래칫: `wireAddPhoto`·`placeFromPhotos`를 뽑아 `renderTripDetail` 571→**560**, `buildMomentEditForm` 84→**83**.
+
+### 확인이 필요한 항목(실기기)
+
+- 실제 폰에서 「사진 추가」로 GPS 있는 사진을 넣었을 때 장소가 들어가고 **실행취소가 뜨는가**.
+- 여러 장을 넣었을 때 **가장 이른 사진**의 위치가 들어가는가.
 
 ---
 
