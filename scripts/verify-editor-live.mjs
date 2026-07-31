@@ -130,6 +130,12 @@ try {
   process.exit(2);
 }
 const page = await browser.newPage({ viewport: { width: 412, height: 915 } });
+// 📍 「내 위치」를 **실제로 눌러** 재려면 브라우저가 위치를 줘야 한다(§13 4항 — 라벨만 읽는
+// 것과 눌러 보는 것은 다른 층이다). 실제 GPS는 이 환경에 없으므로 **결정적인 가짜 위치**를
+// 넣는다. 재는 대상은 위성이 아니라 **배선**이다: 눌렀을 때 좌표가 필드에 들어가는가,
+// 정확도가 배지 문장이 되는가, 실패 사유가 화면에 나오는가, 버튼이 잠긴 채 남지 않는가.
+await page.context().grantPermissions(['geolocation'], { origin: 'http://localhost:4173' });
+await page.context().setGeolocation({ latitude: 37.5665, longitude: 126.978, accuracy: 18 });
 
 // 지도 타일을 **가로채 1×1 PNG로 답한다.** 샌드박스는 tile.openstreetmap.org를 막으므로
 // 지도를 열어 두는 동안 타일 요청이 전부 실패하고, 그게 「콘솔 에러 0」을 깨뜨린다 —
@@ -872,10 +878,116 @@ check(
   JSON.stringify(noExif),
 );
 check(
-  '🔴 생성 폼: 「안 된다」로 끝내지 않고 **탈출구**로 데려간다(지도·좌표 붙여넣기 · §12)',
-  noExif.text.includes('지도로 찍거나') && noExif.text.includes('좌표를 붙여넣어'),
+  '🔴 생성 폼: 「안 된다」로 끝내지 않고 **탈출구**로 데려간다(§12)',
+  noExif.text.includes('지도로 찍거나') && noExif.text.includes('좌표를'),
   noExif.text,
 );
+// v1.33 — 탈출구가 셋이 됐고 **가장 짧은 길이 맨 앞**이어야 한다. 사용자 요구는
+// *"어떤 방식이든 결과"*였고, 여기서 결과가 가장 확실한 것은 [📍 내 위치] 한 번이다.
+check(
+  '🔴 생성 폼: **[📍 내 위치]를 가장 먼저** 가리킨다(한 번 눌러 끝나는 길)',
+  noExif.text.indexOf('내 위치') >= 0 && noExif.text.indexOf('내 위치') < noExif.text.indexOf('지도로 찍거나'),
+  noExif.text,
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴 **[📍 내 위치]를 실제로 눌러 본다** (§13 4항 — 그리는 것과 도는 것은 다른 층이다)
+//
+// 사용자 요구(2026-07-31): *"장소가 바로 입력되게 하고 싶은거야. 어떤 방식이든 결과가 중요함."*
+// 그래서 재는 것은 **결과**다: 눌렀을 때 좌표가 실제로 들어가는가.
+// 위성은 이 환경에 없으므로 브라우저에 결정적인 가짜 위치를 넣어 뒀다(맨 위 setGeolocation).
+// 재는 것은 위성이 아니라 **배선**이다 — M-0038이 그 자리였다(유닛은 초록인데 배선이 끊겼다).
+// ─────────────────────────────────────────────────────────────────────────────
+await page.locator('.moment-form .place-here').click();
+await page.waitForTimeout(700);
+const hereApplied = await page.evaluate(() => {
+  const f = document.querySelector('.moment-form');
+  const badge = f?.querySelector('.place-picked');
+  const note = f?.querySelector('.place-photo-note');
+  return {
+    badge: badge instanceof HTMLElement && !badge.hidden ? (badge.textContent ?? '') : '',
+    btnEnabled: !(f?.querySelector('.place-here')?.disabled ?? true),
+    btnLabel: f?.querySelector('.place-here')?.textContent ?? '',
+    noteHidden: note ? note.hidden : null,
+  };
+});
+check(
+  '🔴 [📍 내 위치]: 누르면 **좌표가 실제로 들어간다**(라벨만 읽지 않는다 — §13 4항)',
+  hereApplied.badge.includes('지금 내 위치'),
+  JSON.stringify(hereApplied),
+);
+check(
+  '🔴 [📍 내 위치]: **정확도를 함께 말한다**(실내 측위 2km를 「위치 지정됨」으로 뭉개지 않는다)',
+  /±18m/.test(hereApplied.badge),
+  hereApplied.badge,
+);
+// 🔴 사용자 요구(2026-07-31): *"좌표를 제공해주면 내가 직접 입력하면 되지 않아?"*
+// 「위치 지정됨」만으로는 옮겨 적을 수도, 다른 지도앱에서 대조할 수도 없다.
+check(
+  '🔴 [📍 내 위치]: **숫자 좌표를 화면에 준다**(가져갈 수 있는 형태로 · §12)',
+  hereApplied.badge.includes('37.56650') && hereApplied.badge.includes('126.97800'),
+  hereApplied.badge,
+);
+check(
+  '[📍 내 위치]: 성공하면 안내 줄은 **조용해진다**(할 일이 끝나면 침묵 · §8)',
+  hereApplied.noteHidden === true,
+  JSON.stringify(hereApplied),
+);
+check(
+  '[📍 내 위치]: 버튼이 **잠긴 채 남지 않는다**(§13 4항 ④)',
+  hereApplied.btnEnabled && hereApplied.btnLabel.includes('내 위치'),
+  JSON.stringify(hereApplied),
+);
+
+// 🔴 **실패해도 말하는가** — 조용히 삼키면 M-0053(침묵이 「고장」으로 읽힌다)의 재발이다.
+//
+// 왜 권한을 빼앗지 않고 **브라우저 함수를 갈아 끼우나**: 헤드리스에서 권한을 지우면
+// 브라우저가 콜백을 아예 안 주는 일이 있어 검사가 16초를 기다리다 빈손으로 지나갔다.
+// 그리고 내가 재려는 것은 **브라우저의 권한 기계**가 아니라 **내 코드가 실패를 어떻게
+// 다루는가**다. 그래서 그 경계에서 정확히 갈아 끼운다 — 주입은 `getCurrentPosition`
+// 하나뿐이고, 그 뒤의 판정·문장·버튼 복구는 전부 **앱이 스스로 한다**(§4).
+await page.locator('.moment-form .place-picked .chip-clear').first().click();
+await page.waitForTimeout(150);
+await page.evaluate(() => {
+  const g = navigator.geolocation;
+  window.__realGetPos = g.getCurrentPosition.bind(g);
+  g.getCurrentPosition = (_ok, err) => err && err({ code: 1, message: 'denied' });
+});
+await page.locator('.moment-form .place-here').click();
+await page.waitForTimeout(400);
+const hereDenied = await page.evaluate(() => {
+  const f = document.querySelector('.moment-form');
+  const note = f?.querySelector('.place-photo-note');
+  return {
+    note: note instanceof HTMLElement && !note.hidden ? (note.textContent ?? '') : '',
+    btnEnabled: !(f?.querySelector('.place-here')?.disabled ?? true),
+    btnLabel: f?.querySelector('.place-here')?.textContent ?? '',
+  };
+});
+check(
+  '🔴 [📍 내 위치]: **실패를 삼키지 않는다**(권한이 없으면 그렇다고 말한다)',
+  hereDenied.note.includes('권한'),
+  JSON.stringify(hereDenied),
+);
+check(
+  '🔴 [📍 내 위치]: 실패 문장이 **다음에 할 일**을 준다(§12 — 「안 됩니다」로 끝내지 않는다)',
+  /허용/.test(hereDenied.note) && /지도/.test(hereDenied.note),
+  hereDenied.note,
+);
+check(
+  '[📍 내 위치]: 실패해도 버튼이 **잠긴 채 남지 않는다**(§13 4항 ④)',
+  hereDenied.btnEnabled && hereDenied.btnLabel.includes('내 위치'),
+  JSON.stringify(hereDenied),
+);
+// §3-C — 갈아 끼운 것을 내가 되돌린다. 안 되돌리면 뒤 검사가 「위치를 못 얻는 브라우저」에서
+// 도는데, 그건 내가 만든 상태이지 앱의 상태가 아니다(fetch 스텁·뷰포트와 같은 부류).
+await page.evaluate(() => {
+  if (window.__realGetPos) navigator.geolocation.getCurrentPosition = window.__realGetPos;
+});
+await page.evaluate(() => {
+  const n = document.querySelector('.moment-form .place-photo-note');
+  if (n instanceof HTMLElement) { n.textContent = ''; n.hidden = true; }
+});
 
 // ② 촬영시각은 있는데 GPS만 없는 사진 — **안드로이드 사진 선택기가 지운 모양**이다.
 //    앱의 파서는 멀쩡하다는 사실을 사용자에게 알려야 앱을 의심하지 않는다.
@@ -1177,7 +1289,7 @@ check(
 );
 check(
   '위치 없는 사진: 토스트도 **탈출구**를 함께 준다(§12)',
-  noGpsToast.includes('지도로 찍거나'),
+  noGpsToast.includes('지도로 찍거나') && noGpsToast.includes('내 위치'),
   noGpsToast,
 );
 check(

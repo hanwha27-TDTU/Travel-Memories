@@ -47,6 +47,10 @@ export const SKILL_ROUTES = [
   // 여기 담긴 것이 좌표·장소명이 기기 밖으로 나가는 유일한 경로의 동의 절차이기 때문이다
   // (`externalMapConsent`와 같은 판단).
   { match: /^src\/ui\/externalMapRow/, skill: 'map-place-dev' },
+  // 「지금 내 위치」를 읽는 브라우저 문. **services/이지만 규율은 장소 헌장**이다 —
+  // 여기서 나오는 좌표는 사용자의 기억이 찍힐 자리이고, 정확도 판정·실패 문장·
+  // 「자동으로 넣지 않는다」는 결정이 전부 domain/place/here.ts와 한 몸이다.
+  { match: /^src\/services\/here/, skill: 'map-place-dev' },
   { match: /^src\/ui\/(photoEditor|photoViewer|editor)/, skill: 'photo-editor-dev' },
   { match: /^src\/media\//, skill: 'photo-editor-dev' },
   { match: /^src\/ui\/panels\/(verdict|diagnostics)/, skill: 'diagnostics-dev' },

@@ -188,7 +188,18 @@ describe('photoPlaceNotice — 없을 때 **왜 없는지**와 **그럼 어떻�
     for (const metas of [[meta()], [meta({ takenAt: '2026-07-31T05:09:00.000Z' })]]) {
       const s = photoPlaceNotice(photoHintOf(metas));
       expect(s).toContain('지도로 찍거나');
-      expect(s).toContain('좌표를 붙여넣어');
+      expect(s).toContain('좌표를');
+    }
+  });
+
+  // 🔴 v1.33 — 탈출구가 셋이 됐고 **가장 짧은 길이 맨 앞**이어야 한다.
+  // 사용자 요구는 *"어떤 방식이든 결과가 중요함"*이었고, 결과가 가장 확실한 것은
+  // [📍 내 위치] 한 번이다(안드로이드가 사진에서 지운 위치와 달리 막히지 않는다).
+  it('🔴 [📍 내 위치]를 **가장 먼저** 가리킨다(한 번 눌러 끝나는 길)', () => {
+    for (const metas of [[meta()], [meta({ takenAt: '2026-07-31T05:09:00.000Z' })]]) {
+      const s = photoPlaceNotice(photoHintOf(metas));
+      expect(s).toContain('내 위치');
+      expect(s.indexOf('내 위치')).toBeLessThan(s.indexOf('지도로 찍거나'));
     }
   });
 
