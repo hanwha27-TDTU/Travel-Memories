@@ -56,6 +56,7 @@ export const GATE_DESC: Record<string, string> = {
   'check-timezone': '날짜를 UTC가 아닌 사용자 로컬로 계산(+ 다른 시간대에서도 유닛 통과)',
   'check-instant-normalization': '밖에서 온 시각을 앱의 표준 표기로 바꿔 저장(같은 순간을 두 표기로 적지 않게)',
   'check-exif-strip-on-share': '서버로 나가는 사진은 canvas 재인코딩본만 — 원본의 촬영위치(GPS)가 따라가지 않게',
+  'check-exif-order': '촬영시각·위치(EXIF)를 **압축 전에, 원본에서** 읽는가 — 순서가 뒤집히면 그 정보는 영원히 사라진다(§0)',
   'unit-tests': '순수 로직 유닛(비공허 확인)',
   'verify-editor-live':
     '실제 브라우저가 앱을 열어 화면·편집기·서비스워커·폰트를 확인(정적 검사가 원리적으로 못 보는 층)',
@@ -99,6 +100,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-timezone': 'static',
   'check-instant-normalization': 'static',
   'check-exif-strip-on-share': 'static',
+  'check-exif-order': 'static',
   'unit-tests': 'unit',
   'verify-editor-live': 'live',
   'verify-diagnostics-live': 'live',
