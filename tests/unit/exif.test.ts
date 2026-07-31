@@ -43,6 +43,69 @@ function craftJpegWithDate(dateStr: string): ArrayBuffer {
   return out.buffer;
 }
 
+
+/**
+ * 🔴 **GPS 태그가 「0으로 덮여」 온 JPEG**(2026-07-31 · M-0057 재현).
+ *
+ * 사용자 실기기에서 실제로 일어난 일이다: 갤러리는 그 사진을 「청주시 상당구」로 정확히
+ * 보여주는데 **브라우저가 받은 바이트**의 GPS 태그는 전부 0이었다. 태그가 **지워진 게
+ * 아니라 0으로 덮여** 온 것이고, 옛 파서는 그 0을 **좌표로 믿어** 순간에 「0.0000, 0.0000」을
+ * 넣었다. 그래서 **진짜 바이트로** 재현해 파서가 스스로 거절하게 한다(§4 — DOM/모의 주입은
+ * 내 주입을 재는 공허한 검사다).
+ *
+ * @param zeroDenominator true면 분모까지 0(더 나쁜 형태) — 옛 코드가 `d===0 ? 0`으로
+ *   **못 읽은 것을 0도로 반올림**하던 자리다.
+ */
+function craftJpegWithGps(latDeg: number, lngDeg: number, zeroDenominator = false): ArrayBuffer {
+  const den = zeroDenominator ? 0 : 1;
+  // TIFF: [header8][IFD0 2엔트리=30][GPS IFD 4엔트리=54][lat 24][lng 24]
+  const GPS_OFF = 8 + 30;
+  const LAT_OFF = GPS_OFF + 54;
+  const LNG_OFF = LAT_OFF + 24;
+  const tiff = new Uint8Array(LNG_OFF + 24);
+  const dv = new DataView(tiff.buffer);
+  tiff[0] = 0x49; tiff[1] = 0x49; // 'II' little-endian
+  dv.setUint16(2, 42, true);
+  dv.setUint32(4, 8, true);
+  // IFD0: GPSInfoIFDPointer 하나
+  dv.setUint16(8, 1, true);
+  dv.setUint16(10, 0x8825, true); dv.setUint16(12, 4, true);
+  dv.setUint32(14, 1, true); dv.setUint32(18, GPS_OFF, true);
+  dv.setUint32(22, 0, true);
+  // GPS IFD: Ref/좌표 넷
+  let o = GPS_OFF;
+  dv.setUint16(o, 4, true); o += 2;
+  const entry = (tag: number, type: number, count: number, valueOrOffset: number): void => {
+    dv.setUint16(o, tag, true); dv.setUint16(o + 2, type, true);
+    dv.setUint32(o + 4, count, true); dv.setUint32(o + 8, valueOrOffset, true);
+    o += 12;
+  };
+  dv.setUint16(o, 0x0001, true); dv.setUint16(o + 2, 2, true);
+  dv.setUint32(o + 4, 2, true); tiff[o + 8] = 0x4e; tiff[o + 9] = 0; o += 12; // 'N'
+  entry(0x0002, 5, 3, LAT_OFF);
+  dv.setUint16(o, 0x0003, true); dv.setUint16(o + 2, 2, true);
+  dv.setUint32(o + 4, 2, true); tiff[o + 8] = 0x45; tiff[o + 9] = 0; o += 12; // 'E'
+  entry(0x0004, 5, 3, LNG_OFF);
+  dv.setUint32(o, 0, true);
+  const dms = (off: number, v: number): void => {
+    dv.setUint32(off, Math.floor(v) * den, true); dv.setUint32(off + 4, den, true);
+    dv.setUint32(off + 8, 0, true); dv.setUint32(off + 12, den, true);
+    dv.setUint32(off + 16, 0, true); dv.setUint32(off + 20, den, true);
+  };
+  dms(LAT_OFF, latDeg);
+  dms(LNG_OFF, lngDeg);
+
+  const app1Len = 2 + 6 + tiff.length;
+  const out = new Uint8Array(2 + 2 + 2 + 6 + tiff.length);
+  const ov = new DataView(out.buffer);
+  ov.setUint16(0, 0xffd8, false);
+  ov.setUint16(2, 0xffe1, false);
+  ov.setUint16(4, app1Len, false);
+  out.set([0x45, 0x78, 0x69, 0x66, 0x00, 0x00], 6);
+  out.set(tiff, 12);
+  return out.buffer;
+}
+
 describe('readJpegExif', () => {
   // 🔴 2026-07-29(M-0049): 이 케이스는 **옛 결함을 정상으로 못박고 있었다.**
   // 기대값이 `new Date('2020-01-02T03:04:05')` — 즉 *검사를 돌리는 기기의 시간대*로 해석한
@@ -61,5 +124,30 @@ describe('readJpegExif', () => {
 
   it('EXIF 없는 JPEG(SOI만)도 안전하게 빈 결과', () => {
     expect(readJpegExif(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]).buffer)).toEqual({});
+  });
+});
+
+describe('readJpegExif — GPS (M-0057)', () => {
+  it('정상 좌표는 그대로 읽는다(파서가 죽지 않았다는 비공허 확인 · §4)', () => {
+    const e = readJpegExif(craftJpegWithGps(37, 127));
+    expect(e.gpsLat).toBe(37);
+    expect(e.gpsLng).toBe(127);
+  });
+
+  it('🔴 GPS 태그가 **0으로 덮여** 오면 좌표로 믿지 않는다 — 사용자 순간에 0,0이 실제로 들어갔다', () => {
+    const e = readJpegExif(craftJpegWithGps(0, 0));
+    expect(e.gpsLat).toBeUndefined();
+    expect(e.gpsLng).toBeUndefined();
+  });
+
+  it('🔴 분모가 0이면 **0도로 반올림하지 않는다**(§8 — 못 읽은 것은 없는 것)', () => {
+    const e = readJpegExif(craftJpegWithGps(37, 127, true));
+    expect(e.gpsLat).toBeUndefined();
+    expect(e.gpsLng).toBeUndefined();
+  });
+
+  it('한쪽만 0인 좌표는 **정상이다**(적도·본초자오선은 실재한다)', () => {
+    expect(readJpegExif(craftJpegWithGps(0, 127)).gpsLng).toBe(127);
+    expect(readJpegExif(craftJpegWithGps(37, 0)).gpsLat).toBe(37);
   });
 });

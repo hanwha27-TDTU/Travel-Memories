@@ -1232,12 +1232,29 @@ function toLocalInputValue(iso: string, offsetMin: number): string {
  * 좌표가 없어도 **누를 수 있다.** 지도는 빈 상태로 열려 "좌표가 없다"고 말하고, 이름으로
  * 검색해 갈 길을 준다. 누를 수 없게 두면 *왜* 안 눌리는지 사용자가 알 방법이 없다(§12).
  */
+/**
+ * 이 순간에 **쓸 만한 장소가 있는가**(순수).
+ *
+ * 🔴 **이미 저장된 0,0은 장소로 치지 않는다**(M-0057). 사용자 기록에 이미 들어가 있고,
+ * 옛 파서가 넣은 것이라 **사용자가 지운 적이 없다.** 「장소가 있다」로 세면 ①칩이 기니만
+ * 앞바다 좌표를 보여주고 ②사진에서 위치를 채우는 길이 「이미 있음」으로 막힌다.
+ *
+ * **지우지는 않는다** — 사용자 자료를 앱이 임의로 삭제하지 않는다(§0). 화면에서 **없는
+ * 것으로 보고**, 새 위치가 들어오면 자연스럽게 덮인다.
+ */
+function momentHasPlace(m: { placeName: string; placeLat?: number | null; placeLng?: number | null }): boolean {
+  const real = m.placeLat != null && m.placeLng != null && !(m.placeLat === 0 && m.placeLng === 0);
+  return Boolean(m.placeName) || real;
+}
+
 function placeChip(m: { id: string; placeName: string; placeLat?: number | null; placeLng?: number | null }): HTMLElement {
   const lat = m.placeLat ?? null;
   const lng = m.placeLng ?? null;
   // 이름이 없으면 **좌표를 보여준다.** 「이름 없는 장소」라고 쓰면 그건 앱의 사정이지
   // 사용자의 정보가 아니다 — 좌표는 적어도 *어디인지*를 말한다(지도에서 열 수도 있다).
-  const label = m.placeName || (lat !== null && lng !== null ? `${lat.toFixed(4)}, ${lng.toFixed(4)}` : '');
+  // 🔴 0,0은 좌표가 아니다(M-0057) — 이름이 없으면 라벨도 없다(칩 자체가 안 그려진다).
+  const realCoord = lat !== null && lng !== null && !(lat === 0 && lng === 0);
+  const label = m.placeName || (realCoord ? `${lat.toFixed(4)}, ${lng.toFixed(4)}` : '');
   const chip = el('button', 'chip gps chip-tap', `📍 ${label}`) as HTMLButtonElement;
   chip.type = 'button';
   chip.setAttribute('aria-label', `${label} 지도에서 보기`);
@@ -1702,7 +1719,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       );
       editForm.hidden = true;
       // `hasPlace`: 이름이든 좌표든 하나라도 있으면 사진이 장소를 **손대지 않는다.**
-      const hasPlace = Boolean(m.placeName) || (m.placeLat != null && m.placeLng != null);
+      const hasPlace = momentHasPlace(m);
       wireAddPhoto(addPhotoInput, addProgress, { momentId: m.id, tripId: trip!.id, fallbackZone: trip?.timeZone ?? '', hasPlace, refresh });
       editBtn.addEventListener('click', () => {
         const show = editForm.hidden; // 열기로 전환

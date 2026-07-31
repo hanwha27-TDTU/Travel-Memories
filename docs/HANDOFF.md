@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.34<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->134<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.35<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->135<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->23<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -63,7 +63,7 @@
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.34<!--/reg-->) Pages 성공.
+**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.35<!--/reg-->) Pages 성공.
 
 ### 현재 기능 지도 (새 AI는 이 표로 기능 표면을 즉시 파악)
 
@@ -278,6 +278,38 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0031 · v1.35 · **0,0이 사용자 기억에 좌표로 박혔다** (M-0057) (2026-07-31)
+
+**계기**: 사용자 실기기 스크린샷 3장 — 순간 카드에 **「📍 0.0000, 0.0000」**(기니만 앞바다), 같은 사진이 **갤러리에서는 「충청북도 청주시 상당구」로 정확히** 표시.
+
+**한 줄**: 원본 파일엔 진짜 GPS가 있는데 **브라우저가 받은 바이트에서는 그 값이 전부 0**이었다 — 안드로이드가 **지운 게 아니라 0으로 덮어서** 넘겼다. 그리고 **내 파서가 그 0을 좌표로 믿었다.**
+
+### 내 결함 세 겹
+
+1. `readDMS`가 `d === 0 ? 0 : n / d` — **못 읽음을 0도로 반올림**(§8 위반)
+2. **0,0을 유효 좌표로 수용**
+3. 🔴 **그 계약을 유닛에 잠가 뒀다** — *"0,0(기니만)도 값이다"*. 그래서 이 결함은 **게이트에서 영원히 초록**이었다.
+
+> **근본형**: 「값이 없음」과 「값이 0」을 구분 못 하면 앱은 **없는 것을 있다고 말한다.**
+> 그리고 좌표에서 그 0은 **바다 한가운데**다.
+>
+> **왜 falsy 규율이 반대로 작동했나**: 「0을 falsy로 뭉개지 마라」는 **금액·개수**의 규율이다(₩0은 값이다). 좌표에서 0,0은 **관례적으로 「비어 있음」**이다. 형제의 규율을 물려받되 **그 자리에서 참인지 다시 물어야 한다**(§7의 함정).
+
+### 수정
+
+- `exif.ts` — 분모 0 → 좌표 없음 · **lat·lng 둘 다 0이면 거부**
+- `photoHint` · `geojson` — 같은 판정(파서를 안 지나는 경로 + **이미 저장된 옛 기록**)
+- `momentHasPlace()`(신규) — **이미 저장된 0,0은 화면에서 장소로 치지 않는다.** 칩이 안 뜨고, 사진에서 위치 채우기가 「이미 있음」으로 막히지 않는다. **지우지는 않는다**(§0)
+- 🔴 **한쪽만 0인 좌표는 정상** — 적도·본초자오선은 실재한다. 막는 것은 **둘 다 0**일 때뿐
+
+### 검증
+
+하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **978** · live 270/270 + 22/22 · build OK
+EXIF 유닛 4건 신규 — **진짜 JPEG 바이트**로 GPS IFD를 만들어(0으로 덮인 형태·분모 0·정상·한쪽만 0) 파서가 스스로 거절하게 한다(§4).
+**§4 주입 RED 확인**: 옛 두 줄을 되돌리자 2건 즉시 RED. **§11 ②**: 옛 케이스를 통과시키려 로직을 되돌리지 않고 **뒤집었다.**
 
 ---
 

@@ -71,12 +71,22 @@ describe('photoHintOf — 좌표', () => {
   });
 
   it('평균을 내지 않는다 — 아무도 서 있지 않은 지점을 지어내지 않는다', () => {
-    const h = photoHintOf([meta({ gpsLat: 0, gpsLng: 0 }), meta({ gpsLat: 90, gpsLng: 180 })]);
-    expect(h.coord).toEqual({ lat: 0, lng: 0 }); // 첫 장 그대로
+    const h = photoHintOf([meta({ gpsLat: 10, gpsLng: 20 }), meta({ gpsLat: 90, gpsLng: 180 })]);
+    expect(h.coord).toEqual({ lat: 10, lng: 20 }); // 첫 장 그대로(중간값 50,100이 아니다)
   });
 
-  it('0,0(기니만)도 값이다 — falsy로 뭉개지 않는다', () => {
-    expect(photoHintOf([meta({ gpsLat: 0, gpsLng: 0 })]).coord).toEqual({ lat: 0, lng: 0 });
+  // 🔴 **이 케이스는 뒤집혔다**(2026-07-31 · M-0057). 예전엔 *"0,0도 값이다"*로 잠가 뒀고,
+  // 그 계약 때문에 **사용자의 순간에 「📍 0.0000, 0.0000」이 실제로 들어갔다.**
+  // 안드로이드가 넘긴 사진의 GPS 태그가 **지워진 게 아니라 0으로 덮여** 있었기 때문이다.
+  // §11 ②: 통과시키려 로직을 되돌리지 말고 **케이스를 뒤집는다.**
+  it('🔴 0,0(기니만 앞바다)은 **좌표가 아니다** — 비어 있는 태그의 관례적 표현이다', () => {
+    expect(photoHintOf([meta({ gpsLat: 0, gpsLng: 0 })]).coord).toBeNull();
+    expect(photoHintOf([meta({ gpsLat: 0, gpsLng: 0 })]).coordCount).toBe(0);
+  });
+
+  it('한쪽만 0인 것은 **정상 좌표다**(적도·본초자오선은 실재한다) — 막는 것은 둘 다 0일 때뿐', () => {
+    expect(photoHintOf([meta({ gpsLat: 0, gpsLng: 127.0 })]).coord).toEqual({ lat: 0, lng: 127.0 });
+    expect(photoHintOf([meta({ gpsLat: 37.5, gpsLng: 0 })]).coord).toEqual({ lat: 37.5, lng: 0 });
   });
 
   it('좌표가 하나도 없으면 null이고 세지도 않는다', () => {
