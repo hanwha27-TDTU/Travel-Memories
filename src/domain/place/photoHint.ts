@@ -132,7 +132,10 @@ export function photoPlaceLabel(hint: PhotoHint): string {
  */
 export function photoPlaceNotice(hint: PhotoHint): string {
   if (hint.photoCount === 0 || hint.coord) return '';
-  const escape = '🗺️ 지도로 찍거나, 다른 지도앱에서 복사한 좌표를 붙여넣어 주세요';
+  // 🔴 **가장 짧은 길을 맨 앞에** 둔다(v1.33). 사용자 요구는 *"어떤 방식이든 결과"*였고,
+  // 여기서 결과가 가장 확실한 길은 **[📍 내 위치] 한 번**이다 — 안드로이드가 사진에서 지운
+  // 위치와 달리, 기기의 현재 위치는 막히지 않는다(M-0054).
+  const escape = '📍 [내 위치]를 누르시면 바로 들어가요 — 🗺️ 지도로 찍거나 좌표를 붙여넣으셔도 됩니다';
   if (hint.timedCount > 0) {
     return `📷 촬영시각은 읽었는데 위치 정보가 없어요 — 안드로이드 사진 선택기가 위치를 지웠을 수 있어요. ${escape}`;
   }

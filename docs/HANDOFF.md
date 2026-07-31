@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.32<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->132<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.33<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->133<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->23<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -63,7 +63,7 @@
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.32<!--/reg-->) Pages 성공.
+**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.33<!--/reg-->) Pages 성공.
 
 ### 현재 기능 지도 (새 AI는 이 표로 기능 표면을 즉시 파악)
 
@@ -278,6 +278,44 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0029 · v1.33 · **📍 내 위치 — 막힌 문 대신 열린 문으로** (2026-07-31)
+
+**계기**: 사용자 — *"내가 원하는 건 장소가 바로 입력되게 하고 싶은거야. 어떤 방식이든 결과가 중요함."* 그리고 *"지금 목적이 무료지도 자체가 위치가 정확하지 않아서..GPS 도움 받으려는거거든"*
+
+**한 줄**: **엉뚱한 문을 두드리고 있었다.** 사진 EXIF의 GPS는 안드로이드가 지워서 넘긴다(M-0054, 실기기 확정) — 파서로는 원리적으로 못 뚫는다. 그런데 **기기는 자기가 지금 어디 있는지 알고 있고**, 그 문은 막혀 있지 않다.
+
+### 새로 생긴 것
+
+| 무엇 | 어디 |
+|---|---|
+| `domain/place/here.ts` | 정확도 판정 · 배지 문장 · 실패 사유 4종 문장(전부 순수 · 유닛 18건) |
+| `services/here.ts` | `navigator.geolocation`을 약속으로 바꾸는 얇은 문. **던지지 않는다**(실패는 값) |
+| `[📍 내 위치]` 버튼 | `buildPlaceFieldShell` — **부품이 하나라 생성 폼·편집 폼이 동시에** 받는다(§7 2층) |
+
+- **정확도를 새로 정의하지 않았다.** GPS `accuracy`(반지름)를 ×2 해서 기존 `precisionFromSpan`에 넣는다 → 「📍 건물·지점」/「⚠ 동네 범위」가 **자동으로** 붙는다. 위치 출처가 검색이든 지도든 GPS든 사용자가 알아야 하는 것은 같다(§7 사용자 대면 대칭).
+- 🔢 **숫자 좌표를 배지에 노출한다** — 사용자 요구(*"좌표를 제공해주면 내가 직접 입력하면 되지 않아?"*). 「위치 지정됨」만으로는 옮겨 적을 수도 대조할 수도 없다(§12).
+
+### 🔴 자동으로 넣지 **않기로** 한 결정
+
+「지금 여기」는 「그때 거기」가 아니다. 사용자가 실제로 겪은 값이 근거다 — **20:19에 14:09**에 찍은 사진을 넣고 있었다(6시간 차). 자동으로 넣었다면 **의정부 버스터미널의 기억이 집 주소에 찍혔을 것**이고, 사용자는 자기가 넣지 않은 좌표가 들어간 줄도 몰랐을 것이다(원칙 #1·§8). 대신 **누르기 쉽게** 만들었다(상시 버튼 + 안내가 그 버튼을 맨 앞에 가리킴).
+
+### 검증
+
+하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **969**(+18) · `verify-editor-live` **266/266**(+9) · `verify-diagnostics-live` 22/22 · build OK.
+
+- **§13 4항 — 버튼을 실제로 눌렀다.** Playwright에 결정적 가짜 위치(37.5665/126.978, ±18m)를 넣고 눌러 ①좌표가 실제로 들어가는가 ②정확도가 문장이 되는가 ③숫자 좌표가 보이는가 ④안내 줄이 조용해지는가 ⑤버튼이 잠긴 채 남지 않는가를 쟀다.
+- **실패 경로도 눌렀다.** 처음엔 `clearPermissions()`로 했는데 헤드리스에서 **콜백이 안 와** 16초를 기다리다 빈손으로 지나갔고, 늦게 도착한 결과가 **뒤 블록의 화면을 덮었다.** 재려는 것은 브라우저의 권한 기계가 아니라 **내 코드의 실패 처리**라, `getCurrentPosition` 하나만 갈아 끼우고 판정·문장·버튼 복구는 앱이 스스로 하게 했다(§4). 끝에서 되돌린다(§3-C).
+- **§13 1항**: 폴드5 접은 폭(344px)에서 열어서 봤다 — 버튼 셋이 접혀 두 줄, 가로 넘침 0.
+- 래칫이 밀어줬다(§11): `wireNameEdit`(이름 손편집 시 좌표를 어떻게 할 것인가 — 이 필드에서 가장 미묘한 규칙)를 뽑아 `buildPlaceField` 112→110.
+
+### 잔여 — 🔴 **사후 업로드는 아직 답이 없다**
+
+이번 판이 푼 것은 **현장 기록**이다. 사용자가 물은 *"사후에 사진을 업로드할 경우"*는 그대로 남아 있다:
+- 안드로이드 사진 선택기가 이미 GPS를 지웠으므로 **줄 좌표 자체가 없다.**
+- 유일한 후보: **「파일」/문서 선택기**로 고르면 원본 바이트가 와서 EXIF가 살아 있을 수 있다. 사진 선택기 안의 **[찾아보기]** 항목이 그 경로다. **실기기 확인 전이라 코드로 만들지 않았다**(§13 3항) — 되는 것이 확인되면 `accept` 전환 토글로 붙인다.
 
 ---
 

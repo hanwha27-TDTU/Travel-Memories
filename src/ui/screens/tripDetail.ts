@@ -16,6 +16,8 @@ import {
 import { guessOccurredAt, outsideTripWarning, latestOccurredAt, type WhenGuess } from '../../domain/moment/whenDefault';
 import { readPhotoMeta, type PhotoMeta } from '../../services/media';
 import { photoHintOf, photoPlaceLabel, photoPlaceNotice, type PhotoMetaLike } from '../../domain/place/photoHint';
+import { hereFailMessage, hereLabel, hereVerdict } from '../../domain/place/here';
+import { readHere } from '../../services/here';
 import { hasAgreed, rememberAgreed, PHOTO_GEO_CONSENT_KEY, PHOTO_GEO_CONSENT_TEXT } from '../../services/consent';
 import {
   createMomentLocalFirst,
@@ -302,13 +304,92 @@ function wireMapPickButton(
   });
 }
 
-/** 장소 필드의 뼈대(입력칸 + 검색·지도 버튼 + 결과 상자). 상태가 없는 순수 DOM 조립이다. */
+/**
+ * 📍 **내 위치** 버튼 — 한 번 눌러 지금 자리를 장소로 넣는다(v1.33).
+ *
+ * 사용자 요구(2026-07-31): *"장소가 바로 입력되게 하고 싶은거야. 어떤 방식이든 결과가 중요함."*
+ * 사진 EXIF는 안드로이드가 지워서 넘기므로(M-0054) **그 길로는 결과가 안 나온다.**
+ * 기기의 현재 위치는 막히지 않는다.
+ *
+ * 🔴 지키는 것 넷:
+ *  · **덮지 않는다** — 이미 좌표가 있으면 사용자에게 먼저 묻는다(앱이 사용자를 이기지 않는다).
+ *  · **정확도를 말한다** — 실내 wifi 측위는 2km로 오기도 한다. 이미 있는 정밀도 체계를 지나므로
+ *    「⚠ 동네 범위」 같은 한정 문장이 **자동으로** 붙는다(§7 사용자 대면 대칭).
+ *  · **실패를 삼키지 않는다** — 권한 거부·실내·시간초과는 할 일이 각각 달라 문장이 다르다(§8).
+ *  · **잠긴 채 남지 않는다** — `finally`로 반드시 되돌린다(§13 4항 ④).
+ */
+function wireHereButton(o: {
+  btn: HTMLButtonElement;
+  note: HTMLElement;
+  ctx: CoordApplyContext;
+  hasCoord: () => boolean;
+}): void {
+  o.btn.addEventListener('click', () => {
+    if (o.hasCoord() && !window.confirm('이미 지정된 위치가 있어요. 지금 내 위치로 바꿀까요?')) return;
+    const label = o.btn.textContent;
+    o.btn.disabled = true;
+    o.btn.textContent = '📍 찾는 중…';
+    void readHere()
+      .then((r) => {
+        if (!r.coord) {
+          // 실패해도 **말한다**. 조용히 아무 일도 안 일어나면 사용자는 고장으로 읽는다(M-0053).
+          o.note.textContent = hereFailMessage(r.fail ?? 'unavailable');
+          o.note.hidden = false;
+          return;
+        }
+        o.ctx.commit(r.coord.lat, r.coord.lng);
+        o.ctx.setPicked(hereLabel(r.coord, r.accuracyM), hereVerdict(r.accuracyM));
+        o.note.textContent = '';
+        o.note.hidden = true;
+        // 이름은 좌표가 기기 밖으로 나가는 일이라 **이미 동의가 있을 때만**(원칙 #3).
+        // 거절하셨어도 좌표는 남는다 — 이름만 직접 적으시면 된다.
+        if (!o.ctx.input.value.trim() && hasAgreed(PHOTO_GEO_CONSENT_KEY)) {
+          void fillNameFromReverse(o.ctx, r.coord.lat, r.coord.lng);
+        }
+      })
+      .finally(() => {
+        o.btn.disabled = false;
+        o.btn.textContent = label;
+      });
+  });
+}
+
+/**
+ * 이름을 **손으로 고쳤을 때** 좌표를 어떻게 할 것인가 — 이 필드에서 가장 미묘한 규칙이라
+ * 이름을 붙여 밖으로 뺐다(래칫이 밀어줬지만, 떼고 보니 이게 맞다).
+ *
+ * · **검색으로 얻은 좌표**는 이름과 한 몸이다. 이름을 바꾸면 그 좌표는 **다른 장소**일 수
+ *   있으므로 무효화한다 — 안 그러면 「경복궁」을 지우고 「덕수궁」이라 적었는데 핀은 경복궁에
+ *   남는다. 그건 조용한 거짓말이다.
+ * · **지도·내 위치로 찍은 좌표**는 이름과 독립이다(사용자가 자리를 먼저 정하고 이름을 나중에
+ *   적는 흐름). 유지하고 배지의 이름만 갱신한다.
+ */
+function wireNameEdit(o: {
+  input: HTMLInputElement;
+  results: HTMLElement;
+  coordIsIndependent: () => boolean;
+  setPicked: (detail: string | null) => void;
+  clearCoord: () => void;
+}): void {
+  o.input.addEventListener('input', () => {
+    o.results.hidden = true;
+    if (o.coordIsIndependent()) {
+      o.setPicked(o.input.value.trim() || '지도에서 지정');
+      return;
+    }
+    o.clearCoord();
+    o.setPicked(null);
+  });
+}
+
+/** 장소 필드의 뼈대(입력칸 + 검색·지도·내 위치 버튼 + 결과 상자). 상태가 없는 순수 DOM 조립이다. */
 interface PlaceFieldShell {
   wrap: HTMLElement;
   row: HTMLElement;
   input: HTMLInputElement;
   searchBtn: HTMLButtonElement;
   mapBtn: HTMLButtonElement;
+  hereBtn: HTMLButtonElement;
   results: HTMLElement;
 }
 function buildPlaceFieldShell(initialName: string): PlaceFieldShell {
@@ -327,10 +408,17 @@ function buildPlaceFieldShell(initialName: string): PlaceFieldShell {
   const mapBtn = el('button', 'btn-ghost place-map', '🗺 지도') as HTMLButtonElement;
   mapBtn.type = 'button';
   mapBtn.setAttribute('aria-label', '지도에서 위치 지정');
-  row.append(input, searchBtn, mapBtn);
+  // 🔴 **지금 내 위치**(v1.33 · 사용자 2026-07-31: *"장소가 바로 입력되게 하고 싶은거야"*).
+  // 사진 EXIF의 GPS는 안드로이드가 지워서 넘긴다(M-0054, 실기기 확정) — 파서로는 못 뚫는다.
+  // 기기는 자기 위치를 알고 있고 그건 안드로이드가 막는 대상이 아니다. **한 번 눌러 끝**이
+  // 되는 길을 항상 열어 둔다. 부품이 하나라 생성 폼·편집 폼이 **동시에** 받는다(§7 2층).
+  const hereBtn = el('button', 'btn-ghost place-here', '📍 내 위치') as HTMLButtonElement;
+  hereBtn.type = 'button';
+  hereBtn.setAttribute('aria-label', '지금 내 위치로 장소 지정');
+  row.append(input, searchBtn, mapBtn, hereBtn);
   const results = el('div', 'place-results');
   results.hidden = true;
-  return { wrap, row, input, searchBtn, mapBtn, results };
+  return { wrap, row, input, searchBtn, mapBtn, hereBtn, results };
 }
 
 /** 좌표를 적용할 때 필요한 최소한 — 필드의 나머지 상태를 밖으로 흘리지 않는다. */
@@ -762,7 +850,7 @@ function photoPlaceSuggester(o: {
 }
 
 function buildPlaceField(initial: { name: string; lat: number | null; lng: number | null }): PlaceField {
-  const { wrap, row, input, searchBtn, mapBtn, results } = buildPlaceFieldShell(initial.name);
+  const { wrap, row, input, searchBtn, mapBtn, hereBtn, results } = buildPlaceFieldShell(initial.name);
 
   let lat: number | null = initial.lat;
   let lng: number | null = initial.lng;
@@ -783,20 +871,16 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
   const setPicked = picked.set;
   wrap.append(row, results, picked.badge, picked.hint);
   setPicked(lat !== null && lng !== null ? '' : null); // 기존 좌표가 있으면 배지 표시
-  // 손으로 텍스트를 바꾸면 이전 검색 좌표는 다른 장소일 수 있으니 무효화한다.
-  // 단, 지도에서 직접 찍은 좌표는 이름과 독립적이므로 유지한다(이름만 갱신).
-  input.addEventListener('input', () => {
-    results.hidden = true;
-    if (mapPicked) {
-      // 지도 좌표는 유지 — 배지의 이름만 갱신.
-      const name = input.value.trim();
-      setPicked(name ? name : '지도에서 지정');
-      return;
-    }
-    lat = null;
-    lng = null;
-    placeId = null; // 좌표가 무효면 링크도 무효다 — 링크만 남으면 엉뚱한 곳을 가리킨다
-    setPicked(null);
+  wireNameEdit({
+    input,
+    results,
+    coordIsIndependent: () => mapPicked,
+    setPicked,
+    clearCoord: () => {
+      lat = null;
+      lng = null;
+      placeId = null; // 좌표가 무효면 링크도 무효다 — 링크만 남으면 엉뚱한 곳을 가리킨다
+    },
   });
 
   const coordCtx: CoordApplyContext = {
@@ -852,6 +936,8 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
   // 🗺 지도에서 위치 지정 — 장소 이름은 사용자가 직접 적고, 좌표만 지도로 찍는다.
   // (등록되지 않은 곳일 수 있으므로 이름은 검색 결과에 의존하지 않는다.)
   wireMapPickButton(mapBtn, results, coordCtx, () => (lat !== null && lng !== null ? { lat, lng } : null));
+  // 📍 내 위치 — 같은 부품이므로 생성 폼·편집 폼이 **함께** 받는다(§7 2층).
+  wireHereButton({ btn: hereBtn, note: photoNote, ctx: coordCtx, hasCoord: () => lat !== null && lng !== null });
 
   return {
     el: wrap,
