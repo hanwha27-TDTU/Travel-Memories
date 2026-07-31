@@ -647,8 +647,17 @@ export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; 
       width: server.width,
       height: server.height,
       takenAt: server.takenAt,
-      gpsLat: local?.gpsLat ?? null,
-      gpsLng: local?.gpsLng ?? null,
+      // 🔴 **서버가 정본이되, 「모름」은 정본이 아니다**(2026-08-01 · 마이그레이션 0024).
+      //
+      // 서버 값이 있으면 그것을 쓴다(그게 이 변경의 목적이다 — 다른 기기에서도 보이게).
+      // 없으면(`null`) **로컬 값을 지킨다.** 옛 서버 행에는 이 컬럼이 아예 없고, 백필이
+      // 돌기 전에 pull이 먼저 오면 **멀쩡한 좌표가 null로 덮인다** — 빈-클라우드 가드와
+      // 같은 규율을 필드 수준에 적용한 것이다(불변식 #4·#8: pull은 비파괴).
+      //
+      // 「그럼 사용자가 좌표를 지울 수는 있나?」 — 지금은 지우는 UI가 없다. 생기면 그때는
+      // 「지웠음」을 null이 아니라 **명시적 표시**로 보내야 한다(§8 — 모름과 없음은 다르다).
+      gpsLat: server.gpsLat ?? local?.gpsLat ?? null,
+      gpsLng: server.gpsLng ?? local?.gpsLng ?? null,
       bytesOriginal: local?.bytesOriginal ?? display.size,
       bytesDisplay: display.size,
       version: server.version,
@@ -1029,6 +1038,53 @@ export async function backfillAudioOps(): Promise<number> {
 }
 
 /**
+ * **좌표를 가진 사진의 행을 한 번 다시 올린다**(2026-08-01 · 마이그레이션 0024 백필).
+ *
+ * 왜 필요한가(§9 4단계 · M-0023의 근본형): 마이그레이션은 **컬럼을 만들 뿐 값을 채우지 않는다.**
+ * 이미 있는 사진 수십 장의 좌표는 이 기기 안에만 있고, 그 행들은 이미 서버에 올라가 있어
+ * `syncQueue`에 op이 없다 — **아무도 데려오지 않으면 영원히 로컬에만 남는다.** 그러면
+ * "다른 기기에서도 보이게 하자"는 이 변경이 **앞으로 찍는 사진에만** 적용된다.
+ *
+ * **바이트는 건드리지 않는다.** `storagePath`를 그대로 두므로 push는 재업로드를 하지 않고
+ * (`mustUploadBytes` — 살아 있고 경로가 있으면 올리지 않는다) **행만** 다시 upsert한다.
+ * 요금이 새지 않는 이유가 이것이다.
+ *
+ * 대상은 **좌표가 있는 것만**이다. 없는 사진까지 큐에 넣으면 서버에 보낼 새 정보가 없는데
+ * 왕복만 늘어난다(그리고 `0,0`은 애초에 좌표가 아니다 — M-0057).
+ *
+ * @returns 큐에 넣은 수.
+ */
+export async function backfillMediaGpsOps(): Promise<number> {
+  const d = db();
+  const queued = new Set(
+    (await d.syncQueue.toArray()).filter((q) => q.entityType === 'media').map((q) => q.entityId),
+  );
+  const now = new Date().toISOString();
+  let added = 0;
+  for (const m of await d.localMedia.toArray()) {
+    if (queued.has(m.id)) continue;
+    const has =
+      m.gpsLat !== null &&
+      m.gpsLng !== null &&
+      Number.isFinite(m.gpsLat) &&
+      Number.isFinite(m.gpsLng) &&
+      !(m.gpsLat === 0 && m.gpsLng === 0);
+    if (!has) continue;
+    await d.syncQueue.add({
+      operationId: crypto.randomUUID(),
+      entityType: 'media',
+      entityId: m.id,
+      operationType: 'update',
+      state: 'local_only',
+      attempts: 0,
+      createdAt: now,
+    });
+    added++;
+  }
+  return added;
+}
+
+/**
  * **서버에 파일이 없는 기록의 바이트를 다시 올린다**(2026-07-28, M-0046 복구 경로).
  *
  * 언제 쓰나: 진단이 「서버에 없는 사진/소리」를 짚었을 때. 그 상태는 *서버 행은 경로를 적어
@@ -1201,6 +1257,8 @@ async function reconcileBytesIfDue(client: JourneyClient, deep: boolean): Promis
 
 /** 소리 백필 1회 실행 표식. 되돌려야 하면 `.v2`로 올려 전 기기가 한 번 더 돌게 한다. */
 const AUDIO_BACKFILL_KEY = 'bj.repair.audioSync.v1';
+/** 사진 GPS 백필 1회 실행 표식(마이그레이션 0024). 같은 규율 — 형제와 같은 자리에 둔다(§7). */
+const MEDIA_GPS_BACKFILL_KEY = 'bj.repair.mediaGps.v1';
 
 async function backfillAudioOnce(): Promise<void> {
   try {
@@ -1214,6 +1272,21 @@ async function backfillAudioOnce(): Promise<void> {
     localStorage.setItem(AUDIO_BACKFILL_KEY, new Date().toISOString());
   } catch {
     /* 표식 저장 실패는 무해 — 다음 동기화에서 한 번 더 돌 뿐이고 이 작업은 멱등이다. */
+  }
+}
+
+async function backfillMediaGpsOnce(): Promise<void> {
+  try {
+    if (localStorage.getItem(MEDIA_GPS_BACKFILL_KEY)) return;
+  } catch {
+    return; // localStorage 불가 — 다음 사진 저장이 자연스럽게 op을 만든다.
+  }
+  const n = await backfillMediaGpsOps();
+  if (n) console.info(`사진 위치 백필: ${n}건을 큐에 넣었어요(좌표가 로컬에만 있던 사진).`);
+  try {
+    localStorage.setItem(MEDIA_GPS_BACKFILL_KEY, new Date().toISOString());
+  } catch {
+    /* 표식 저장 실패는 무해 — 멱등이다. */
   }
 }
 
@@ -1787,6 +1860,9 @@ export async function runSync(
   // 소리는 v1.20 이전에 만들어진 것에 큐 op이 **아예 없다** — 코드만 고치면 그 행들은 영원히
   // 안 올라간다. push보다 먼저 돌아 이번 동기화에서 바로 처리되게 한다.
   await backfillAudioOnce();
+  // 사진 GPS도 같은 형태의 빚이다(마이그레이션 0024) — 컬럼은 생겼는데 **이미 있는 사진의
+  // 좌표는 아무도 데려오지 않는다.** 형제와 같은 자리에서 같은 규율로 돈다(§7).
+  await backfillMediaGpsOnce();
   // 바이트 대조도 **push보다 먼저** — 다시 올릴 것을 찾으면 이번 동기화에서 바로 올라간다.
   // 자동은 하루 한 번, 사용자가 직접 부른 동기화(`deep`)는 항상(사람이 의심할 때 누르는
   // 버튼이 곧 확실한 경로여야 한다 — §12).

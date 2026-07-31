@@ -1,5 +1,11 @@
 // domain/media/rowmap.ts — Media의 직렬화 경계 (docs/DATA_MODEL.md·PRIVACY).
-// 서버엔 표시본 메타만 간다. 원본 Blob은 로컬 전용(절약 모드·§0), GPS는 민감 PII라 미동기화(PRIVACY).
+// 서버엔 표시본 메타만 간다. 원본 Blob은 로컬 전용(절약 모드·§0).
+//
+// 🔴 **GPS는 2026-08-01부터 동기화한다**([user-decided] · 마이그레이션 0024). 예전 주석은
+// *"GPS는 민감 PII라 미동기화"*였는데, 그 결과 **폰에서 넣은 사진의 좌표를 태블릿에서 볼 수
+// 없었다** — 사용자가 정한 원칙(*"모든 기기에서 모든 정보를"*)에 어긋나는 빚이었다.
+// 사생활 계약은 그대로다: **R2에 올라가는 사진 파일은 여전히 EXIF가 벗겨진 재인코딩본**이고
+// (`check-exif-strip-on-share`), 좌표는 **파일이 아니라 RLS로 잠긴 컬럼**으로 간다.
 // check-schema-parity 게이트가 MediaRow 필드 ⊆ journey.media 컬럼을 강제한다.
 
 import { tripFolderName, mediaObjectName } from './naming';
@@ -13,6 +19,9 @@ export interface MediaRow {
   moment_id: string;
   trip_id: string;
   storage_path: string | null;
+  /** EXIF 촬영 위치. NULL = 위치 없음/미상 — **0으로 반올림하지 않는다**(M-0057). */
+  gps_lat: number | null;
+  gps_lng: number | null;
   width: number;
   height: number;
   taken_at: string | null;
@@ -33,6 +42,8 @@ export interface MediaMeta {
   momentId: string;
   tripId: string;
   storagePath: string | null;
+  gpsLat: number | null;
+  gpsLng: number | null;
   width: number;
   height: number;
   takenAt: string;
@@ -52,6 +63,8 @@ export function toMediaRow(m: LocalMedia, userId: string, storagePath: string | 
     moment_id: m.momentId,
     trip_id: m.tripId,
     storage_path: storagePath,
+    gps_lat: m.gpsLat,
+    gps_lng: m.gpsLng,
     width: m.width,
     height: m.height,
     taken_at: m.takenAt || null,
@@ -72,6 +85,10 @@ export function fromMediaRow(r: MediaRow): WithInstants<MediaMeta> {
     momentId: r.moment_id,
     tripId: r.trip_id,
     storagePath: r.storage_path,
+    // 옛 서버 행에는 이 컬럼이 없다(`undefined`) — **`null`과 같이 「모름」으로 읽는다.**
+    // 「모름」이 로컬의 진짜 값을 덮지 않게 하는 것은 pull의 몫이다(`pullMedia` 참조).
+    gpsLat: r.gps_lat ?? null,
+    gpsLng: r.gps_lng ?? null,
     width: r.width,
     height: r.height,
     // ⚠️ **촬영 시각도 서버에서 온다** — M-0034를 고칠 때 이 줄을 빠뜨렸다(자기점검 2026-07-27).

@@ -657,6 +657,19 @@ export function blockedByLedgerMetric(blocked: number, restoringFiles: number): 
   };
 }
 
+/** `storeBecause` 입력 — 판정 문장과 **같은 자료**를 받는다(다른 것을 보면 두 문장이 갈라진다). */
+export interface StoreBecauseInput {
+  countBad: number;
+  /** `storeHeadline`과 **같은 모양**으로 받는다 — 개수를 세야 하고, 배열의 존재로 판정하면 안 된다. */
+  fileBad: ReadonlyArray<{ noun: string; n: number }>;
+  stranded: number;
+  blocked: number;
+  /** 이 계정에 기록을 올린 기기 수. */
+  devices: number;
+  /** 그중 최신본보다 오래된 기기 수. */
+  behind: number;
+}
+
 export interface StoreHeadlineInput {
   level: Level;
   /** 개수 대조에서 어긋난 도메인 수. */
@@ -716,6 +729,41 @@ export function storeHeadline(i: StoreHeadlineInput): string {
   if (fileTotal) return `${nouns} 파일에 확인할 것이 ${fileTotal}가지 있어요`;
   // 어느 무리에도 안 잡혔는데 정상도 아니다 = 대조 자체를 못 했다(확인 불가).
   return '지금은 클라우드와 대조하지 못했어요';
+}
+
+/**
+ * **판정 문장 밑의 설명 한 줄.** `storeHeadline`의 형제이고, **같은 규칙을 지나야 한다**(§7).
+ *
+ * 🔴 왜 순수 함수로 뽑았나(2026-08-01 사용자 실기기): 이 문장은 호출부에 **삼항 연산자로
+ * 박혀 있었고**, 거기서 `fileBad`(배열)를 **불리언으로** 썼다. `fileBadByNoun`은 명사당 한 칸을
+ * 돌려주므로 **빈 배열이 아닌 이상 언제나 참**이다 — 그래서 짝이 맞든 안 맞든
+ * *"사진 기록과 서버 파일이 짝이 맞지 않아요"*가 나왔다.
+ *
+ * 사용자 화면이 그걸 잡았다: 판정은 **「✓ 정상 · 살아 있는 기록 40건이 클라우드와 같아요」**인데
+ * 바로 밑은 **「짝이 맞지 않아요」**. 형제인 `storeHeadline`은 처음부터 `f.n > 0`을 세고 있었다 —
+ * **같은 자료를 두 문장이 다른 규칙으로 읽고 있었다**(§7이 금지하는 바로 그것).
+ *
+ * 그리고 이건 §10 ③(전달 결함)이다: 자료구조는 옳았고 **화면에 나가는 문장만 틀렸다.**
+ * 그래서 이제 순수 함수이고, 유닛이 직접 돌린다.
+ */
+export function storeBecause(i: StoreBecauseInput): string {
+  if (i.blocked) {
+    return '백업에서 되살린 기록을 서버가 「이미 영구삭제된 것」으로 알고 거부하고 있어요. 아래 버튼으로 서버에 되살렸다고 알릴 수 있습니다.';
+  }
+  if (i.stranded) return '이 기기에서 지운 것이 서버까지 가지 못했어요. 아래 버튼으로 다시 보낼 수 있습니다.';
+  // 🔴 **개수를 센다.** 배열의 존재가 아니라 — 형제(`storeHeadline`)와 같은 규칙이다.
+  const fileTotal = i.fileBad.reduce((n, f) => n + f.n, 0);
+  if (fileTotal && !i.countBad) {
+    return '사진 기록과 서버 파일이 짝이 맞지 않아요. 아래 지표에서 어느 쪽인지 볼 수 있습니다.';
+  }
+  if (i.devices > 1) {
+    return `기기 ${i.devices}대가 이 계정에 기록을 올렸어요.${i.behind ? ` 그중 ${i.behind}대는 최신본보다 오래됐습니다.` : ''}`;
+  }
+  if (i.devices === 1) return '아직 이 기기에서만 올렸어요.';
+  // 0대는 "기기가 없다"가 아니라 **"이름표를 붙이기 시작한 뒤로 올린 적이 없다"**이다.
+  // 기기 이름은 push할 때만 서버에 찍히므로, 최근에 저장·수정한 적이 없으면 비어 있다.
+  // 이걸 그냥 "0대"로 두면 사용자가 연동이 끊겼다고 오해한다(§5.9 — 말할 수 있는 것만).
+  return '기기 이름은 무언가를 저장·수정해 서버로 올릴 때 찍혀요. 아직 그 뒤로 올린 것이 없습니다.';
 }
 
 /**
@@ -1373,25 +1421,10 @@ export async function storeStateProbe(): Promise<Verdict> {
   return {
     level,
     headline,
-    because:
-      // 판정 문장이 사진 파일을 가리키면 **그 밑도 사진 얘기여야 한다.** 기기 얘기를 붙여 놓으면
-      // 사용자가 "기기 때문에 문제라는 건가?"로 읽는다(실제로 그렇게 보였다 — 2026-07-26).
-      // 판정 문장이 가리키는 곳과 **같은 것**을 설명해야 한다. 2026-07-26에 두 번 어긋났다:
-      // 처음엔 사진 문제인데 기기 얘기를, 다음엔 전파 안 된 삭제인데 사진 얘기를 했다(M-0021).
-      blocked
-        ? '백업에서 되살린 기록을 서버가 「이미 영구삭제된 것」으로 알고 거부하고 있어요. 아래 버튼으로 서버에 되살렸다고 알릴 수 있습니다.'
-        : stranded
-        ? '이 기기에서 지운 것이 서버까지 가지 못했어요. 아래 버튼으로 다시 보낼 수 있습니다.'
-        : fileBad && !countBad
-        ? '사진 기록과 서버 파일이 짝이 맞지 않아요. 아래 지표에서 어느 쪽인지 볼 수 있습니다.'
-        : cmp.devices.length > 1
-        ? `기기 ${cmp.devices.length}대가 이 계정에 기록을 올렸어요.${behind.length ? ` 그중 ${behind.length}대는 최신본보다 오래됐습니다.` : ''}`
-        : cmp.devices.length === 1
-          ? '아직 이 기기에서만 올렸어요.'
-          // 0대는 "기기가 없다"가 아니라 **"이름표를 붙이기 시작한 뒤로 올린 적이 없다"**이다.
-          // 기기 이름은 push할 때만 서버에 찍히므로, 최근에 저장·수정한 적이 없으면 비어 있다.
-          // 이걸 그냥 "0대"로 두면 사용자가 연동이 끊겼다고 오해한다(§5.9 — 말할 수 있는 것만).
-          : '기기 이름은 무언가를 저장·수정해 서버로 올릴 때 찍혀요. 아직 그 뒤로 올린 것이 없습니다.',
+    // 판정 문장이 사진 파일을 가리키면 **그 밑도 사진 얘기여야 한다**(M-0021). 그리고 둘은
+    // **같은 규칙**을 지나야 한다 — 예전엔 여기 삼항이 박혀 있었고 `fileBad`(배열)를 불리언으로
+    // 써서, 짝이 맞아도 「맞지 않아요」라고 말했다(2026-08-01 사용자 화면).
+    because: storeBecause({ countBad, fileBad, stranded, blocked, devices: cmp.devices.length, behind: behind.length }),
     metrics,
     actions: storeActions({ c, cmp, level, stranded, blocked, leftoverFileIds, clearableIds, clearableAudioIds, recoverable }),
     evidence: [

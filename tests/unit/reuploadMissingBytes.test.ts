@@ -25,7 +25,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import 'fake-indexeddb/auto';
 import { db } from '../../src/offline/db';
 import { mustUploadBytes } from '../../src/sync/merge';
-import { pushPendingMedia, requeueMissingBytes, type MediaRemote } from '../../src/services/sync';
+import { pushPendingMedia, requeueMissingBytes, backfillMediaGpsOps, type MediaRemote } from '../../src/services/sync';
 import type { MediaRow } from '../../src/domain/media/rowmap';
 
 const USER = 'c9ff5188-51a7-4c01-b653-b6e1d73d0790';
@@ -204,5 +204,61 @@ describe('requeueMissingBytes — 잊는 것만으로는 부족하다', () => {
 
   it('로컬에 사본이 없으면 조용히 건너뛴다(올릴 것이 없다)', async () => {
     expect(await requeueMissingBytes('media', [crypto.randomUUID()])).toBe(0);
+  });
+});
+
+// ── ④ 사진 GPS 서버 동기화 (2026-08-01 · 마이그레이션 0024 · [user-decided]) ──
+//
+// 왜 이 파일에 두나: 같은 `fakeRemote`(표와 저장소를 따로 드는 것)가 **행은 갔는데 좌표가
+// 안 갔다**를 재는 데도 그대로 필요하다. 그리고 두 변경 모두 같은 push를 지난다.
+//
+// 🔴 여기서 잡는 실제 위험 셋:
+//   ① 좌표가 행에 안 실린다 → 다른 기기에서 **사진이 찍힌 자리를 영영 모른다**
+//   ② 옛 서버 행(컬럼 없음)이 pull될 때 **로컬의 진짜 좌표를 null로 덮는다**(기억 손실)
+//   ③ 백필이 없다 → 이미 있는 사진 수십 장은 **앞으로도 로컬에만** 남는다(M-0023의 근본형)
+describe('사진 GPS — 모든 기기에서 보이게', () => {
+  it('🔴 push가 좌표를 행에 실어 보낸다', async () => {
+    const id = await seedPhoto({ gpsLat: 36.60916, gpsLng: 127.50248 });
+    await enqueue(id);
+    const remote = fakeRemote();
+
+    await pushPendingMedia(remote, USER);
+
+    expect(remote.rows.get(id)!.gps_lat).toBe(36.60916);
+    expect(remote.rows.get(id)!.gps_lng).toBe(127.50248);
+  });
+
+  it('🔴 백필이 **좌표를 가진 사진만** 큐에 넣는다(왕복을 헛되이 늘리지 않게)', async () => {
+    const withGps = await seedPhoto({ gpsLat: 36.60916, gpsLng: 127.50248, storagePath: 'u/a.webp' });
+    await seedPhoto({ gpsLat: null, gpsLng: null }); // 좌표 없음 → 대상 아님
+    await seedPhoto({ gpsLat: 0, gpsLng: 0 }); // 0,0은 좌표가 아니다(M-0057)
+    await db().syncQueue.clear();
+
+    const n = await backfillMediaGpsOps();
+
+    expect(n).toBe(1);
+    const ops = await db().syncQueue.toArray();
+    expect(ops.map((o) => o.entityId)).toEqual([withGps]);
+  });
+
+  // 🔴 **내 가정이 여기서 반증됐다**(2026-08-01). 처음엔 *"백필은 바이트를 다시 올리지
+  // 않는다"*를 잠그려 했는데 **틀렸다** — 활성 사진은 push마다 표시본을 다시 올린다
+  // (`mustUploadBytes(m, false)` → `deletedAt === null` → 항상 true).
+  //
+  // 그리고 그 동작은 **옳다**: 사진은 편집(재굽기)될 수 있고, 그때 표시본이 바뀐 것을
+  // 서버에 반영하는 길이 이것뿐이다. "경로가 있으면 건너뛴다"로 바꾸면 **편집한 사진이
+  // 서버에서 영영 옛 모습**으로 남는다. 통과시키려고 코드를 바꾸지 않고 계약을 사실대로 적는다.
+  //
+  // 대가는 **같은 키에 덮어쓰기**뿐이다 — 고아가 생기지 않으므로 정리할 것도 없다.
+  it('백필의 재업로드는 **같은 키에 덮어쓴다** — 고아를 만들지 않는다(정리 불필요)', async () => {
+    const id = await seedPhoto({ gpsLat: 36.6, gpsLng: 127.5, storagePath: 'u/already.webp' });
+    await db().syncQueue.clear();
+    const remote = fakeRemote();
+
+    await backfillMediaGpsOps();
+    await pushPendingMedia(remote, USER);
+
+    expect(remote.uploads).toEqual(['u/already.webp']); // 기억한 키 그대로(새 키 아님)
+    expect(remote.rows.get(id)!.gps_lat).toBe(36.6);
   });
 });

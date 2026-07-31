@@ -8,9 +8,9 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.37<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->137<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.38<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->138<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
 
-> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->23<!--/reg-->개 적용(`supabase/migrations/` 전부).
+> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->24<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
 
 ### 🕐 직전 세션에서 무슨 일이 있었나 (2026-07-30 · 새 AI는 이것부터)
@@ -63,7 +63,7 @@
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->37<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.37<!--/reg-->) Pages 성공.
+**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->37<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.38<!--/reg-->) Pages 성공.
 
 ### 현재 기능 지도 (새 AI는 이 표로 기능 표면을 즉시 파악)
 
@@ -235,7 +235,7 @@
 4. 도메인 계약: `DATA_MODEL` · `SYNC_PROTOCOL` · `SECURITY` · `MEDIA_PIPELINE` · `PRIVACY` · `DEPLOYMENT` · `ARCHITECTURE` · **`DISASTER_RECOVERY`(백업·복원·복구 우선순위)**
 5. `docs/AGENT_REGISTRY.md` → `docs/DECISIONS.md` + `docs/ASSUMPTIONS.md`
 6. `docs/ROADMAP.md`(Phase 계획) → `docs/ACTIVE_TASKS.md`
-7. **작업 전 필수 스킬**(해당 영역 수정 시 **반드시 로드** — 현재 <!--reg:skillCount-->9<!--/reg-->개):
+7. **작업 전 필수 스킬**(해당 영역 수정 시 **반드시 로드** — 현재 <!--reg:skillCount-->10<!--/reg-->개):
 
 | 만지는 것 | 로드할 스킬 |
 |---|---|
@@ -278,6 +278,50 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0034 · v1.38 · **사진의 좌표도 서버가 정본** (ADR-0034) + 판정과 설명이 갈라진 것 (M-0061) + 사진저장 전용 헌장 (2026-08-01)
+
+**계기**: 사용자가 물었다 — *"위치정보를 왜 지우냐? 이거지..위치정보 안 지우게 하는게 중요"*.
+
+🔴 **답은 「앱은 안 지운다」였다**(폰 → 앱 경로는 좌표가 그대로 들어온다 — 00:19 실기기 확인). 지운 것은 **채팅 업로드 경로**였고 앱과 무관하다(M-0059). 그런데 그 확인 과정에서 **다른 것**이 나왔다.
+
+### ADR-0034 — 사진 GPS가 로컬 전용이었다
+
+`media` rowmap에 GPS 필드가 **아예 없었다.** 그래서 폰에서 넣은 사진의 좌표를 태블릿에서 볼 수 없었다. ADR-0032가 *"로컬 전용은 예외가 아니라 빚"*이라 정하고 오디오의 빚을 갚았는데 **사진 GPS는 남아 있었다**(§7 — 또 형제 하나).
+
+사용자 결정: *"사진 GPS도 서버에 올리자. 당연한거 아냐? 내 개인앱인데.."*
+
+- **마이그레이션 0024** — `media.gps_lat`/`gps_lng` + 범위 제약(±90/±180)
+- 🔴 **「서버가 정본이되, 「모름」은 정본이 아니다」** — `pullMedia`는 `server ?? local ?? null`. 옛 서버 행에는 컬럼이 없어, 백필 전에 pull이 먼저 오면 **멀쩡한 좌표가 null로 덮인다**(빈-클라우드 가드를 **필드 수준**에)
+- **백필** `backfillMediaGpsOps()` — `runSync` 맨 앞 1회(`bj.repair.mediaGps.v1`), **좌표가 있는 것만**
+- **사생활 계약은 그대로**: R2 사진 파일은 여전히 EXIF가 벗겨진 재인코딩본이고, 좌표는 **파일이 아니라 RLS로 잠긴 컬럼**으로 간다 → 내보내기·공유에 위치가 안 따라 나간다
+
+### M-0061 — 판정은 「정상」인데 바로 밑은 「짝이 맞지 않아요」
+
+설명문이 **호출부 삼항**으로 박혀 있었고 `fileBad`(**배열**)를 불리언으로 썼다. `fileBadByNoun`은 명사당 한 칸을 돌려주므로 **언제나 참** — 짝이 맞아도 그 문장이 나왔다. 형제 `storeHeadline`은 처음부터 `f.n > 0`을 센다(**같은 자료, 다른 규칙** — §7).
+
+→ `storeBecause()` 순수 함수로 분리, 유닛 4건, **옛 불리언 판정 주입 시 2건 RED**.
+→ `check-fn-size`가 `storeStateProbe` 237→222줄을 확인하고 래칫을 조이라 했다(게이트가 설계를 밀어준 자리 — §11).
+
+### 사용자 지시 — 사진 저장 전용 헌장
+
+> *"사진저장관련 스킬문서 별도로 만들어서 특별관리하자."*
+
+`.claude/skills/photo-storage-dev/SKILL.md`(10번째 스킬). **왜 별도인가**: 이 경로는 네 헌장에 흩어져 있었고(`photo-editor`·`sync-offline`·`map-place`·`diagnostics`) **전체를 보는 사람이 없었다.** 이틀 동안 여기서만 결함 넷이 났고(M-0057·58·59·60) **넷 다 조각이 아니라 이음매**가 틀렸다. 담은 것: 인테이크 순서 계약 · 좌표의 두 갈래 · 세 계층 · **「모름」과 「없음」을 구별한다** · 형제 갈라짐 방지 · 게이트 4종 · 결함 등록부 7건 · 착수 자문 7문.
+
+### 🔴 배포 순서는 계약이다
+
+**마이그레이션 0024를 먼저, 앱을 나중에.** 뒤집으면 앱이 없는 컬럼을 upsert해 media op이 전부 `permanent_failed`로 박힌다(PostgREST 400).
+
+### 검증
+
+하네스 <!--reg:gateCount-->37<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **998** · live 270/270 + 22/22
+
+✅ **마이그레이션 0024 적용 완료**(2026-08-01, Supabase MCP). `journey.media`에 `gps_lat`·`gps_lng`가 생긴 것을 **스키마 재조회로 되읽어 확인**했다(성공 응답을 믿지 않는다 — 불변식 #5).
+
+**정직한 경계**: 2기기 전파는 이 환경에서 재현할 수 없다 — **사용자 실기기 확인이 필요하다**(태블릿에서 사진 위치가 보이는가).
 
 ---
 

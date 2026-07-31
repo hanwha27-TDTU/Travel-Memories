@@ -89,7 +89,7 @@ describe('② 서버 경계 4곳 전부가 정규화한다 (§7 — 형제를 �
   });
 
   it('media', () => {
-    const r = fromMediaRow({ id: U(3), user_id: U(9), moment_id: U(2), trip_id: U(1), storage_path: null, width: 1, height: 1, taken_at: null, bytes_display: 1, source: 'user', version: 1, client_operation_id: null, ...stamps });
+    const r = fromMediaRow({ id: U(3), user_id: U(9), moment_id: U(2), trip_id: U(1), storage_path: null, gps_lat: null, gps_lng: null, width: 1, height: 1, taken_at: null, bytes_display: 1, source: 'user', version: 1, client_operation_id: null, ...stamps });
     expect([r.createdAt, r.updatedAt, r.deletedAt]).toEqual([JS, JS, JS]);
   });
 
@@ -205,7 +205,7 @@ describe('⑥ 시각 컬럼을 **빠짐없이** 정규화한다 (§7 — 형제�
   });
 
   it('사진의 촬영 시각(taken_at)도 — R2 파일 이름의 앞부분이 여기서 나온다', () => {
-    const r = fromMediaRow({ id: U(3), user_id: U(9), moment_id: U(2), trip_id: U(1), storage_path: null, width: 1, height: 1, taken_at: PG, bytes_display: 1, source: 'user', version: 1, client_operation_id: null, created_at: PG, updated_at: PG, deleted_at: null });
+    const r = fromMediaRow({ id: U(3), user_id: U(9), moment_id: U(2), trip_id: U(1), storage_path: null, gps_lat: null, gps_lng: null, width: 1, height: 1, taken_at: PG, bytes_display: 1, source: 'user', version: 1, client_operation_id: null, created_at: PG, updated_at: PG, deleted_at: null });
     expect(r.takenAt).toBe(JS);
   });
 
