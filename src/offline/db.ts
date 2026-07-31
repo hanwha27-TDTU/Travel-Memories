@@ -93,6 +93,17 @@ export interface LocalMedia extends SyncMeta {
    * 옛 행에는 없을 수 있으므로 선택 필드다(없으면 그때 계산해 채운다).
    */
   storagePath?: string;
+  /**
+   * **서버에 바이트가 없음을 확인했다**(2026-08-01 · M-0059). 다음 push가 tombstone이어도 올린다.
+   *
+   * 왜 「`storagePath`가 없다」로 대신할 수 없나: 사진에서 경로 기억이 없다는 것은
+   * ①옛 키 형식 행(바이트는 **있다**)과 ②확인된 부재, **두 가지**를 뜻한다. 추측하면 ①을
+   * 다시 올려 고아를 만든다. 그래서 **의도를 명시한다** — 판정은 `mustUploadBytes` 한 곳에서.
+   *
+   * 성공적으로 올린 그 트랜잭션에서 지운다(M-0033 — "곧 이어서 지울 것"은 안 지운 것과 같다).
+   * 인덱스가 아니므로 Dexie 버전을 올리지 않는다.
+   */
+  bytesMissing?: true;
   // 비파괴 편집 상태(선택) — 재편집 시 이전 편집을 이어서 조정. 원본에서 파생하므로
   // 직렬화 가능한 순수 값만 담는다(회전·자르기·색보정·잡티). 원본 Blob은 절대 안 바뀐다(§0).
   editState?: EditState;
@@ -149,6 +160,15 @@ export interface LocalAudio extends SyncMeta {
    * 없으면 그때 계산해 채운다(`pushPendingAudio`).
    */
   storagePath?: string;
+  /**
+   * **서버에 바이트가 없음을 확인했다** — `LocalMedia.bytesMissing`과 **같은 규율**이다(§7).
+   *
+   * 소리는 키 형식이 하나뿐이라 「경로 기억 없음 = 올라간 적 없음」이 성립하고, 그 조건은
+   * `mustUploadBytes(…, true)`가 이미 처리한다. 그래도 이 표시를 **똑같이 갖는다**: 복구
+   * 경로(`requeueMissingBytes`)는 두 형제를 같은 코드로 다루고, 형제 하나만 표시를 못 받으면
+   * 그 순간부터 둘의 동작이 갈라진다 — M-0059가 정확히 그 형태였다.
+   */
+  bytesMissing?: true;
 }
 
 /**

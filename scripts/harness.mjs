@@ -81,6 +81,7 @@ const gates = [
   { name: 'check-instant-normalization', cmd: 'node scripts/check-instant-normalization.mjs' },
   { name: 'check-exif-strip-on-share', cmd: 'node scripts/check-exif-strip-on-share.mjs' },
   { name: 'check-exif-order', cmd: 'node scripts/check-exif-order.mjs' },
+  { name: 'check-bytes-upload-symmetry', cmd: 'node scripts/check-bytes-upload-symmetry.mjs' },
   { slow: true, name: 'unit-tests', cmd: 'npm run -s test' },
   // 런타임 층 — 실제 Chromium이 `dist`를 열어 **화면에 나가는 것**을 잰다.
   // 전제(playwright + 최신 dist)가 없으면 SKIP, 돌았는데 위반이면 FAIL(위 계약 참조).

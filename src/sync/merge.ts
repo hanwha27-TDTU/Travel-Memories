@@ -103,3 +103,46 @@ export function classifyError(status: number | undefined): 'retryable' | 'perman
   if (status >= 400) return 'permanent';
   return 'retryable';
 }
+
+/**
+ * **바이트를 서버에 올려야 하는가** — 사진·소리가 **같은 문을 지난다**(§7 2층).
+ *
+ * ── 왜 이 함수가 생겼나 (2026-08-01 · M-0059, 사용자 실기기) ──────────────
+ * 두 형제의 업로드 조건이 **손으로 따로 쓰여 있었고 갈라져 있었다**:
+ *
+ * ```
+ * 소리: if (audio.deletedAt === null || !audio.storagePath)   ← 2026-07-28에 고침(M-0046)
+ * 사진: if (media.deletedAt === null)                          ← 안 고침
+ * ```
+ *
+ * 결과: **휴지통에 있는 사진의 바이트는 어떤 경로로도 다시 올라가지 못했다.** 진단은
+ * 「서버에 없는 사진 3개」를 정확히 짚고 [다시 올리기] 버튼까지 줬는데, 눌러도 업로드를
+ * 건너뛰고 **행만 다시 쓴 뒤 작업을 큐에서 지웠다** — 사용자에게는 *"3건을 다시 올렸어요"*
+ * 라고 말하면서. 재판정은 영원히 3개였고, 그 자리는 §8이 금지하는 **거짓 완료 보고**다.
+ *
+ * ── 왜 「경로 기억이 없다」로는 판정할 수 없나 (사진 한정) ────────────────
+ * 사진에서 `storagePath`가 없다는 것은 **두 가지**를 뜻한다:
+ *
+ *  · **옛 키 형식 시절 행** — 바이트는 서버에 **있는데** 이 기기가 키를 기억하지 않는다.
+ *    올리면 새 키로 사본이 하나 더 생겨 고아가 된다(그리고 앱이 그걸 문제로 띄운다).
+ *  · **복구 경로가 일부러 잊게 함** — 서버에 바이트가 **없음을 확인**했다.
+ *
+ * 소리에는 키 형식이 하나뿐이라 「기억이 없다 = 올라간 적 없다」가 성립했다. 사진은 아니다.
+ * 그래서 **의도를 추측하지 않고 명시적으로 표시한다** — `bytesMissing`이 그 표시다.
+ *
+ * @param e 대상 엔티티(사진·소리 공통 — `SyncMeta`가 아니라 필요한 필드만 받는다).
+ * @param unknownPathMeansNeverUploaded
+ *   경로 기억이 없을 때 「올라간 적 없다」로 볼 수 있는가. **소리는 true**(키 형식이 하나),
+ *   **사진은 false**(옛 형식이 있어 그렇게 볼 수 없다). 기본값을 두지 않는다 — 기본값이 있으면
+ *   새 형제가 안 넘겨도 컴파일되고, 그게 이 규율이 조용히 빠지는 길이다(§7 2층).
+ */
+export function mustUploadBytes(
+  e: { deletedAt: string | null; bytesMissing?: true; storagePath?: string },
+  unknownPathMeansNeverUploaded: boolean,
+): boolean {
+  if (e.deletedAt === null) return true; // 살아 있는 자료는 언제나 서버에 있어야 한다
+  // 🔴 tombstone이어도 올린다 — ADR-0029: **휴지통에 있는 동안에도 바이트는 서버에 있어야**
+  // 사본 없는 다른 기기에서 복원할 수 있다. "지운 건 안 올린다"는 규칙이었던 적이 없다.
+  if (e.bytesMissing === true) return true; // 서버에 없음을 **확인**했다(추측이 아니다)
+  return unknownPathMeansNeverUploaded && !e.storagePath;
+}
