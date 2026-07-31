@@ -1579,17 +1579,35 @@ const placeSeed = await page.evaluate(async () => {
   });
   if (!pick) return null;
   await put({ ...pick, placeName: '김포국제공항', placeLat: 37.5583, placeLng: 126.7906 });
-  return pick.id;
+  return { id: pick.id, title: pick.title ?? '' };
 });
-check('위치 칩: 픽스처 주입(좌표 있는 장소)', Boolean(placeSeed), String(placeSeed));
+check('위치 칩: 픽스처 주입(좌표 있는 장소)', Boolean(placeSeed?.id), JSON.stringify(placeSeed));
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForSelector('.chip.gps', { timeout: 10000 });
-await page.evaluate(() => document.querySelector('.chip.gps')?.scrollIntoView({ block: 'center' }));
+
+// 🔴 **심은 순간의 칩을 누른다 — 화면의 첫 칩이 아니다.**
+//
+// 예전엔 `document.querySelector('.chip.gps')`로 **첫 칩**을 집었다. 그런데 픽스처는
+// 저장소의 **마지막** 순간에 심는다(`.pop()`) — 둘이 같다는 보장이 어디에도 없었고, 실제로
+// 앞 블록들이 다른 순간에 장소를 넣자 **다낭 좌표를 집어** 서울 기대값(`ll=126.…,37.…`)과
+// 어긋났다. 로컬에서 2회 중 1회, CI에서 3건 RED.
+//
+// 근본형은 M-0052·v1.29와 같다: **검사가 자기 픽스처를 소유하지 않으면, 남이 만든 상태를
+// 자기 것으로 읽는다.** 좌표가 든 순간이 하나뿐이던 시절의 전제가 화석으로 남아 있었다.
+const seededCard = page.locator('.moment-card', { hasText: placeSeed?.title ?? '' }).first();
+const seededChip = seededCard.locator('.chip.gps').first();
+await seededChip.scrollIntoViewIfNeeded();
 await page.waitForTimeout(150);
-const chipIsButton = await page.evaluate(() => {
-  const c = document.querySelector('.chip.gps');
-  return c ? { tag: c.tagName, tappable: c.classList.contains('chip-tap'), label: c.getAttribute('aria-label') } : null;
-});
+const chipIsButton = await seededChip.evaluate((c) => ({
+  tag: c.tagName,
+  tappable: c.classList.contains('chip-tap'),
+  label: c.getAttribute('aria-label'),
+}));
+check(
+  '🔴 위치 칩: 검사가 **자기가 심은 순간**의 칩을 집는다(첫 칩이 아니라 — 남의 상태를 내 것으로 읽지 않는다)',
+  /김포/.test(chipIsButton?.label ?? ''),
+  String(chipIsButton?.label),
+);
 check(
   '위치 칩: 누를 수 있는 버튼이다(span이면 아무 일도 안 일어난다)',
   chipIsButton?.tag === 'BUTTON' && chipIsButton.tappable === true,
@@ -1597,7 +1615,7 @@ check(
 );
 check('위치 칩: 무엇을 하는 버튼인지 이름이 있다(스크린리더)', /지도/.test(chipIsButton?.label ?? ''), String(chipIsButton?.label));
 
-await page.locator('.chip.gps').first().click();
+await seededChip.click();
 await page.waitForSelector('.map-overlay', { timeout: 10000 });
 check('위치 칩: 탭하면 앱 지도가 열린다', true, 'map-overlay');
 
