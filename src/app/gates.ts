@@ -59,6 +59,8 @@ export const GATE_DESC: Record<string, string> = {
   'check-exif-order': '촬영시각·위치(EXIF)를 **압축 전에, 원본에서** 읽는가 — 순서가 뒤집히면 그 정보는 영원히 사라진다(§0)',
   'check-bytes-upload-symmetry':
     '사진·소리가 **같은 판정**으로 바이트를 올리는가(형제 하나만 조용히 안 올라가는 것을 차단 — M-0059)',
+  'check-known-index':
+    '「이 증상을 이미 아는가」를 묻는 문(`npm run known`)이 **네 층을 다 뒤지는가** — 층이 비면 그 지식은 영영 안 보인다(M-0064)',
   'unit-tests': '순수 로직 유닛(비공허 확인)',
   'verify-editor-live':
     '실제 브라우저가 앱을 열어 화면·편집기·서비스워커·폰트를 확인(정적 검사가 원리적으로 못 보는 층)',
@@ -104,6 +106,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-exif-strip-on-share': 'static',
   'check-exif-order': 'static',
   'check-bytes-upload-symmetry': 'static',
+  'check-known-index': 'static',
   'unit-tests': 'unit',
   'verify-editor-live': 'live',
   'verify-diagnostics-live': 'live',
