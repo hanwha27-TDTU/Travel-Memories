@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.31<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->131<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.32<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->132<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->23<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -63,7 +63,7 @@
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.31<!--/reg-->) Pages 성공.
+**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.32<!--/reg-->) Pages 성공.
 
 ### 현재 기능 지도 (새 AI는 이 표로 기능 표면을 즉시 파악)
 
@@ -278,6 +278,40 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0028 · v1.32 · **말하게 만들었더니 그 말이 잘렸다** (M-0055) (2026-07-31)
+
+**계기**: 사용자 실기기 스크린샷(v1.31 배포 직후). 토스트가 **「🗺️ 지도로 찍거나, 다른」에서 끊겨** 있었다.
+
+**한 줄**: v1.31이 「왜 위치가 없는지 + 그럼 어떻게 하는지」를 말하게 만들었는데, **그 문장을 담을 그릇을 안 바꿔서 결론 부분이 잘렸다.**
+
+### 🔎 그리고 이 스크린샷이 **진단을 확정**했다
+
+화면이 ①번을 말하고 있었다 — 「**촬영시각은 읽었는데** 위치 정보가 없어요 — 안드로이드 사진 선택기가 위치를 지웠을 수 있어요」. 타임라인에도 **14:09**(EXIF 촬영시각)이 정상으로 들어갔다.
+→ **앱 파서는 멀쩡하고, 안드로이드가 GPS만 지워서 넘긴 것이 맞다.** `media/exif.ts`를 파지 말 것(M-0054의 플랫폼 사실 참조).
+
+### 수정
+
+- `.undo-msg`: `white-space: nowrap` → `normal` + `overflow-wrap: anywhere`. **짧은 말만 하던 시절의 전제**였다.
+- 모서리 `--radius-pill` → `--radius-medium`(여러 줄에서 알약은 좌우가 부풀어 글자 자리를 뺏는다).
+- `min-width: min(340px, 100vw - 32px)` — flex 오그라듦으로 344px에서 **7줄**이던 것이 **4줄**로.
+- `readMs(message)` 신설 — 체류시간이 길이를 따라간다(5~12초). **두 토스트가 같은 규칙**(§7 2층).
+
+### 🔴 새로 만든 게이트가 처음엔 공허했다 (§4는 새 게이트에도 걸린다)
+
+라이브 3건을 붙이고 §4대로 **옛 `nowrap`을 실제로 되돌려 봤더니 「잘리지 않는다」가 초록**이었다. `m.scrollWidth - m.clientWidth`로 물었는데 **span 자신은 늘어나기만 하고**, 잘리는 곳은 `max-width`가 걸린 **부모(토스트)**다. 대상을 부모로 바꾸자 **`clipped: 600`** — 사용자가 본 잘림이 숫자로 나왔다.
+**주입을 건너뛰었다면 「검사했다」고 말하며 같은 결함을 재배포했을 것이다.**
+
+### 검증
+
+하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 951 · `verify-editor-live` **257/257**(+3) · `verify-diagnostics-live` 22/22 · build OK.
+§13 1항: 폴드5 접은 폭(344px)에서 **두 번 열어서 봤다** — 첫 판 7줄(잘림 없으나 화면을 덮음) → 폭 조정 후 **4줄, 잘림 0, 화면 안**.
+
+### 잔여
+
+- 「파일」 앱(문서 선택기)으로 고르면 GPS가 살아 있는지는 **여전히 미검증**. 원인이 확정됐으므로 **다음 작업 후보 1순위**다 — 실기기에서 한 번 확인되면 버튼으로 붙인다.
 
 ---
 

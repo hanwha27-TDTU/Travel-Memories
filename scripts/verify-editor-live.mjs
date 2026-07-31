@@ -1186,6 +1186,54 @@ check(
   noGpsToast,
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴 **문장이 화면에 다 들어오는가** (사용자 실기기 스크린샷 2026-07-31 · M-0055)
+//
+// 위 세 검사는 전부 PASS였는데 **실기기에서는 문장이 잘려 있었다** — 「🗺️ 지도로 찍거나, 다른」
+// 에서 끊겨 *그래서 어떻게 하는지*가 안 보였다. 원인은 `.undo-msg { white-space: nowrap }`,
+// 토스트가 「여행을 지웠어요」처럼 **짧은 말만 하던 시절의 전제**다.
+//
+// 왜 못 잡았나: 검사가 `textContent`만 읽었다. **자료구조에는 온전히 있고 화면에서만 잘린다**
+// (§10 ③). 그래서 이제 **잰다** — 폰 폭에서 넘침·잘림·화면 밖 여부를.
+// ─────────────────────────────────────────────────────────────────────────────
+await page.setViewportSize({ width: 344, height: 800 }); // 폴드5 접은 폭
+await page.waitForTimeout(200);
+const toastFit = await page.evaluate(() => {
+  const t = document.querySelector('.undo-toast');
+  const m = t?.querySelector('.undo-msg');
+  if (!t || !m) return null;
+  const tr = t.getBoundingClientRect();
+  const mr = m.getBoundingClientRect();
+  // 🔴 **재는 대상은 span이 아니라 토스트 상자다.**
+  // 처음엔 `m.scrollWidth - m.clientWidth`로 물었는데, `nowrap`을 실제로 되돌려 보니
+  // **0이 나왔다** — span 자신은 늘어나기만 하고 잘리는 곳은 **부모(max-width가 걸린 토스트)**다.
+  // 즉 그 검사는 진짜 결함에 대해 **공허했다**(§4는 새로 만든 게이트에도 걸린다).
+  const pr = parseFloat(getComputedStyle(t).paddingRight || '0');
+  return {
+    clipped: Math.round(Math.max(t.scrollWidth - t.clientWidth, mr.right - (tr.right - pr))),
+    lines: Math.round(mr.height / parseFloat(getComputedStyle(m).lineHeight || '20')),
+    inside: tr.left >= -0.5 && tr.right <= window.innerWidth + 0.5, // 토스트가 화면 안인가
+    pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  };
+});
+check(
+  '🔴 토스트: 긴 안내 문장이 **잘리지 않는다**(자료구조에만 온전하면 M-0022의 재발)',
+  toastFit !== null && toastFit.clipped <= 1,
+  JSON.stringify(toastFit),
+);
+check(
+  '🔴 토스트: 폰 폭에서 **여러 줄로 접힌다**(한 줄 고정이 잘림의 원인이었다)',
+  toastFit !== null && toastFit.lines >= 2,
+  JSON.stringify(toastFit),
+);
+check(
+  '토스트: 화면 밖으로 밀려나지 않고 가로 넘침도 만들지 않는다',
+  toastFit !== null && toastFit.inside && toastFit.pageOverflow === 0,
+  JSON.stringify(toastFit),
+);
+await page.setViewportSize({ width: 390, height: 844 }); // §3-C — 내가 바꾼 뷰포트를 되돌린다
+await page.waitForTimeout(150);
+
 // ② 이름 없이 좌표만 들어간 순간도 **칩으로 보인다**(동의 없이 좌표만 넣은 경우가 그것이다).
 await noGpsCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
 await page.waitForTimeout(200);

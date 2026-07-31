@@ -803,12 +803,24 @@ select.zone-input { text-overflow: ellipsis; }
   transform: translateX(-50%); z-index: 60;
   display: flex; align-items: center; gap: var(--space-3);
   max-width: calc(100vw - 32px);
-  padding: 10px 12px 10px 16px; border-radius: var(--radius-pill);
+  /* 🔴 **폭을 확보한다.** flex 상자는 내용에 맞춰 오그라들어(shrink-to-fit), 줄바꿈을 허용한
+     직후 실측에서 344px 화면인데 문장이 **7줄**이 됐다 — 잘리지는 않지만 화면을 덮는다.
+     좁은 화면에서는 가용 폭을 쓰고(≈4줄), 넓은 화면에서는 340px에서 멈춘다.
+     토스트 폭이 문장마다 들쭉날쭉한 것보다 **고정된 자리**가 읽기 쉽다(§7 사용자 대면 대칭). */
+  min-width: min(340px, calc(100vw - 32px));
+  /* 🔴 알약(999px)이 아니라 둥근 사각이다(2026-07-31 · M-0055). 문장이 두 줄 이상이 되면
+     알약은 좌우 끝이 반원으로 부풀어 글자 자리를 빼앗는다 — 잘리는 문장을 더 잘리게 만든다. */
+  padding: 10px 12px 10px 16px; border-radius: var(--radius-medium);
   background: var(--ink); color: var(--bg);
   box-shadow: 0 12px 30px -10px rgba(6, 6, 14, .6);
   font-size: 0.85rem; font-weight: 600;
 }
-.undo-msg { white-space: nowrap; }
+/* 🔴 **줄바꿈을 막지 않는다**(사용자 실기기 스크린샷 2026-07-31 · M-0055).
+   `white-space: nowrap`이 있었다. 토스트가 「여행을 지웠어요」처럼 **짧은 말만 하던 시절의
+   전제**였는데, v1.31이 세 줄짜리 안내 문장을 같은 그릇에 담으면서 **탈출구를 알려주는
+   뒷부분이 통째로 잘렸다**(「🗺️ 지도로 찍거나, 다른」에서 끊김). 자료구조는 옳고 화면만
+   틀린 §10 ③ 부류라 유닛·라이브가 전부 초록이었다 — 검사가 textContent만 읽었기 때문이다. */
+.undo-msg { white-space: normal; overflow-wrap: anywhere; line-height: 1.45; }
 .undo-btn {
   flex: 0 0 auto; min-height: 32px; padding: 0 12px;
   border: none; border-radius: var(--radius-pill); cursor: pointer;
