@@ -1048,7 +1048,7 @@ await page.waitForTimeout(600);
 const timeOnly = await page.evaluate(() => document.querySelector('.place-photo-note')?.textContent ?? '');
 check(
   '🔴 생성 폼: 시각은 읽고 위치만 없으면 **원인을 구분해** 말한다(파서 탓이 아니다)',
-  timeOnly.includes('촬영시각은 읽었') && !/지웠어요|지웁니다/.test(timeOnly),
+  timeOnly.includes('촬영시각은 읽었') && timeOnly.includes('위치 태그') && !/지웠어요|지웁니다/.test(timeOnly),
   timeOnly,
 );
 check(
