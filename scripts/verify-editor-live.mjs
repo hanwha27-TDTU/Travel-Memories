@@ -994,6 +994,100 @@ check(
   'ok',
 );
 
+// ── 🔴 v1.29: **편집 폼**에서 사진을 추가해도 장소가 채워지는가 (사용자 지적 2026-07-31) ──
+//
+// 사용자가 스크린샷으로 짚었다 — 「기존 순간에 사진 추가」 흐름에서는 장소 칸이 비어 있었다.
+// 생성 폼에만 붙였던 것이 §7 위반이었다(오히려 이쪽이 더 흔한 흐름이다).
+//
+// 그리고 **가장 이른 촬영시각**의 사진을 기준으로 한다: 시각(`guessOccurredAt`)이 이미 그
+// 규칙을 쓰므로, 장소가 다른 자를 쓰면 **시각과 장소가 서로 다른 사진을 가리킨다.**
+await page.route('**/reverse**', (route) =>
+  route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ lat: '16.0544', lon: '108.2022', display_name: '미케 비치, 다낭, 베트남', name: '미케 비치', address: { country: '베트남', country_code: 'vn', city: '다낭' } }),
+  }),
+);
+// 🔴 **장소가 없는 순간을 새로 만들어** 그것을 편집한다. 「첫 카드」를 쓰면 앞선 검사가
+// 좌표를 넣어 둔 순간을 집을 수 있고, 그러면 `taken()`이 참이라 제안이 안 돈다 —
+// 실제로 그렇게 짰다가 RED로 떴다(검사가 자기 전제를 세우지 않은 것이다).
+await page.fill('input[placeholder^="이 순간을"]', '편집 폼 장소 검증');
+await page.getByRole('button', { name: '순간 저장' }).click();
+await page.waitForTimeout(1200);
+const editCard = page.locator('.moment-card', { hasText: '편집 폼 장소 검증' }).first();
+await editCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
+await page.waitForTimeout(400);
+const beforeEdit = await editCard.evaluate((c) => {
+  const p = c.querySelector('.place-input');
+  const badge = c.querySelector('.place-picked');
+  return { name: p instanceof HTMLInputElement ? p.value : 'MISSING', badge: badge ? !badge.hidden : false };
+});
+check('편집 폼: 사진 넣기 전에는 장소가 비어 있다(검사가 자기 전제를 세운다)', beforeEdit.name === '' && !beforeEdit.badge, JSON.stringify(beforeEdit));
+
+// 🔴 **역순으로 넣는다** — 늦게 찍힌 것을 먼저. 「고른 순서의 첫 장」 규칙이면 하노이가,
+// 「가장 이른 사진」 규칙이면 다낭이 나온다. 두 규칙을 실제로 갈라 세우는 픽스처다.
+await editCard.locator('.moment-photo-input').setInputFiles([
+  { name: 'late.jpg', mimeType: 'image/jpeg', buffer: withExifGps(imgBuf, '2026:07:16 18:00:00', 21.0278, 105.8342) },
+  { name: 'early.jpg', mimeType: 'image/jpeg', buffer: withExifGps(imgBuf, '2026:07:16 09:30:00', 16.0544, 108.2022) },
+]);
+// 사진을 한 장씩 굽는다(저메모리 규율) — 고정 대기는 **중간 상태를 재게 된다**(실제로
+// 「사진 편집… (1/2)」을 잡았다). 끝났다는 신호를 기다린다.
+// 「사진 추가」는 장당 **편집기를 연다**(굽기 전 배치 편집). 두 장이므로 두 번 [적용]한다.
+// 고정 대기로는 못 지나간다 — 실제로 「사진 편집… (1/2)」에서 멈춘 채 30초를 기다렸다.
+for (let i = 0; i < 2; i++) {
+  await page.waitForSelector('.pe-overlay', { timeout: 20000 });
+  await page.getByRole('button', { name: '적용', exact: true }).click();
+  await page.waitForTimeout(500);
+}
+await page.waitForSelector('.undo-toast', { timeout: 30000 });
+await page.waitForTimeout(400);
+// 🔴 재렌더가 끝난 **카드 자체**를 본다. 폼 칸이 아니라 **순간에 실제로 써 넣은 값**이라야
+// 한다 — 사진 추가는 곧바로 저장·재렌더하므로 폼에만 채우면 그 즉시 사라진다.
+const editFilled = await page.evaluate(() => {
+  const card = [...document.querySelectorAll('.moment-card')].find((c) => c.textContent?.includes('편집 폼 장소 검증'));
+  return {
+    chip: card?.querySelector('.chip.gps')?.textContent ?? '',
+    toast: document.querySelector('.undo-toast')?.textContent ?? '',
+  };
+});
+check(
+  '편집 폼: **사진 추가로도 장소가 들어간다**(생성 폼에만 있던 것이 §7 위반이었다)',
+  editFilled.chip.includes('미케 비치'),
+  JSON.stringify(editFilled),
+);
+check(
+  '편집 폼: **한 일을 말하고 되돌릴 길을 준다**(앱이 데이터를 바꿨으면 §5가 걸린다)',
+  editFilled.toast.includes('사진 위치로 장소를 넣었어요') && editFilled.toast.includes('실행취소'),
+  editFilled.toast || '(토스트 없음)',
+);
+
+// 🔴 이번엔 **이미 장소가 있는** 순간에 사진을 넣는다 — 손대면 안 된다.
+await page.route('**/reverse**', (route) =>
+  route.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify({ lat: '21.0278', lon: '105.8342', display_name: '하노이', name: '하노이', address: { country: '베트남', country_code: 'vn' } }) }),
+);
+const keptCard = page.locator('.moment-card', { hasText: '편집 폼 장소 검증' }).first();
+await keptCard.locator('.moment-photo-input').setInputFiles([
+  { name: 'hanoi.jpg', mimeType: 'image/jpeg', buffer: withExifGps(imgBuf, '2026:07:16 07:00:00', 21.0278, 105.8342) },
+]);
+await page.waitForSelector('.pe-overlay', { timeout: 20000 });
+await page.getByRole('button', { name: '적용', exact: true }).click();
+await page.waitForTimeout(1500);
+const kept2 = await page.evaluate(() => {
+  const card = [...document.querySelectorAll('.moment-card')].find((c) => c.textContent?.includes('편집 폼 장소 검증'));
+  return card?.querySelector('.chip.gps')?.textContent ?? '';
+});
+check(
+  '🔴 편집 폼: **이미 장소가 있으면 사진이 덮지 않는다**(앱이 사용자를 이기지 않는다)',
+  kept2.includes('미케 비치') && !kept2.includes('하노이'),
+  kept2,
+);
+await page.unroute('**/reverse**');
+// §3-C — 편집 폼을 닫고 스크롤을 되돌린다(사진 2장은 이 순간에 실제로 붙었다 — 뒤 검사가
+// 개수를 세지 않으므로 그대로 둔다. 세는 검사가 생기면 여기서 지워야 한다).
+await editCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
+await page.evaluate(() => window.scrollTo(0, 0));
+await page.waitForTimeout(300);
+
 // ── 🕒 시간대: `<input list>`가 아니라 **진짜 드롭다운**인가 ──
 // 사용자 제안: *"드롭다운해서 선택하게끔"*. 이건 취향이 아니라 **내가 이미 flag한 위험**이었다 —
 // v1.27에서 「안드로이드 크롬에서 datalist 자동완성이 안 뜰 수 있다」를 실기기 확인 항목에 적었다.

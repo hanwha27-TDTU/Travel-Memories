@@ -513,6 +513,82 @@ function buildPickPreview(
 }
 
 /**
+ * 「기존 순간에 사진 추가」 배선.
+ *
+ * 🔴 **굽기 전에 메타를 먼저 읽는다**(§0 — 사진 압축 전에 촬영시각·GPS를 읽어 별도 저장).
+ * 그 값으로 편집 폼의 장소 칸을 채운다 — 인테이크도 다시 읽지만(그쪽은 파일 이름·GPS 저장용)
+ * 여기서 재사용하면 순서 가정이 생겨 더 얽힌다. 앞 256KB 읽기라 값이 싸다.
+ */
+function wireAddPhoto(
+  input: HTMLInputElement,
+  progress: HTMLElement,
+  o: {
+    momentId: string;
+    tripId: string;
+    fallbackZone: string;
+    /** 이 순간이 **이미 장소를 갖고 있는가.** 참이면 사진이 장소를 건드리지 않는다. */
+    hasPlace: boolean;
+    refresh: () => Promise<void>;
+  },
+): void {
+  input.addEventListener('change', () => {
+    const files = input.files ? Array.from(input.files) : [];
+    if (!files.length) return;
+    void (async () => {
+      try {
+        const metas = await Promise.all(files.map((f) => readPhotoMeta(f, o.fallbackZone)));
+        await processPhotosIntoMoment(files, o.momentId, o.tripId, (msg) => {
+          progress.textContent = msg;
+        });
+        input.value = '';
+        progress.textContent = '✅ 추가됨';
+        await placeFromPhotos(o.momentId, o.hasPlace, metas, o.refresh);
+        await o.refresh();
+      } catch (err) {
+        progress.textContent = `추가 실패: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    })();
+  });
+}
+
+/**
+ * 🔴 **사진 위치를 순간에 실제로 써 넣는다** (사용자 지적 2026-07-31 · 스크린샷).
+ *
+ * 왜 폼 칸을 채우는 것으로는 안 되나: 「기존 순간에 사진 추가」는 **곧바로 저장하고 화면을
+ * 다시 그린다**(사진이 보여야 하므로). 그러면 폼은 저장된 데이터로 새로 만들어지고 내가 채운
+ * 칸은 그 즉시 사라진다 — 실제로 그렇게 짰다가 라이브 검사가 잡았다. 생성 폼과 이 자리는
+ * **흐름이 다르다**: 생성 폼은 사용자가 [저장]을 누를 때까지 값이 폼에 머문다.
+ *
+ * 🔴 **비어 있을 때만 쓴다.** 사용자가 적어 둔 장소를 사진이 덮으면 그건 앱이 사용자를
+ * 이기는 것이다.
+ *
+ * 🔴 그리고 **말하고, 되돌릴 길을 준다**(토스트 + 실행취소). 앱이 사용자 데이터를 스스로
+ * 바꿨으므로 §5(복구 가능성)가 그대로 걸린다. 진행 줄로는 안 된다 — 사진 추가는 곧바로
+ * 재렌더하므로 그 줄이 **그 자리에서 사라진다**(실제로 그렇게 짰다가 라이브 검사가 잡았다).
+ * 토스트는 `document.body`에 붙어 화면이 다시 그려져도 남는다.
+ */
+async function placeFromPhotos(
+  momentId: string,
+  hasPlace: boolean,
+  metas: readonly PhotoMetaLike[],
+  refresh: () => Promise<void>,
+): Promise<void> {
+  if (hasPlace) return;
+  const hint = photoHintOf(metas);
+  if (!hint.coord) return;
+  const { lat, lng } = hint.coord;
+  // 이름 조회는 좌표가 기기 밖으로 나가는 일이라 **동의가 있을 때만.** 없으면 좌표만 넣는다
+  // (여기서 새로 묻지 않는다 — 사진을 넣는 중에 대화상자를 띄우면 흐름이 끊긴다).
+  const hit = hasAgreed(PHOTO_GEO_CONSENT_KEY) ? await reverseGeocode(lat, lng) : null;
+  const name = hit?.name ?? '';
+  await updateMomentLocalFirst(momentId, { placeName: name, placeLat: lat, placeLng: lng });
+  showUndoToast(name ? `📍 사진 위치로 장소를 넣었어요 · ${name}` : '📍 사진 위치(좌표)를 넣었어요', async () => {
+    await updateMomentLocalFirst(momentId, { placeName: '', placeLat: null, placeLng: null });
+    await refresh();
+  });
+}
+
+/**
  * 🕒 **사진이 찍힌 나라로 여행 시간대를 제안한다** (사용자 제안 2026-07-30:
  * *"초기값은 사진찍은 장소로 셋팅..어때?"*).
  *
@@ -1428,22 +1504,8 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       addProgress.setAttribute('role', 'status');
       // 🎙 소리 남기기 — 사진 추가와 **같은 줄**에 둔다(둘 다 "이 순간에 뭔가 더하기"다).
       addPhotoWrap.append(addPhotoLabel, buildRecordButton(m.id, trip!.id, addProgress, refresh), addProgress);
-      addPhotoInput.addEventListener('change', () => {
-        const files = addPhotoInput.files ? Array.from(addPhotoInput.files) : [];
-        if (!files.length) return;
-        void (async () => {
-          try {
-            await processPhotosIntoMoment(files, m.id, trip!.id, (msg) => {
-              addProgress.textContent = msg;
-            });
-            addPhotoInput.value = '';
-            addProgress.textContent = '✅ 추가됨';
-            await refresh();
-          } catch (err) {
-            addProgress.textContent = `추가 실패: ${err instanceof Error ? err.message : String(err)}`;
-          }
-        })();
-      });
+      // 사진 추가 배선은 최상위 `wireAddPhoto`가 한다(래칫이 밀어줬다 — 그리고 이 배선의
+      // 규율은 「§0 굽기 전에 EXIF」라 화면 코드가 아니라 밖에 있는 편이 맞다).
 
       // 인라인 편집 폼(토글). 저장 시 순간 수정 + 비용 조정(생성/수정/삭제) → 재렌더.
       const existingExpense = expenseList[0];
@@ -1489,6 +1551,9 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         },
       );
       editForm.hidden = true;
+      // `hasPlace`: 이름이든 좌표든 하나라도 있으면 사진이 장소를 **손대지 않는다.**
+      const hasPlace = Boolean(m.placeName) || (m.placeLat != null && m.placeLng != null);
+      wireAddPhoto(addPhotoInput, addProgress, { momentId: m.id, tripId: trip!.id, fallbackZone: trip?.timeZone ?? '', hasPlace, refresh });
       editBtn.addEventListener('click', () => {
         const show = editForm.hidden; // 열기로 전환
         editForm.hidden = !show;
@@ -2160,9 +2225,8 @@ function buildMomentEditForm(
   // 비용(선택): 금액 비우면 기존 비용 삭제, 채우면 생성/수정.
   const money = buildMoneyRow(existingExpense);
 
-  // 이미 정해진 값이므로 `set()`(추측이 아니라 근거 줄은 비운다).
   const timeField = buildWhenField(trip, clock);
-  timeField.set(m.occurredAt);
+  timeField.set(m.occurredAt); // 이미 정해진 값이므로 `set()` — 추측이 아니라 근거 줄은 비운다
 
   const row = el('div', 'edit-actions');
   const save = el('button', 'btn-primary', '저장') as HTMLButtonElement;
