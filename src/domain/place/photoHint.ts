@@ -32,6 +32,17 @@ export interface PhotoHint {
   coord: { lat: number; lng: number } | null;
   /** 좌표를 가진 사진이 몇 장인가. 화면이 「3장 중 첫 장」을 말할 때 쓴다. */
   coordCount: number;
+  /** 고른 사진 전체. 0이면 **아무 말도 하지 않는다**(사진을 다 뺀 상태). */
+  photoCount: number;
+  /**
+   * 🔴 **촬영시각을 읽어낸 사진 수** — 「EXIF를 읽었다」의 증거다.
+   *
+   * 왜 세는가: 좌표가 없을 때 사용자가 알아야 하는 것은 *"없다"*가 아니라 **왜 없는가**다
+   * (§8 — 도구는 관측이 아니라 판정을 한다). 시각은 읽혔는데 위치만 없다면 파서는 멀쩡하고
+   * **그 사진에 위치가 안 담겨 온 것**이다. 시각조차 없다면 EXIF 자체가 없는 사진이다
+   * (스크린샷·메신저로 받은 것). 두 경우의 다음 행동이 다르므로 문장도 달라야 한다.
+   */
+  timedCount: number;
   /**
    * 🔴 **EXIF가 직접 말한** 오프셋(분)만. `tzSource === 'exif'`가 아니면 `null`이다.
    *
@@ -73,6 +84,10 @@ export function photoHintOf(metas: readonly PhotoMetaLike[]): PhotoHint {
   return {
     coord: first ? { lat: first.gpsLat as number, lng: first.gpsLng as number } : null,
     coordCount: located.length,
+    photoCount: metas.length,
+    // `takenAt`이 있다 = `readPhotoMeta`가 EXIF `DateTimeOriginal`을 실제로 읽었다.
+    // 좌표 유무와 **독립적으로** 센다 — 좌표 없는 사진이 시각을 말했다는 사실이 곧 근거다.
+    timedCount: metas.filter((m) => m.takenAt !== null && !Number.isNaN(Date.parse(m.takenAt))).length,
     exifOffsetMin: exif?.tzOffsetMin ?? null,
   };
 }
@@ -87,4 +102,39 @@ export function photoPlaceLabel(hint: PhotoHint): string {
   if (!hint.coord) return '';
   const many = hint.coordCount > 1 ? ` (${hint.coordCount}장 중 가장 이른 사진)` : '';
   return `📷 사진 위치에서 · ${hint.coord.lat.toFixed(5)}, ${hint.coord.lng.toFixed(5)}${many}`;
+}
+
+/**
+ * 🔴 **좌표를 못 얻었을 때 하는 말** — 「왜 없는지」와 「그럼 어떻게 하는지」까지.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 왜 이 함수가 생겼나 (사용자 2026-07-31: *"아직도 해결이 안되네..어려운 기능인건가요?"*)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * v1.30에서 「말하지 않으면 안 한 것과 구별되지 않는다」를 고쳤는데 **형제 하나만 고쳤다** —
+ * 「기존 순간에 사진 추가」는 말하게 했고 **순간 만들기 폼은 그대로 침묵**이었다(§7 위반,
+ * 게다가 사용자가 실제로 쓴 화면이 침묵하는 쪽이었다). 그리고 v1.30의 그 문장조차
+ * *"위치 정보가 없어요"*까지만 말했다 — 사용자가 다음에 무엇을 할지는 여전히 안 알려 줬다.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 왜 두 문장으로 갈리나 — **원인이 다르면 처방이 다르다**(§8)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * ① **시각은 읽혔는데 위치만 없다** → 파서는 멀쩡하고 사진에 위치가 안 담겨 왔다.
+ *    가장 흔한 원인은 사용자의 잘못이 아니다: **안드로이드 13+의 사진 선택기는 앱에
+ *    사진을 넘길 때 GPS를 지운다**(개인정보 보호 설계이며 `ACCESS_MEDIA_LOCATION`
+ *    권한과도 무관하게 지운다). 브라우저가 받는 바이트에 이미 위치가 없으므로
+ *    **앱이 아무리 잘 읽어도 못 읽는다.** 이걸 말하지 않으면 사용자는 앱을 의심한다.
+ * ② **시각조차 없다** → EXIF 자체가 없는 사진이다(스크린샷·메신저로 받은 사진).
+ *
+ * 두 경우 다 **이미 있는 탈출구**로 데려간다 — 지도로 찍기(v1.25)·좌표 붙여넣기(v1.25)·
+ * 검색. 「안 된다」로 끝내지 않는 것이 §12다.
+ *
+ * 🔴 **사진이 없으면 침묵한다.** 사진을 다 뺀 상태에서 위치 얘기를 꺼내면 그건 소음이다(§8).
+ */
+export function photoPlaceNotice(hint: PhotoHint): string {
+  if (hint.photoCount === 0 || hint.coord) return '';
+  const escape = '🗺️ 지도로 찍거나, 다른 지도앱에서 복사한 좌표를 붙여넣어 주세요';
+  if (hint.timedCount > 0) {
+    return `📷 촬영시각은 읽었는데 위치 정보가 없어요 — 안드로이드 사진 선택기가 위치를 지웠을 수 있어요. ${escape}`;
+  }
+  return `📷 이 사진에는 촬영 정보가 없어요(스크린샷이거나 메신저로 받은 사진) — ${escape}`;
 }

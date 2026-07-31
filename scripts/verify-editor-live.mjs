@@ -843,22 +843,60 @@ await page.waitForTimeout(600);
 const keptPlace = await page.evaluate(() => document.querySelector('.place-input')?.value ?? '');
 check('사진 장소: 사용자가 적은 이름을 사진이 덮지 않는다(앱이 사용자를 이기지 않는다)', keptPlace === '내가 적은 장소', keptPlace);
 
-// GPS 없는 사진이면 **아무 말도 하지 않는다**(§8 침묵이 정상).
+// 🔴 배지의 ✕로 **좌표까지** 해제한다. 이름만 지우면 좌표는 남는데(사진 좌표는 이름과
+// 독립이라 그게 맞다) 그러면 「이미 손댔다」로 판정돼 제안이 안 돈다 — 실제 사용자 경로는 ✕다.
 await page.fill('.place-input', '');
+await page.locator('.moment-form .place-picked .chip-clear').first().click(); // 생성 폼의 것(편집 폼들과 구분)
+await page.waitForTimeout(200);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴 좌표를 못 얻었을 때 **왜 못 얻었는지 말하는가** (사용자 2026-07-31: *"아직도 해결이 안되네"*)
+//
+// §11 ② — **여기 있던 검사가 옛 전제를 못박고 있었다.** *"좌표 없는 사진이면 침묵한다"*를
+// 계약으로 잠가 뒀고, 그래서 사용자가 겪은 그 침묵이 게이트에서는 **정상으로 초록이었다.**
+// 전제가 바뀌었으니 통과시키려 로직을 되돌리지 말고 **케이스를 뒤집는다.**
+// §8의 「침묵이 정상」은 *기대와 일치하는 것*을 감추라는 뜻이지, **기대한 일이 안 일어난 것**을
+// 감추라는 뜻이 아니다.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ① EXIF 자체가 없는 사진(스크린샷·메신저로 받은 것) — 원인이 사진 쪽에 있다고 말한다.
 await page.setInputFiles('.moment-photo-input', [{ name: 'nogps.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgBuf) }]);
 await page.waitForTimeout(600);
-const silent = await page.evaluate(() => {
+const noExif = await page.evaluate(() => {
   const n = document.querySelector('.place-photo-note');
   return { hidden: n ? n.hidden : null, text: n?.textContent ?? '' };
 });
-check('사진 장소: 좌표 없는 사진이면 **침묵한다**(빈 근거 줄을 남기지 않는다)', silent.hidden === true, JSON.stringify(silent));
+check(
+  '🔴 생성 폼: EXIF 없는 사진이면 **왜 없는지 말한다**(v1.30은 「사진 추가」만 고쳤고 여기는 침묵했다 · §7)',
+  noExif.hidden === false && noExif.text.includes('촬영 정보가 없어요') && noExif.text.includes('스크린샷'),
+  JSON.stringify(noExif),
+);
+check(
+  '🔴 생성 폼: 「안 된다」로 끝내지 않고 **탈출구**로 데려간다(지도·좌표 붙여넣기 · §12)',
+  noExif.text.includes('지도로 찍거나') && noExif.text.includes('좌표를 붙여넣어'),
+  noExif.text,
+);
+
+// ② 촬영시각은 있는데 GPS만 없는 사진 — **안드로이드 사진 선택기가 지운 모양**이다.
+//    앱의 파서는 멀쩡하다는 사실을 사용자에게 알려야 앱을 의심하지 않는다.
+await page.setInputFiles('.moment-photo-input', [
+  { name: 'timeonly.jpg', mimeType: 'image/jpeg', buffer: withExifDateTime(imgBuf, '2026:07:16 09:30:00') },
+]);
+await page.waitForTimeout(600);
+const timeOnly = await page.evaluate(() => document.querySelector('.place-photo-note')?.textContent ?? '');
+check(
+  '🔴 생성 폼: 시각은 읽고 위치만 없으면 **원인을 구분해** 말한다(파서 탓이 아니다)',
+  timeOnly.includes('촬영시각은 읽었') && timeOnly.includes('안드로이드'),
+  timeOnly,
+);
+check(
+  '생성 폼: 두 원인이 **같은 문장으로 뭉개지지 않는다**(처방이 다르므로)',
+  timeOnly !== noExif.text,
+  `${timeOnly} / ${noExif.text}`,
+);
 
 // 🔴 동의를 **수락**하면 이름까지 채운다. 위 검사들은 Playwright가 대화상자를 자동 거절하므로
 // **거절 경로**를 재고 있었다 — 거절해도 좌표는 남는다는 것까지가 그 검사다. 여기서는 수락한다.
-// 🔴 배지의 ✕로 **좌표까지** 해제한다. 이름만 지우면 좌표는 남는데(사진 좌표는 이름과
-// 독립이라 그게 맞다) 그러면 「이미 손댔다」로 판정돼 제안이 안 돈다 — 실제 사용자 경로는 ✕다.
-await page.locator('.moment-form .place-picked .chip-clear').first().click(); // 생성 폼의 것(편집 폼들과 구분)
-await page.waitForTimeout(200);
 // 샌드박스는 Nominatim을 막는다. 스텁하지 않으면 **콘솔 네트워크 에러**가 남고(뒤의 「콘솔
 // 에러 0」이 RED), 무엇보다 *이름이 채워지는지*를 못 잰다 — 스텁이 검사를 더 강하게 만든다.
 await page.route('**/reverse**', (route) =>
@@ -909,12 +947,33 @@ await page.waitForTimeout(200);
 // 🔴 §3-C — **장소도 비운다.** 안 비우면 이 순간이 「미케 비치」를 달고 저장되고, 한참 뒤의
 // 「바깥 지도 링크」 검사가 그 좌표를 집어 서울 기대값과 어긋난다(실제로 3건이 RED로 떴다).
 // 내 블록이 만든 상태가 **다른 블록의 픽스처를 바꿔치기한** 것이다.
-await page.locator('.moment-form .place-picked .chip-clear').first().click().catch(() => {});
-await page.evaluate(() => {
-  const i = document.querySelector('.moment-form .place-input');
-  if (i instanceof HTMLInputElement) { i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); }
-});
-await page.waitForTimeout(200);
+// 🔴 그리고 **되돌렸는지 되읽어 확인한다**(§8 *"고쳤다고 말하지 말고 다시 읽어라"*).
+// 예전엔 `.click().catch(() => {})` 한 번이었다 — 배지가 아직 안 그려졌거나 재렌더로
+// 노드가 떨어져 나가면 클릭이 **조용히 실패**하고, 그 실패는 **한참 뒤 남의 검사에서**
+// 다낭 좌표로 나타났다(2회 중 1회 RED · 간헐이라 더 나빴다). §11 ③ — **오탐·간헐도 결함이다.**
+let placeCleared = false;
+for (let i = 0; i < 5 && !placeCleared; i += 1) {
+  await page.locator('.moment-form .place-picked .chip-clear').first().click().catch(() => {});
+  await page.evaluate(() => {
+    const inp = document.querySelector('.moment-form .place-input');
+    if (inp instanceof HTMLInputElement) { inp.value = ''; inp.dispatchEvent(new Event('input', { bubbles: true })); }
+  });
+  await page.waitForTimeout(150);
+  // 🔴 배지는 **DOM에서 사라지지 않는다** — `hidden`으로만 감춘다(`buildPickedBadge`).
+  // 처음엔 `!querySelector('.place-picked')`로 읽었고, 그건 **영원히 false**라 되읽기가
+  // 공허했다(§4 — 되읽기 자신도 비공허해야 한다). 존재가 아니라 **보이는가**를 묻는다.
+  placeCleared = await page.evaluate(() => {
+    const f = document.querySelector('.moment-form');
+    const badge = f?.querySelector('.place-picked');
+    const inp = f?.querySelector('.place-input');
+    return badge instanceof HTMLElement && badge.hidden && (inp instanceof HTMLInputElement ? inp.value : '') === '';
+  });
+}
+check(
+  '🔴 §3-C: 다음 블록에 넘기기 전에 장소를 비웠고, **비워졌는지 되읽어 확인했다**',
+  placeCleared,
+  `cleared=${placeCleared}`,
+);
 await page.fill('input[placeholder^="이 순간을"]', '비용 메모 검증');
 await page.fill('input[placeholder^="💰 비용"]', '12000');
 await page.fill('[data-expense-note]', '반미 샌드위치');
@@ -1106,8 +1165,20 @@ await page.waitForSelector('.undo-toast', { timeout: 20000 });
 const noGpsToast = await page.evaluate(() => document.querySelector('.undo-toast')?.textContent ?? '');
 check(
   '🔴 위치 없는 사진: **그렇다고 말한다**(침묵은 「고장」으로 읽힌다 — §12)',
-  noGpsToast.includes('위치 정보가 없어요'),
+  noGpsToast.includes('촬영 정보가 없어요'),
   noGpsToast || '(토스트 없음)',
+);
+// v1.31 — 이 문장은 이제 생성 폼과 **같은 문**(`photoPlaceNotice`)에서 나온다. 같은 픽스처
+// (EXIF 없는 JPEG)에 대해 두 화면이 **글자까지 같은 말**을 해야 한다. 다르면 한쪽이 손편집이다(§7).
+check(
+  '🔴 위치 없는 사진: 「사진 추가」와 「순간 만들기」가 **같은 말**을 한다(문장 SSOT)',
+  noGpsToast.includes(noExif.text),
+  `${noGpsToast} ||| ${noExif.text}`,
+);
+check(
+  '위치 없는 사진: 토스트도 **탈출구**를 함께 준다(§12)',
+  noGpsToast.includes('지도로 찍거나'),
+  noGpsToast,
 );
 check(
   '위치 없는 사진: 되돌릴 것이 없으므로 **실행취소를 붙이지 않는다**(빈 버튼을 만들지 않는다)',

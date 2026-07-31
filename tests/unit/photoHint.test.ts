@@ -7,7 +7,12 @@
 // 숫자는 다 맞았는데 화면 문장을 검사한 것이 하나도 없었다(§10 ③).
 
 import { describe, it, expect } from 'vitest';
-import { photoHintOf, photoPlaceLabel, type PhotoMetaLike } from '../../src/domain/place/photoHint';
+import {
+  photoHintOf,
+  photoPlaceLabel,
+  photoPlaceNotice,
+  type PhotoMetaLike,
+} from '../../src/domain/place/photoHint';
 
 const meta = (p: Partial<PhotoMetaLike> = {}): PhotoMetaLike => ({
   takenAt: null,
@@ -146,5 +151,67 @@ describe('photoPlaceLabel — 근거를 값과 함께 말한다', () => {
   it('좌표 없는 사진은 세지 않는다 — 「3장 중」이라 말하면 거짓이다', () => {
     const s = photoPlaceLabel(photoHintOf([meta(), meta({ gpsLat: 16.05, gpsLng: 108.2 }), meta()]));
     expect(s).not.toContain('중'); // 좌표를 가진 건 한 장뿐이다
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴 사용자 2026-07-31: *"아직도 해결이 안되네..어려운 기능인건가요?"*
+//
+// v1.30이 「말하지 않으면 안 한 것과 구별되지 않는다」를 고쳤는데 **형제 하나만** 고쳤고,
+// 하필 사용자가 쓴 화면이 침묵하는 쪽이었다. 그리고 그때 문장은 *"없어요"*까지만 말했다 —
+// **왜 없는지도, 그럼 뭘 해야 하는지도** 말하지 않았다(§8: 도구는 관측이 아니라 판정을 한다).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('photoPlaceNotice — 없을 때 **왜 없는지**와 **그럼 어떻게 하는지**', () => {
+  it('좌표를 얻었으면 아무 말도 하지 않는다(할 말이 없다)', () => {
+    expect(photoPlaceNotice(photoHintOf([meta({ gpsLat: 16.05, gpsLng: 108.2 })]))).toBe('');
+  });
+
+  it('🔴 사진이 하나도 없으면 침묵한다 — 사진을 다 뺐는데 위치 얘기를 꺼내면 소음이다', () => {
+    expect(photoPlaceNotice(photoHintOf([]))).toBe('');
+  });
+
+  it('🔴 시각은 읽었는데 위치가 없으면 — **파서 탓이 아니라는 것**과 안드로이드 원인을 말한다', () => {
+    const s = photoPlaceNotice(photoHintOf([meta({ takenAt: '2026-07-31T05:09:00.000Z' })]));
+    expect(s).toContain('촬영시각은 읽었'); // 앱이 사진을 읽긴 했다는 사실
+    expect(s).toContain('위치 정보가 없어요');
+    expect(s).toContain('안드로이드'); // 사용자의 잘못이 아니라는 것
+  });
+
+  it('시각조차 없으면 **다른 원인**을 말한다(스크린샷·메신저)', () => {
+    const s = photoPlaceNotice(photoHintOf([meta()]));
+    expect(s).toContain('촬영 정보가 없어요');
+    expect(s).toContain('스크린샷');
+    expect(s).not.toContain('안드로이드'); // 원인이 다르므로 같은 말을 하면 안 된다
+  });
+
+  it('🔴 두 경우 다 **탈출구**로 데려간다 — 「안 된다」로 끝내지 않는다(§12)', () => {
+    for (const metas of [[meta()], [meta({ takenAt: '2026-07-31T05:09:00.000Z' })]]) {
+      const s = photoPlaceNotice(photoHintOf(metas));
+      expect(s).toContain('지도로 찍거나');
+      expect(s).toContain('좌표를 붙여넣어');
+    }
+  });
+
+  it('못 읽는 시각은 「읽었다」의 근거가 아니다', () => {
+    const s = photoPlaceNotice(photoHintOf([meta({ takenAt: 'not-a-date' })]));
+    expect(s).toContain('촬영 정보가 없어요'); // 시각을 읽은 것으로 세면 거짓 위로가 된다
+  });
+
+  it('한 장이라도 시각을 읽었으면 그 사실을 말한다(전부일 필요는 없다)', () => {
+    const s = photoPlaceNotice(photoHintOf([meta(), meta({ takenAt: '2026-07-31T05:09:00.000Z' })]));
+    expect(s).toContain('촬영시각은 읽었');
+  });
+});
+
+describe('photoHintOf — 세는 것들', () => {
+  it('photoCount는 고른 전부, timedCount는 시각을 읽은 것, coordCount는 좌표를 가진 것', () => {
+    const h = photoHintOf([
+      meta(),
+      meta({ takenAt: '2026-07-31T05:09:00.000Z' }),
+      meta({ takenAt: '2026-07-31T06:00:00.000Z', gpsLat: 16.05, gpsLng: 108.2 }),
+    ]);
+    expect(h.photoCount).toBe(3);
+    expect(h.timedCount).toBe(2);
+    expect(h.coordCount).toBe(1);
   });
 });

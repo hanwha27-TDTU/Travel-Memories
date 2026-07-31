@@ -15,7 +15,7 @@ import {
 } from '../../services/trips';
 import { guessOccurredAt, outsideTripWarning, latestOccurredAt, type WhenGuess } from '../../domain/moment/whenDefault';
 import { readPhotoMeta, type PhotoMeta } from '../../services/media';
-import { photoHintOf, photoPlaceLabel, type PhotoMetaLike } from '../../domain/place/photoHint';
+import { photoHintOf, photoPlaceLabel, photoPlaceNotice, type PhotoMetaLike } from '../../domain/place/photoHint';
 import { hasAgreed, rememberAgreed, PHOTO_GEO_CONSENT_KEY, PHOTO_GEO_CONSENT_TEXT } from '../../services/consent';
 import {
   createMomentLocalFirst,
@@ -579,7 +579,11 @@ async function placeFromPhotos(
     // 🔴 **침묵하지 않는다**(사용자 지적 2026-07-31). 예전엔 조용히 지나갔고, 그래서
     // *"안되네요"*가 나왔다 — 사진에 위치가 없는 것인지 기능이 고장난 것인지 **구분할 방법이
     // 없었다.** 앱은 그 답을 알고 있었다(§12: 앱이 아는 것을 사람에게 묻거나 감추지 않는다).
-    showNoticeToast('이 사진에는 위치 정보가 없어요 — 장소는 직접 적어 주세요');
+    //
+    // 문장은 `photoPlaceNotice` 한 곳에서 만든다 — **생성 폼과 여기가 같은 말을 해야** 한다.
+    // v1.30에 여기에만 문자열을 인라인으로 적었고, 그래서 생성 폼은 계속 침묵했다(§7).
+    const msg = photoPlaceNotice(hint);
+    if (msg) showNoticeToast(msg);
     return;
   }
   const { lat, lng } = hint.coord;
@@ -720,8 +724,20 @@ function photoPlaceSuggester(o: {
     // 곳을 가리킴)과 같은 형태다. 좌표 자체는 남긴다(사용자가 지운 적 없다) — 그 사실은
     // 배지가 계속 말한다. 사라지는 것은 **「이번에 고른 사진이 알려줬다」는 주장**뿐이다.
     if (!hint.coord) {
-      o.note.hidden = true; // 좌표 없는 사진(스크린샷·GPS 끈 카메라) — **아무 말도 하지 않는다**(§8)
-      o.note.textContent = '';
+      // 🔴 **여기가 침묵하고 있었다**(사용자 2026-07-31: *"아직도 해결이 안되네"*).
+      // v1.30이 「사진 추가」 경로만 말하게 했고 **사용자가 실제로 쓴 화면은 이쪽**이었다.
+      // §8의 「침묵이 정상」을 잘못 적용한 자리다 — 그 조항은 *기대와 일치하는 것*을 감추라는
+      // 뜻이지, **사용자가 기대한 일이 안 일어난 것**을 감추라는 뜻이 아니다. 사진을 골랐는데
+      // 장소가 안 채워진 것은 정상이 아니라 **설명이 필요한 사건**이다.
+      // 좌표 자체는 남긴다(사용자가 지운 적 없다) — 사라지는 것은 「이번 사진이 알려줬다」는 주장뿐.
+      //
+      // 🔴 단, **이미 장소가 있으면 침묵한다** — 그때는 앱이 못 한 일이 없으므로 설명할 것도
+      // 없다(§8). 이건 취향이 아니라 형제 맞춤이다: 「사진 추가」 경로도 `hasPlace`면 아무
+      // 말 없이 지나간다. 한쪽만 말하면 같은 상황에서 화면이 둘로 갈린다(§7 사용자 대면 대칭).
+      // 그래도 **문장은 지운다** — 앞서 고른 사진이 남긴 말이 그대로 있으면 지금 사진에 대한
+      // 주장으로 읽힌다(M-0052 ①이 그 형태였다).
+      o.note.textContent = o.taken() ? '' : photoPlaceNotice(hint);
+      o.note.hidden = !o.note.textContent;
       return;
     }
     if (o.taken()) return;
