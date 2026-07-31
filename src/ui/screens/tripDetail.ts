@@ -6,7 +6,7 @@ import { externalMapRow } from '../externalMapRow';
 import { audioChip, recordButton } from '../audioNote';
 import { listAudioByTrip, addAudioToMoment, softDeleteAudio, restoreAudio } from '../../services/audio';
 import type { LocalAudio } from '../../offline/db';
-import { showUndoToast } from '../toast';
+import { showUndoToast, showNoticeToast } from '../toast';
 import {
   getTrip,
   updateTripLocalFirst,
@@ -575,7 +575,13 @@ async function placeFromPhotos(
 ): Promise<void> {
   if (hasPlace) return;
   const hint = photoHintOf(metas);
-  if (!hint.coord) return;
+  if (!hint.coord) {
+    // 🔴 **침묵하지 않는다**(사용자 지적 2026-07-31). 예전엔 조용히 지나갔고, 그래서
+    // *"안되네요"*가 나왔다 — 사진에 위치가 없는 것인지 기능이 고장난 것인지 **구분할 방법이
+    // 없었다.** 앱은 그 답을 알고 있었다(§12: 앱이 아는 것을 사람에게 묻거나 감추지 않는다).
+    showNoticeToast('이 사진에는 위치 정보가 없어요 — 장소는 직접 적어 주세요');
+    return;
+  }
   const { lat, lng } = hint.coord;
   // 이름 조회는 좌표가 기기 밖으로 나가는 일이라 **동의가 있을 때만.** 없으면 좌표만 넣는다
   // (여기서 새로 묻지 않는다 — 사진을 넣는 중에 대화상자를 띄우면 흐름이 끊긴다).
@@ -1070,6 +1076,13 @@ function toLocalInputValue(iso: string, offsetMin: number): string {
 /**
  * 장소 칩 — **탭하면 그 장소의 지도가 열린다.**
  *
+ * 🔴 **좌표만 있어도 그린다**(사용자 지적 2026-07-31 — *"안되네요"*). 예전엔 `placeName`이
+ * 있어야만 칩이 나왔다. 그런데 사진에서 좌표를 넣었는데 이름 조회가 안 되면(동의 없음·
+ * 오프라인) 이름이 빈 채로 남고, 그러면 **좌표가 들어갔는데 화면은 아무 일도 없었던 것처럼**
+ * 보인다. 사용자가 「안 된다」고 읽는 것이 당연하다 — 앱이 한 일을 말하지 않았으니까(§12).
+ * 이름이 없으면 **좌표를 라벨로** 쓴다: 「이름 없는 장소」는 앱의 사정이지 사용자의 정보가
+ * 아니지만, 좌표는 적어도 *어디인지*를 말하고 지도에서 열 수도 있다.
+ *
  * 왜 앱 지도인가(사용자 결정 2026-07-27): 앱 지도(MapLibre+OSM)는 비공개이고 오프라인에서도
  * 뜬다. 구글은 길찾기·스트리트뷰가 필요할 때 **거기서 한 걸음 더** 가는 곳이다. 그래서 칩은
  * 늘 앱 지도를 열고, 「🌐 구글지도로 열기」는 그 안에 둔다 — 좌표가 조용히 밖으로 나가지 않는다.
@@ -1078,21 +1091,24 @@ function toLocalInputValue(iso: string, offsetMin: number): string {
  * 검색해 갈 길을 준다. 누를 수 없게 두면 *왜* 안 눌리는지 사용자가 알 방법이 없다(§12).
  */
 function placeChip(m: { id: string; placeName: string; placeLat?: number | null; placeLng?: number | null }): HTMLElement {
-  const chip = el('button', 'chip gps chip-tap', `📍 ${m.placeName}`) as HTMLButtonElement;
-  chip.type = 'button';
-  chip.setAttribute('aria-label', `${m.placeName} 지도에서 보기`);
   const lat = m.placeLat ?? null;
   const lng = m.placeLng ?? null;
-  const place = { name: m.placeName, lat, lng };
+  // 이름이 없으면 **좌표를 보여준다.** 「이름 없는 장소」라고 쓰면 그건 앱의 사정이지
+  // 사용자의 정보가 아니다 — 좌표는 적어도 *어디인지*를 말한다(지도에서 열 수도 있다).
+  const label = m.placeName || (lat !== null && lng !== null ? `${lat.toFixed(4)}, ${lng.toFixed(4)}` : '');
+  const chip = el('button', 'chip gps chip-tap', `📍 ${label}`) as HTMLButtonElement;
+  chip.type = 'button';
+  chip.setAttribute('aria-label', `${label} 지도에서 보기`);
+  const place = { name: label, lat, lng };
   chip.addEventListener('click', (e) => {
     e.stopPropagation();
     const pts =
       lat !== null && lng !== null
         // 장소 칩에서 여는 지도는 **한 장소를 가리키는 것**이지 순간의 시각을 말하는 자리가
         // 아니다 — `whenText: ''`가 그 사실이고, 팝업은 시각 줄을 아예 그리지 않는다.
-        ? [{ momentId: m.id, lat, lng, title: m.placeName, occurredAt: '', placeName: m.placeName, whenText: '' }]
+        ? [{ momentId: m.id, lat, lng, title: label, occurredAt: '', placeName: label, whenText: '' }]
         : [];
-    void openMapView(m.placeName, pts, place);
+    void openMapView(label, pts, place);
   });
   return chip;
 }
@@ -1581,9 +1597,9 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       });
 
       if (m.note) card.appendChild(el('p', 'moment-note', m.note));
-      if (m.placeName || expenseList.length || audioList.length) {
+      if (hasPlace || expenseList.length || audioList.length) {
         const chips = el('div', 'chips');
-        if (m.placeName) chips.appendChild(placeChip(m));
+        if (hasPlace) chips.appendChild(placeChip(m)); // 좌표만 있어도 그린다 — placeChip 주석 참조
         appendAudioChips(chips, audioList, refresh);
         // 환율 상세(탭하면 펼쳐짐) — 툴팁(title)은 모바일에서 안 보이므로 실제 패널로 보여준다.
         const fxDetail = el('div', 'fx-detail');

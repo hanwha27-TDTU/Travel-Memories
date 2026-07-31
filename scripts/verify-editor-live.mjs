@@ -1082,6 +1082,71 @@ check(
   kept2,
 );
 await page.unroute('**/reverse**');
+
+// ── 🔴 v1.30: **위치 없는 사진**과 **이름 없는 좌표** (사용자 지적 2026-07-31 *"안되네요"*) ──
+//
+// 사용자가 사진을 넣었는데 장소가 비어 있었다. 원인이 둘 다 **침묵**이었다:
+//  ① 사진에 GPS가 없으면 아무 말도 안 했다 → 고장인지 없는 건지 구분할 수 없다.
+//  ② 좌표만 들어가고 이름이 없으면 칩을 안 그렸다 → **넣었는데 화면은 그대로**였다.
+await page.fill('input[placeholder^="이 순간을"]', 'GPS 없는 사진 검증');
+await page.getByRole('button', { name: '순간 저장' }).click();
+await page.waitForTimeout(1200);
+const noGpsCard = page.locator('.moment-card', { hasText: 'GPS 없는 사진 검증' }).first();
+await noGpsCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
+await page.waitForTimeout(300);
+// 🔴 앞 블록의 토스트가 5초 남아 있다 — 지우지 않으면 **남의 토스트를 내 결과로 읽는다**
+// (실제로 그렇게 RED가 떴다). 검사가 자기 전제를 세운다.
+await page.evaluate(() => document.querySelector('.undo-toast')?.remove());
+await noGpsCard.locator('.moment-photo-input').setInputFiles([
+  { name: 'nogps2.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgBuf) },
+]);
+await page.waitForSelector('.pe-overlay', { timeout: 20000 });
+await page.getByRole('button', { name: '적용', exact: true }).click();
+await page.waitForSelector('.undo-toast', { timeout: 20000 });
+const noGpsToast = await page.evaluate(() => document.querySelector('.undo-toast')?.textContent ?? '');
+check(
+  '🔴 위치 없는 사진: **그렇다고 말한다**(침묵은 「고장」으로 읽힌다 — §12)',
+  noGpsToast.includes('위치 정보가 없어요'),
+  noGpsToast || '(토스트 없음)',
+);
+check(
+  '위치 없는 사진: 되돌릴 것이 없으므로 **실행취소를 붙이지 않는다**(빈 버튼을 만들지 않는다)',
+  !noGpsToast.includes('실행취소'),
+  noGpsToast,
+);
+
+// ② 이름 없이 좌표만 들어간 순간도 **칩으로 보인다**(동의 없이 좌표만 넣은 경우가 그것이다).
+await noGpsCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
+await page.waitForTimeout(200);
+await page.evaluate(() => localStorage.removeItem('bugeon:photoGeoOk')); // 동의 없는 상태 재현
+await noGpsCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
+await page.waitForTimeout(300);
+await page.evaluate(() => document.querySelector('.undo-toast')?.remove());
+await noGpsCard.locator('.moment-photo-input').setInputFiles([
+  { name: 'coordonly.jpg', mimeType: 'image/jpeg', buffer: withExifGps(imgBuf, '2026:07:16 05:00:00', 37.5665, 126.978) },
+]);
+await page.waitForSelector('.pe-overlay', { timeout: 20000 });
+await page.getByRole('button', { name: '적용', exact: true }).click();
+await page.waitForSelector('.undo-toast', { timeout: 20000 });
+await page.waitForTimeout(600);
+const coordOnly = await page.evaluate(() => {
+  const c = [...document.querySelectorAll('.moment-card')].find((x) => x.textContent?.includes('GPS 없는 사진 검증'));
+  return { chip: c?.querySelector('.chip.gps')?.textContent ?? '', toast: document.querySelector('.undo-toast')?.textContent ?? '' };
+});
+check(
+  '🔴 이름 없는 좌표: **칩으로 보인다**(넣었는데 화면이 그대로면 사용자는 「안 된다」고 읽는다)',
+  coordOnly.chip.includes('37.5665') && coordOnly.chip.includes('126.978'),
+  JSON.stringify(coordOnly),
+);
+check(
+  '이름 없는 좌표: 동의가 없으면 **좌표만 넣고 그렇게 말한다**(여기서 새로 묻지 않는다)',
+  coordOnly.toast.includes('좌표') && coordOnly.toast.includes('실행취소'),
+  coordOnly.toast,
+);
+await page.evaluate(() => localStorage.setItem('bugeon:photoGeoOk', '1')); // §3-C 되돌리기
+await noGpsCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
+await page.waitForTimeout(200);
+await page.unroute('**/reverse**');
 // §3-C — 편집 폼을 닫고 스크롤을 되돌린다(사진 2장은 이 순간에 실제로 붙었다 — 뒤 검사가
 // 개수를 세지 않으므로 그대로 둔다. 세는 검사가 생기면 여기서 지워야 한다).
 await editCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
