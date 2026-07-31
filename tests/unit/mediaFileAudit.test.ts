@@ -16,6 +16,7 @@ import { describe, it, expect } from 'vitest';
 import { auditMediaFiles, unionListings } from '../../src/services/storeState';
 import {
   storeHeadline,
+  storeBecause,
   classifyOrphanFiles,
   classifyMissingFiles,
   fileAuditMetrics,
@@ -197,6 +198,46 @@ describe('⑤ 저장소가 둘이다 — 합집합 규칙 (2026-07-26 실측에�
 
   it('형식 밖 키 개수는 더해진다', () => {
     expect(unionListings([{ ids: [], foreign: 2 }, { ids: [], foreign: 3 }]).foreign).toBe(5);
+  });
+});
+
+describe('⑥-B **설명 한 줄**이 판정과 같은 것을 말한다 (2026-08-01 사용자 실기기)', () => {
+  // 🔴 실제 화면: 판정은 **「✓ 정상 · 살아 있는 기록 40건이 클라우드와 같아요」**인데
+  // 바로 밑은 **「사진 기록과 서버 파일이 짝이 맞지 않아요」**. 두 문장이 서로를 부정했다.
+  //
+  // 원인: 이 문장이 호출부에 삼항으로 박혀 있었고 `fileBad`(**배열**)를 불리언으로 썼다.
+  // `fileBadByNoun`은 명사당 한 칸을 돌려주므로 **언제나 참**이다 — 짝이 맞아도 저 문장이 나왔다.
+  // 형제인 `storeHeadline`은 처음부터 `f.n > 0`을 세고 있었다(§7 — 같은 자료, 다른 규칙).
+  const b = {
+    countBad: 0,
+    fileBad: [] as { noun: string; n: number }[],
+    stranded: 0,
+    blocked: 0,
+    devices: 1,
+    behind: 0,
+  };
+
+  it('🔴 짝이 맞으면 **짝 얘기를 하지 않는다** — 배열이 있다는 것만으로 참이 되면 안 된다', () => {
+    // 명사 칸은 있는데 어긋난 것은 0 — 사용자가 본 바로 그 상태다.
+    const s = storeBecause({ ...b, fileBad: [{ noun: '사진', n: 0 }, { noun: '소리', n: 0 }] });
+    expect(s).not.toContain('짝이 맞지 않아요');
+    expect(s).toContain('이 기기에서만');
+  });
+
+  it('실제로 어긋나면 짝 얘기를 한다', () => {
+    const s = storeBecause({ ...b, fileBad: [{ noun: '사진', n: 3 }] });
+    expect(s).toContain('짝이 맞지 않아요');
+  });
+
+  it('기기가 여럿이면 기기 얘기를 한다(파일이 멀쩡할 때)', () => {
+    const s = storeBecause({ ...b, fileBad: [{ noun: '사진', n: 0 }], devices: 2, behind: 1 });
+    expect(s).toContain('기기 2대');
+    expect(s).toContain('1대는 최신본보다');
+  });
+
+  it('가장 무거운 것부터 — 되살리기 거부 > 전파 안 된 삭제 > 파일 (M-0021)', () => {
+    expect(storeBecause({ ...b, blocked: 1, stranded: 1, fileBad: [{ noun: '사진', n: 1 }] })).toContain('되살린 기록');
+    expect(storeBecause({ ...b, stranded: 1, fileBad: [{ noun: '사진', n: 1 }] })).toContain('서버까지 가지 못했어요');
   });
 });
 

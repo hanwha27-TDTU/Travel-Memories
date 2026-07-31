@@ -55,7 +55,14 @@ export const SKILL_ROUTES = [
   // 「자동으로 넣지 않는다」는 결정이 전부 domain/place/here.ts와 한 몸이다.
   { match: /^src\/services\/here/, skill: 'map-place-dev' },
   { match: /^src\/ui\/(photoEditor|photoViewer|editor)/, skill: 'photo-editor-dev' },
+  // 🔴 **사진 바이트가 지나는 자리는 전용 헌장을 함께 읽는다**(사용자 지시 2026-08-01:
+  // *"사진저장관련 스킬문서 별도로 만들어서 특별관리하자"*). 이 경로는 네 헌장에 걸쳐
+  // 흩어져 있어 **전체를 보는 사람이 없었고**, 이틀 동안 결함 넷이 여기서 났다
+  // (M-0057·M-0058·M-0059·M-0060 — 넷 다 조각이 아니라 **이음매**가 틀렸다).
+  { match: /^src\/media\//, skill: 'photo-storage-dev' },
   { match: /^src\/media\//, skill: 'photo-editor-dev' },
+  { match: /^src\/services\/(media|r2)\.ts/, skill: 'photo-storage-dev' },
+  { match: /^src\/domain\/media\//, skill: 'photo-storage-dev' },
   { match: /^src\/ui\/panels\/(verdict|diagnostics)/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/(diagnostics|envReport|storeState)/, skill: 'diagnostics-dev' },
   // deviceId는 진단이 읽지만 **동기화 push 경로에 값을 찍는다** — 규율은 그쪽이 더 무겁다.

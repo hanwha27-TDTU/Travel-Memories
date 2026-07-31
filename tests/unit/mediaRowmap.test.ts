@@ -38,18 +38,41 @@ describe('media rowmap 경계', () => {
     expect(p.endsWith('.webp')).toBe(true);
   });
 
-  it('행에는 blob·GPS가 담기지 않는다(원본 로컬 전용·GPS PII 미동기화)', () => {
+  // 🔴 **이 케이스를 뒤집었다**(2026-08-01 · [user-decided] · §11 ②).
+  //
+  // 전에는 *"행에는 GPS가 담기지 않는다(PII 미동기화)"*를 **정상으로 못박아** 뒀다. 그 계약의
+  // 실제 결과는 **폰에서 넣은 사진의 좌표를 태블릿에서 볼 수 없는 것**이었고, 사용자가 정한
+  // 원칙(*"모든 기기에서 모든 정보를 확인해야 한다"*)에 정면으로 어긋났다.
+  //
+  // 사용자 결정: *"사진 GPS도 서버에 올리자. 당연한 거 아냐? 내 개인앱인데."*
+  // 통과시키려고 코드를 되돌리지 않고 **케이스를 뒤집는다** — 틀린 계약을 잠근 유닛은
+  // 게이트를 결함의 편에 세운다(M-0057이 정확히 그 형태였다).
+  it('🔴 행에 blob은 안 담기고 **GPS는 담긴다**(0024 이후 · 파일이 아니라 컬럼으로)', () => {
     const path = mediaStoragePath(USER, media, '제주 여행');
     const row = toMediaRow(media, USER, path);
-    // 행에 blob/gps 키 자체가 없다
     expect('displayBlob' in row).toBe(false);
     expect('originalBlob' in row).toBe(false);
-    expect('gps_lat' in row).toBe(false);
-    expect('gpsLat' in row).toBe(false);
+    expect(row.gps_lat).toBe(37.5583);
+    expect(row.gps_lng).toBe(126.7906);
     expect(row.storage_path).toBe(path);
     expect(row.user_id).toBe(USER);
     expect(row.bytes_display).toBe(660000);
     expect(row.source).toBe('user');
+  });
+
+  it('좌표가 없는 사진은 null로 간다 — **0으로 반올림하지 않는다**(M-0057)', () => {
+    const row = toMediaRow({ ...media, gpsLat: null, gpsLng: null }, USER, null);
+    expect(row.gps_lat).toBeNull();
+    expect(row.gps_lng).toBeNull();
+  });
+
+  it('옛 서버 행(컬럼 없음)은 **「모름」으로 읽는다** — pull이 로컬 값을 지킬 수 있게', () => {
+    const row = toMediaRow(media, USER, null);
+    delete (row as Partial<typeof row>).gps_lat;
+    delete (row as Partial<typeof row>).gps_lng;
+    const meta = fromMediaRow(row);
+    expect(meta.gpsLat).toBeNull();
+    expect(meta.gpsLng).toBeNull();
   });
 
   it('메타 왕복: toMediaRow → fromMediaRow가 메타 필드를 보존한다', () => {
