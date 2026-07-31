@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.29<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->129<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.30<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->130<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->23<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -61,7 +61,7 @@
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.29<!--/reg-->) Pages 성공.
+**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.30<!--/reg-->) Pages 성공.
 
 ### 현재 기능 지도 (새 AI는 이 표로 기능 표면을 즉시 파악)
 
@@ -276,6 +276,40 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0026 · v1.30 · **침묵이 「고장」으로 읽혔다** (M-0053) (2026-07-31)
+
+**계기**: 사용자 실기기 스크린샷 — *"안되네요. 좌표기준으로 니가 직접 넣는 방식으로 하고 내가 장소이름 등 세부수정 하는 방식으로 하면 되는거 아냐?"*
+
+**한 줄**: 사용자 제안이 정확했고, 원인은 **둘 다 앱이 아무 말도 안 한 것**이었다.
+
+| # | 무엇 | 왜 「안 된다」로 보였나 |
+|---|---|---|
+| ① | 사진에 GPS가 없으면 **조용히 지나갔다** | *기능이 고장난 것*인지 *이 사진에 위치가 없는 것*인지 **구분할 방법이 없다**. 메신저로 받은 사진은 EXIF가 지워져 온다 — 흔한 경우다 |
+| ② | 🔴 좌표만 들어가고 이름이 없으면 **칩을 안 그렸다**(`if (m.placeName)`) | 이름 조회는 동의가 있어야 도는데, 없으면 **좌표는 실제로 저장됐는데 화면은 그대로**다 |
+
+**근본형**: **한 일을 말하지 않으면 안 한 것과 구별되지 않는다.** §12는 *"앱이 아는 것을 사람에게 대신 시키지 마라"*인데 여기서는 앱이 아는 것을 **감췄고**, 사용자는 그 침묵을 **고장으로** 읽었다.
+
+### 수정
+
+- `showNoticeToast`(신규 · `ui/toast.ts`) — 되돌릴 것이 없는 알림. 「이 사진에는 위치 정보가 없어요 — 장소는 직접 적어 주세요」. **진행 줄로는 안 된다**(재렌더가 지운다) → `showUndoToast`와 같은 자리·같은 규칙이라 같은 파일에 둔다(§7 2층). 되돌릴 것이 없으므로 **실행취소 버튼을 붙이지 않는다**(빈 버튼을 만들지 않는다).
+- `placeChip` — **좌표만 있어도 그린다.** 이름이 없으면 좌표를 라벨로(「📍 37.5665, 126.9780」). 「이름 없는 장소」는 *앱의 사정*이지 사용자의 정보가 아니다; 좌표는 적어도 **어디인지**를 말하고 지도에서 열 수도 있다. 그 위에 사용자가 이름을 적으면 대체된다 — **사용자 제안 그대로**다.
+
+### 검증
+
+하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 943 · `verify-editor-live` **247/247**(+4) · `verify-diagnostics-live` 22/22 · build OK.
+
+라이브 4건: GPS 없는 사진에 말하는가 · 되돌릴 것 없으면 실행취소를 안 붙이는가 · 좌표만 있는 순간이 칩으로 보이는가 · 동의 없이 좌표만 넣고 그렇게 말하는가.
+
+⚠️ 그 검사를 쓰면서 **또 §3-C를 밟았다**: 앞 블록의 토스트가 5초 남아 있어 **남의 토스트를 내 결과로 읽었다.** 재기 전에 지우게 고쳤다.
+
+### 🔴 정직한 한계 — 사용자가 겪은 그 사진에 GPS가 있었는지는 **모른다**
+
+이 수정은 *어느 쪽이든 화면이 말하게* 만든 것이지, 「그 사진에 위치가 있었다」를 확인한 것이 아니다. 실기기에서 다시 넣으면 **둘 중 무엇인지 화면이 말한다.**
+
+그리고 **또 하나 가능성**: 이 앱은 PWA라 서비스워커가 화면을 캐시한다. v1.29 배포 직후였다면 **옛 번들이 돌고 있었을 수** 있다 — 「앱 정보」에서 판 번호를 확인하시면 갈린다.
 
 ---
 
