@@ -18,7 +18,7 @@ import { readPhotoMeta, type PhotoMeta } from '../../services/media';
 import { photoHintOf, photoPlaceLabel, photoPlaceNotice, type PhotoMetaLike } from '../../domain/place/photoHint';
 import { hereFailMessage, hereLabel, hereVerdict } from '../../domain/place/here';
 import { readHere } from '../../services/here';
-import { wireOriginalPick } from '../pickOriginal';
+import { wireAltPick, ORIGINAL_ACCEPT, GALLERY_ACCEPT } from '../pickOriginal';
 import { hasAgreed, rememberAgreed, PHOTO_GEO_CONSENT_KEY, PHOTO_GEO_CONSENT_TEXT } from '../../services/consent';
 import {
   createMomentLocalFirst,
@@ -317,7 +317,7 @@ function buildAddPhotoRow(): { wrap: HTMLElement; input: HTMLInputElement; progr
   wrap.hidden = true;
   const input = el('input', 'moment-photo-input') as HTMLInputElement;
   input.type = 'file';
-  input.accept = 'image/*';
+  input.accept = ORIGINAL_ACCEPT; // 기본이 원본 보존 경로다(2026-08-01 — 위치를 잃지 않게)
   input.multiple = true;
   input.setAttribute('aria-label', '사진 추가');
   const label = el('label', 'moment-photo-label moment-addphoto-btn');
@@ -325,7 +325,7 @@ function buildAddPhotoRow(): { wrap: HTMLElement; input: HTMLInputElement; progr
   const progress = el('span', 'moment-addphoto-note muted small');
   progress.setAttribute('role', 'status');
   // §7 — 두 경로가 **같은 부품**을 쓴다. 손으로 두 벌 만들면 한쪽이 낡는다.
-  wrap.append(label, originalPickButton(input));
+  wrap.append(label, galleryPickButton(input));
   return { wrap, input, progress };
 }
 
@@ -335,12 +335,12 @@ function buildAddPhotoRow(): { wrap: HTMLElement; input: HTMLInputElement; progr
  * 생성 폼과 「사진 추가」 **두 곳이 같은 부품을 쓴다**(§7 2층). 라벨·설명·배선을 손으로
  * 두 벌 만들면 한쪽만 고쳐지는 날이 오고, 이 저장소는 그 사고를 이미 세 번 겪었다.
  */
-function originalPickButton(input: HTMLInputElement): HTMLButtonElement {
-  const btn = el('button', 'btn-ghost pick-original', '📁 원본에서') as HTMLButtonElement;
+function galleryPickButton(input: HTMLInputElement): HTMLButtonElement {
+  const btn = el('button', 'btn-ghost pick-original', '🖼️ 갤러리에서') as HTMLButtonElement;
   btn.type = 'button';
-  btn.setAttribute('aria-label', '파일에서 원본 사진 고르기 — 위치 정보가 유지될 수 있어요');
-  btn.title = '사진의 위치 정보를 살리려면 이쪽으로 골라 보세요';
-  wireOriginalPick(input, btn);
+  btn.setAttribute('aria-label', '갤러리에서 고르기 — 고르기는 편하지만 위치 정보가 빠질 수 있어요');
+  btn.title = '고르기는 편하지만 위치 정보가 빠질 수 있어요';
+  wireAltPick(input, btn, GALLERY_ACCEPT);
   return btn;
 }
 
@@ -1460,7 +1460,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     let latestMomentAt: string | null = null;
     const photoInput = el('input', 'moment-photo-input') as HTMLInputElement;
     photoInput.type = 'file';
-    photoInput.accept = 'image/*';
+    photoInput.accept = ORIGINAL_ACCEPT; // 기본이 원본 보존 경로다(2026-08-01)
     photoInput.multiple = true;
     photoInput.setAttribute('aria-label', '사진 추가');
     const photoLabel = el('label', 'moment-photo-label');
@@ -1474,7 +1474,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     }, () => trip?.timeZone ?? '');
     photoLabel.append(picks.count, photoInput);
   // 📁 안드로이드 사진 선택기가 GPS를 지우므로(M-0054), **원본 파일로 가는 길**을 함께 둔다.
-  const origBtn = originalPickButton(photoInput);
+  const origBtn = galleryPickButton(photoInput);
 
 
 
