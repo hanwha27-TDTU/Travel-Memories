@@ -676,6 +676,9 @@ select.zone-input { text-overflow: ellipsis; }
    **넘치는 대신 접히게** 한다(M-0055의 근본형: 그릇을 안 바꾸고 내용만 늘리면 잘린다).
    입력칸은 계속 자기 줄을 차지하도록 기본 폭을 넉넉히 준다. */
 .place-here { flex: 0 0 auto; white-space: nowrap; }
+/* 📁 원본에서 — 사진 선택기가 GPS를 지우므로 파일 선택기로 가는 길(M-0054).
+   보조 경로이므로 사진 추가 버튼 옆에 **작게** 둔다: 평소 흐름을 밀어내지 않는다. */
+.pick-original { align-self: flex-start; margin-top: var(--space-2); font-size: 0.78rem; }
 .place-results {
   display: flex; flex-direction: column; gap: 4px;
   border: 1px solid var(--line); border-radius: var(--radius-medium);
