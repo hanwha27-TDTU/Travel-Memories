@@ -892,17 +892,21 @@ check(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
-// 🔴 **[📁 원본에서]를 실제로 눌러 본다** (v1.34 · §13 4항)
+// 🔴 **[🖼️ 갤러리에서]를 실제로 눌러 본다** (v1.40 · §13 4항)
 //
-// 사용자 실기기 스크린샷이 증명했다: 갤러리는 그 사진의 위치를 지도로 보여준다 —
-// **파일 안에 GPS가 있다.** 지우는 것은 안드로이드 **사진 선택기**다(M-0054).
-// 그래서 이 버튼은 사진 선택기를 우회하도록 `accept`를 잠깐 바꿔 파일 선택기를 연다.
+// 🔴 **이 블록의 계약이 뒤집혔다**(2026-08-01 · M-0064 · §11 ②).
+//
+// v1.34에는 기본이 갤러리 선택기(`image/*`)였고 [📁 원본에서]가 우회 버튼이었다. 그 배치의
+// 대가를 사용자가 나흘 치렀다 — **기본 경로가 계속 위치를 잃는 동안** 나는 「앱이 받은
+// 바이트 = 원본 바이트」를 전제로 파서·순서·게이트를 뒤졌다.
+//
+// 사용자가 실기기로 갈랐다: 📁 원본에서/직접 촬영 → 좌표 살아 있음, 📷 기본 선택기 → 없음.
+// 그래서 **기본이 원본 보존 경로**가 되고, 갤러리는 명시적으로 고를 때만 쓴다.
+// 통과시키려고 코드를 되돌리지 않는다 — **케이스를 뒤집는다.**
 //
 // 여기서 잴 수 있는 것과 없는 것을 나눈다(§13 3항):
-//   · 잰다 — 누르면 `accept`가 실제로 바뀌는가, 파일 대화상자가 열리는가, **되돌아오는가**.
+//   · 잰다 — 기본 `accept`가 원본 보존 경로인가, 누르면 갤러리로 바뀌는가, **되돌아오는가**.
 //   · 못 잰다 — 안드로이드가 그때 어떤 선택기를 띄우는가(실기기 몫이다).
-// 되돌리기를 재는 이유: 안 되돌리면 다음에 평소처럼 [사진 추가]를 눌러도 파일 선택기가
-// 열려, **사용자가 고치지 않은 동작이 조용히 바뀐다.**
 // ─────────────────────────────────────────────────────────────────────────────
 const acceptBefore = await page.evaluate(() => document.querySelector('.moment-form .moment-photo-input')?.accept ?? '');
 const chooserOpened = await Promise.all([
@@ -919,24 +923,29 @@ const chooserOpened = await Promise.all([
   page.locator('.moment-form .pick-original').click(),
 ]).then(([a]) => a);
 check(
-  '🔴 [📁 원본에서]: 누르면 **파일 대화상자가 실제로 열린다**(라벨만 읽지 않는다 — §13 4항)',
+  '🔴 **기본 경로가 원본 보존**이다 — 사진 선택기가 처리 못 하는 형식을 섞어 둔다 (M-0064)',
+  acceptBefore.includes('application/octet-stream'),
+  acceptBefore,
+);
+check(
+  '🔴 [🖼️ 갤러리에서]: 누르면 **파일 대화상자가 실제로 열린다**(라벨만 읽지 않는다 — §13 4항)',
   chooserOpened !== null,
   String(chooserOpened),
 );
 check(
-  '🔴 [📁 원본에서]: 사진 선택기가 처리 못 하는 형식을 섞어 **파일 선택기로 내려보낸다**',
-  (chooserOpened ?? '').includes('application/octet-stream'),
+  '🔴 [🖼️ 갤러리에서]: 누르는 동안에만 **갤러리 선택기**로 내려간다(편의를 명시적으로 고른 것)',
+  chooserOpened === 'image/*',
   String(chooserOpened),
 );
 await page.waitForTimeout(300);
 const acceptAfter = await page.evaluate(() => document.querySelector('.moment-form .moment-photo-input')?.accept ?? '');
 check(
-  '🔴 [📁 원본에서]: 끝나면 `accept`를 **되돌린다**(다음 [사진 추가]가 조용히 달라지지 않게)',
-  acceptAfter === acceptBefore && acceptAfter === 'image/*',
+  '🔴 [🖼️ 갤러리에서]: 끝나면 **원본 보존 경로로 되돌린다**(다음 [사진 추가]가 위치를 잃지 않게)',
+  acceptAfter === acceptBefore && acceptAfter.includes('application/octet-stream'),
   `${acceptBefore} → ${chooserOpened} → ${acceptAfter}`,
 );
 check(
-  '[📁 원본에서]: 편집 폼에도 **같은 버튼이 있다**(§7 — 한쪽만 고치지 않는다)',
+  '[🖼️ 갤러리에서]: 편집 폼에도 **같은 버튼이 있다**(§7 — 한쪽만 고치지 않는다)',
   (await page.locator('.pick-original').count()) >= 1,
   String(await page.locator('.pick-original').count()),
 );

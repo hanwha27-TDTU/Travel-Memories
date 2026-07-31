@@ -17,16 +17,36 @@
 // 사진이 아닌 형식이 하나라도 섞이면 그 선택기로는 처리할 수 없어 **일반 파일 선택기**로
 // 내려간다. 파일 선택기는 원본 바이트를 그대로 넘기므로 EXIF가 살아 있다.
 //
-// 🔴 **정직한 한계**: 이 샌드박스에는 안드로이드 실기기가 없다. 위 동작은 **문서와 사례로만**
-// 확인했고 **내가 재본 것이 아니다**(§13 3항 — 못 봤으면 못 봤다고 적는다). 그래서 기본
-// 경로를 바꾸지 않고 **별도 버튼**으로 둔다: 되면 이득이고, 안 되면 평소 선택기가 열릴 뿐
-// 잃는 것이 없다. 실기기에서 확인되면 그때 안내 문구를 확정한다.
-
-/** 사진 선택기가 처리할 수 없는 형식을 하나 섞어 **일반 파일 선택기**로 내려보낸다. */
-const ORIGINAL_ACCEPT = 'image/*,application/octet-stream';
+// 🔴 **2026-08-01: 사용자가 실기기에서 쟀고, 기본값을 뒤집었다.**
+//
+// 처음엔 *"내가 재본 것이 아니다"*(§13 3항)를 이유로 **별도 버튼 뒤에** 숨겨 뒀다. 그 신중함이
+// 여기서는 **비쌌다** — 기본 경로가 계속 위치를 잃는 동안, 나는 「앱이 받은 바이트 = 원본
+// 바이트」를 전제로 파서·순서·게이트를 뒤지고 있었다. 사용자가 정확히 그 지점을 지적했다:
+// *"계속 니 코딩이 맞다고 가정하고 원인을 찾지마. 바뀌지 않는 건 앱에 올라갈 때 해시가
+// 바뀌고 있다는 거야."*
+//
+// 실기기 측정(사용자):
+//   · 📁 원본에서 / 직접 촬영  → 좌표 **살아 있음**(00:19 — 36.60916, 127.50248 + 주소)
+//   · 📷 사진 추가(기본 선택기) → 좌표 **없음**(01:44, 그리고 그 전 전부)
+//
+// **재보지 않았다는 이유로 기본값을 안 바꾼 것**과 **재본 뒤에도 안 바꾸는 것**은 다르다.
+// 이제 원본 경로가 기본이고, 갤러리 선택기는 **명시적으로 고를 때만** 쓴다 — 사용자 요구가
+// *"어떤 방식이든 결과가 중요함"*이기 때문이다.
 
 /**
- * 「원본 파일에서 고르기」 버튼을 파일 입력칸에 붙인다.
+ * 사진 선택기가 처리할 수 없는 형식을 하나 섞어 **일반 파일 선택기**로 내려보낸다.
+ * **이것이 사진 입력칸의 기본값이다**(2026-08-01) — 원본 바이트가 그대로 와야 위치가 산다.
+ */
+export const ORIGINAL_ACCEPT = 'image/*,application/octet-stream';
+
+/**
+ * 갤러리(사진 선택기)를 여는 `accept`. **위치가 지워질 수 있다** — 사용자가 편의를 위해
+ * 명시적으로 고를 때만 쓴다. 기본값으로 되돌리지 마라(그 순간 위치가 조용히 사라진다).
+ */
+export const GALLERY_ACCEPT = 'image/*';
+
+/**
+ * 입력칸의 `accept`를 **한 번만** 바꿔서 열고, 끝나면 되돌린다.
  *
  * 입력칸을 **새로 만들지 않는다** — 하나를 두 방식으로 여는 것뿐이라, 고른 뒤의 처리
  * (미리보기·EXIF·압축·저장)는 **기존 경로를 그대로 지난다.** 두 번째 입력칸을 만들면
@@ -37,7 +57,7 @@ const ORIGINAL_ACCEPT = 'image/*,application/octet-stream';
  * 고른 경우(`change`)와 취소한 경우(`focus` 복귀) 둘 다 되돌린다 — 취소를 안 다루면
  * **취소했을 때만** 설정이 남는다.
  */
-export function wireOriginalPick(input: HTMLInputElement, btn: HTMLButtonElement): void {
+export function wireAltPick(input: HTMLInputElement, btn: HTMLButtonElement, accept: string): void {
   btn.addEventListener('click', () => {
     const keep = input.accept;
     let restored = false;
@@ -46,7 +66,7 @@ export function wireOriginalPick(input: HTMLInputElement, btn: HTMLButtonElement
       restored = true;
       input.accept = keep;
     };
-    input.accept = ORIGINAL_ACCEPT;
+    input.accept = accept;
     input.addEventListener('change', restore, { once: true });
     // 취소하면 `change`가 오지 않는다. 파일 대화상자가 닫히며 창이 초점을 되찾는 것을 쓴다.
     window.addEventListener('focus', restore, { once: true });

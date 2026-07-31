@@ -82,6 +82,9 @@ const gates = [
   { name: 'check-exif-strip-on-share', cmd: 'node scripts/check-exif-strip-on-share.mjs' },
   { name: 'check-exif-order', cmd: 'node scripts/check-exif-order.mjs' },
   { name: 'check-bytes-upload-symmetry', cmd: 'node scripts/check-bytes-upload-symmetry.mjs' },
+  // 「이 저장소가 이미 아는가」를 묻는 문. **비어 있으면 조용히 쓸모없어진다** — 층 하나가
+  // 빠져도 검색은 성공한 것처럼 보인다. 그래서 자기점검을 게이트로 돌린다(M-0064).
+  { name: 'check-known-index', cmd: 'node scripts/known.mjs --selftest' },
   { slow: true, name: 'unit-tests', cmd: 'npm run -s test' },
   // 런타임 층 — 실제 Chromium이 `dist`를 열어 **화면에 나가는 것**을 잰다.
   // 전제(playwright + 최신 dist)가 없으면 SKIP, 돌았는데 위반이면 FAIL(위 계약 참조).

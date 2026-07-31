@@ -18,6 +18,10 @@
 //   A. `addPhotoToMoment` 안에서 `readPhotoMeta(` 호출이 `compressForStorage(`보다 **앞**이다.
 //   B. `readPhotoMeta`에 넘기는 것은 **원본 `file`**이다 — `editedBlob`이 아니다.
 //   C. 고를 때(미리보기) 메타를 읽는 곳도 **편집기를 거치지 않은 파일**을 읽는다.
+//   D. 🔴 **사진 입력칸의 기본 `accept`가 원본 보존 경로인가**(2026-08-01 · M-0064).
+//      갤러리 선택기(`accept: 'image/*'`)로 고르면 안드로이드가 **위치를 지우고 넘긴다.**
+//      그러면 A·B·C를 아무리 지켜도 **읽을 것이 애초에 없다** — 순서를 지키는 것과
+//      원본을 받는 것은 다른 층이고, 이 저장소는 후자를 나흘 동안 놓쳤다.
 //
 // 검사하지 **않는** 것(정직한 경계): 런타임에 실제로 그 순서로 도는지는 정적으로 못 본다.
 // 그 층은 라이브(`verify-editor-live`의 「발생 시각: EXIF가 있으면 그 시각을 사진에서 읽는다」)와
@@ -68,6 +72,42 @@ export function findOrderViolations(body) {
   return out;
 }
 
+/**
+ * 🔴 사진 입력칸의 **기본** `accept`가 갤러리 선택기로 내려가 있지 않은가(M-0064).
+ *
+ * 라이브 검사도 이걸 재지만(`verify-editor-live`), 라이브는 **빠른 차선에서 건너뛴다.**
+ * 이 결함의 값이 나흘이었으므로 **건너뛸 수 없는 층**에도 둔다(SKIP은 통과가 아니다 — §11).
+ */
+export function findGalleryDefaultViolations(text) {
+  const out = [];
+  const re = /(\w*[Pp]hoto\w*|input)\.accept\s*=\s*(?:(['"`])([^'"`]*)\2|(\w+))/g;
+  let m;
+  let seen = 0;
+  while ((m = re.exec(text)) !== null) {
+    seen += 1;
+    const literal = m[3];
+    // 상수로 넘긴 경우(`= ORIGINAL_ACCEPT`)는 그 상수의 정의가 진실이다 — 여기서 판정하지
+    // 않는다. 이름을 잘못 고르는 것은 다음 줄의 「갤러리 상수」 검사가 잡는다.
+    if (literal === undefined) {
+      if (/GALLERY/i.test(m[4] ?? '')) {
+        out.push(`\`${m[1]}.accept = ${m[4]}\` — 기본값이 갤러리 선택기입니다(M-0064).`);
+      }
+      continue;
+    }
+    // 사진이 아닌 형식이 하나라도 섞여야 안드로이드가 **파일 선택기**로 내려간다.
+    if (!literal.includes('/octet-stream')) {
+      out.push(
+        `\`${m[1]}.accept = '${literal}'\` — 갤러리 선택기로 내려갑니다. 안드로이드가 **위치를 지우고 넘깁니다**(M-0064).`,
+      );
+    }
+  }
+  // 🔴 **대상 0에서 초록이 되지 않게**(§4). 지정을 하나도 못 찾았으면 이 검사는 공허하다.
+  if (seen === 0) {
+    out.push('사진 입력칸의 accept 지정을 하나도 찾지 못했습니다 — 이 검사가 공허합니다(이름이 바뀌었나요?).');
+  }
+  return out;
+}
+
 /** 고를 때 메타를 읽는 곳이 편집기 산출물을 읽고 있지 않은가. */
 export function findPickViolations(text) {
   const out = [];
@@ -99,6 +139,23 @@ function selfTest() {
   if (findPickViolations('readPhotoMeta(f, zone)').length !== 0) fails.push('정상 픽 호출을 위반으로 봤다(오탐)');
   if (findPickViolations('readPhotoMeta(editedFile, zone)').length === 0) fails.push('편집본에서 픽 메타를 읽는데 못 잡았다');
 
+  // D — 기본 accept
+  if (findGalleryDefaultViolations("photoInput.accept = ORIGINAL_ACCEPT;").length !== 0) {
+    fails.push('상수로 쓴 정상 accept를 위반으로 봤다(오탐)');
+  }
+  if (findGalleryDefaultViolations("photoInput.accept = 'image/*';").length === 0) {
+    fails.push("기본이 갤러리 선택기(image/*)인데 못 잡았다");
+  }
+  if (findGalleryDefaultViolations("input.accept = 'image/*,application/octet-stream';").length !== 0) {
+    fails.push('원본 보존 accept를 위반으로 봤다(오탐)');
+  }
+  if (findGalleryDefaultViolations('const x = 1;').length === 0) {
+    fails.push('accept 지정이 아예 없는데 「공허」라고 말하지 않았다');
+  }
+  if (findGalleryDefaultViolations('photoInput.accept = GALLERY_ACCEPT;').length === 0) {
+    fails.push('기본값을 갤러리 상수로 돌려놨는데 못 잡았다');
+  }
+
   return fails;
 }
 
@@ -109,16 +166,21 @@ if (selfFails.length > 0) {
   process.exit(1);
 }
 
+const screenText = readFileSync(SCREEN, 'utf8');
 const problems = [
   ...findOrderViolations(sliceFunctionBody(readFileSync(MEDIA, 'utf8'), 'addPhotoToMoment')).map((p) => `${MEDIA}: ${p}`),
-  ...findPickViolations(readFileSync(SCREEN, 'utf8')).map((p) => `${SCREEN}: ${p}`),
+  ...findPickViolations(screenText).map((p) => `${SCREEN}: ${p}`),
+  ...findGalleryDefaultViolations(screenText).map((p) => `${SCREEN}: ${p}`),
 ];
 
 if (problems.length > 0) {
-  console.error('check-exif-order: **EXIF를 압축보다 먼저 읽지 않습니다**(비타협 원칙 §0).');
+  console.error('check-exif-order: **사진 인테이크 계약 위반**(비타협 원칙 §0).');
   for (const p of problems) console.error(`  ✗ ${p}`);
-  console.error('  → 압축(canvas 재인코딩)은 EXIF를 버립니다. 그 뒤에 읽으면 촬영시각·위치가 **영원히** 사라집니다.');
+  console.error('  → 순서(A·B·C): 압축은 EXIF를 버립니다 — 그 뒤에 읽으면 촬영시각·위치가 **영원히** 사라집니다.');
+  console.error('  → 기본 경로(D): 갤러리 선택기로 고르면 안드로이드가 위치를 지우고 넘깁니다 — 읽을 것이 애초에 없습니다(M-0064).');
   process.exit(1);
 }
 
-console.log('check-exif-order: OK — EXIF를 압축·편집 **전에**, **원본에서** 읽습니다(자체검사 6건 포함).');
+console.log(
+  'check-exif-order: OK — EXIF를 압축·편집 **전에**, **원본에서** 읽고, 사진 입력칸의 기본 경로가 **원본 보존**입니다(자체검사 10건 포함).',
+);

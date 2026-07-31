@@ -106,6 +106,45 @@ function craftJpegWithGps(latDeg: number, lngDeg: number, zeroDenominator = fals
   return out.buffer;
 }
 
+/**
+ * **앞에 XMP APP1을 하나 끼워 넣는다** — 실제 사진이 편집기·클라우드·메신저를 거치면
+ * 흔히 생기는 배치다. `craftJpegWithGps`가 만든 JPEG의 SOI 바로 뒤에 삽입한다.
+ */
+function prependXmpApp1(jpeg: ArrayBuffer): ArrayBuffer {
+  const src = new Uint8Array(jpeg);
+  const ns = new TextEncoder().encode('http://ns.adobe.com/xap/1.0/\0<x:xmpmeta/>');
+  const segLen = 2 + ns.length; // 길이 필드 2 + 본문
+  const out = new Uint8Array(src.length + 2 + segLen);
+  const ov = new DataView(out.buffer);
+  ov.setUint16(0, 0xffd8, false); // SOI
+  ov.setUint16(2, 0xffe1, false); // APP1 (XMP)
+  ov.setUint16(4, segLen, false);
+  out.set(ns, 6);
+  out.set(src.subarray(2), 6 + ns.length); // 원래 SOI 뒤(=Exif APP1부터)를 이어 붙인다
+  return out.buffer;
+}
+
+describe('readJpegExif — APP1이 여럿일 때 (2026-08-01)', () => {
+  // 🔴 예전 코드는 첫 APP1이 Exif가 **아니면 그 자리에서 `return {}`** 했다.
+  // 그래서 XMP가 앞에 오는 사진은 **촬영시각도 위치도 통째로** 못 읽었고, 사용자에게는
+  // 「앱이 못 읽는다」로 보였다 — 못 읽은 게 아니라 **첫 칸만 보고 돌아선 것**이다.
+  //
+  // APP1은 여러 개일 수 있고, 사진이 편집기·클라우드·메신저를 거치면 순서가 바뀐다.
+  // 그리고 이 앱의 사진은 대부분 그런 경로를 지난다.
+  it('🔴 XMP APP1이 **앞에 있어도** 뒤의 Exif를 찾아낸다', () => {
+    const withXmp = prependXmpApp1(craftJpegWithGps(37, 127));
+    const r = readJpegExif(withXmp);
+    expect(r.gpsLat).toBeCloseTo(37, 6);
+    expect(r.gpsLng).toBeCloseTo(127, 6);
+  });
+
+  it('Exif가 정말 없으면 조용히 빈 결과(오탐 없이)', () => {
+    // XMP만 있고 Exif APP1이 없는 JPEG
+    const onlyXmp = new Uint8Array(prependXmpApp1(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]).buffer));
+    expect(readJpegExif(onlyXmp.buffer)).toEqual({});
+  });
+});
+
 describe('readJpegExif', () => {
   // 🔴 2026-07-29(M-0049): 이 케이스는 **옛 결함을 정상으로 못박고 있었다.**
   // 기대값이 `new Date('2020-01-02T03:04:05')` — 즉 *검사를 돌리는 기기의 시간대*로 해석한
