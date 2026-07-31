@@ -14,7 +14,9 @@ import {
   restoreTripLocalFirst,
 } from '../../services/trips';
 import { guessOccurredAt, outsideTripWarning, latestOccurredAt, type WhenGuess } from '../../domain/moment/whenDefault';
-import { readPhotoMeta } from '../../services/media';
+import { readPhotoMeta, type PhotoMeta } from '../../services/media';
+import { photoHintOf, photoPlaceLabel, type PhotoMetaLike } from '../../domain/place/photoHint';
+import { hasAgreed, rememberAgreed, PHOTO_GEO_CONSENT_KEY, PHOTO_GEO_CONSENT_TEXT } from '../../services/consent';
 import {
   createMomentLocalFirst,
   listMoments,
@@ -61,6 +63,17 @@ interface PlaceField {
    * 그 id가 여기로 나온다. 자유 입력·지도 직접 지정은 **null이 정상**이다(0023).
    */
   getPlaceId: () => string | null;
+  /**
+   * 🔴 **고른 사진이 위치를 알고 있으면 그것으로 채운다**(사용자 제안 2026-07-30).
+   *
+   * 시각 칸(`WhenField.suggestFrom`)과 **같은 어휘·같은 규율**이다(§7 사용자 대면 대칭):
+   *  · **사용자가 손댄 값을 덮지 않는다.** 이름을 적었거나 좌표를 이미 골랐으면 아무 일도 없다.
+   *  · **근거를 말한다.** 「📷 사진 위치에서 · 위도, 경도」 — 추측을 사실처럼 두지 않는다.
+   *  · 좌표가 없는 사진(스크린샷·GPS 끈 카메라)이면 **아무 말도 하지 않는다**(§8).
+   *
+   * 좌표 채우기는 **네트워크가 0**이다. 이름 조회만 동의를 거친다(`consent.ts` 참조).
+   */
+  suggestFrom: (metas: readonly PhotoMetaLike[]) => void;
   reset: () => void;
 }
 /**
@@ -432,6 +445,224 @@ function renderPlaceResults(
   }
 }
 
+/**
+ * **고른 사진 미리보기 + 해제**, 그리고 **메타를 한 번만 읽어 나눠 주는 자리**.
+ *
+ * 결함(2026-07-26 사용자 지적): 예전엔 "· 2장 선택됨" 글자만 있고 **무엇을 골랐는지도,
+ * 어떻게 취소하는지도** 없었다. 저장된 사진에는 ✕가 있는데 저장 전 선택분에만 없어서,
+ * 같은 화면 안에서 어휘가 갈렸다(§7 사용자 대면 대칭 위반).
+ *
+ * 🔴 **메타는 여기서 한 번만 읽는다**(2026-07-30). 앞 256KB만 읽어도 9장이면 2.3MB이고,
+ * 시각 칸과 장소 칸이 각자 읽으면 그게 두 배가 된다(저메모리 기기 규율). 읽기를 여기로
+ * 모으고 **결과를 나눠 준다** — 그래서 콜백이 파일이 아니라 `metas`를 받는다.
+ *
+ * FileList는 읽기 전용이라 DataTransfer로 다시 만들어 넣는다(표준 경로).
+ */
+function buildPickPreview(
+  photoInput: HTMLInputElement,
+  onMetas: (metas: PhotoMeta[]) => void,
+  fallbackZone: () => string,
+): { el: HTMLElement; count: HTMLElement; setFiles: (files: File[]) => void } {
+  const wrap = el('div', 'pick-preview');
+  wrap.hidden = true;
+  const count = el('span', 'moment-photo-count', '');
+  const clearAll = el('button', 'pick-clear-all', '전체 해제') as HTMLButtonElement;
+  clearAll.type = 'button';
+  let previewUrls: string[] = [];
+
+  const setFiles = (files: File[]): void => {
+    const dt = new DataTransfer();
+    for (const f of files) dt.items.add(f);
+    photoInput.files = dt.files;
+    render();
+  };
+
+  function render(): void {
+    for (const u of previewUrls) URL.revokeObjectURL(u);
+    previewUrls = [];
+    wrap.replaceChildren();
+    const files = photoInput.files ? Array.from(photoInput.files) : [];
+    count.textContent = files.length > 0 ? `· ${files.length}장 선택됨` : '';
+    wrap.hidden = files.length === 0;
+    if (!files.length) return;
+
+    for (const [i, f] of files.entries()) {
+      const cell = el('div', 'pick-cell');
+      const url = URL.createObjectURL(f);
+      previewUrls.push(url);
+      const img = el('img', 'pick-thumb') as HTMLImageElement;
+      img.src = url;
+      img.alt = f.name;
+      img.loading = 'lazy';
+      const x = el('button', 'pick-x', '✕') as HTMLButtonElement;
+      x.type = 'button';
+      x.setAttribute('aria-label', `${f.name} 선택 해제`);
+      x.addEventListener('click', () => setFiles(files.filter((_, j) => j !== i)));
+      cell.append(img, x);
+      wrap.appendChild(cell);
+    }
+    wrap.appendChild(clearAll);
+    void (async () => {
+      onMetas(await Promise.all(files.map((f) => readPhotoMeta(f, fallbackZone()))));
+    })();
+  }
+
+  clearAll.addEventListener('click', () => setFiles([]));
+  photoInput.addEventListener('change', render);
+  return { el: wrap, count, setFiles };
+}
+
+/**
+ * 🕒 **사진이 찍힌 나라로 여행 시간대를 제안한다** (사용자 제안 2026-07-30:
+ * *"초기값은 사진찍은 장소로 셋팅..어때?"*).
+ *
+ * 🔴 **자동으로 정해 버리지 않는다.** 좌표→시간대는 경계 데이터셋이 필요해 하지 않고(수 MB),
+ * 우리가 아는 것은 **나라까지**다. 나라의 시간대가 하나면 사실상 답이지만, 여럿이면
+ * (미국 29개·우즈베키스탄 2개) 고르는 것은 사용자다 — 조용히 하나를 집으면 그건 §8이
+ * 금지하는 반올림이고, **엉뚱한 시간대는 Day 묶음까지 흔든다.**
+ *
+ * 침묵하는 경우 셋: ①이미 시간대가 정해져 있다(사용자가 고른 것을 앱이 이기지 않는다)
+ * ②사진에 좌표가 없다 ③나라의 시간대가 하나가 아니거나 모른다.
+ *
+ * 그리고 **동의 없이는 좌표를 내보내지 않는다** — 장소 칸에서 이미 확인받았을 때만 조회한다
+ * (여기서 또 묻지 않는다. 같은 사진, 같은 좌표, 같은 결정이다).
+ */
+function buildZoneSuggest(
+  clock: TripClock,
+  apply: (zone: string) => Promise<void>,
+): { el: HTMLElement; suggest: (metas: readonly PhotoMetaLike[]) => void } {
+  // 🔴 클래스는 `zone-suggest`다 — **`zone-notice`가 아니다.** 처음엔 모양이 같다고 같은
+  // 이름을 줬는데, 그 순간 「미지정 고지가 떴는가」를 세던 라이브 검사가 **숨어 있는 이 상자를
+  // 먼저 집었다.** 같은 모양이라고 같은 이름을 주면 *다른 것*이 하나의 이름 뒤에 숨는다.
+  // 모양은 CSS가 공유하고(`.zone-notice, .zone-suggest`), 이름은 뜻을 따라간다.
+  const box = el('div', 'zone-suggest');
+  box.hidden = true;
+  box.setAttribute('role', 'status');
+  const msg = el('span', 'zone-notice-msg');
+  const btn = el('button', 'btn-ghost zone-notice-fix', '이 시간대로 하기') as HTMLButtonElement;
+  btn.type = 'button';
+  btn.setAttribute('data-zone-suggest', '1'); // 라이브 검사가 **눌러 보는** 손잡이(§13 4항)
+  box.append(msg, btn);
+
+  const suggest = (metas: readonly PhotoMetaLike[]): void => {
+    if (clock.zone) return;
+    const hint = photoHintOf(metas);
+    if (!hint.coord || !hasAgreed(PHOTO_GEO_CONSENT_KEY)) return;
+    const { lat, lng } = hint.coord;
+    void (async () => {
+      const hit = await reverseGeocode(lat, lng);
+      const cc = hit?.address.countryCode ?? '';
+      const zones = cc ? zonesForCountry(cc.toUpperCase()) : [];
+      if (zones.length !== 1) return; // 여럿이거나 모르면 **침묵한다** — 목록에서 고르면 된다
+      const zone = zones[0]!;
+      const where = hit?.address.country ?? cc.toUpperCase();
+      msg.textContent = `📷 사진이 ${where}에서 찍혔어요 — 이 여행 시간대를 「${zoneLabel(new Date().toISOString(), zone)}」로 할까요?`;
+      box.hidden = false;
+      btn.onclick = () => {
+        btn.disabled = true;
+        void apply(zone).catch(() => {
+          btn.disabled = false; // 실패해도 잠긴 채 남지 않는다(§13 4항 ④)
+          msg.textContent = '시간대를 저장하지 못했어요 — 여행 편집에서 직접 골라 주세요';
+        });
+      };
+    })();
+  };
+  return { el: box, suggest };
+}
+
+/**
+ * 장소 검색 실행 — **좌표를 먼저 보고**, 아니면 지오코더에 묻는다.
+ *
+ * 최상위로 뽑은 이유는 래칫이지만 결과가 낫다: 「무엇을 검색으로 볼 것인가」는 이 화면의
+ * 규칙이 아니라 **장소 도메인의 규칙**이고, 클로저 밖에 있어야 다음 사람이 찾는다.
+ */
+function makeDoSearch(o: {
+  input: HTMLInputElement;
+  results: HTMLElement;
+  searchBtn: HTMLButtonElement;
+  useCoord: (c: ParsedCoord) => void;
+  near: () => { lat: number; lng: number } | null;
+  apply: Parameters<typeof runPlaceSearch>[1]['apply'];
+  linkPlace: (id: string | null) => void;
+}): () => void {
+  return () => {
+    const q = o.input.value.trim();
+    if (!q) return;
+    // 🔴 **좌표 먼저 본다.** 네이버·카카오·구글에서 찾은 좌표를 그대로 붙여넣는 흐름
+    //    (사용자 제안 2026-07-30) — 앱이 못 찾는 곳을 사람이 뚫는 탈출구다.
+    //    지오코더에 「37.587, 127.0016」을 물어봐야 좋은 답이 나올 리 없다.
+    const coord = parseCoordinateInput(q);
+    if (coord) {
+      o.results.hidden = false;
+      o.results.innerHTML = '';
+      renderCoordInput(o.results, coord, o.useCoord);
+      return;
+    }
+    o.searchBtn.disabled = true;
+    o.results.hidden = false;
+    o.results.textContent = '검색 중…';
+    void runPlaceSearch(q, {
+      results: o.results,
+      // 이미 좌표가 있으면 그 근처를 우선한다 — 「대학로」가 전국에 여럿일 때 지금 보고 있는
+      // 도시가 먼저 나오는 것이 맞다. 경계 밖을 **버리지는 않는다**(해외 검색을 막지 않게).
+      near: o.near(),
+      apply: o.apply,
+      linkPlace: o.linkPlace,
+    }).finally(() => {
+      o.searchBtn.disabled = false;
+    });
+  };
+}
+
+/**
+ * 📷 **사진 위치로 장소 칸을 채우는 규칙** (사용자 제안 2026-07-30).
+ *
+ * 최상위로 뽑은 이유는 래칫(`check-fn-size`)이지만, 떼고 보니 이게 맞다 — 여기 담긴 것은
+ * *"장소를 고르는 일"*이 아니라 **개인정보 경계**다(좌표가 언제 기기 밖으로 나가는가).
+ * 그 판단이 300줄짜리 클로저 안에 묻혀 있으면 다음 사람이 못 본다(§11 *게이트가 설계를 밀어준다*).
+ *
+ * @param taken 사용자가 이미 손댔는가. 참이면 **아무 일도 하지 않는다** — 앱이 사용자를 이기지 않는다.
+ */
+function photoPlaceSuggester(o: {
+  note: HTMLElement;
+  ctx: CoordApplyContext;
+  setPicked: (detail: string | null) => void;
+  taken: () => boolean;
+}): (metas: readonly PhotoMetaLike[]) => void {
+  return (metas) => {
+    const hint = photoHintOf(metas);
+    // 🔴 **없다는 사실을 먼저 처리한다.** 순서를 반대로 뒀다가 라이브 게이트에 잡혔다:
+    // 위치 있는 사진 → 위치 없는 사진으로 바꾸면 `taken()`이 참(좌표가 이미 있으므로)이라
+    // 조기 반환했고, **먼저 고른 사진의 좌표를 말하는 문장이 화면에 그대로 남았다.**
+    // 지금 고른 사진에는 그 위치가 없는데 화면은 있다고 말한 것 — M-0021(판정 문장이 엉뚱한
+    // 곳을 가리킴)과 같은 형태다. 좌표 자체는 남긴다(사용자가 지운 적 없다) — 그 사실은
+    // 배지가 계속 말한다. 사라지는 것은 **「이번에 고른 사진이 알려줬다」는 주장**뿐이다.
+    if (!hint.coord) {
+      o.note.hidden = true; // 좌표 없는 사진(스크린샷·GPS 끈 카메라) — **아무 말도 하지 않는다**(§8)
+      o.note.textContent = '';
+      return;
+    }
+    if (o.taken()) return;
+    // 좌표 채우기는 **네트워크가 0**이다. 이 값은 기기 밖으로 나가지 않으므로 물을 것이 없다.
+    o.ctx.commit(hint.coord.lat, hint.coord.lng);
+    o.setPicked('사진 위치');
+    o.note.textContent = photoPlaceLabel(hint);
+    o.note.hidden = false;
+
+    // 🔴 이름 조회는 **좌표가 기기 밖으로 나가는 일**이라 처음 한 번 확인받는다(원칙 #3).
+    // 이름 검색과 다르게 묻는 이유: 이름은 사용자가 치고 [검색]을 누른 것이라 의도가 분명한데,
+    // 사진 GPS는 **사진을 골랐을 뿐인데** 나간다. 거절해도 좌표는 남는다 — 기능을 통째로 막지 않는다.
+    if (!hasAgreed(PHOTO_GEO_CONSENT_KEY)) {
+      if (!window.confirm(PHOTO_GEO_CONSENT_TEXT)) {
+        o.note.textContent = `${photoPlaceLabel(hint)} — 이름은 직접 적어 주세요`;
+        return;
+      }
+      rememberAgreed(PHOTO_GEO_CONSENT_KEY);
+    }
+    void fillNameFromReverse(o.ctx, hint.coord.lat, hint.coord.lng);
+  };
+}
+
 function buildPlaceField(initial: { name: string; lat: number | null; lng: number | null }): PlaceField {
   const { wrap, row, input, searchBtn, mapBtn, results } = buildPlaceFieldShell(initial.name);
 
@@ -482,49 +713,42 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
   };
   const useCoord = (c: ParsedCoord): void => applyPastedCoord(coordCtx, c);
 
-  const doSearch = (): void => {
-    const q = input.value.trim();
-    if (!q) return;
-    // 🔴 **좌표 먼저 본다.** 네이버·카카오·구글에서 찾은 좌표를 그대로 붙여넣는 흐름
-    //    (사용자 제안 2026-07-30) — 앱이 못 찾는 곳을 사람이 뚫는 탈출구다.
-    //    지오코더에 「37.587, 127.0016」을 물어봐야 좋은 답이 나올 리 없다.
-    const coord = parseCoordinateInput(q);
-    if (coord) {
-      results.hidden = false;
-      results.innerHTML = '';
-      renderCoordInput(results, coord, useCoord);
-      return;
-    }
-    searchBtn.disabled = true;
-    results.hidden = false;
-    results.textContent = '검색 중…';
-    void runPlaceSearch(q, {
-      results,
-      // 이미 좌표가 있으면 그 근처를 우선한다 — 「대학로」가 전국에 여럿일 때 지금 보고 있는
-      // 도시가 먼저 나오는 것이 맞다. 경계 밖을 **버리지는 않는다**(해외 검색을 막지 않게).
-      near: lat !== null && lng !== null ? { lat, lng } : null,
-      apply: (picked) => {
-        input.value = picked.name;
-        lat = picked.lat;
-        lng = picked.lng;
-        placeId = picked.placeId;
-        mapPicked = picked.mapPicked;
-        results.hidden = true;
-        setPicked(picked.detail, picked.precision);
-      },
-      linkPlace: (id) => {
-        placeId = id;
-      },
-    }).finally(() => {
-      searchBtn.disabled = false;
-    });
-  };
+  const doSearch = makeDoSearch({
+    input,
+    results,
+    searchBtn,
+    useCoord,
+    near: () => (lat !== null && lng !== null ? { lat, lng } : null),
+    apply: (picked) => {
+      input.value = picked.name;
+      lat = picked.lat;
+      lng = picked.lng;
+      placeId = picked.placeId;
+      mapPicked = picked.mapPicked;
+      results.hidden = true;
+      setPicked(picked.detail, picked.precision);
+    },
+    linkPlace: (id) => {
+      placeId = id;
+    },
+  });
   searchBtn.addEventListener('click', doSearch);
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault(); // 폼 제출 대신 검색
       doSearch();
     }
+  });
+
+  // 📷 사진이 위치를 알고 있으면 그것으로 채운다(사용자 제안 2026-07-30). 로직은 최상위에.
+  const photoNote = el('p', 'place-photo-note when-note', '');
+  photoNote.hidden = true;
+  wrap.appendChild(photoNote);
+  const suggestFrom = photoPlaceSuggester({
+    note: photoNote,
+    ctx: coordCtx,
+    setPicked,
+    taken: () => input.value.trim() !== '' || (lat !== null && lng !== null),
   });
 
   // 🗺 지도에서 위치 지정 — 장소 이름은 사용자가 직접 적고, 좌표만 지도로 찍는다.
@@ -536,7 +760,10 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
     getName: () => input.value,
     getCoords: () => (lat !== null && lng !== null ? { lat, lng } : null),
     getPlaceId: () => placeId,
+    suggestFrom,
     reset: () => {
+      photoNote.hidden = true;
+      photoNote.textContent = '';
       input.value = '';
       lat = null;
       lng = null;
@@ -558,8 +785,9 @@ import {
   inputClockHint,
   zoneOptions,
   zonePreview,
-  isKnownZone,
   zoneLabel,
+  zonesForCountry,
+  deviceZone,
   type TripClock,
 } from '../../domain/time';
 import { homeZone, setHomeZone } from '../../services/homeZone';
@@ -638,7 +866,15 @@ interface WhenField {
   /** 현재 값(ISO). 비었거나 무효면 undefined. */
   value(): string | undefined;
   /** 고른 사진에서 추측해 채운다. 사용자가 이미 손댔으면 **아무 일도 하지 않는다**. */
-  suggestFromFiles(files: File[]): Promise<void>;
+  /**
+   * 고른 사진에서 추측해 채운다. 사용자가 이미 손댔으면 **아무 일도 하지 않는다**.
+   *
+   * 🔴 파일이 아니라 **이미 읽은 메타**를 받는다(2026-07-30). 예전엔 이 함수가 직접
+   * `readPhotoMeta`를 불렀는데, 장소 칸도 같은 메타가 필요해지면서 **한 장을 두 번 읽게**
+   * 됐다 — 9장을 고르면 앞 256KB × 9 × 2다(저메모리 기기 규율 위반). 읽기를 폼으로 올리고
+   * 두 칸이 **같은 결과를 나눠 쓴다.**
+   */
+  suggestFrom(metas: readonly PhotoMeta[]): void;
   /** 값을 그대로 넣고 근거 줄은 비운다(편집 폼 — 이미 정해진 값이라 추측이 아니다). */
   set(iso: string): void;
 }
@@ -699,11 +935,9 @@ function buildWhenField(
   return {
     el: wrap,
     value: read,
-    async suggestFromFiles(files) {
-      // 앞 256KB만 읽는다 — 9장을 고른 순간 전체를 읽으면 수십 MB가 한꺼번에 뜬다(저메모리 기기).
+    suggestFrom(metas) {
       // **EXIF가 없는 사진은 세지 않는다**(null 제거): 스크린샷의 파일 수정시각을 근거로 쓰면
       // 화면이 「📷 사진에서」라고 말하면서 실은 *앱에 넣은 시각*을 보여주게 된다 — 거짓 근거다.
-      const metas = await Promise.all(files.map((f) => readPhotoMeta(f, trip?.timeZone ?? '')));
       const photoTakenAts = metas.map((m) => m.takenAt).filter((t): t is string => t !== null);
       apply(
         guessOccurredAt({
@@ -979,59 +1213,16 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     photoInput.multiple = true;
     photoInput.setAttribute('aria-label', '사진 추가');
     const photoLabel = el('label', 'moment-photo-label');
-    const photoCount = el('span', 'moment-photo-count', '');
-    photoLabel.append(document.createTextNode('📷 사진 추가 '), photoCount, photoInput);
-    // 선택한 사진 미리보기 + **해제**.
-    //
-    // 결함(2026-07-26 사용자 지적): 예전엔 "· 2장 선택됨" 글자만 있고 **무엇을 골랐는지도,
-    // 어떻게 취소하는지도** 없었다. 저장된 사진에는 ✕가 있는데 저장 전 선택분에만 없어서,
-    // 같은 화면 안에서 어휘가 갈렸다(§7 사용자 대면 대칭 위반). 잘못 고르면 폼을 떠나는 수밖에.
-    //
-    // FileList는 읽기 전용이라 DataTransfer로 다시 만들어 넣는다(표준 경로).
-    const photoPreview = el('div', 'pick-preview');
-    photoPreview.hidden = true;
-    let previewUrls: string[] = [];
-    const clearAllPhotos = el('button', 'pick-clear-all', '전체 해제') as HTMLButtonElement;
-    clearAllPhotos.type = 'button';
+    photoLabel.append(document.createTextNode('📷 사진 추가 '));
+    // 선택한 사진 미리보기 + 해제. 로직은 최상위 `buildPickPreview`에 있다.
+    const picks = buildPickPreview(photoInput, (metas) => {
+      // 사진이 바뀌면 **시각·장소·시간대가 함께** 따라간다 — 사진이 가장 강한 근거다.
+      whenField.suggestFrom(metas);
+      placeField.suggestFrom(metas);
+      zoneHint.suggest(metas);
+    }, () => trip?.timeZone ?? '');
+    photoLabel.append(picks.count, photoInput);
 
-    const setFiles = (files: File[]): void => {
-      const dt = new DataTransfer();
-      for (const f of files) dt.items.add(f);
-      photoInput.files = dt.files;
-      renderPicks();
-    };
-
-    function renderPicks(): void {
-      for (const u of previewUrls) URL.revokeObjectURL(u);
-      previewUrls = [];
-      photoPreview.replaceChildren();
-      const files = photoInput.files ? Array.from(photoInput.files) : [];
-      photoCount.textContent = files.length > 0 ? `· ${files.length}장 선택됨` : '';
-      photoPreview.hidden = files.length === 0;
-      if (!files.length) return;
-
-      for (const [i, f] of files.entries()) {
-        const cell = el('div', 'pick-cell');
-        const url = URL.createObjectURL(f);
-        previewUrls.push(url);
-        const img = el('img', 'pick-thumb') as HTMLImageElement;
-        img.src = url;
-        img.alt = f.name;
-        img.loading = 'lazy';
-        const x = el('button', 'pick-x', '✕') as HTMLButtonElement;
-        x.type = 'button';
-        x.setAttribute('aria-label', `${f.name} 선택 해제`);
-        x.addEventListener('click', () => setFiles(files.filter((_, j) => j !== i)));
-        cell.append(img, x);
-        photoPreview.appendChild(cell);
-      }
-      photoPreview.appendChild(clearAllPhotos);
-      // 사진이 바뀌면 시각 추측도 따라간다 — 사진이 가장 강한 근거다.
-      void whenField.suggestFromFiles(files);
-    }
-
-    clearAllPhotos.addEventListener('click', () => setFiles([]));
-    photoInput.addEventListener('change', renderPicks);
 
 
     // 비용(선택) — 금액 + 통화. "10초 기록"을 방해하지 않도록 한 줄, 비우면 저장 안 함.
@@ -1040,11 +1231,19 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const save = el('button', 'btn-primary', '순간 저장') as HTMLButtonElement;
     save.type = 'submit';
 
+    // 🕒 사진이 찍힌 나라로 여행 시간대를 **제안**한다(사용자 제안 2026-07-30). 규칙은 최상위에.
+    const zoneHint = buildZoneSuggest(clock, async (zone) => {
+      await updateTripLocalFirst(trip!.id, { timeZone: zone });
+      void trySync();
+      renderTripDetail(mount, tripId, navigate); // 화면 전체가 새 시계로 다시 그려진다
+    });
+    compose.appendChild(zoneHint.el);
+
     // 발생 시각 — **소급 입력이 주 흐름**이라(사용자 2026-07-27) 접어 두지 않고 항상 보인다.
     const whenField = buildWhenField(trip, clock, () => latestMomentAt);
-    void whenField.suggestFromFiles([]); // 사진 전에도 근거를 보여준다(직전 순간 / 여행 시작일)
+    whenField.suggestFrom([]); // 사진 전에도 근거를 보여준다(직전 순간 / 여행 시작일)
 
-    form.append(input, emotion.el, whenField.el, placeField.el, money.el, photoLabel, photoPreview, save);
+    form.append(input, emotion.el, whenField.el, placeField.el, money.el, photoLabel, picks.el, save);
     compose.appendChild(form);
 
     const note = el('p', 'sync-note', '');
@@ -1168,8 +1367,10 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       const notice = moments.length
         ? zoneNotice(momentWhen(moments[0]!.occurredAt, moments[0]!.tzOffsetMin, clock).caveat, () => {
             editPanel.hidden = false;
+            // 🔴 `HTMLInputElement`로 좁히지 않는다 — v1.28에서 `<select>`가 되면서
+            // **이 줄이 조용히 죽었다**(컴파일은 통과하고 초점만 안 갔다). 라이브 검사가 잡았다.
             const zi = editPanel.querySelector('[data-zone-input]');
-            if (zi instanceof HTMLInputElement) zi.focus();
+            if (zi instanceof HTMLElement) zi.focus();
             editPanel.scrollIntoView({ block: 'nearest' });
           })
         : null;
@@ -1258,6 +1459,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
               await updateExpenseLocalFirst(existingExpense.id, {
                 originalAmount: expenseIntent.amount,
                 originalCurrency: expenseIntent.currency,
+                note: expenseIntent.note,
               });
             } else {
               await createExpenseLocalFirst({
@@ -1265,6 +1467,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
                 tripId: trip!.id,
                 originalAmount: expenseIntent.amount,
                 originalCurrency: expenseIntent.currency,
+                note: expenseIntent.note,
               });
             }
           } else if (existingExpense) {
@@ -1322,7 +1525,13 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         fxDetail.hidden = true;
 
         for (const ex of expenseList) {
-          const chip = el('span', 'chip money', `💰 ${formatMoney(ex.originalAmount, ex.originalCurrency)}`);
+          // 메모가 있으면 **금액과 함께** 보인다 — 숫자만 남은 비용은 한 달 뒤 의미를 잃는다.
+          // 없으면 아무것도 붙지 않는다(빈 구분자를 만들지 않는다).
+          const chip = el(
+            'span',
+            'chip money',
+            `💰 ${formatMoney(ex.originalAmount, ex.originalCurrency)}${ex.note ? ` · ${ex.note}` : ''}`,
+          );
           // 환산(보조): 사용일 기준환율로 기준통화 환산값을 덧붙인다. 원금액이 주(主), 환산이 부(副).
           const base = fxBase();
           if (ex.originalCurrency.toUpperCase() !== base) {
@@ -1426,6 +1635,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
                 tripId: trip!.id,
                 originalAmount: amountVal,
                 originalCurrency: money.currency(),
+                note: money.note(),
               });
             } catch {
               /* 비용 저장 실패는 순간 저장을 무르지 않는다 */
@@ -1440,7 +1650,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           emotion.reset();
           money.reset();
           // 미리보기 URL 회수 + 개수 문구까지 한 번에(초기화 경로를 두 개 만들지 않는다).
-          setFiles([]);
+          picks.setFiles([]);
           setNote(note, '✅ 저장됨', 'ok', null); // 정상 — 조용하게(침묵이 정상이므로 갈 곳도 안 만든다)
           await refresh();
           await trySync(); // 로그인 시 서버로 전송(순간). 사진은 후속(3b).
@@ -1466,89 +1676,159 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
 /**
  * **여행 시간대 칸** — 「그 자리의 시계」를 정하는 단 하나의 자리.
  *
- * 왜 목록이 아니라 입력+목록인가: 시간대는 418개다. `<select>`로 만들면 폰에서 스크롤이
- * 지옥이고, 사용자가 아는 단어(「서울」·「호치민」)로 찾을 수가 없다. `<datalist>`는 타이핑으로
- * 좁히면서 목록도 준다 — 그리고 목록을 못 주는 브라우저에서는 **그냥 입력 칸이 된다**
- * (기능이 사라지지 않는다).
+ * 🔴 **`<datalist>`에서 `<select>`로 바꿨다**(사용자 제안 2026-07-30: *"드롭다운해서 선택하게끔"*).
+ *
+ * 처음엔 `<input list=…>`로 만들었다 — 타이핑으로 418개를 좁힐 수 있어서다. 그런데 그때
+ * **내가 직접 「안드로이드 크롬에서 자동완성이 안 뜰 수 있다」를 실기기 확인 항목에 적었다.**
+ * 즉 *가장 약한 고리를 알면서 사용자에게 검증을 떠넘긴* 셈이다(§13이 금지하는 그 형태).
+ * `<select>`는 어느 폰에서든 **네이티브 선택기**가 뜨고, 오타가 원리적으로 불가능하며,
+ * 「이 시간대를 알 수 없어요」 경로 자체가 사라진다.
+ *
+ * 418개는 **대륙별 `<optgroup>`**으로 묶는다. 분류표를 우리가 만들지 않는다 —
+ * `Asia/`·`Europe/` 접두사가 **이미 그 묶음**이다.
  *
  * 🔴 **비우는 것을 막지 않는다.** 「미지정」은 결함이 아니라 사실이다 — 어디였는지 모르는
  * 옛 여행이 있고, 그때는 앱이 **모른다고 말하는 것이 맞다**(§8 「모르는 것은 확인 불가」).
  * 대신 미지정이면 타임라인이 「이 기기 시간대로 보여주고 있어요」를 붙인다.
  */
-function buildZoneField(initial: string): { el: HTMLElement; value(): string } {
-  const wrap = el('div', 'zone-field');
-  const input = el('input', 'edit-input zone-input') as HTMLInputElement;
-  input.type = 'text';
-  input.value = initial;
-  input.placeholder = '예: Asia/Ho_Chi_Minh (비우면 미지정)';
-  input.setAttribute('aria-label', '여행 시간대');
-  input.setAttribute('data-zone-input', '1'); // 라이브 검사가 이 칸을 찾는 손잡이(§13)
+interface ZoneField {
+  el: HTMLElement;
+  value(): string;
+  set(zone: string): void;
+}
 
-  const zones = zoneOptions();
-  if (zones.length) {
-    const list = el('datalist') as HTMLDataListElement;
-    list.id = 'trip-zone-list';
-    for (const z of zones) {
-      const o = el('option') as HTMLOptionElement;
-      o.value = z;
-      list.appendChild(o);
-    }
-    input.setAttribute('list', list.id);
-    wrap.appendChild(list);
+interface ZoneSelectOptions {
+  initial: string;
+  ariaLabel: string;
+  /** 라이브 검사가 이 칸을 집는 `data-*` 이름(§13). */
+  handle: string;
+  /** 「미지정」 선택지를 둘 것인가. 여행은 둔다(모르는 것은 사실), 집은 두지 않는다(환산 기준이라 늘 있다). */
+  allowNone: boolean;
+  /**
+   * 목록에 **반드시 있어야 하는** 추가 id들.
+   *
+   * 🔴 왜 필요한가(라이브 검사가 잡았다): `Intl.supportedValuesOf('timeZone')`은 418개를 주는데
+   * **`UTC`는 그 안에 없다.** 기기 시간대가 `UTC`인 환경에서 집 시간대를 한 번 바꾸면,
+   * 다시 그릴 때 옛 값의 자리가 사라져 **드롭다운으로 되돌아갈 길이 없어진다.**
+   * 그래서 「내 기기 시간대」는 늘 고를 수 있게 둔다.
+   */
+  alsoOffer?: string[];
+  /** 미리보기 문장 — 자리마다 하는 말이 다르므로 호출부가 정한다. */
+  say: (zone: string) => string;
+  onChange?: (zone: string) => void;
+}
+
+/**
+ * 🔴 **시간대 선택기 — 여행과 집이 같은 한 곳을 지난다**(§7 2층 · 화면 대칭).
+ *
+ * 두 칸을 손으로 두 벌 만들면 한쪽만 낡는다. 실제로 그럴 뻔했다: 여행 칸을 `<select>`로
+ * 바꾸는 순간 집 칸이 **사라진 `<datalist>`를 계속 가리키고** 있었다 — 컴파일은 통과하고
+ * 화면에서만 조용히 죽는 부류다(§10 ③).
+ */
+function buildZoneSelect(o: ZoneSelectOptions): ZoneField {
+  const wrap = el('div', 'zone-field');
+  const sel = el('select', 'edit-input zone-input') as HTMLSelectElement;
+  sel.setAttribute('aria-label', o.ariaLabel);
+  sel.setAttribute(o.handle, '1');
+
+  if (o.allowNone) {
+    const none = el('option', undefined, '— 미지정 —') as HTMLOptionElement;
+    none.value = '';
+    sel.appendChild(none);
   }
 
-  // 고른 것이 맞는지 **눈으로 확인**시킨다 — id만 보고는 아무도 모른다(§12: 앱이 아는 것을 말한다).
+  // 대륙별로 묶는다. 418개를 한 줄로 늘어놓으면 폰에서 찾을 수가 없고, `Asia/`·`Europe/`가
+  // 이미 그 묶음이다 — **우리가 분류표를 만들지 않는다**(id가 스스로 말한다).
+  const now = new Date().toISOString();
+  const optionFor = (z: string): HTMLOptionElement => {
+    const city = z.slice(z.indexOf('/') + 1).replace(/_/g, ' ');
+    const opt = el('option', undefined, `${city} · ${zoneLabel(now, z)}`) as HTMLOptionElement;
+    opt.value = z;
+    return opt;
+  };
+  const byRegion = new Map<string, string[]>();
+  for (const z of zoneOptions()) {
+    const region = z.includes('/') ? z.slice(0, z.indexOf('/')) : '기타';
+    const arr = byRegion.get(region);
+    if (arr) arr.push(z);
+    else byRegion.set(region, [z]);
+  }
+  for (const [region, zs] of byRegion) {
+    const g = el('optgroup') as HTMLOptGroupElement;
+    g.label = region;
+    for (const z of zs) g.appendChild(optionFor(z));
+    sel.appendChild(g);
+  }
+
+  /** 목록에 없는 값(옛 기록·별칭)이 조용히 「미지정」으로 바뀌지 않게 자리를 만들어 준다. */
+  const ensureOption = (z: string): void => {
+    if (!z || [...sel.options].some((opt) => opt.value === z)) return;
+    const g = el('optgroup') as HTMLOptGroupElement;
+    g.label = '저장된 값';
+    g.appendChild(optionFor(z));
+    sel.insertBefore(g, sel.children[o.allowNone ? 1 : 0] ?? null);
+  };
+  for (const z of o.alsoOffer ?? []) ensureOption(z);
+  ensureOption(o.initial);
+  sel.value = o.initial;
+
   const preview = el('p', 'zone-preview muted small');
   preview.setAttribute('role', 'status');
   const sync = (): void => {
-    const now = new Date().toISOString();
-    const z = input.value.trim();
-    preview.textContent = !z
-      ? '미지정 — 순간 시각을 이 기기 시간대로 보여줘요'
-      : isKnownZone(now, z)
-        ? `${zoneLabel(now, z)} · ${zonePreview(now, z)}`
-        : '이 시간대를 알 수 없어요 (목록에서 골라 주세요)';
+    preview.textContent = o.say(sel.value);
   };
-  input.addEventListener('input', sync);
+  sel.addEventListener('change', () => {
+    o.onChange?.(sel.value);
+    sync();
+  });
   sync();
 
-  wrap.append(input, preview);
-  return { el: wrap, value: () => input.value.trim() };
+  wrap.append(sel, preview);
+  return {
+    el: wrap,
+    value: () => sel.value,
+    set: (zone) => {
+      ensureOption(zone);
+      sel.value = zone;
+      sync();
+    },
+  };
+}
+
+/** 여행 시간대 칸 — 「그 자리의 시계」. 비우는 것을 막지 않는다. */
+function buildZoneField(initial: string): ZoneField {
+  return buildZoneSelect({
+    initial,
+    ariaLabel: '여행 시간대',
+    handle: 'data-zone-input',
+    allowNone: true,
+    say: (z) => {
+      if (!z) return '미지정 — 순간 시각을 이 기기 시간대로 보여줘요';
+      const now = new Date().toISOString();
+      return `${zoneLabel(now, z)} · ${zonePreview(now, z)}`;
+    },
+  });
 }
 
 /**
  * **집 시간대 칸** — 환산 꼬리표의 기준. 여행 시간대 바로 아래에 둔다(같은 성격이라 같은 자리).
  *
  * 이 값은 여행이 아니라 **이 기기의 표시 설정**이라 저장 위치가 다르다(localStorage).
- * 그래서 즉시 저장한다 — 여행의 [저장] 버튼과 묶으면 "여행을 안 고쳤는데 왜 저장?"이 된다.
+ * 그래서 고르는 즉시 저장한다 — 여행의 [저장] 버튼과 묶으면 "여행을 안 고쳤는데 왜 저장?"이 된다.
  */
-function buildHomeZoneField(): HTMLElement {
-  const wrap = el('div', 'zone-field');
-  const input = el('input', 'edit-input zone-input') as HTMLInputElement;
-  input.type = 'text';
-  input.value = homeZone();
-  input.setAttribute('aria-label', '집 시간대');
-  input.setAttribute('data-home-zone-input', '1');
-  const zones = zoneOptions();
-  if (zones.length) input.setAttribute('list', 'trip-zone-list'); // 위 칸이 만든 목록을 함께 쓴다
-
-  const note = el('p', 'zone-preview muted small');
-  note.setAttribute('role', 'status');
-  const sync = (save: boolean): void => {
-    const now = new Date().toISOString();
-    const z = input.value.trim();
-    if (!z || !isKnownZone(now, z)) {
-      note.textContent = '이 시간대를 알 수 없어요 — 환산 꼬리표가 나오지 않아요';
-      return;
-    }
-    if (save) setHomeZone(z);
-    note.textContent = `${zoneLabel(now, z)} 기준으로 환산해요 (${zonePreview(now, z)})`;
-  };
-  input.addEventListener('input', () => sync(true));
-  sync(false);
-
-  wrap.append(input, note);
-  return wrap;
+function buildHomeZoneField(): ZoneField {
+  return buildZoneSelect({
+    initial: homeZone(),
+    ariaLabel: '집 시간대',
+    handle: 'data-home-zone-input',
+    allowNone: false,
+    alsoOffer: [deviceZone()], // 「내 기기 시간대」로 되돌아갈 길을 늘 남긴다
+    onChange: setHomeZone,
+    say: (z) => {
+      const now = new Date().toISOString();
+      return `${zoneLabel(now, z)} 기준으로 환산해요 (${zonePreview(now, z)})`;
+    },
+  });
 }
 
 /**
@@ -1596,9 +1876,11 @@ function buildMoneyRow(existing: LocalExpense | undefined): {
   el: HTMLElement;
   amount(): string;
   currency(): string;
+  note(): string;
   /** 저장 후 초기화 — 감정 줄(`emotion.reset()`)과 **같은 어휘**를 쓴다(§7). */
   reset(): void;
 } {
+  const wrap = el('div', 'moment-money-wrap');
   const row = el('div', 'moment-money');
   const amountIn = el('input', 'moment-amount') as HTMLInputElement;
   amountIn.type = 'text';
@@ -1609,13 +1891,39 @@ function buildMoneyRow(existing: LocalExpense | undefined): {
   amountIn.setAttribute('aria-label', '비용 금액(선택)');
   const currencyIn = currencySelect(existing ? existing.originalCurrency : DEFAULT_CURRENCY);
   row.append(amountIn, currencyIn);
+
+  // 💬 **무엇에 쓴 돈인가**(사용자 제안 2026-07-30).
+  //
+  // 🔴 이 칸은 **새로 만든 것이 아니다.** `LocalExpense.note`는 처음부터 있었고 서비스도
+  // `createExpenseLocalFirst({note})`·`updateExpenseLocalFirst({note})`로 받고 있었으며,
+  // 휴지통 라벨은 그 값을 **이미 쓰고 있었다**(「50,000 UZS · 택시」). 화면에 입력 칸만
+  // 없었다 — M-0015(전파 기능을 만들어 놓고 화면에서 부르지 않음)와 **같은 형태**다.
+  //
+  // 왜 필요한가: 숫자만 남은 비용은 나중에 **의미를 잃는다.** 「50,000 so'm」이 택시였는지
+  // 저녁이었는지 한 달 뒤에는 아무도 모른다 — 이 앱의 북극성이 *"여행이 나에게 남긴 의미를
+  // 다시 찾아준다"*인데, 의미가 없는 숫자는 그 반대다.
+  //
+  // 왜 둘째 줄인가: 「10초 기록」을 지켜야 한다(mobile-capture-ux). 금액+통화가 한 줄로 남고
+  // 메모는 그 아래 **선택**으로 흐른다 — 비우면 아무 일도 없다.
+  const noteIn = el('input', 'edit-input moment-money-note') as HTMLInputElement;
+  noteIn.type = 'text';
+  // 폴드5 접은 폭(344px)에서 잘리지 않게 짧게. 뜻은 `aria-label`이 온전히 들고 있다.
+  noteIn.placeholder = '무엇에 썼나요? (예: 택시)';
+  noteIn.maxLength = 60;
+  noteIn.value = existing?.note ?? '';
+  noteIn.setAttribute('aria-label', '비용 메모(선택)');
+  noteIn.setAttribute('data-expense-note', '1'); // 라이브 검사 손잡이(§13)
+
+  wrap.append(row, noteIn);
   return {
-    el: row,
+    el: wrap,
     amount: () => amountIn.value,
     currency: () => currencyIn.value,
+    note: () => noteIn.value,
     reset: () => {
       amountIn.value = '';
       currencyIn.value = DEFAULT_CURRENCY;
+      noteIn.value = '';
     },
   };
 }
@@ -1745,7 +2053,7 @@ function buildEditPanel(
     el('label', 'edit-label', '여행 시간대 (그 자리의 시계)'),
     zone.el,
     el('label', 'edit-label', '집 시간대 (환산 기준)'),
-    buildHomeZoneField(),
+    buildHomeZoneField().el,
     row,
     danger,
   );
@@ -1825,7 +2133,7 @@ function buildMomentEditForm(
   onSave: (
     // 서비스의 계약 타입을 그대로 쓴다 — 필드가 늘 때 화면·서비스 두 곳을 고치지 않는다(SSOT).
     patch: UpdateMomentPatch,
-    expenseIntent: { amount: number | null; currency: string },
+    expenseIntent: { amount: number | null; currency: string; note: string },
   ) => Promise<void>,
   onCancel: () => void,
 ): HTMLElement {
@@ -1891,7 +2199,7 @@ function buildMomentEditForm(
     };
     const occ = timeField.value();
     if (occ !== undefined) patch.occurredAt = occ;
-    const expenseIntent = { amount: parseAmount(money.amount()), currency: money.currency() };
+    const expenseIntent = { amount: parseAmount(money.amount()), currency: money.currency(), note: money.note() };
     void onSave(patch, expenseIntent).catch(() => {
       save.disabled = false;
     });

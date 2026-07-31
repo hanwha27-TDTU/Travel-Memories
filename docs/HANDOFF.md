@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.27<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->127<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.28<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->128<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->23<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -61,7 +61,7 @@
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.27<!--/reg-->) Pages 성공.
+**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.28<!--/reg-->) Pages 성공.
 
 ### 현재 기능 지도 (새 AI는 이 표로 기능 표면을 즉시 파악)
 
@@ -276,6 +276,59 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0024 · v1.28 · **사진이 아는 것을 다시 치지 않게** (사용자 제안 3건 · M-0052) (2026-07-31)
+
+**계기**: 사용자 제안 셋 —
+① *"장소도 사진 입력하면 사진정보에서 우선 가져오도록 하면 어떨까요?"*
+② *"비용을 입력할 때 간단하게 어떤 비용인지 적게하면 어떨까요?"*
+③ *"여행시간대를 드롭다운해서 선택하게끔하고. 초기값은 사진찍은 장소로 셋팅..어때?"*
+
+**한 줄**: 셋 다 좋았고, ①②는 **이미 있는 것을 화면에서 안 부르고 있던** 형태였다(M-0015의 모양).
+
+### ② 비용 메모 — 만든 게 아니라 **부르지 않던 것**
+
+`LocalExpense.note`는 처음부터 있었고, 서비스도 `create/updateExpenseLocalFirst({note})`로 받고 있었으며, **휴지통 라벨은 그 값을 이미 쓰고 있었다**(「50,000 UZS · 택시」). 입력 칸만 없었다. 마침 v1.27에서 래칫이 `buildMoneyRow`를 뽑게 만들어 둔 덕에 **생성·편집 두 폼이 한 번에** 받았다.
+
+### ① 사진 → 장소: 좌표와 이름의 **개인정보 등급이 다르다**
+
+- **좌표 채우기는 네트워크 0** — 기기 밖으로 안 나가므로 물을 것이 없다. 즉시 채운다.
+- **이름 찾기는 좌표가 나간다** → 🔴 **처음 한 번 확인**. 거절해도 좌표는 남는다.
+- 이름 검색과 다르게 묻는 이유: 이름은 사용자가 치고 [검색]을 누른 것이고, 사진 GPS는 **사진을 골랐을 뿐인데** 나간다(원칙 #3).
+- 동의 저장·판정을 `services/consent.ts` **한 곳**으로 뽑았다 — `externalMapConsent`도 이제 거기를 지난다(§7 2층. 개인정보 동의를 손으로 두 벌 구현하면 한쪽이 낡을 때 조용히 샌다).
+
+### ③ 드롭다운 + 사진에서 제안
+
+- `<datalist>` → **`<select>` + 대륙별 optgroup**. 🔴 이건 취향이 아니라 **내가 v1.27에서 이미 flag한 위험**이었다(「안드로이드 크롬에서 자동완성이 안 뜰 수 있다」를 실기기 확인 항목에 적어 두고 사용자에게 검증을 떠넘겼다 — §13이 금지하는 형태). select는 오타가 원리적으로 불가능해 「알 수 없어요」 경로 자체가 사라진다.
+- **나라 → 시간대는 `Intl`이 준다**(`zonesForCountry` · **0바이트**). 좌표→시간대는 데이터셋(수 MB)이 필요해 안 한다.
+- 🔴 **하나일 때만 제안하고, 자동으로 정하지 않는다.** 베트남 1개 → 「인도차이나로 할까요?」 + 버튼. 미국 29개 → **침묵**. 이미 정해진 시간대는 덮지 않는다.
+
+### 🔴 라이브 게이트가 **내 결함 넷**을 잡았다 (M-0052)
+
+정적 게이트 35종·유닛 전부 초록인 상태에서 넷이 걸렸다 — 전부 「컴파일은 통과하고 화면만 죽는」 부류(§10 ③):
+
+1. 위치 없는 사진으로 바꿔도 **이전 사진의 위치 문장이 남았다**(「없다」를 나중에 처리)
+2. `<select>`로 바꿨는데 초점 코드가 `HTMLInputElement`만 봐서 **조용히 죽었다**
+3. 새 제안 상자가 **고지 상자의 클래스를 빼앗아** 검사가 엉뚱한 것을 셌다
+4. 「집 시간대」를 바꾸면 **되돌아갈 길이 사라졌다**(`supportedValuesOf`에 `UTC`가 없다)
+
+그리고 **§3-C를 네 가지 형태로 어겼다**: 장소 필드·`fetch` 스텁·뷰포트·**스크롤**. 마지막 것은 *"스크롤한 블록이 되돌려라"*로 고치려다 멈추고, 재는 쪽(`layoutAt`)이 **자기 전제를 스스로 세우게** 했다(§7 2층 — 다음 블록이 또 잊지 않게).
+
+### 검증
+
+하네스 <!--reg:gateCount-->35<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **939**(+21) · `verify-editor-live` **239/239**(+23) · `verify-diagnostics-live` 22/22 · build OK.
+
+- 🔴 **진짜 EXIF GPS 픽스처**(`withExifGps`)를 만들어 앱의 파서가 스스로 읽게 했다 — DOM 주입은 *내 주입*을 재는 공허한 검사다(§4).
+- **§13 1·4항**: 폴드5 접은 폭(344px)으로 두 화면 캡처(사진에서 채워진 폼 / 시간대 두 드롭다운 + 제안 줄). 제안 버튼을 **실제로 눌러** 적용·고지 소멸·안내 문구 변화를 쟀다.
+- 래칫이 또 밀어줬다: `makeDoSearch`·`photoPlaceSuggester`·`buildZoneSuggest`·`buildPickPreview`·`buildZoneSelect`(여행·집 두 칸이 한 곳을 지난다)를 뽑았고 `renderTripDetail` 595→**572**, `buildPlaceField` 116→**112**로 낮췄다.
+
+### 확인이 필요한 항목(실기기)
+
+- 실제 폰 사진(EXIF GPS 있는 것)으로 장소가 채워지는가. 동의 대화상자 문구가 잘리지 않는가.
+- 시간대 드롭다운이 폰에서 **네이티브 선택기**로 뜨는가(datalist를 바꾼 이유가 그것이다).
+- 사진 나라 제안이 실제 네트워크(Nominatim)에서 도는가 — 샌드박스가 막아 **스텁으로만** 쟀다.
 
 ---
 

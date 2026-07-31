@@ -433,6 +433,37 @@ export function zoneOptions(): string[] {
   }
 }
 
+/**
+ * **나라(ISO 3166-1 alpha-2) → 그 나라의 시간대들.** 브라우저가 준다 — **데이터셋 0바이트.**
+ *
+ * 사용자 제안(2026-07-30): *"여행시간대 초기값은 사진찍은 장소로 셋팅..어때?"*
+ *
+ * 좌표→시간대는 경계 데이터셋이 필요해 **하지 않는다**(수 MB). 그런데 사진 GPS를 이미
+ * 역지오코딩해 **나라 코드**를 얻고 있고, 나라→시간대는 `Intl`이 알고 있다.
+ * `'VN'` → `['Asia/Saigon']` · `'UZ'` → `['Asia/Samarkand','Asia/Tashkent']` · `'US'` → 29개.
+ *
+ * 🔴 **하나일 때만 답이다.** 여럿이면 고르는 것은 사용자다(§8 — 모르는 것을 반올림하지
+ * 않는다). 화면은 후보를 위로 올려 주고 묻는다.
+ *
+ * 구현이 둘인 이유: 표준은 `getTimeZones()` 메서드인데 옛 구현은 `timeZones` **게터**다
+ * (이 저장소의 Node 22가 게터, Chromium은 둘 다). 둘 다 없으면 빈 배열 — 기능이 조용히
+ * 사라질 뿐 앱은 돈다.
+ */
+export function zonesForCountry(countryCode: string): string[] {
+  const cc = countryCode.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(cc)) return [];
+  try {
+    const loc = new Intl.Locale(`und-${cc}`) as Intl.Locale & {
+      getTimeZones?: () => string[];
+      timeZones?: string[];
+    };
+    const zs = typeof loc.getTimeZones === 'function' ? loc.getTimeZones() : loc.timeZones;
+    return Array.isArray(zs) ? zs : [];
+  } catch {
+    return [];
+  }
+}
+
 /** 이 문자열이 브라우저가 아는 시간대 id인가. 오프셋을 계산할 수 있으면 안다고 본다. */
 export function isKnownZone(instant: string, timeZone: string): boolean {
   return zoneOffsetMin(instant, timeZone) !== null;

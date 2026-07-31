@@ -1,0 +1,113 @@
+// tests/unit/photoHint.test.ts — **사진이 스스로 말하는 것**을 어떻게 읽는가(순수).
+//
+// 사용자 제안(2026-07-30): *"장소도 사진 입력하면 사진정보에서 우선 가져오도록 하면 어떨까요?"*
+//
+// 왜 유닛이 필요한가: 여기서 나오는 것은 값만이 아니라 **사용자에게 가는 문장**이다
+// (「📷 사진 위치에서 · 37.58700, 127.00160 (3장 중 첫 장)」). M-0022가 그 자리였다 —
+// 숫자는 다 맞았는데 화면 문장을 검사한 것이 하나도 없었다(§10 ③).
+
+import { describe, it, expect } from 'vitest';
+import { photoHintOf, photoPlaceLabel, type PhotoMetaLike } from '../../src/domain/place/photoHint';
+
+const meta = (p: Partial<PhotoMetaLike> = {}): PhotoMetaLike => ({
+  gpsLat: null,
+  gpsLng: null,
+  tzOffsetMin: null,
+  tzSource: 'device',
+  ...p,
+});
+
+describe('photoHintOf — 좌표', () => {
+  it('좌표가 있는 첫 사진의 좌표를 쓴다(고른 순서)', () => {
+    const h = photoHintOf([
+      meta(), // GPS 없는 스크린샷이 먼저 와도
+      meta({ gpsLat: 16.0544, gpsLng: 108.2022 }), // 이게 답이다
+      meta({ gpsLat: 21.0278, gpsLng: 105.8342 }),
+    ]);
+    expect(h.coord).toEqual({ lat: 16.0544, lng: 108.2022 });
+    expect(h.coordCount).toBe(2);
+  });
+
+  it('평균을 내지 않는다 — 아무도 서 있지 않은 지점을 지어내지 않는다', () => {
+    const h = photoHintOf([meta({ gpsLat: 0, gpsLng: 0 }), meta({ gpsLat: 90, gpsLng: 180 })]);
+    expect(h.coord).toEqual({ lat: 0, lng: 0 }); // 첫 장 그대로
+  });
+
+  it('0,0(기니만)도 값이다 — falsy로 뭉개지 않는다', () => {
+    expect(photoHintOf([meta({ gpsLat: 0, gpsLng: 0 })]).coord).toEqual({ lat: 0, lng: 0 });
+  });
+
+  it('좌표가 하나도 없으면 null이고 세지도 않는다', () => {
+    const h = photoHintOf([meta(), meta()]);
+    expect(h.coord).toBeNull();
+    expect(h.coordCount).toBe(0);
+  });
+
+  it('한쪽만 있는 좌표는 좌표가 아니다', () => {
+    expect(photoHintOf([meta({ gpsLat: 16.05, gpsLng: null })]).coord).toBeNull();
+  });
+
+  it('NaN·Infinity는 버린다(지어낸 좌표로 핀을 찍지 않는다)', () => {
+    expect(photoHintOf([meta({ gpsLat: Number.NaN, gpsLng: 108 })]).coord).toBeNull();
+    expect(photoHintOf([meta({ gpsLat: Number.POSITIVE_INFINITY, gpsLng: 108 })]).coord).toBeNull();
+  });
+
+  it('빈 목록도 조용히 지나간다', () => {
+    expect(photoHintOf([]).coord).toBeNull();
+  });
+});
+
+describe('photoHintOf — 오프셋은 **EXIF가 직접 말한 것만**', () => {
+  // 🔴 이게 이 파일에서 가장 중요한 검사다. `readPhotoMeta`는 오프셋이 없으면 여행 시간대나
+  // **기기 시간대**로 채워 준다(그래야 시각 추천이 죽지 않는다). 그 값을 근거로 쓰면
+  // **자기가 채운 값을 근거로 자기를 확신하는** 꼴이 된다 — M-0049의 근본형이 그것이었다.
+  it('tzSource가 exif일 때만 오프셋을 인정한다', () => {
+    expect(photoHintOf([meta({ tzOffsetMin: 420, tzSource: 'exif' })]).exifOffsetMin).toBe(420);
+  });
+
+  it('여행 시간대에서 파생한 값은 근거가 아니다', () => {
+    expect(photoHintOf([meta({ tzOffsetMin: 420, tzSource: 'trip' })]).exifOffsetMin).toBeNull();
+  });
+
+  it('🔴 기기 시간대로 읽은 값은 더더욱 근거가 아니다', () => {
+    expect(photoHintOf([meta({ tzOffsetMin: 540, tzSource: 'device' })]).exifOffsetMin).toBeNull();
+  });
+
+  it('여럿 중 EXIF가 말한 것을 골라낸다(순서와 무관하게)', () => {
+    const h = photoHintOf([
+      meta({ tzOffsetMin: 540, tzSource: 'device' }),
+      meta({ tzOffsetMin: 420, tzSource: 'exif' }),
+    ]);
+    expect(h.exifOffsetMin).toBe(420);
+  });
+
+  it('0(UTC)은 값이다 — 「없음」으로 뭉개지 않는다', () => {
+    expect(photoHintOf([meta({ tzOffsetMin: 0, tzSource: 'exif' })]).exifOffsetMin).toBe(0);
+  });
+});
+
+describe('photoPlaceLabel — 근거를 값과 함께 말한다', () => {
+  it('좌표가 없으면 **아무 말도 하지 않는다**(§8 침묵이 정상)', () => {
+    expect(photoPlaceLabel(photoHintOf([meta()]))).toBe('');
+  });
+
+  it('한 장이면 좌표만 말한다', () => {
+    const s = photoPlaceLabel(photoHintOf([meta({ gpsLat: 16.0544, gpsLng: 108.2022 })]));
+    expect(s).toContain('📷 사진 위치에서');
+    expect(s).toContain('16.05440');
+    expect(s).toContain('108.20220');
+    expect(s).not.toContain('중'); // 「N장 중」이 붙지 않는다
+  });
+
+  it('여러 장이면 **어느 것을 골랐는지** 말한다(추측을 사실처럼 두지 않는다)', () => {
+    const s = photoPlaceLabel(
+      photoHintOf([meta({ gpsLat: 16.05, gpsLng: 108.2 }), meta({ gpsLat: 21.02, gpsLng: 105.83 })]),
+    );
+    expect(s).toContain('2장 중 첫 장');
+  });
+
+  it('좌표 없는 사진은 세지 않는다 — 「3장 중」이라 말하면 거짓이다', () => {
+    const s = photoPlaceLabel(photoHintOf([meta(), meta({ gpsLat: 16.05, gpsLng: 108.2 }), meta()]));
+    expect(s).not.toContain('중'); // 좌표를 가진 건 한 장뿐이다
+  });
+});

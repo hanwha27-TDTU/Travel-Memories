@@ -14,6 +14,7 @@
 // 그래서 백업·동기화 대상이 아니다: `purgedIds`를 백업에서 제외한 것과 같은 근거다.
 
 import type { MapProviderId } from '../domain/place/externalMap';
+import { hasAgreed, rememberAgreed } from './consent';
 
 /**
  * 제공자별 키. 옛 키(`bugeon:externalMapOk`)는 **일부러 읽지 않는다** — 그걸 구글 동의로
@@ -24,21 +25,16 @@ function keyOf(id: MapProviderId): string {
   return `bugeon:externalMapOk:${id}`;
 }
 
+// 🔴 저장·판정은 `services/consent.ts` **한 곳**이 한다(2026-07-30). 「처음 한 번만 확인」이
+// 두 번째 자리(사진 위치 → 지오코더)에 생기면서 뽑았다 — 같은 규율을 손으로 두 벌 구현하면
+// 한쪽이 낡을 때 **개인정보 동의가 조용히 새어 나간다**(§7 2층). 이 파일에 남는 것은
+// *"제공자마다 별개의 결정이다"*라는 **이 도메인의 판단**뿐이다.
+
 /** 이 기기에서 **이 제공자에 대해** 이미 확인했는가. */
 export function hasAgreedExternalMap(id: MapProviderId): boolean {
-  try {
-    return localStorage.getItem(keyOf(id)) === '1';
-  } catch {
-    // 프라이빗 모드 등으로 못 읽으면 **동의하지 않은 것으로 본다.**
-    // 모르는 것을 동의로 반올림하지 않는다(비타협 원칙 #4).
-    return false;
-  }
+  return hasAgreed(keyOf(id));
 }
 
 export function rememberAgreedExternalMap(id: MapProviderId): void {
-  try {
-    localStorage.setItem(keyOf(id), '1');
-  } catch {
-    /* 못 적으면 다음에 한 번 더 묻게 될 뿐 — 링크 여는 것 자체는 막지 않는다. */
-  }
+  rememberAgreed(keyOf(id));
 }
