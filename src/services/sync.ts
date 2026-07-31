@@ -14,7 +14,7 @@ import { toMediaRow, fromMediaRow, mediaStoragePath, type MediaRow } from '../do
 import { toAudioRow, fromAudioRow, audioStoragePath, type AudioRow } from '../domain/audio/rowmap';
 import { toPlaceRow, fromPlaceRow, type PlaceRow } from '../domain/place/rowmap';
 import { compressForStorage } from '../media/compress';
-import { mergeDecision, isEmptyCloudAnomaly, classifyError, retryDelayMs, isRetryDue } from '../sync/merge';
+import { mergeDecision, isEmptyCloudAnomaly, classifyError, retryDelayMs, isRetryDue, mustUploadBytes } from '../sync/merge';
 import type { JourneyClient } from './supabase/client';
 import { r2BlobStore, r2ListObjects } from './r2';
 // 바이트 대조가 「이 기기에 사본이 있는 id」를 물어본다. `storeState`는 Dexie만 읽는
@@ -523,7 +523,11 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
     // 곧 진실이므로, 처음 한 번만 만들고 그 뒤로는 저장된 값을 따른다.
     const trip = await d.localTrips.get(media.tripId);
     const path = media.storagePath ?? mediaStoragePath(userId, media, trip?.title ?? null);
-    if (media.deletedAt === null) {
+    // 🔴 판정은 **공용 문**을 지난다(§7 2층 — M-0059). 예전엔 여기가 `deletedAt === null`
+    // 한 줄이었고, 형제(소리)만 고쳐지면서 **휴지통 사진의 바이트가 영영 못 올라갔다.**
+    // 사진은 `false` — 옛 키 형식 행은 경로를 기억하지 않으면서 바이트는 서버에 있으므로,
+    // 「경로 기억 없음」을 「올라간 적 없음」으로 읽으면 고아 사본을 만든다.
+    if (mustUploadBytes(media, false)) {
       const up = await remote.uploadDisplay(path, media.displayBlob); // 표시본만(원본 미업로드)
       if (up.error) {
         await markFail(op, up.status);
@@ -547,7 +551,11 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
     await d.transaction('rw', d.localMedia, d.syncQueue, async () => {
       const cur = await d.localMedia.get(media.id);
       // 경로도 **같은 커밋에** 기억한다(M-0033의 교훈 — "곧 이어서 쓸 것"은 없는 것과 같다).
-      if (cur) await d.localMedia.put({ ...cur, storagePath: path, updatedAt: server.updatedAt, version: server.version });
+      // 「서버에 없다」 표시도 **같은 커밋에** 걷는다 — 방금 올렸으므로 더는 참이 아니다.
+      if (cur) {
+        const { bytesMissing: _done, ...keep } = cur;
+        await d.localMedia.put({ ...keep, storagePath: path, updatedAt: server.updatedAt, version: server.version });
+      }
       await d.syncQueue.delete(op.operationId);
     });
     // ⚠️ 여기서 바이트를 지우지 않는다(정책 변경 2026-07-26, 사용자 결정).
@@ -824,11 +832,10 @@ export async function pushPendingAudio(remote: AudioRemote, userId: string): Pro
     // 진단은 그걸 「지운 소리의 남은 기록 · 소리 자체는 없습니다」로 띄우며 **정리를 권했다.**
     // 로컬 휴지통엔 멀쩡히 있는데도. 누르면 로컬 행까지 지워져 기억을 잃는 자리였다.
     //
-    // 판정 기준은 `storagePath`다 — **바이트가 착지했다고 이 기기가 아는 유일한 근거**.
-    // (사진에는 이 조건을 걸지 않는다: 옛 키 형식 시절 행은 `storagePath`를 기억하지 않으면서
-    //  바이트는 서버에 있다. 올리면 **새 키로 사본이 하나 더 생겨** 고아가 된다 — 소리에는
-    //  키 형식이 하나뿐이라 "기억이 없다 = 올라간 적 없다"가 성립한다.)
-    if (audio.deletedAt === null || !audio.storagePath) {
+    // 판정은 **사진과 같은 문**을 지난다(§7 2층 — M-0059). 소리에 `true`를 주는 이유:
+    // 키 형식이 하나뿐이라 「경로 기억 없음 = 올라간 적 없음」이 성립한다(사진은 옛 형식이
+    // 있어 성립하지 않는다 — 그 비대칭은 `mustUploadBytes`의 인자 하나로 드러나 있다).
+    if (mustUploadBytes(audio, true)) {
       const up = await remote.upload(path, audio.blob, audio.mime || 'application/octet-stream');
       if (up.error) {
         await markFail(op, up.status);
@@ -852,7 +859,11 @@ export async function pushPendingAudio(remote: AudioRemote, userId: string): Pro
     await d.transaction('rw', d.localAudio, d.syncQueue, async () => {
       const cur = await d.localAudio.get(audio.id);
       // 경로도 **같은 커밋에** 기억한다(M-0033 — "곧 이어서 쓸 것"은 없는 것과 같다).
-      if (cur) await d.localAudio.put({ ...cur, storagePath: path, updatedAt: server.updatedAt, version: server.version });
+      // 표시를 걷는 것도 사진과 **같은 자리·같은 방식**이다(§7).
+      if (cur) {
+        const { bytesMissing: _done, ...keep } = cur;
+        await d.localAudio.put({ ...keep, storagePath: path, updatedAt: server.updatedAt, version: server.version });
+      }
       await d.syncQueue.delete(op.operationId);
     });
     pushed++;
@@ -1038,7 +1049,7 @@ export async function requeueMissingBytes(domain: PurgeDomain, ids: string[]): P
   if (!ids.length || !DOMAIN_PURGE[domain].hasRemoteBytes) return 0;
   const d = db();
   const table = DOMAIN_PURGE[domain].table() as unknown as Table<
-    { id: string; storagePath?: string },
+    { id: string; storagePath?: string; bytesMissing?: true },
     string
   >;
   const queued = new Set(
@@ -1053,7 +1064,10 @@ export async function requeueMissingBytes(domain: PurgeDomain, ids: string[]): P
     if (!cur) continue;
     const { storagePath: _forget, ...rest } = cur;
     await d.transaction('rw', table, d.syncQueue, async () => {
-      await table.put(rest as { id: string });
+      // 🔴 **잊는 것만으로는 부족하다**(M-0059). 경로 기억의 부재는 사진에서 「옛 키 형식」과도
+      // 구별되지 않으므로, push가 그걸 「올라간 적 없음」으로 읽어 주리라 **기대할 수 없다**.
+      // 확인한 사실을 **적는다** — 그리고 표시와 op을 **한 트랜잭션**에 담는다(M-0033).
+      await table.put({ ...rest, bytesMissing: true } as { id: string });
       if (!queued.has(id)) {
         await d.syncQueue.add({
           operationId: crypto.randomUUID(),
@@ -1066,8 +1080,11 @@ export async function requeueMissingBytes(domain: PurgeDomain, ids: string[]): P
         });
       }
     });
-    // read-back — 기억을 정말로 잊었는지 되읽어 확인한다(성공 반환을 믿지 않는다).
-    if ((await table.get(id))?.storagePath) throw new Error(`다시 올리기 준비 실패: 경로 기억이 남아 있음 ${id}`);
+    // read-back — 성공 반환을 믿지 않고 되읽어 확인한다. **둘 다 본다**: 기억을 잊었는가,
+    // 그리고 확인한 사실을 적었는가. 표시가 없으면 tombstone 자료는 조용히 안 올라간다(M-0059).
+    const after = await table.get(id);
+    if (after?.storagePath) throw new Error(`다시 올리기 준비 실패: 경로 기억이 남아 있음 ${id}`);
+    if (after?.bytesMissing !== true) throw new Error(`다시 올리기 준비 실패: 표시가 남지 않음 ${id}`);
     added++;
   }
   return added;
