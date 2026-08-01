@@ -1,7 +1,7 @@
 // tests/unit/exif.test.ts — EXIF 리더 비공허 검증(§0: 압축 전 촬영시각 추출).
 // 최소 JPEG+EXIF 바이트를 직접 구성해 DateTimeOriginal 파싱을 확인한다.
 import { describe, it, expect } from 'vitest';
-import { readJpegExif } from '../../src/media/exif';
+import { probeJpeg, readJpegExif } from '../../src/media/exif';
 
 /** 리틀엔디안 TIFF에 DateTimeOriginal 하나만 담은 최소 JPEG APP1 버퍼. */
 function craftJpegWithDate(dateStr: string): ArrayBuffer {
@@ -188,5 +188,41 @@ describe('readJpegExif — GPS (M-0057)', () => {
   it('한쪽만 0인 좌표는 **정상이다**(적도·본초자오선은 실재한다)', () => {
     expect(readJpegExif(craftJpegWithGps(0, 127)).gpsLng).toBe(127);
     expect(readJpegExif(craftJpegWithGps(37, 0)).gpsLat).toBe(37);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔬 probeJpeg — **관측 도구가 세 상태를 실제로 가르는가** (2026-08-01 · M-0066)
+//
+// 이 도구의 값은 「가른다」에 있다. 세 상태의 처방이 정반대이기 때문이다:
+//   위치 칸 없음   → 카메라 설정
+//   값이 0/0       → 전달 경로(선택기·메신저)
+//   값이 정상      → **내 파서 결함**
+// 못 가르면 사용자는 또 나에게 묻고, 나는 또 추측한다 — 그게 지난 나흘이었다.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('probeJpeg — 판정하지 않고 관측한다', () => {
+  it('🔴 값이 정상이면 value + **원자료 그대로**(가공하면 대조할 수 없다)', () => {
+    const p = probeJpeg(craftJpegWithGps(37, 127));
+    expect(p.isJpeg).toBe(true);
+    expect(p.gps).toBe('value');
+    expect(p.gpsRaw).toContain('37/1');
+  });
+
+  it('🔴 분모가 0이면 zeroed — 「없음」과 **구별한다**(처방이 정반대다)', () => {
+    const p = probeJpeg(craftJpegWithGps(37, 127, true));
+    expect(p.gps).toBe('zeroed');
+    expect(p.gpsRaw).toContain('0/0'); // 사람이 눈으로 확인할 근거
+  });
+
+  it('JPEG이 아니면 그 사실만 말한다(지어내지 않는다)', () => {
+    const p = probeJpeg(new Uint8Array([1, 2, 3, 4]).buffer);
+    expect(p.isJpeg).toBe(false);
+    expect(p.gps).toBe('no-ifd');
+  });
+
+  it('🔴 APP1이 여럿이면 **순서대로** 적는다(M-0063이 여기서 보인다)', () => {
+    const p = probeJpeg(prependXmpApp1(craftJpegWithGps(37, 127)));
+    expect(p.app1).toEqual(['xmp', 'exif']);
+    expect(p.gps).toBe('value'); // 앞 칸에 속지 않는다
   });
 });

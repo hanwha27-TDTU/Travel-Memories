@@ -1769,3 +1769,26 @@ select.zone-input { text-overflow: ellipsis; }
    이 상태가 뜨지 않는다 — 정상은 조용하다(§8). 색 단독이 아니라 문장이 함께 묻는다. */
 .place-coord.is-ambiguous .place-coord-text { color: var(--sem-pink-ink); font-weight: 700; }
 .place-coord-swap { align-self: flex-start; }
+
+/* 🔬 앱이 받은 사진 정보 — 좌표를 못 얻었을 때만 나온다(정상은 침묵 · §8).
+   나흘 동안 사용자가 스크린샷을 날라야 했던 자리를 앱이 대신 말하게 한 것(M-0066 · §12). */
+.pick-probe {
+  flex-basis: 100%;
+  margin-top: var(--space-2);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+.pick-probe > summary {
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.probe-line {
+  margin-top: var(--space-1);
+  /* 해시·바이트는 **눈으로 대조하는 값**이라 고정폭이어야 한다. 그리고 길어서 반드시 접힌다. */
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
+}
+.probe-next {
+  margin-bottom: var(--space-2);
+  overflow-wrap: anywhere;
+}
