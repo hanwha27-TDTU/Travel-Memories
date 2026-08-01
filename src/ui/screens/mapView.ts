@@ -19,7 +19,7 @@ import { externalMapRow } from '../externalMapRow';
  */
 function markerColor(): string {
   const v = getComputedStyle(document.documentElement).getPropertyValue('--a1').trim();
-  return v || '#f0836c';
+  return v || '#f0836c'; // color-token-ok: --a1(여름)의 기본값 폴백 — 토큰을 못 읽을 때만. SSOT는 tokens.css.
 }
 
 export interface MapPoint extends LocatedPoint {
@@ -132,6 +132,10 @@ function pointNode(p: MapPoint, objectUrls: string[]): HTMLElement {
  * 사정이다. 같은 문장으로 뭉뚱그리면 사용자는 무엇을 해야 할지 알 수 없다 — 앞은
  * "이 장소에 좌표를 넣으려면 검색으로 고르라"이고, 뒤는 "사진에 GPS가 있으면 나타난다"이다.
  */
+// 🔴 §7 의도적 차이(감사 후속 2026-08-01): 이 빈 상태는 홈 화면의 `.empty-state`(카드 형태·
+// `<h2>`)와 **일부러 다르다.** ① 지도 모달 본문 안에 있어 카드 테두리·그림자를 겹치면 답답하다
+// (그래서 `.map-empty`는 뼈대만) ② 모달 제목이 이미 `.map-title`(`<h2>`)이므로 그 아래 제목은
+// `<h3>`이라야 제목 계층이 맞다(스크린리더). 이유 없이 통일하지 말 것 — 통일하면 계층이 깨진다.
 function emptyState(focusPlace?: PlaceLike): HTMLElement {
   const empty = el('div', 'map-empty');
   if (focusPlace) {

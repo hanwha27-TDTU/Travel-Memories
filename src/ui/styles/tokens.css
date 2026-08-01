@@ -25,6 +25,14 @@
   --color-success: #3f9d6b;
   --color-warning: #c98a3a;
   --color-danger:  #d15b5b;
+  /* **흰 글자가 얹히는 채움**용 강한 변형 — 원색 위 흰색은 2.3~3.0:1로 무너진다(H-6, tokens 주석 참조).
+     검정과 섞어 어둡게 하면 계절·테마와 무관하게 4.5:1 이상이 된다(모든 계절 값 실측 통과).
+     장식용(테두리·점·강조 텍스트)은 원색을 그대로 쓰고, **흰 글자가 얹히는 자리에서만** 이걸 쓴다. */
+  --accent-strong: color-mix(in srgb, var(--a1d) 76%, #000);
+  --sem-sky-strong: color-mix(in srgb, var(--sem-sky) 72%, #000);
+  --color-success-strong: color-mix(in srgb, var(--color-success) 74%, #000);
+  --color-warning-strong: color-mix(in srgb, var(--color-warning) 68%, #000);
+  --color-danger-strong: color-mix(in srgb, var(--color-danger) 76%, #000);
 
   /* ===== 계절 강조색 (기본 = 여름) ===== */
   --a1: #f0836c; --a1d: #d96650; --a2: #37b0a6; --a3: #f2c25c;
