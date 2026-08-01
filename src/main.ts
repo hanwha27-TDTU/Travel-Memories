@@ -9,6 +9,7 @@ import { initTheme } from './ui/theme';
 import { db } from './offline/db';
 import { installErrorLog } from './app/errorLog';
 import { installAutoSync } from './services/autoSync';
+import { wireShellAuthReturn } from './services/auth';
 
 // 런타임 오류를 앱이 스스로 모은다 — 개발자가 볼 수 없는 영역에 낸 창(진단 도구).
 // 가장 먼저 설치해야 이후 초기화에서 나는 오류도 잡힌다.
@@ -16,6 +17,10 @@ installErrorLog();
 // 사람이 [동기화]를 기억하지 않아도 되게 — 온라인 복귀·화면 복귀·주기 트리거를 건다.
 // (사용자 제안 2026-07-26: "휴먼에러를 방지하기 위해서")
 installAutoSync();
+
+// 셸(ADR-0037): 구글 로그인이 시스템 브라우저에서 딥링크로 돌아오면 세션으로 교환.
+// 크롬에서는 무행동 — 부트에서 한 번만 배선한다.
+wireShellAuthReturn();
 
 // 저장된 테마·계절 선호를 문서에 반영(첫 페인트 전).
 initTheme();

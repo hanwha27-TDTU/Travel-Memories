@@ -22,6 +22,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- 구글 로그인 복귀 딥링크(ADR-0037). 셸에서 OAuth는 시스템 브라우저로 나가는데
+                 (구글이 WebView 로그인을 거부), 복귀가 웹 URL이면 세션이 브라우저에 생기고
+                 사용자는 위치가 지워지는 옛 경로에 남는다(실측 2026-08-01 12:52).
+                 이 스킴으로 Supabase가 되돌려 보내면 안드로이드가 셸을 다시 연다. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="app.bugeon.journey" />
+            </intent-filter>
+
         </activity>
 
         <provider
@@ -43,6 +54,8 @@
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
     <!-- getMediaUri로 바꾼 MediaStore URI는 SAF 부여 밖이라 미디어 읽기 권한이 따로 필요하다. -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- 안드로이드 14 「일부 사진만 허용」 — 이걸 선언 안 하면 부분 허용이 곧 거부가 된다. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <!-- 📍 내 위치 — WebView의 geolocation 요청을 Capacitor 브리지가 앱 권한으로 잇는다. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />

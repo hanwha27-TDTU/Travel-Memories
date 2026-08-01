@@ -616,7 +616,9 @@ async function renderProbe(box: HTMLElement, files: File[]): Promise<void> {
   const sum = el('summary', '', '🔬 앱이 받은 사진 정보 보기');
   box.appendChild(sum);
   const { probeJpeg } = await import('../../media/exif');
-  const { photoProbeLine, photoProbeNext } = await import('../../domain/place/photoProbe');
+  const { photoProbeLine, photoProbeNext, photoProbePath } = await import('../../domain/place/photoProbe');
+  const { pickedVia } = await import('../../services/nativePhotos');
+  const { shellState } = await import('../../services/capacitorShell');
   for (const f of files.slice(0, 3)) {
     const buf = await f.slice(0, 512 * 1024).arrayBuffer();
     // 해시는 **파일 전체**로 낸다 — 앞부분만 재면 폰의 원본과 대조할 수 없다.
@@ -624,6 +626,8 @@ async function renderProbe(box: HTMLElement, files: File[]): Promise<void> {
     const sha16 = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
     const probe = probeJpeg(buf);
     box.appendChild(el('div', 'probe-line', photoProbeLine({ name: f.name, bytes: f.size, sha16, probe })));
+    // 🔴 경로 줄(M-0069) — 셸/브라우저·원본 승격 여부·사유까지. 스크린샷 한 장이 경로를 말한다.
+    box.appendChild(el('div', 'probe-line', photoProbePath({ shell: shellState(), picked: pickedVia(f.name) })));
     box.appendChild(el('div', 'probe-next muted', photoProbeNext(probe)));
   }
 }

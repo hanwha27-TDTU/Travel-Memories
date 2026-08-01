@@ -67,6 +67,9 @@ export const SKILL_ROUTES = [
   { match: /^src\/services\/(media|r2)\.ts/, skill: 'photo-storage-dev' },
   // 셸(ADR-0036)의 웹 쪽 절반 — 위치가 살아 있는 원본을 받는 유일한 문이므로 사진저장 헌장이다.
   { match: /^src\/services\/nativePhotos/, skill: 'photo-storage-dev' },
+  // Capacitor 전역 접근 SSOT — 사진 문(OriginalPhotos)과 로그인 복귀(App)가 함께 기대므로
+  // 셸의 존재 이유인 사진저장 헌장을 따른다(ADR-0036·0037).
+  { match: /^src\/services\/capacitorShell/, skill: 'photo-storage-dev' },
   { match: /^src\/domain\/media\//, skill: 'photo-storage-dev' },
   { match: /^src\/ui\/panels\/(verdict|diagnostics)/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/(diagnostics|envReport|storeState)/, skill: 'diagnostics-dev' },

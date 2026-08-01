@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.44<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->144<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.46<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->146<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->24<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -67,7 +67,7 @@
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**최신 배포(2026-08-01 실측)**: `5bfbd34`(v<!--reg:appVersion-->1.44<!--/reg--> · PR #149 스쿼시) — CI `harness`·`live-render` 그린, Pages `deploy-pages` **#192 success**. 🔴 **「배포 그린」과 「사이트에서 확인」은 다른 말이다** — 샌드박스가 `*.github.io`를 막으므로 화면 확인은 사용자 실기기 몫이다.
+**최신 배포(2026-08-01 실측)**: `5bfbd34`(v<!--reg:appVersion-->1.46<!--/reg--> · PR #149 스쿼시) — CI `harness`·`live-render` 그린, Pages `deploy-pages` **#192 success**. 🔴 **「배포 그린」과 「사이트에서 확인」은 다른 말이다** — 샌드박스가 `*.github.io`를 막으므로 화면 확인은 사용자 실기기 몫이다.
 
 <details><summary>과거 실측(2026-07-28 · v1.22)</summary>
 
@@ -295,6 +295,26 @@ npm run dev                            # 홈 화면 확인 (선택)
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
 
 ---
+
+## HANDOFF-0038 · v1.44~v1.45 · ✅ **셸이 실기기에서 위치를 살렸다** — 남은 것은 로그인 복귀 (2026-08-01 12:52)
+
+**한 줄**: 8일짜리 증상(갤러리 사진 위치 소실)이 **셸 안에서 끝났다** — 사용자 실기기(11:52 스크린샷)에서 APK 셸로 고른 갤러리 사진(11:39 촬영)의 좌표 `36.62107, 127.32655`가 장소 칸까지 들어왔고 역지오코딩(오송)도 자동으로 됐다.
+
+### v1.44 (셸 · ADR-0036) 이후 실기기 경과
+
+1. 첫 보고(11:36)는 「아직 0/0」 — 원인은 **APK 미설치**(PWA에서 테스트)였는데, 🔬 줄이 경로를 말하지 않아 스크린샷으로 셸/PWA를 못 갈랐다(M-0069 · 왕복 하나 소모).
+2. APK 설치 후(11:52) **정상 작동 확정**. `setRequireOriginal`이 사용자의 폰에서 실제로 위치를 살린다.
+
+### v1.45 — 🔬 경로 줄 (M-0069 수정)
+
+- **플러그인**: `readOne()`이 `reason`을 함께 반환(`pre-Q`·`no-media-location-permission`·`getMediaUri-null`·`promote-failed:*`·`read-original-failed:*`·`""`=승격됨). Android 14 「일부만 허용」 대비 `READ_MEDIA_VISUAL_USER_SELECTED` 추가 → **APK 재설치 필요**.
+- **웹**: `nativePhotos`가 파일 이름→{original, reason} 기록 + `shellState()`(browser/shell/shell-no-plugin) 노출. `photoProbePath`(순수 · §10 ③)가 🔬에 경로 줄을 추가 — 다음 0/0은 스크린샷 한 장이 「어느 문 · 어디서 무너짐」까지 답한다.
+
+### v1.46 — 셸 안 구글 로그인 복귀 (ADR-0037 · 구현됨, 실기기 확인 대기)
+
+셸에서 구글 로그인 → `accounts.google.com`이 `allowNavigation` 밖 → **시스템 브라우저로 나가고 복귀도 브라우저**로 됨 → 세션이 브라우저에 생기고 사용자가 위치 지워지는 옛 경로에 머묾(사용자 실측 12:52). 구현: 셸이면 `redirectTo = app.bugeon.journey://auth-callback`(auth.ts 분기) · intent-filter + `@capacitor/app` · `wireShellAuthReturn()`이 appUrlOpen에서 `exchangeCodeForSession`. Capacitor 전역 접근은 `services/capacitorShell.ts`로 단일화(§7 2층).
+
+🔴 **남은 것 둘**: ① **사용자 1회 설정** — Supabase 대시보드 → Authentication → URL Configuration → Redirect URLs에 `app.bugeon.journey://auth-callback` 추가(관리 API가 MCP에 없어 수동. 등록 전에는 현 증상 그대로) ② **실기기 확인** — 새 APK 설치 후 셸에서 로그인 → 브라우저 인증 → **셸이 다시 열리고 로그인 상태**인가. 딥링크 왕복은 샌드박스에서 못 돌린다(정직한 경계 — ADR-0037).
 
 ## HANDOFF-0037 · v1.43 · **🔬 한 줄이 판을 갈랐다** — 약속을 걷어내고 사실만 남김 (M-0068 · 2026-08-01 10:27)
 

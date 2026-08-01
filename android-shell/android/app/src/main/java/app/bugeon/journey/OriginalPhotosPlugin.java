@@ -123,22 +123,41 @@ public class OriginalPhotosPlugin extends Plugin {
     call.resolve(ret); // 취소는 빈 배열 — 오류가 아니다
   }
 
-  /** 한 장을 원본으로 읽는다. 원본 승격이 실패하면 **그 단계만 조용히 내려간다**(사진은 돌려준다). */
+  /**
+   * 한 장을 원본으로 읽는다. 원본 승격이 실패하면 **그 단계만 조용히 내려간다**(사진은 돌려준다).
+   *
+   * 🔴 어느 단계에서 내려갔는지(`reason`)를 함께 돌려준다 — 실기기에서 0/0이 나왔을 때
+   * 「어디서 무너졌나」를 스크린샷 한 장이 말하게 하기 위해서다(M-0066의 규율: 추측을 쌓지
+   * 말고 아는 것을 화면에 내놓아라). 여기서도 **판정하지 않는다** — 사실만 적는다.
+   */
   private JSObject readOne(Uri picked) {
     Uri uri = picked;
     boolean original = false;
-    if (Build.VERSION.SDK_INT >= 29) {
+    String reason = "";
+    if (Build.VERSION.SDK_INT < 29) {
+      reason = "pre-Q"; // <29는 시스템이 위치를 지우지 않는다 — 승격이 필요 없다
+    } else if (getPermissionState("mediaLocation") != com.getcapacitor.PermissionState.GRANTED) {
+      reason = "no-media-location-permission"; // 이 권한 없이는 setRequireOriginal이 예외다
+    } else {
       try {
+        Uri converted = uri;
         // 문서 URI → MediaStore URI. 이 변환 없이는 setRequireOriginal이 그 URI를 못 받는다.
-        if (DocumentsContract.isDocumentUri(getContext(), uri)) {
-          Uri media = MediaStore.getMediaUri(getContext(), uri);
-          if (media != null) uri = media;
+        if (DocumentsContract.isDocumentUri(getContext(), converted)) {
+          Uri media = MediaStore.getMediaUri(getContext(), converted);
+          if (media == null) {
+            reason = "getMediaUri-null"; // 이 제공자의 URI는 MediaStore로 못 바꾼다
+          } else {
+            converted = media;
+          }
         }
-        uri = MediaStore.setRequireOriginal(uri);
-        original = true;
+        if (reason.isEmpty()) {
+          uri = MediaStore.setRequireOriginal(converted);
+          original = true;
+        }
       } catch (Exception e) {
         uri = picked; // 변환·승격 실패 → SAF가 준 그대로(위치는 지워졌을 수 있음)
         original = false;
+        reason = "promote-failed:" + e.getClass().getSimpleName();
       }
     }
     try (InputStream in = getContext().getContentResolver().openInputStream(uri)) {
@@ -150,8 +169,9 @@ public class OriginalPhotosPlugin extends Plugin {
       JSObject one = new JSObject();
       one.put("name", displayName(picked));
       one.put("data", Base64.encodeToString(buf.toByteArray(), Base64.NO_WRAP));
-      // 웹 쪽 🔬 창이 「원본 승격이 실제로 됐는가」까지 관측할 수 있게 사실을 함께 준다.
+      // 웹 쪽 🔬 창이 「원본 승격이 실제로 됐는가 · 아니면 왜 아닌가」까지 관측하게 한다.
       one.put("original", original);
+      one.put("reason", reason);
       return one;
     } catch (Exception e) {
       // 승격된 URI가 읽기를 거부하면(권한 조합 문제) 원래 URI로 한 번 더 — 사진을 잃지 않는다.
@@ -165,6 +185,7 @@ public class OriginalPhotosPlugin extends Plugin {
         one.put("name", displayName(picked));
         one.put("data", Base64.encodeToString(buf.toByteArray(), Base64.NO_WRAP));
         one.put("original", false);
+        one.put("reason", "read-original-failed:" + e.getClass().getSimpleName());
         return one;
       } catch (Exception e2) {
         return null;
