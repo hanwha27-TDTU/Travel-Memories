@@ -20,7 +20,7 @@
 //    사용자의 기억을 지우지 않는다.
 
 import { el, applyText } from '../dom';
-import { CORE_TOOLS, DIAG_TOOLS, renderDiagTool, rollup, type DiagTool } from '../panels/diagnostics';
+import { DIAG_TOOLS, renderDiagTool, rollup, type DiagTool } from '../panels/diagnostics';
 import { LEVELS, type Level } from '../panels/verdict';
 
 /** 허브 카드 하나 — 구조는 [가이드]·[데이터 관리]와 **같은 계약**(ic / mid / 우측 슬롯)을 지킨다. */
@@ -174,7 +174,3 @@ export function openDiagnosticsHub(toolId?: string): void {
   if (target) showDetail(target);
   else showHome();
 }
-
-/** 허브가 아는 도구 수 — 다른 화면이 "N개"를 손으로 세지 않도록. */
-export const DIAG_TOOL_COUNT = DIAG_TOOLS.length;
-export const DIAG_CORE_COUNT = CORE_TOOLS.length;

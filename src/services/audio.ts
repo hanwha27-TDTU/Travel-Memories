@@ -108,12 +108,6 @@ export async function addAudioToMoment(
   return back;
 }
 
-/** 이 순간의 오디오 노트(활성만, 녹음 순서대로). */
-export async function listAudioByMoment(momentId: string): Promise<LocalAudio[]> {
-  const rows = await db().localAudio.where('momentId').equals(momentId).toArray();
-  return rows.filter((a) => a.deletedAt === null).sort((a, b) => a.recordedAt.localeCompare(b.recordedAt));
-}
-
 /** 이 여행의 오디오 노트(활성만) — 타임라인·저장 용량이 읽는다. */
 export async function listAudioByTrip(tripId: string): Promise<LocalAudio[]> {
   const rows = await db().localAudio.where('tripId').equals(tripId).toArray();

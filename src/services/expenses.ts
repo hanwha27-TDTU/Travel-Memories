@@ -154,8 +154,3 @@ export async function listExpensesByTrip(tripId: string): Promise<LocalExpense[]
   return rows.filter((e) => e.deletedAt === null);
 }
 
-/** 순간의 활성 비용. tombstone 제외. */
-export async function listExpensesByMoment(momentId: string): Promise<LocalExpense[]> {
-  const rows = await db().localExpenses.where('momentId').equals(momentId).toArray();
-  return rows.filter((e) => e.deletedAt === null);
-}

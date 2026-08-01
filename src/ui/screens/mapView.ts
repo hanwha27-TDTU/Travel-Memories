@@ -12,6 +12,16 @@ import { zoomForSpan } from '../../domain/place/precision';
 import type { PlaceLike } from '../../domain/place/externalMap';
 import { externalMapRow } from '../externalMapRow';
 
+/**
+ * 지도 마커 색 — **하드코딩하지 않고 `--a1`(여름 강조색) 토큰에서 읽는다**(색 SSOT는 tokens.css).
+ * MapLibre `Marker`는 CSS 변수가 아니라 문자열을 요구하므로 런타임에 계산값을 한 번 뽑는다.
+ * 토큰을 못 읽는 극단적 경우(테스트 등)만 그 토큰의 기본값으로 떨어진다.
+ */
+function markerColor(): string {
+  const v = getComputedStyle(document.documentElement).getPropertyValue('--a1').trim();
+  return v || '#f0836c';
+}
+
 export interface MapPoint extends LocatedPoint {
   placeName: string;
   previewBlob?: Blob; // 미리보기 이미지(표시본 ≤1600 — 썸네일보다 선명)
@@ -75,7 +85,7 @@ function placeMarkersAndFrame(maplibregl: any, map: any, points: MapPoint[], obj
   const bounds = new maplibregl.LngLatBounds();
   for (const p of points) {
     const popup = new maplibregl.Popup({ offset: 24, closeButton: true }).setDOMContent(pointNode(p, objectUrls));
-    new maplibregl.Marker({ color: '#f0836c' }).setLngLat([p.lng, p.lat]).setPopup(popup).addTo(map);
+    new maplibregl.Marker({ color: markerColor() }).setLngLat([p.lng, p.lat]).setPopup(popup).addTo(map);
     bounds.extend([p.lng, p.lat]);
   }
   if (points.length === 1) {
@@ -362,7 +372,7 @@ export function openMapPicker(initial: { lat: number; lng: number } | null): Pro
           confirmBtn.disabled = false;
           if (marker) marker.setLngLat([lng, lat]);
           else {
-            marker = new maplibregl.Marker({ color: '#f0836c', draggable: true }).setLngLat([lng, lat]).addTo(map);
+            marker = new maplibregl.Marker({ color: markerColor(), draggable: true }).setLngLat([lng, lat]).addTo(map);
             marker.on('dragend', () => {
               const p = marker.getLngLat();
               picked = { lat: p.lat, lng: p.lng };

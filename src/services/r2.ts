@@ -214,21 +214,6 @@ export async function r2ListObjects(client: JourneyClient): Promise<R2Listing> {
 }
 
 /**
- * 사진 파일 하나를 **id로** 지운다(경로를 만들 필요 없이).
- *
- * 왜 따로 두나(2026-07-26): 진단의 「영구삭제 후 남은 사진 파일」은 **R2 목록에서 얻은 id**만
- * 알고 있다. 그 사진의 서버 행은 이미 없어서 `storage_path`를 물어볼 곳이 없다. `BlobStore.remove`
- * 는 경로를 받아 다시 id를 뽑아내므로, 여기서는 그 왕복을 건너뛴다.
- *
- * 삭제는 브라우저가 하지 않는다 — 함수가 서명하고 함수가 실행한다(자격증명은 서버에만).
- */
-export async function r2DeleteObject(client: JourneyClient, mediaId: string): Promise<{ error?: string }> {
-  const r = await callSign(client, 'delete', mediaId);
-  if (r.error) return { error: explainR2Error(r.error) };
-  return {};
-}
-
-/**
  * 여러 장을 **한 번에** 지우고, 함수가 **되읽어 확인한** 결과를 받는다.
  *
  * 왜(M-0029): 건당 왕복이면 100장에 100번이고 매번 JWT를 다시 검증한다. 더 중요한 건
@@ -257,20 +242,6 @@ export async function r2AbortMultipart(client: JourneyClient): Promise<{ aborted
   if (r.error) return { aborted: 0, error: explainR2Error(r.error) };
   const d = r.data as { aborted?: unknown } | null;
   return { aborted: typeof d?.aborted === 'number' ? d.aborted : 0 };
-}
-
-/** 서버에 배포된 함수의 **판과 능력**. 앱이 기대하는 것과 어긋나면 화면이 그렇게 말한다. */
-export async function r2Capabilities(
-  client: JourneyClient,
-): Promise<{ version: number; ops: string[]; serverTime: string | null; error?: string }> {
-  const r = await callSign(client, 'capabilities', null);
-  if (r.error) return { version: 0, ops: [], serverTime: null, error: explainR2Error(r.error) };
-  const d = r.data as { version?: unknown; ops?: unknown; serverTime?: unknown } | null;
-  return {
-    version: typeof d?.version === 'number' ? d.version : 0,
-    ops: Array.isArray(d?.ops) ? (d.ops as unknown[]).filter((x): x is string => typeof x === 'string') : [],
-    serverTime: typeof d?.serverTime === 'string' ? d.serverTime : null,
-  };
 }
 
 export function r2BlobStore(client: JourneyClient): BlobStore {
