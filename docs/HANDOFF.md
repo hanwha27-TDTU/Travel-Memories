@@ -65,7 +65,18 @@
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->38<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.42<!--/reg-->) Pages 성공.
+**최신 배포(2026-08-01 실측)**: `5bfbd34`(v<!--reg:appVersion-->1.42<!--/reg--> · PR #149 스쿼시) — CI `harness`·`live-render` 그린, Pages `deploy-pages` **#192 success**. 🔴 **「배포 그린」과 「사이트에서 확인」은 다른 말이다** — 샌드박스가 `*.github.io`를 막으므로 화면 확인은 사용자 실기기 몫이다.
+
+<details><summary>과거 실측(2026-07-28 · v1.22)</summary>
+
+하네스 38개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v1.22) Pages 성공.
+
+> 🔴 이 줄은 **한때 거짓이었다**(2026-08-01 발견). 과거 실측 문장 안에 생성 마커
+> `<!--reg:appVersion-->`가 박혀 있어, 버전이 오를 때마다 **「844aae1이 v1.42로 배포됐다」**로
+> 스스로 바뀌었다 — 844aae1은 v1.22의 배포다. **생성값과 역사적 사실을 한 문장에 섞지 마라**:
+> 마커는 *지금*을 말하고 과거 기록은 *그때*를 말하는데, 섞이면 기록이 조용히 거짓이 된다.
+
+</details>
 
 ### 현재 기능 지도 (새 AI는 이 표로 기능 표면을 즉시 파악)
 
@@ -308,6 +319,8 @@ npm run dev                            # 홈 화면 확인 (선택)
 ### 검증
 
 하네스 <!--reg:gateCount-->38<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 1016(photoMetaSniff 5 포함) · build OK
+**배포**: PR #149 스쿼시 `5bfbd34` → CI `harness`·`live-render` 그린 → Pages `deploy-pages` **#192 success**(2026-08-01 01:17Z).
+🔴 **「배포 그린」 ≠ 「사이트에서 확인」** — 후자는 사용자 실기기 몫이다(샌드박스가 `*.github.io` 차단).
 
 ---
 
