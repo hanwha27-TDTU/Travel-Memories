@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.41<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->141<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.42<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->142<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->24<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -16,6 +16,8 @@
 ### 🕐 직전 세션에서 무슨 일이 있었나 (2026-07-30 · 새 AI는 이것부터)
 
 > **이 절은 "지금 이 순간"이다.** 아래 기능 지도가 *무엇이 있는가*를, 이 절이 *방금 무슨 일이 있었고 무엇이 아직 안 끝났는가*를 말한다.
+
+**한 줄(2026-08-01 · v1.42 · 사진→장소 미해결 건)**: 새 눈 점검으로 **`file.type` MIME 게이트가 SAF 기본 경로에서 좌표를 조용히 버릴 수 있던 구멍**을 찾아 막았다(M-0067 · HANDOFF-0036). **실기기 확인은 아직이다** — 여전히 안 되면 ①어느 버튼 ②🔬 한 줄 ③기기의 앱 버전(v1.42 도달 여부)을 묻는다. 미해결 문제의 전체 맥락은 `photo-storage-dev` §0-C.
 
 **한 줄(2026-07-31 · v1.28~v1.31 · 사진→장소)**: 사용자 제안으로 **사진 EXIF에서 장소를 채우는** 기능을 만들었고(v1.28), 편집 폼까지 넓혔고(v1.29), **화면이 침묵해 「고장」으로 읽힌 것**을 두 판에 걸쳐 고쳤다(v1.30·v1.31 · M-0053·M-0054). 🔴 **다음 사람이 꼭 알아야 할 것**: 사진에 위치가 없을 때 **원인을 단정하지 마라**(M-0056). 안드로이드 사진 선택기가 지우는 사례가 보고돼 있지만 **늘 그렇지는 않다** — 실기기에서 사후 업로드 좌표가 그대로 들어온 것을 확인했다. `media/exif.ts`에 버그가 있는 게 아니라는 것까지가 확실한 부분이다. 미검증 우회(「파일」 앱으로 고르기)가 **다음 작업 후보 1순위**다.
 
@@ -63,7 +65,7 @@
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->38<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.41<!--/reg-->) Pages 성공.
+**검증(2026-07-28 실측)**: 하네스 <!--reg:gateCount-->38<!--/reg-->개 PASS(건너뜀 0) · 유닛 **722**(51파일) · `verify-editor-live` **165/165** · `verify-diagnostics-live` **22/22** · build OK · 배포 `844aae1`(v<!--reg:appVersion-->1.42<!--/reg-->) Pages 성공.
 
 ### 현재 기능 지도 (새 AI는 이 표로 기능 표면을 즉시 파악)
 
@@ -278,6 +280,34 @@ npm run dev                            # 홈 화면 확인 (선택)
 **사용자 대기 열린 결정**: 연구노트 TSA 도입 여부 · (해소됨: Supabase 프로젝트=Travel&Accounting 확정 · Google OAuth 라이브 · 지도 타일=OSM 래스터 ADR-0023). ADR-0015 인라인 AI 컬럼 제거는 ai_artifacts 착수 시 재검토.
 
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
+
+---
+
+## HANDOFF-0036 · v1.42 · **위치를 살리려고 만든 경로가 위치를 버릴 수 있었다** (M-0067) — 새 눈 점검 (2026-08-01)
+
+**한 줄**: 사용자 지시(*"위치정보가 앱에 들어올 때 못 불러오는 것을 새로운 눈으로 다시 점검. 원본에 위치가 없다는 말은 그만 — 원본엔 다 있다"*)로 인테이크 경로 전체를 다시 훑었고, **기본 경로(SAF 파일 선택기) 위에 남아 있던 마지막 코드 쪽 구멍**을 찾아 막았다.
+
+### 무엇을 찾았나 (M-0067)
+
+`readPhotoMeta`가 EXIF를 읽을지 말지를 `/jpe?g/i.test(file.type)` — **선택기가 보고한 MIME**으로 정하고 있었다. v1.40이 기본으로 만든 일반 파일 선택기(SAF)의 제공자는 `file.type`을 **비우거나 `application/octet-stream`으로** 줄 수 있고, 그러면 바이트에 GPS가 멀쩡해도 **읽지도 않고 버렸다.**
+
+같은 파일 안에서 이미 갈라져 있었다(§7 위반이 신호): 🔬 프로브는 **바이트**(SOI)로 판별, 저장 쪽은 `file.type || 'image/jpeg'`로 **type이 빌 수 있음을 인정**, EXIF 게이트만 주장을 믿었다. → 프로브가 「위치 있음」이라는데 장소 칸은 비는 모순(0-C 세 번째 갈래)이 코드에 실재했다.
+
+### 수정
+
+- MIME 게이트 제거 — **판별은 바이트가 한다**(`readJpegExif`의 SOI 확인). 비용: 앞 256KB 읽기 한 번.
+- `tests/unit/photoMetaSniff.test.ts` 신설 — 진짜 JPEG 바이트 + type 위조(`''`/`octet-stream`) 주입, **수정 전 RED 확인**(§4). 역방향(`image/jpeg` 주장 + 가짜 바이트 → 빈 결과)도 잠금.
+- 픽스처를 `tests/unit/fixtures/jpegBytes.ts`로 승격(§2 SSOT) — exif.test.ts와 같은 바이트를 쓴다.
+
+### 🔴 정직
+
+- **이것이 실기기 남은 증상의 원인인지는 미확인이다**(§8). 확인 경로는 그대로: **[🔬] 한 줄**. 다만 이 결함은 「값이 정상인데 앱이 못 읽음」 갈래를 실제로 만들 수 있는, 코드에 남아 있던 마지막 자리였다.
+- 라이브 렌더: 전체 하네스(라이브 포함) 통과. 이 변경은 화면·버튼 무변경(서비스 함수 내부)이라 별도 신규 렌더 없음.
+- 실기기에서 여전히 안 되면 다음 순서: ①어느 버튼으로 골랐는지 ②🔬 한 줄 ③**기기가 v1.42를 실제로 받았는지**(개발자 정보의 버전 — 서비스워커가 옛 번들을 물고 있으면 고침이 도달하지 않은 것이다).
+
+### 검증
+
+하네스 <!--reg:gateCount-->38<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 1016(photoMetaSniff 5 포함) · build OK
 
 ---
 
