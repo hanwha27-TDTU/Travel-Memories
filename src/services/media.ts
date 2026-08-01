@@ -140,26 +140,31 @@ export async function readPhotoMeta(file: File, fallbackZone: string): Promise<P
   let gpsLng: number | null = null;
   let tzOffsetMin: number | null = null;
   let tzSource: PhotoMeta['tzSource'] = 'device';
-  if (/jpe?g/i.test(file.type)) {
-    try {
-      const exif = readJpegExif(await file.slice(0, EXIF_HEAD_BYTES).arrayBuffer());
-      if (exif.takenAtWall) {
-        // 근거 사다리 — 파일 → 여행 → 기기. 어느 단을 밟았는지 **함께 돌려준다.**
-        const fromTrip = fallbackZone ? zoneOffsetAtWall(exif.takenAtWall, fallbackZone) : null;
-        const off = exif.tzOffsetMin ?? fromTrip ?? zoneOffsetAtWall(exif.takenAtWall, deviceZone());
-        if (off !== null && off !== undefined) {
-          takenAt = wallClockToInstant(exif.takenAtWall, off);
-          tzOffsetMin = off;
-          tzSource = exif.tzOffsetMin !== undefined ? 'exif' : fromTrip !== null ? 'trip' : 'device';
-        }
+  // 🔴 `file.type`으로 거르지 않는다(2026-08-01). type은 **선택기의 주장**이고, 기본 경로인
+  // 일반 파일 선택기(SAF)의 제공자는 이 값을 비우거나 `application/octet-stream`으로 주는
+  // 경우가 있다 — 그때 JPEG 바이트에 GPS가 멀쩡히 있어도 여기서 조용히 버려졌다.
+  // 같은 파일의 저장 쪽(`mime: file.type || 'image/jpeg'`)은 type이 빌 수 있음을 이미
+  // 인정하고 있었고, 🔬 프로브(`probeJpeg`)는 처음부터 바이트로 판별한다 — 이 게이트만
+  // 주장을 믿었다. **판별은 바이트가 한다**: `readJpegExif`가 SOI(0xFFD8)를 확인하므로
+  // JPEG 아닌 파일은 빈 결과로 끝난다. 비용은 앞 256KB 읽기 한 번(프로브는 512KB를 읽는다).
+  try {
+    const exif = readJpegExif(await file.slice(0, EXIF_HEAD_BYTES).arrayBuffer());
+    if (exif.takenAtWall) {
+      // 근거 사다리 — 파일 → 여행 → 기기. 어느 단을 밟았는지 **함께 돌려준다.**
+      const fromTrip = fallbackZone ? zoneOffsetAtWall(exif.takenAtWall, fallbackZone) : null;
+      const off = exif.tzOffsetMin ?? fromTrip ?? zoneOffsetAtWall(exif.takenAtWall, deviceZone());
+      if (off !== null && off !== undefined) {
+        takenAt = wallClockToInstant(exif.takenAtWall, off);
+        tzOffsetMin = off;
+        tzSource = exif.tzOffsetMin !== undefined ? 'exif' : fromTrip !== null ? 'trip' : 'device';
       }
-      if (exif.gpsLat !== undefined && exif.gpsLng !== undefined) {
-        gpsLat = exif.gpsLat;
-        gpsLng = exif.gpsLng;
-      }
-    } catch {
-      /* EXIF 실패는 null로 둔다 — 폴백은 부르는 쪽의 몫이다. */
     }
+    if (exif.gpsLat !== undefined && exif.gpsLng !== undefined) {
+      gpsLat = exif.gpsLat;
+      gpsLng = exif.gpsLng;
+    }
+  } catch {
+    /* EXIF 실패는 null로 둔다 — 폴백은 부르는 쪽의 몫이다. */
   }
   return { takenAt, gpsLat, gpsLng, tzOffsetMin, tzSource };
 }
