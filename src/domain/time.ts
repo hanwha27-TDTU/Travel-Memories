@@ -470,6 +470,22 @@ export function isKnownZone(instant: string, timeZone: string): boolean {
 }
 
 /**
+ * **시간대 검색 판정** — id·화면 표시 문구(도시명·지역명·오프셋) 어디에라도 검색어가 있으면
+ * 남긴다. 순수 함수(§10 ③ — 사용자에게 나가는 필터링은 유닛이 직접 돌린다).
+ *
+ * 사용자 지적(2026-08-01): *"시간대가 너무 많아서 찾기가 힘들어요"* — 418개를 대륙별로
+ * 묶어도 폰에서 스크롤로 찾는 것은 느리다. 검색어는 공백을 지우고 소문자로 맞춰 비교한다
+ * (`Asia/Seoul`도 `asia seoul`도 같은 결과를 주게).
+ */
+export function zoneMatches(query: string, id: string, displayText: string): boolean {
+  // 공백·슬래시·밑줄을 지우고 비교한다 — "asia seoul"도 "Asia/Seoul"도 같은 문자열이 되게.
+  const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9가-힣]/g, '');
+  const q = norm(query);
+  if (!q) return true;
+  return norm(id).includes(q) || norm(displayText).includes(q);
+}
+
+/**
  * 시간대 칸 옆에 붙는 미리보기 — 「지금 그곳은 21:08 (UTC+7)」.
  * 고른 것이 맞는지 **사용자가 눈으로 확인**할 수 있게 한다(id만 보고는 아무도 모른다).
  */

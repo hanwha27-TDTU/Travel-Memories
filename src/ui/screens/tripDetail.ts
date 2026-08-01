@@ -1065,6 +1065,7 @@ import {
   zoneLabel,
   zonesForCountry,
   deviceZone,
+  zoneMatches,
   type TripClock,
 } from '../../domain/time';
 import { homeZone, setHomeZone } from '../../services/homeZone';
@@ -1994,10 +1995,21 @@ interface ZoneSelectOptions {
    * 그래서 「내 기기 시간대」는 늘 고를 수 있게 둔다.
    */
   alsoOffer?: string[];
+  /**
+   * **자주 쓰는 시간대** — 목록 맨 위 「자주 씀」 묶음에 이 순서대로 올린다.
+   *
+   * 사용자 지적(2026-08-01): *"시간대가 너무 많아서 찾기가 힘들어요...서울 시간대와
+   * 타슈켄트 시간대를 배치하면 좋을 듯 해요. 자주 쓰거든요"*. 두 자리(여행·집 시간대)가
+   * 같은 값을 쓴다(§7) — 손으로 두 벌 만들면 한쪽만 낡는다.
+   */
+  pinned?: string[];
   /** 미리보기 문장 — 자리마다 하는 말이 다르므로 호출부가 정한다. */
   say: (zone: string) => string;
   onChange?: (zone: string) => void;
 }
+
+/** 여행·집 시간대 칸이 공유하는 「자주 씀」 목록(§7 SSOT) — 서울·타슈켄트. */
+const PINNED_ZONES: readonly string[] = ['Asia/Seoul', 'Asia/Tashkent'];
 
 /**
  * 🔴 **시간대 선택기 — 여행과 집이 같은 한 곳을 지난다**(§7 2층 · 화면 대칭).
@@ -2008,6 +2020,16 @@ interface ZoneSelectOptions {
  */
 function buildZoneSelect(o: ZoneSelectOptions): ZoneField {
   const wrap = el('div', 'zone-field');
+
+  // 🔍 검색 — 418개를 스크롤로 찾기 힘들다는 지적(2026-08-01)에 대한 응답. select 자체는
+  // 네이티브로 유지하고(§13 주석 참조 — 자동완성 신뢰성 문제로 datalist를 버렸다), 검색은
+  // **option을 숨기는 것**으로 구현한다 — 선택 방식은 그대로, 목록만 좁아진다.
+  const search = el('input', 'edit-input zone-search') as HTMLInputElement;
+  search.type = 'search';
+  search.placeholder = '🔍 검색 (예: seoul, tashkent, asia)';
+  search.setAttribute('aria-label', `${o.ariaLabel} 검색`);
+  search.setAttribute(`${o.handle}-search`, '1');
+
   const sel = el('select', 'edit-input zone-input') as HTMLSelectElement;
   sel.setAttribute('aria-label', o.ariaLabel);
   sel.setAttribute(o.handle, '1');
@@ -2018,8 +2040,6 @@ function buildZoneSelect(o: ZoneSelectOptions): ZoneField {
     sel.appendChild(none);
   }
 
-  // 대륙별로 묶는다. 418개를 한 줄로 늘어놓으면 폰에서 찾을 수가 없고, `Asia/`·`Europe/`가
-  // 이미 그 묶음이다 — **우리가 분류표를 만들지 않는다**(id가 스스로 말한다).
   const now = new Date().toISOString();
   const optionFor = (z: string): HTMLOptionElement => {
     const city = z.slice(z.indexOf('/') + 1).replace(/_/g, ' ');
@@ -2027,8 +2047,22 @@ function buildZoneSelect(o: ZoneSelectOptions): ZoneField {
     opt.value = z;
     return opt;
   };
+
+  const pinned = (o.pinned ?? []).filter((z, i, arr) => arr.indexOf(z) === i);
+  if (pinned.length) {
+    const g = el('optgroup') as HTMLOptGroupElement;
+    g.label = '⭐ 자주 씀';
+    for (const z of pinned) g.appendChild(optionFor(z));
+    sel.appendChild(g);
+  }
+
+  // 대륙별로 묶는다. 418개를 한 줄로 늘어놓으면 폰에서 찾을 수가 없고, `Asia/`·`Europe/`가
+  // 이미 그 묶음이다 — **우리가 분류표를 만들지 않는다**(id가 스스로 말한다).
+  // 자주 씀에 이미 올라간 항목은 여기서 뺀다(같은 값이 목록에 두 번 나오지 않게).
+  const pinnedSet = new Set(pinned);
   const byRegion = new Map<string, string[]>();
   for (const z of zoneOptions()) {
+    if (pinnedSet.has(z)) continue;
     const region = z.includes('/') ? z.slice(0, z.indexOf('/')) : '기타';
     const arr = byRegion.get(region);
     if (arr) arr.push(z);
@@ -2053,6 +2087,19 @@ function buildZoneSelect(o: ZoneSelectOptions): ZoneField {
   ensureOption(o.initial);
   sel.value = o.initial;
 
+  // 검색어로 option을 숨긴다(순수 판정은 domain/time.ts의 zoneMatches — 유닛이 그쪽을 돈다).
+  // 그룹 전체가 안 보이면 그룹 자체도 접는다 — 빈 지역 이름만 남는 것을 막는다.
+  const applyFilter = (): void => {
+    const q = search.value;
+    for (const opt of Array.from(sel.options)) {
+      opt.hidden = !zoneMatches(q, opt.value, opt.textContent ?? '');
+    }
+    for (const g of Array.from(sel.querySelectorAll('optgroup'))) {
+      g.hidden = Array.from(g.children).every((c) => (c as HTMLOptionElement).hidden);
+    }
+  };
+  search.addEventListener('input', applyFilter);
+
   const preview = el('p', 'zone-preview muted small');
   preview.setAttribute('role', 'status');
   const sync = (): void => {
@@ -2064,7 +2111,7 @@ function buildZoneSelect(o: ZoneSelectOptions): ZoneField {
   });
   sync();
 
-  wrap.append(sel, preview);
+  wrap.append(search, sel, preview);
   return {
     el: wrap,
     value: () => sel.value,
@@ -2083,6 +2130,7 @@ function buildZoneField(initial: string): ZoneField {
     ariaLabel: '여행 시간대',
     handle: 'data-zone-input',
     allowNone: true,
+    pinned: [...PINNED_ZONES],
     say: (z) => {
       if (!z) return '미지정 — 순간 시각을 이 기기 시간대로 보여줘요';
       const now = new Date().toISOString();
@@ -2103,6 +2151,7 @@ function buildHomeZoneField(): ZoneField {
     ariaLabel: '집 시간대',
     handle: 'data-home-zone-input',
     allowNone: false,
+    pinned: [...PINNED_ZONES],
     alsoOffer: [deviceZone()], // 「내 기기 시간대」로 되돌아갈 길을 늘 남긴다
     onChange: setHomeZone,
     say: (z) => {
