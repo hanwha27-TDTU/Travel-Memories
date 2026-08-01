@@ -65,6 +65,10 @@ export const GATE_DESC: Record<string, string> = {
     '「항상 최신 APK」 계약 — CI 릴리스(apk-latest·--clobber) ↔ 앱 상수 ↔ 가이드 버튼이 같은 고정 주소를 말하는가',
   'check-update-signal':
     '「접속하면 스스로 최신」 계약 — 빌드가 version.json을 심고, 앱이 시작·복귀 때 묻고, SW가 신호를 안 만지는가(M-0070)',
+  'check-purge-scope':
+    '여행 영구삭제가 자식을 trip_id로 지우는 계약이 실제 스키마와 일치하는가 — tripScoped ↔ rowmap의 trip_id(C-1)',
+  'check-real-coord':
+    '「진짜 좌표인가」 판정(유한·범위·0,0 아님)이 isRealCoord 한 곳에만 있는가 — 손으로 쓴 좌표 0,0 검사를 차단(H-3)',
   'unit-tests': '순수 로직 유닛(비공허 확인)',
   'verify-editor-live':
     '실제 브라우저가 앱을 열어 화면·편집기·서비스워커·폰트를 확인(정적 검사가 원리적으로 못 보는 층)',
@@ -113,6 +117,8 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-known-index': 'static',
   'check-apk-release-link': 'static',
   'check-update-signal': 'static',
+  'check-purge-scope': 'static',
+  'check-real-coord': 'static',
   'unit-tests': 'unit',
   'verify-editor-live': 'live',
   'verify-diagnostics-live': 'live',

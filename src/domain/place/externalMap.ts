@@ -30,6 +30,8 @@
 // 🔴 ②가 **제공자별**인 것이 중요하다 — 구글에 보내도 된다는 동의는 얀덱스에 보내도 된다는
 // 동의가 아니다. 받는 회사가 다르면 다른 결정이다.
 
+import { isRealCoord } from './coordInput';
+
 /** 제공자 식별자. 동의 저장 키와 검사에서 쓰므로 **문자열을 손으로 다시 적지 않는다.** */
 export type MapProviderId = 'google' | 'yandex' | 'naver' | 'kakao';
 
@@ -57,14 +59,15 @@ export interface ExternalMapTarget {
   sends: string;
 }
 
-/** 좌표가 지구 위의 값인가. 범위를 벗어난 값은 **없는 것으로 친다**(엉뚱한 곳을 열지 않는다). */
+/**
+ * 좌표가 지구 위의 값인가 — **단일 판정(isRealCoord)에 위임한다**(H-3).
+ *
+ * 🔴 예전엔 이 함수가 유한·범위·0,0 검사를 **손으로 다시 구현**했다(감사가 센 7곳의 8번째 —
+ * `coordInput.ts`의 판정과 갈라질 수 있었다). 이름은 이 층의 어휘(외부 지도 링크)라 남기되
+ * 몸은 공용 함수를 부른다. `check-real-coord` 게이트가 이 함수 밖의 0,0 리터럴을 잡는다.
+ */
 export function isUsableCoord(lat: number | null, lng: number | null): boolean {
-  return (
-    typeof lat === 'number' && typeof lng === 'number' &&
-    Number.isFinite(lat) && Number.isFinite(lng) &&
-    Math.abs(lat) <= 90 && Math.abs(lng) <= 180 &&
-    !(lat === 0 && lng === 0) // 0,0(Null Island)은 사실상 "좌표 없음"의 흔한 형태다
-  );
+  return isRealCoord(lat, lng);
 }
 
 /** 좌표 표기 — 소수 6자리면 약 10cm다. 그 이상은 정밀도를 **가장**하는 것이다. */

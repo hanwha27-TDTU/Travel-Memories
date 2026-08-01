@@ -17,6 +17,8 @@
 // (§10 ③ — M-0022가 그 자리였다). 그리고 이 규칙은 시각 추측(`guessOccurredAt`)과
 // **같은 성질**이라 나란히 놓여야 다음 사람이 둘을 같은 눈으로 본다.
 
+import { isRealCoord } from './coordInput';
+
 /** `readPhotoMeta`가 돌려주는 것 중 이 판단에 필요한 부분만. */
 export interface PhotoMetaLike {
   /** EXIF 촬영시각(ISO). 없으면 `null` — **대표 사진을 고르는 기준**이다(아래 참조). */
@@ -70,17 +72,9 @@ export interface PhotoHint {
  * 설명 가능한 규칙이다. 평균 좌표는 **실제로 아무도 서 있지 않은 지점**이라 쓰지 않는다.
  */
 export function photoHintOf(metas: readonly PhotoMetaLike[]): PhotoHint {
-  const located = metas.filter(
-    (m) =>
-      m.gpsLat !== null &&
-      m.gpsLng !== null &&
-      Number.isFinite(m.gpsLat) &&
-      Number.isFinite(m.gpsLng) &&
-      // 🔴 **0,0은 좌표가 아니다**(2026-07-31 · M-0057). 파서에서도 막지만 여기서도 막는다 —
-      // 이미 0,0으로 저장된 옛 기록과, 파서를 안 지나는 다른 경로가 있기 때문이다.
-      // 기니만 앞바다에서 찍은 여행 사진일 확률보다 **태그가 비어 있을** 확률이 압도적이다.
-      !(m.gpsLat === 0 && m.gpsLng === 0),
-  );
+  // 🔴 「진짜 좌표인가」는 단 하나의 함수가 판정한다(H-3 · isRealCoord). NaN·범위밖·0,0을
+  // 한꺼번에 거른다 — 예전엔 이 판정이 일곱 곳에 손으로 있어 갈라졌다(M-0060).
+  const located = metas.filter((m: PhotoMetaLike) => isRealCoord(m.gpsLat, m.gpsLng));
   // 시각을 아는 것들 중 가장 이른 것 → 없으면 고른 순서의 첫 장.
   // 못 읽는 시각(`Date.parse` NaN)은 **정렬에 끼우지 않는다** — 지어낸 순서를 만들지 않는다.
   const timed = located

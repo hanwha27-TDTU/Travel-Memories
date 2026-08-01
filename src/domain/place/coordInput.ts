@@ -48,10 +48,29 @@ export interface ParsedCoord {
 const isLat = (n: number): boolean => Number.isFinite(n) && n >= -90 && n <= 90;
 const isLng = (n: number): boolean => Number.isFinite(n) && n >= -180 && n <= 180;
 
-/** 좌표쌍이 지구 위에 있는가. 둘 다 0인 것은 「Null Island」라 보통 파싱 실패의 흔적이다. */
-export function isUsableCoord(lat: number, lng: number): boolean {
+/**
+ * 🔴 **「이게 지구 위의 진짜 좌표인가」의 단일 판정** — 이 앱에서 이 질문에 답하는 유일한 함수다.
+ *
+ * 왜 하나여야 하나(H-3 · 2026-08-01 감사·확정): 같은 판정이 **일곱 곳에 손으로** 있었고 이미
+ * 세 가지 강도로 **갈라져 있었다** — 어떤 곳은 `Number.isFinite`로 NaN을 막고 어떤 곳은 안 막아
+ * `NaN, NaN`이 화면에 그려지고 "장소 있음"으로 통과했다. 헌법 M-0060이 정확히 이걸 금지한다:
+ * *"같은 판정을 두 번 쓰지 마라 — 이유를 붙여서도. 갈라질 수 있는 것은 갈라진다."*
+ *
+ * 세 가지를 한꺼번에 판정한다: ① 둘 다 유한한 수인가(NaN·null·undefined 배제) ② 범위 안인가
+ * (위도 ±90·경도 ±180) ③ **둘 다 0이 아닌가**(0,0 = 기니만 앞바다 = 보통 파싱 실패의 흔적 —
+ * M-0057이 나흘 쓴 자리). `unknown`을 받는 이유: 호출부의 값이 `number|null|undefined`로
+ * 제각각이라 경계에서 한 번에 좁힌다. `check-real-coord` 게이트가 이 함수 밖의 `=== 0 && … === 0`
+ * 리터럴을 RED로 잡는다(3층).
+ */
+export function isRealCoord(lat: unknown, lng: unknown): boolean {
+  if (typeof lat !== 'number' || typeof lng !== 'number') return false;
   if (!isLat(lat) || !isLng(lng)) return false;
   return !(lat === 0 && lng === 0);
+}
+
+/** 좌표쌍이 지구 위에 있는가(붙여넣기 파서용 별칭 — 인자가 이미 number인 경로). */
+export function isUsableCoord(lat: number, lng: number): boolean {
+  return isRealCoord(lat, lng);
 }
 
 /**

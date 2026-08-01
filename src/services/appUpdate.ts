@@ -9,11 +9,20 @@
 //
 // 그래서: 시작·복귀 때 배포에 심어진 신호(version.json — gen-version-file.mjs)를 묻고,
 // 새 판이 있으면 **안전할 때** 새로고침한다. 안전하지 않으면(글 쓰는 중·창 열림) 미뤘다가
-// **다음 화면 이동(hashchange) 때** 적용한다 — 새 UI 없이 반드시 도달한다.
+// **다음 화면 이동 때** 적용한다 — 새 UI 없이 반드시 도달한다.
 //
 // 🔴 안전 규칙이 이 파일의 핵심이다. 새로고침은 입력 중인 글을 날릴 수 있다(비타협 원칙 #1의
-// 이웃 — 아직 저장 안 된 기억). 그래서 「이번 표시 기간에 키보드 입력이 있었나」와 「열린
+// 이웃 — 아직 저장 안 된 기억). 그래서 「지난 안전지점 이후 입력이 있었나」와 「열린
 // 창(overlay)이 있나」를 보고, 하나라도 걸리면 지금은 건드리지 않는다.
+//
+// 🔴 H-4(2026-08-01 감사·확정) — 이 배선이 두 군데서 조용히 죽어 있었다:
+//  ① 「다음 화면 이동」을 `hashchange`로 들었는데, 이 앱 라우터는 History API(pushState/popstate)라
+//     hash가 안 바뀐다 → 그 이벤트는 **한 번도 발화하지 않았다.** 미뤄둔 갱신이 영영 도달 못 했다.
+//     이제 라우터가 화면을 그릴 때마다 쏘는 `bj:route`를 듣는다(router.ts:apply).
+//  ② 입력 감지가 `keydown` 전용이라 **붙여넣기·음성입력·제스처 타이핑·IME 조합**을 놓쳤다
+//     (셸 사용자가 주 대상인데). 이제 `beforeinput`을 듣는다 — 그 모든 경로가 이 하나를 지난다.
+//  ③ 복귀(visibilitychange)마다 입력 이력을 리셋해, 글 쓰다 앱 전환 후 돌아오면 **글이 있는데도**
+//     안전하다고 오판했다. 이제 리셋은 **화면 이동(입력을 떠남)** 때만 한다.
 
 import { CHANGELOG } from '../app/changelog';
 
@@ -42,10 +51,10 @@ export function shouldCheck(lastAt: number | null, now: number): boolean {
 /**
  * 지금 새로고침해도 안전한가. 순수(인자로 받은 사실만 본다).
  * — 열린 창(overlay)이 있으면 안 된다: 백업 진행·편집기 등 중간 상태가 산다.
- * — 이번 표시 기간에 키보드 입력이 있었으면 안 된다: 아직 저장 안 된 글일 수 있다.
+ * — 지난 안전지점(화면 이동) 이후 입력이 있었으면 안 된다: 아직 저장 안 된 글일 수 있다.
  */
-export function safeToReload(hasOverlay: boolean, typedSinceVisible: boolean): boolean {
-  return !hasOverlay && !typedSinceVisible;
+export function safeToReload(hasOverlay: boolean, typedSinceSafePoint: boolean): boolean {
+  return !hasOverlay && !typedSinceSafePoint;
 }
 
 interface VersionSignal {
@@ -76,12 +85,13 @@ const ATTEMPT_KEY = 'bj.update.attempted';
  */
 export function wireAutoUpdate(): void {
   let lastCheckAt: number | null = null;
-  let typedSinceVisible = false;
+  // 지난 안전지점(화면 이동) 이후 입력이 있었나 — 있으면 저장 안 된 글일 수 있어 새로고침을 미룬다.
+  let typedSinceSafePoint = false;
   let pending: string | null = null;
 
   const tryApply = (): void => {
     if (!pending) return;
-    if (!safeToReload(document.querySelector('.overlay-base') !== null, typedSinceVisible)) return;
+    if (!safeToReload(document.querySelector('.overlay-base') !== null, typedSinceSafePoint)) return;
     try {
       if (sessionStorage.getItem(ATTEMPT_KEY) === pending) return; // 이미 시도한 버전 — 루프 차단
       sessionStorage.setItem(ATTEMPT_KEY, pending);
@@ -104,18 +114,20 @@ export function wireAutoUpdate(): void {
     });
   };
 
-  document.addEventListener('keydown', () => {
-    typedSinceVisible = true;
+  // 🔴 `beforeinput`은 키보드·붙여넣기·음성·제스처·IME 조합이 **전부 지나는** 하나의 문이다
+  //    (keydown은 그중 일부만 낸다 — H-4 ②). 입력이 있으면 「저장 안 됨」으로 표시한다.
+  document.addEventListener('beforeinput', () => {
+    typedSinceSafePoint = true;
   });
+  // 복귀 시에는 확인만 하고 **입력 이력을 지우지 않는다**(H-4 ③) — 글 쓰다 나갔다 돌아온 것이
+  // "안전"으로 둔갑하면 안 된다. 리셋은 오직 화면 이동(아래)에서만.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      typedSinceVisible = false; // 새 표시 기간 시작 — 입력 이력도 새로 센다
-      check();
-    }
+    if (document.visibilityState === 'visible') check();
   });
-  // 화면 이동 = 이전 화면의 입력을 떠났다 — 미뤄둔 갱신을 적용할 안전한 순간.
-  window.addEventListener('hashchange', () => {
-    typedSinceVisible = false;
+  // 화면 이동 = 이전 화면의 입력을 떠났다 — 안전지점이자 미뤄둔 갱신을 적용할 순간.
+  // 🔴 `bj:route`다(router.ts). 예전의 `hashchange`는 History 라우터에서 **발화하지 않았다**(H-4 ①).
+  window.addEventListener('bj:route', () => {
+    typedSinceSafePoint = false;
     tryApply();
   });
 

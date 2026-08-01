@@ -52,7 +52,7 @@ import { openMapView, openMapPicker, openDiagnosticsHub } from '../lazyScreens';
 import type { MapPoint } from './mapView';
 import { ensureProviders, reverseGeocode, searchPlaces, type PlaceResult } from '../../services/geocode';
 import { providerLabel } from '../../domain/place/provider';
-import { coordInputLabel, parseCoordinateInput, swapCoord, type ParsedCoord } from '../../domain/place/coordInput';
+import { coordInputLabel, parseCoordinateInput, swapCoord, isRealCoord, type ParsedCoord } from '../../domain/place/coordInput';
 import { listPlaces, savePlace } from '../../services/places';
 import { supabase } from '../../services/supabase/client';
 import { needsRefine, precisionGlyph, precisionLabel, verdictFromStored, type PrecisionVerdict } from '../../domain/place/precision';
@@ -615,12 +615,14 @@ async function renderProbe(box: HTMLElement, files: File[]): Promise<void> {
   if (!files.length) return;
   const sum = el('summary', '', '🔬 앱이 받은 사진 정보 보기');
   box.appendChild(sum);
-  const { probeJpeg } = await import('../../media/exif');
+  const { probeJpeg, EXIF_HEAD_BYTES } = await import('../../media/exif');
   const { photoProbeLine, photoProbeNext, photoProbePath } = await import('../../domain/place/photoProbe');
   const { pickedVia } = await import('../../services/nativePhotos');
   const { shellState } = await import('../../services/capacitorShell');
   for (const f of files.slice(0, 3)) {
-    const buf = await f.slice(0, 512 * 1024).arrayBuffer();
+    // 저장 경로(media.ts)와 **같은 창**을 읽는다 — 여기만 크면 "🔬는 위치 있다는데 저장은 안 됨"이
+    // 된다(H-2). 상수는 exif.ts가 SSOT. 손으로 512KB를 다시 쓰지 않는다.
+    const buf = await f.slice(0, EXIF_HEAD_BYTES).arrayBuffer();
     // 해시는 **파일 전체**로 낸다 — 앞부분만 재면 폰의 원본과 대조할 수 없다.
     const digest = await crypto.subtle.digest('SHA-256', await f.arrayBuffer());
     const sha16 = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
@@ -1297,8 +1299,9 @@ function toLocalInputValue(iso: string, offsetMin: number): string {
  * 것으로 보고**, 새 위치가 들어오면 자연스럽게 덮인다.
  */
 function momentHasPlace(m: { placeName: string; placeLat?: number | null; placeLng?: number | null }): boolean {
-  const real = m.placeLat != null && m.placeLng != null && !(m.placeLat === 0 && m.placeLng === 0);
-  return Boolean(m.placeName) || real;
+  // 🔴 「진짜 좌표인가」는 단 하나의 함수(isRealCoord)가 판정한다(H-3). 예전엔 여기서 NaN을
+  // 안 막아 `NaN, NaN`이 「장소 있음」으로 통과했다 — 이제 유한·범위·0,0을 한꺼번에 거른다.
+  return Boolean(m.placeName) || isRealCoord(m.placeLat, m.placeLng);
 }
 
 function placeChip(m: { id: string; placeName: string; placeLat?: number | null; placeLng?: number | null }): HTMLElement {
@@ -1306,9 +1309,9 @@ function placeChip(m: { id: string; placeName: string; placeLat?: number | null;
   const lng = m.placeLng ?? null;
   // 이름이 없으면 **좌표를 보여준다.** 「이름 없는 장소」라고 쓰면 그건 앱의 사정이지
   // 사용자의 정보가 아니다 — 좌표는 적어도 *어디인지*를 말한다(지도에서 열 수도 있다).
-  // 🔴 0,0은 좌표가 아니다(M-0057) — 이름이 없으면 라벨도 없다(칩 자체가 안 그려진다).
-  const realCoord = lat !== null && lng !== null && !(lat === 0 && lng === 0);
-  const label = m.placeName || (realCoord ? `${lat.toFixed(4)}, ${lng.toFixed(4)}` : '');
+  // 🔴 「진짜 좌표인가」는 단 하나의 함수(isRealCoord)가 판정한다(H-3 · NaN·범위밖·0,0 배제).
+  const realCoord = isRealCoord(lat, lng);
+  const label = m.placeName || (realCoord ? `${lat!.toFixed(4)}, ${lng!.toFixed(4)}` : '');
   const chip = el('button', 'chip gps chip-tap', `📍 ${label}`) as HTMLButtonElement;
   chip.type = 'button';
   chip.setAttribute('aria-label', `${label} 지도에서 보기`);
