@@ -14,15 +14,28 @@
 
 ## 앱용 사진 기준
 
-| 항목 | 기본값 |
-|------|--------|
-| 긴 변 | 최대 2560px |
-| 형식 | WebP (미지원 시 JPEG 0.82) |
-| 품질 | 0.82 |
-| 목표 크기 | 약 0.5~1.5MB |
-| 썸네일 긴 변 / 품질 | 640px / 0.70 |
-| 디코딩·변환 동시성 (모바일) | **기본 1** (큰 Bitmap 메모리, H-06) |
-| 업로드 동시성 (모바일) | 기본 2 (H-06) |
+> 🔴 **실측값으로 갱신(2026-08-01 감사 · D-05).** 아래 표의 오른쪽 열이 **실제 코드**
+> (`src/media/compress.ts`)다. 왼쪽(옛 목표값)은 참고로만 남긴다 — 권위는 코드.
+> 표시본을 1600px·q0.90으로 정한 근거는 `compress.ts:10-13` 주석에 있다(품질 0.82→0.90 상향
+> 은 실측 후 결정). 썸네일 320px는 목록·격자 전용이라 640px가 불필요하다는 판단.
+
+| 항목 | 옛 목표값 | **실제(compress.ts)** |
+|------|--------|--------|
+| 긴 변 | 2560px | **1600px** (`DISPLAY_MAX`) |
+| 품질 | 0.82 | **0.90** (`DISPLAY_QUALITY`) |
+| 썸네일 긴 변 | 640px | **320px** (`THUMB_MAX`) |
+| 썸네일 품질 | 0.70 | **0.80** (`THUMB_QUALITY`) |
+| 형식 | WebP | WebP (`toBlob('image/webp')`) |
+| 디코딩·변환 동시성 (모바일) | 1 | 메인 스레드 순차(Worker는 후속 — D-16) |
+
+> ⛔ **미구현(2026-08-01 실측)** — 아래 항목은 본문이 현재형/필수형으로 적었으나 코드에 없다:
+> **H-07**(결과 MIME·magic byte 검사 → JPEG/PNG fallback — `compress.ts`는 검증·fallback
+> 없이 webp 요청 후 `throw`) · **스테이징 상태머신**(`selected_non_durable`·`derived_ready`
+> 출현 0 · 실제는 quota preflight만) · **중복검사 2단계**(`content_hash`·`hash_algorithm`
+> 출현 0) · **`exif_whitelist` 컬럼**(스키마에 없음 — 실제는 gps_lat/gps_lng·taken_at 개별
+> 컬럼만 서버로 가므로 whitelist 목적은 결과적으로 더 보수적으로 달성) · **H-08 입력검증**
+> (SVG 거부·pixel cap·압축폭탄 차단 미구현 — 빈 파일 차단·quota preflight만) · **TUS
+> resumable upload**(출현 0) · **Web Worker + OffscreenCanvas**(실사용 0 — 메인 스레드).
 
 ## 스테이징 상태머신 (C-02 — 전량 내구성 대기열 전제 폐기)
 

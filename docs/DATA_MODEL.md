@@ -2,6 +2,19 @@
 
 설계지시서 §8 + MASTER_SPEC_v0.2 §10~§12 기준.
 
+> 🔴 **이 문서는 「목표 데이터 모델」이다 — 실제 배포 스키마는 `supabase/migrations/*.sql`이 정본**
+> (2026-08-01 감사 · D-09·D-17). 권위 순서상 코드/마이그레이션이 이긴다. 목표와 실제의 차이:
+> - **구현된 사용자 테이블(마이그레이션 0001~0024)**: `trips · moments · media · expenses ·
+>   audio(0019) · places(0022) · purged_ids(0012) · allowed_users`.
+> - **미구현(목표만)**: `trip_days · companions · trip_companions · reflections · tags ·
+>   moment_tags · ai_artifacts(Phase 7) · user_devices · client_operations · sync_changes ·
+>   sync_conflicts · deletion_jobs`. AI·확장 도메인은 `blueprint.ts`가 `implemented:false`로
+>   정직하게 추적하고 설계 개요 화면에 로드맵으로 표시한다.
+> - **`media`의 실제 컬럼**은 아래 표보다 좁다 — `exif_whitelist` jsonb는 **없다**(D-09).
+>   대신 `gps_lat·gps_lng`(0024)·`taken_at` 개별 컬럼만 서버로 간다(whitelist 목적은 결과적으로
+>   더 보수적으로 달성 — EXIF JSON을 아예 안 올린다). `expenses`의 환율 열(H-04)도 nullable
+>   미구현(`db.ts:113`에 근거 기재 — 로컬 MVP는 원금액만 저장).
+
 ## 공통 열 (H-01 — 모든 사용자 소유 가변 테이블)
 
 모든 사용자 소유 가변 테이블은 다음 공통 열을 갖는다. 원칙과 실제 schema가 어긋나지 않도록 예외를 명시한다.

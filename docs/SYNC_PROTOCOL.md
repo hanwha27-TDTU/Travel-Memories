@@ -17,6 +17,14 @@
 
 ## 로컬 저장소 (Dexie)
 
+> 🔴 **상태: 아래 목록은 「목표 데이터 모델」이고 실제 구현은 9개다**(2026-08-01 감사 실측 · D-03).
+> 권위 순서상 코드가 이긴다 — `src/offline/db.ts`가 정본. **실제 store 9개**:
+> `localTrips, localMoments, localMedia, localExpenses, localAudio(v7), localPlaces(v8),
+> syncQueue, localFxRates(v5), purgedIds(v6)`.
+> 미구현(계획): `local_trip_days · local_companions · local_reflections · local_tags ·
+> failed_operations · drafts · cached_thumbnails · app_state`(전부 미착수 — Phase 5·7).
+> `localAudio·localFxRates·purgedIds`는 이후 Phase에서 실제로 추가됐는데 이 목록엔 없었다.
+
 `local_trips, local_trip_days, local_moments, local_places, local_media, local_expenses, local_companions, local_reflections, local_tags, sync_queue, failed_operations, drafts, cached_thumbnails, app_state`.
 
 > 조인 테이블(`trip_companions`, `moment_tags`)은 부모 도메인과 함께 동기화되어 별도 store가 없다(⛔ 명시적 제외). `companions`·`tags` 자체는 `local_companions`·`local_tags`로 동기화한다.
@@ -43,6 +51,14 @@
 `navigator.onLine`은 **UI 힌트로만** 사용한다. LAN 연결이나 captive portal에서도 `true`일 수 있어 서버 접근을 보장하지 않는다. 실제 동기화 전에는 **짧은 timeout을 가진 Supabase probe**로 실제 연결을 확인한다. 저장 버튼은 온라인 여부로 비활성화하지 않는다(로컬 커밋은 항상 가능).
 
 ## 서버 쓰기·pull 모델 (C-07 — operation receipt + base_version + change sequence + conflict table)
+
+> 🔴 **상태: 계약 명세 · 미구현(2026-08-01 감사 실측 · D-01·D-02·D-04).** 이 절이 말하는
+> `apply_client_operation` RPC · `client_operations` · `sync_changes`(단조 cursor) ·
+> `sync_conflicts` · `deletion_jobs` · `canonical_version`은 **어느 마이그레이션에도 없다.**
+> 현재 실제 구현은 `src/services/sync.ts`의 **직접 upsert + 정확한 read-back + version 기반
+> LWW**(좀비 가드는 실재 — 불변식 2). `SyncQueueItem.state`도 9단계 상태머신이 아니라 실사용
+> **3개**(`local_only · retryable_failed · permanent_failed`)다. 아래는 서버 프로토콜을 갖추게
+> 될 때의 목표 설계다 — 맥락 없이 들어온 AI는 이 RPC들이 이미 있다고 가정하지 말 것.
 
 `updated_at`만으로 덮어쓰기 순서를 결정하지 않는다. 모든 앱 쓰기는 `operation_id`, `entity_id`, `base_version`을 가진다.
 
