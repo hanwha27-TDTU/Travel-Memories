@@ -25,12 +25,21 @@ export interface TripRowLike extends IdCheckRow {
 }
 export interface MomentRowLike extends IdCheckRow {
   tripId: string;
-  lat?: number | null;
-  lng?: number | null;
+  // 🔴 실제 LocalMoment 필드명은 `placeLat`/`placeLng`다(M-2). 예전엔 `lat`/`lng`라 적어
+  // COORD_RANGE가 **항상 undefined를 봐서 상시 0건**이었다 — 검사가 살아 있는 척했다.
+  placeLat?: number | null;
+  placeLng?: number | null;
 }
 export interface MediaRowLike extends IdCheckRow {
   tripId: string;
   momentId: string;
+  gpsLat?: number | null;
+  gpsLng?: number | null;
+}
+/** 장소는 여행의 자식이 아니라 사용자 소유(부모 없음). 좌표 필드명은 latitude/longitude다. */
+export interface PlaceRowLike extends IdCheckRow {
+  latitude?: number | null;
+  longitude?: number | null;
 }
 export interface ExpenseRowLike extends IdCheckRow {
   tripId: string;
@@ -59,6 +68,8 @@ export interface IntegritySnapshot {
   media: MediaRowLike[];
   expenses: ExpenseRowLike[];
   audio: AudioRowLike[];
+  /** 장소(2026-08-01 · M-2). 소리가 2026-07-27에 겪은 「안 봐서 0건」을 장소가 그대로 반복했다. */
+  places: PlaceRowLike[];
 }
 
 export type Severity = 'now' | 'prevent' | 'info';
@@ -176,6 +187,21 @@ function timeChecks(all: IdCheckRow[], add: AddFinding): void {
   );
 }
 
+/** ±90/±180을 넘는 좌표를 세 도메인의 **실제 필드**에서 모은다(M-2). 순수 — 유닛이 직접 잰다. */
+function coordRangeHits(
+  moments: MomentRowLike[],
+  media: MediaRowLike[],
+  places: PlaceRowLike[],
+): string[] {
+  const bad = (lat: number | null | undefined, lng: number | null | undefined): boolean =>
+    (lat != null && Math.abs(lat) > 90) || (lng != null && Math.abs(lng) > 180);
+  return [
+    ...moments.filter((m) => bad(m.placeLat, m.placeLng)).map((m) => m.id),
+    ...media.filter((m) => bad(m.gpsLat, m.gpsLng)).map((m) => m.id),
+    ...places.filter((p) => bad(p.latitude, p.longitude)).map((p) => p.id),
+  ];
+}
+
 /**
  * 무결성 점검. 활성 행만 대상으로 한다 — tombstone은 이미 "없는 것"이라 참조가 끊겨도 정상이다.
  */
@@ -196,10 +222,11 @@ export function checkIntegrity(s: IntegritySnapshot): IntegrityReport {
   const aliveMoments = s.moments.filter((m) => m.deletedAt === null);
   const aliveMedia = s.media.filter((m) => m.deletedAt === null);
   const aliveExpenses = s.expenses.filter((e) => e.deletedAt === null);
+  const alivePlaces = s.places.filter((p) => p.deletedAt === null);
 
   const mediaIds = new Set(s.media.map((m) => m.id));
-  // 소리도 `all`에 든다 — id 형식·중복·시각 표기·세대 점검은 **도메인을 가리지 않는다.**
-  const all = [...s.trips, ...s.moments, ...s.media, ...s.expenses, ...s.audio];
+  // 소리·장소도 `all`에 든다 — id 형식·중복·시각 표기·세대 점검은 **도메인을 가리지 않는다**(M-2).
+  const all = [...s.trips, ...s.moments, ...s.media, ...s.expenses, ...s.audio, ...s.places];
 
   // 1·2. 부모-자식 참조 점검 — 자식 종류가 늘 때 **한 곳만** 늘어나게 곁 함수로 뺐다.
   parentChecks(s, add);
@@ -249,15 +276,13 @@ export function checkIntegrity(s: IntegritySnapshot): IntegrityReport {
     all.filter((r) => !Number.isFinite(r.version) || r.version < 1).map((r) => r.id),
   );
 
-  // 8. 좌표 범위 — 지도가 엉뚱한 곳을 가리킨다.
+  // 8. 좌표 범위 — 지도가 엉뚱한 곳을 가리킨다(M-2 · 세 도메인 실제 필드, coordRangeHits).
   add(
     'COORD_RANGE',
     'prevent',
     '좌표가 지구 밖',
     '위도·경도 값이 가능한 범위를 벗어났어요. 지도에서 엉뚱한 위치로 보일 수 있습니다.',
-    aliveMoments
-      .filter((m) => (m.lat != null && Math.abs(m.lat) > 90) || (m.lng != null && Math.abs(m.lng) > 180))
-      .map((m) => m.id),
+    coordRangeHits(aliveMoments, aliveMedia, alivePlaces),
   );
 
   // 9. 금액 이상 — 합계가 조용히 틀어진다.

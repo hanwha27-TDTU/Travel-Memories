@@ -19,6 +19,12 @@ export interface CreateMomentInput {
   placeId?: string | null;
   note?: string;
   occurredAt?: string;
+  /**
+   * 🔴 이 순간의 **시간대 오프셋 예외**(분). 사진 EXIF `OffsetTimeOriginal`이 알려줬을 때만 채운다
+   * (환승·국경으로 여행 시간대와 다를 수 있는 경우 — M-1). 없으면 여행 시간대로 파생한다.
+   * 그동안 이 필드는 저장·동기화·백업·표시까지 배선돼 있었는데 **값을 넣는 곳이 없어 죽어 있었다**.
+   */
+  tzOffsetMin?: number | null;
 }
 
 /** 순간 생성 — 내구성 로컬 커밋 + 정확한 read-back. */
@@ -39,6 +45,7 @@ export async function createMomentLocalFirst(input: CreateMomentInput): Promise<
     placeLat: input.placeLat ?? null,
     placeLng: input.placeLng ?? null,
     placeId: input.placeId ?? null,
+    tzOffsetMin: input.tzOffsetMin ?? null,
     version: 1,
     createdAt: now,
     updatedAt: now,
@@ -81,6 +88,8 @@ export interface UpdateMomentPatch {
   placeId?: string | null;
   note?: string;
   occurredAt?: string;
+  /** 시간대 오프셋 예외(분) — 사용자가 발생 시각을 고치거나 사진 오프셋이 바뀔 때(M-1). */
+  tzOffsetMin?: number | null;
 }
 
 /**
@@ -104,6 +113,7 @@ export async function updateMomentLocalFirst(id: string, patch: UpdateMomentPatc
     ...(patch.placeId !== undefined ? { placeId: patch.placeId } : {}),
     ...(patch.note !== undefined ? { note: patch.note.trim() } : {}),
     ...(patch.occurredAt !== undefined ? { occurredAt: patch.occurredAt } : {}),
+    ...(patch.tzOffsetMin !== undefined ? { tzOffsetMin: patch.tzOffsetMin } : {}),
     version: cur.version + 1,
     updatedAt: now,
     baseVersion: cur.version,

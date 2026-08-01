@@ -14,7 +14,7 @@ const base = (id: string): { id: string; deletedAt: null; createdAt: string; upd
   updatedAt: '2026-07-02T00:00:00.000Z',
   version: 1,
 });
-const empty: IntegritySnapshot = { trips: [], moments: [], media: [], expenses: [], audio: [] };
+const empty: IntegritySnapshot = { trips: [], moments: [], media: [], expenses: [], audio: [], places: [] };
 /** 스냅샷을 **빈 것 위에 얹어** 만든다 — 도메인이 늘어도 검사가 손대야 할 곳이 한 줄이다. */
 const snap = (p: Partial<IntegritySnapshot>): IntegritySnapshot => ({ ...empty, ...p });
 const codes = (s: IntegritySnapshot): string[] => checkIntegrity(s).findings.map((f) => f.code);
@@ -80,10 +80,19 @@ describe('무결성 점검 — 잡아야 할 것을 잡는다', () => {
     expect(codes({ ...empty, trips: [{ ...base(U(1)), version: 0 }] })).toContain('BAD_VERSION');
   });
 
-  it('좌표 범위 밖(COORD_RANGE)', () => {
+  it('좌표 범위 밖(COORD_RANGE) — 순간·사진·장소 세 도메인 전부', () => {
+    // 🔴 필드명을 실제(placeLat/placeLng)로 뒤집었다(M-2 · §11 — 게이트를 통과시키려 코드를
+    // 되돌리지 말고 옛 전제를 심은 케이스를 뒤집는다). 예전 케이스는 없는 필드 lat/lng를 써서
+    // 검사가 공허해도 초록이었다.
     const trip = base(U(1));
-    const m = { ...base(U(2)), tripId: trip.id, lat: 120, lng: 0 };
+    const m = { ...base(U(2)), tripId: trip.id, placeLat: 120, placeLng: 0 };
     expect(codes({ ...empty, trips: [trip], moments: [m] })).toContain('COORD_RANGE');
+    // 사진 GPS도 잡는다.
+    const md = { ...base(U(3)), tripId: trip.id, momentId: U(2), gpsLat: 0, gpsLng: 200 };
+    expect(codes({ ...empty, media: [md] })).toContain('COORD_RANGE');
+    // 장소 좌표도 잡는다.
+    const pl = { ...base(U(4)), latitude: 95, longitude: 0 };
+    expect(codes({ ...empty, places: [pl] })).toContain('COORD_RANGE');
   });
 
   it('비용 금액 이상(BAD_AMOUNT)', () => {

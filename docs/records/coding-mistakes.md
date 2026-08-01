@@ -6,6 +6,31 @@
 
 ---
 
+## M-0079 · **서버 목록이 1000행에서 조용히 잘렸다** — 그 잘린 목록으로 전체집합을 판단했다
+- 날짜: 2026-08-01 · 발견: **전수 감사(QA F-4)** · 심각도: medium(비파괴 — pull은 안 지운다. 다만 「없는 것처럼」)
+- **무엇**: `listAll`이 `select('*')`만 써서 PostgREST가 `db-max-rows`(Supabase 기본 1000)에서 오류 없이 잘랐다. 사진 1000장 넘긴 기기 → 새 기기 pull이 앞 1000만 받고 "동기화 완료". R2 목록엔 잘림 가드가 있었는데 PostgREST 쪽만 없었다(§7 비대칭).
+- **수정(v1.51)**: `fetchAllRows`가 `.range()`로 **끝까지** 받는다 — 여섯 listAll이 한 헬퍼를 공유(중복도 제거). 유닛이 2500행을 여러 페이지로 받는지 잠근다.
+
+## M-0078 · **사진·소리 push의 read-back이 「행이 있다」만 봤다** — 경합 시 남의 stamp를 내 내용에 얹었다
+- 날짜: 2026-08-01 · 발견: **전수 감사(QA F-3)** · 심각도: medium(다기기 경합 시 로컬·서버 영구 분기)
+- **무엇**: upsert 뒤 `getById`가 **행이 존재하기만 하면** 서버 updatedAt/version을 로컬에 덮고 op을 지웠다. 그 사이 다른 기기가 더 높은 version으로 올렸으면 그 행을 받아 내 좌표는 안 갔는데 남의 stamp를 얹고 op을 지워 갈라졌다. 형제 넷은 제목·금액·좌표 대조로 이미 막고 있었다.
+- **수정(v1.51)**: `writeLanded(server, sentVersion, sentPath)` — 같은 version+같은 경로여야 「내 쓰기 착지」. 다르면 실패로 두고 재시도. 유닛으로 경합 케이스 잠금.
+
+## M-0077 · **[정리 실행]이 사진 GPS 백필만 되살리지 않았다** — 이유 없는 제외
+- 날짜: 2026-08-01 · 발견: **전수 감사(QA F-7)** · 심각도: medium
+- **무엇**: `forceRepairCascadeOps`가 cascade·stamp·audio 마커는 지우고 다시 돌렸는데 `MEDIA_GPS_BACKFILL_KEY`만 빠졌다. 마이그레이션 배포 전/로그아웃 상태로 한 번 돌면 마커가 찍혀 그 기기 사진 좌표가 어떤 조작으로도 서버에 못 갔다.
+- **수정(v1.51)**: 형제 셋과 같은 자리에 사진 GPS 백필도 넣었다.
+
+## M-0076 · **좌표 무결성 점검이 없는 필드(lat/lng)를 봐서 상시 0건이었다** — 검사가 살아 있는 척했다
+- 날짜: 2026-08-01 · 발견: **전수 감사(연결지도·QA F-8)** · 심각도: medium
+- **무엇**: `COORD_RANGE`가 `m.lat`/`m.lng`를 봤는데 `LocalMoment`의 실제 필드는 `placeLat`/`placeLng`다 → 항상 undefined → 항상 0건. M-0057(0,0)이 났던 좌표 도메인 전체가 무감시. 진단 동기화 그룹도 4종만 하드코딩해 소리·장소 tombstone을 「0건」(=안 봄)으로 보고했다.
+- **수정(v1.51)**: COORD_RANGE가 순간(placeLat/Lng)·사진(gpsLat/Lng)·장소(latitude/longitude) 세 도메인을 본다. IntegritySnapshot·diagnoseSync에 장소 추가. 유닛의 옛 케이스(vacuous lat/lng)를 실제 필드로 **뒤집었다**(§11).
+
+## M-0075 · **moment.tzOffsetMin 파이프가 값을 넣는 곳 없이 죽어 있었다**
+- 날짜: 2026-08-01 · 발견: **전수 감사(연결지도)** · 심각도: medium
+- **무엇**: 순간의 시간대 오프셋 예외 필드가 저장·동기화·백업·표시(momentWhen)까지 배선됐는데 **생성 입력에 없어** 값이 안 들어갔다. `readPhotoMeta`가 EXIF 오프셋을 계산해 `photoHintOf().exifOffsetMin`으로 내놓는데 순간 생성이 안 썼다 → 환승·국경(한 여행 여러 시간대)이 조용히 미지원.
+- **수정(v1.51)**: `CreateMomentInput`/`UpdateMomentPatch`에 `tzOffsetMin` 추가 + 생성 폼이 `photoHintOf(metas).exifOffsetMin`을 실어 준다. 유닛으로 create 저장·update 변경 잠금.
+
 ## M-0074 · **자동 갱신의 「다음 화면 이동」이 발화하지 않는 이벤트였다** — 그리고 입력 감지가 keydown 전용이었다
 - 날짜: 2026-08-01 · 발견: **전수 감사(QA F-2)** · 심각도: high(v1.48에서 방금 만든 안전판이 죽어 있었다 + 저장 안 된 글 소실 경로)
 - **무엇이었나**: 자동 갱신(M-0070 수정)이 "글 쓰는 중엔 미루고 **다음 화면 이동 때** 적용한다"고 했는데 그 이벤트를 `hashchange`로 들었다. 이 앱 라우터는 History API(pushState/popstate)라 hash가 안 바뀌어 **한 번도 발화하지 않았다** — 미뤄둔 갱신이 영영 도달 못 했다. 겹쳐서 ① 입력 감지가 `keydown` 전용이라 붙여넣기·음성·제스처·IME를 놓쳤고 ② 복귀(visibilitychange)마다 입력 이력을 리셋해, 글 쓰다 앱 전환 후 돌아오면 "안전"으로 오판해 **새로고침이 글을 날릴 수 있었다.**

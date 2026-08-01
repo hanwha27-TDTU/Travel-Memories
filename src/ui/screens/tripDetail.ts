@@ -1518,12 +1518,16 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const photoInput = photoFileInput();
     const photoLabel = el('label', 'moment-photo-label');
     photoLabel.append(document.createTextNode('📷 사진 추가 '));
+    // 🔴 사진이 EXIF로 직접 말한 시간대 오프셋(환승·국경일 때 여행 시간대와 다르다 — M-1).
+    // 저장 시 순간에 실어 준다. 예전엔 이 값이 photoHintOf에서 계산만 되고 버려졌다.
+    let photoTzOffsetMin: number | null = null;
     // 선택한 사진 미리보기 + 해제. 로직은 최상위 `buildPickPreview`에 있다.
     const picks = buildPickPreview(photoInput, (metas) => {
       // 사진이 바뀌면 **시각·장소·시간대가 함께** 따라간다 — 사진이 가장 강한 근거다.
       whenField.suggestFrom(metas);
       placeField.suggestFrom(metas);
       zoneHint.suggest(metas);
+      photoTzOffsetMin = photoHintOf(metas).exifOffsetMin;
     }, () => trip?.timeZone ?? '');
     photoLabel.append(picks.count, photoInput);
   // 📁 안드로이드 사진 선택기가 GPS를 지우므로(M-0054), **원본 파일로 가는 길**을 함께 둔다.
@@ -1910,22 +1914,12 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
             ...placeInputOf(placeField),
             // 비었으면 넘기지 않는다 — 서비스가 `now`로 채운다(계약을 두 곳에 쓰지 않는다).
             ...(whenField.value() ? { occurredAt: whenField.value()! } : {}),
+            // 🔴 사진이 EXIF로 직접 말한 오프셋만 실어 준다(M-1 — 환승·국경). 없으면 null이라
+            // 여행 시간대로 파생된다. 이 한 줄이 그동안 죽어 있던 파이프를 살린다.
+            ...(photoTzOffsetMin !== null ? { tzOffsetMin: photoTzOffsetMin } : {}),
           });
-          // 비용(선택): 금액이 유효하면 순간에 딸린 비용으로 저장.
-          const amountVal = parseAmount(money.amount());
-          if (amountVal !== null) {
-            try {
-              await createExpenseLocalFirst({
-                momentId: moment.id,
-                tripId: trip!.id,
-                originalAmount: amountVal,
-                originalCurrency: money.currency(),
-                note: money.note(),
-              });
-            } catch {
-              /* 비용 저장 실패는 순간 저장을 무르지 않는다 */
-            }
-          }
+          // 비용(선택): 금액이 유효하면 순간에 딸린 비용으로 저장(실패해도 순간을 무르지 않는다).
+          await saveMomentExpense(moment.id, trip!.id, money);
           await processPhotosIntoMoment(files, moment.id, trip!.id, (msg) => {
             // 진행 중은 갈 곳이 없다 — 지금 벌어지는 일을 보고할 뿐이고, 곧 결과로 바뀐다.
             setNote(note, msg, 'info', null); // 사진 처리 진행 — 잠깐 보이는 정보
@@ -2205,6 +2199,31 @@ function toMapPoints(
  * 실제로 한쪽에만 `value` 채우기가 있었다 — 드리프트가 이미 시작돼 있었던 것이다.
  * 우회하지 않고 덜어내니 중복이 사라졌다(§11 「게이트가 설계를 밀어준다」).
  */
+/**
+ * 순간에 딸린 비용을 저장한다(금액이 유효할 때만). **실패가 순간 저장을 무르지 않는다** —
+ * 비용은 부가정보이므로, 저장 실패로 사용자가 방금 적은 기록을 잃게 하지 않는다.
+ * (renderTripDetail에서 뽑아낸 헬퍼 — 생성 흐름을 짧게 유지한다.)
+ */
+async function saveMomentExpense(
+  momentId: string,
+  tripId: string,
+  money: { amount(): string; currency(): string; note(): string },
+): Promise<void> {
+  const amountVal = parseAmount(money.amount());
+  if (amountVal === null) return;
+  try {
+    await createExpenseLocalFirst({
+      momentId,
+      tripId,
+      originalAmount: amountVal,
+      originalCurrency: money.currency(),
+      note: money.note(),
+    });
+  } catch {
+    /* 비용 저장 실패는 순간 저장을 무르지 않는다 */
+  }
+}
+
 function buildMoneyRow(existing: LocalExpense | undefined): {
   el: HTMLElement;
   amount(): string;
