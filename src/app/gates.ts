@@ -63,6 +63,8 @@ export const GATE_DESC: Record<string, string> = {
     '「이 증상을 이미 아는가」를 묻는 문(`npm run known`)이 **네 층을 다 뒤지는가** — 층이 비면 그 지식은 영영 안 보인다(M-0064)',
   'check-apk-release-link':
     '「항상 최신 APK」 계약 — CI 릴리스(apk-latest·--clobber) ↔ 앱 상수 ↔ 가이드 버튼이 같은 고정 주소를 말하는가',
+  'check-update-signal':
+    '「접속하면 스스로 최신」 계약 — 빌드가 version.json을 심고, 앱이 시작·복귀 때 묻고, SW가 신호를 안 만지는가(M-0070)',
   'unit-tests': '순수 로직 유닛(비공허 확인)',
   'verify-editor-live':
     '실제 브라우저가 앱을 열어 화면·편집기·서비스워커·폰트를 확인(정적 검사가 원리적으로 못 보는 층)',
@@ -110,6 +112,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-bytes-upload-symmetry': 'static',
   'check-known-index': 'static',
   'check-apk-release-link': 'static',
+  'check-update-signal': 'static',
   'unit-tests': 'unit',
   'verify-editor-live': 'live',
   'verify-diagnostics-live': 'live',

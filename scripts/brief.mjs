@@ -163,6 +163,7 @@ export const NO_SKILL_REQUIRED = new Map([
   ['src/app/changelog.ts', '사용자 대면 이력 데이터. 규율은 파일 머리주석에 있다'],
   ['src/app/researchLog.ts', '연구 기록 데이터 — 코드 규율 없음'],
   ['src/app/selfEval.ts', '자기평가 데이터 — check-self-eval이 직접 강제한다'],
+  ['src/services/appUpdate.ts', '자동 갱신 배선 — 계약은 check-update-signal이, 안전 규칙(입력 중 새로고침 금지)은 머리주석+유닛이 강제한다'],
   // *.gen.ts는 **손으로 고치는 파일이 아니다.** 읽을 문서는 그 생성기 쪽에 있고,
   // 드리프트는 짝 게이트가 막는다(정독 대상은 생성기이지 산출물이 아니다).
   ['src/app/registry.gen.ts', '자동 생성 — gen-registry.mjs가 SSOT, check-registry-gen이 강제'],
