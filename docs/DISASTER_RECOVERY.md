@@ -11,7 +11,7 @@
 | 계층 | 무엇이 있나 | 소유·통제 | 죽는 사건 |
 | --- | --- | --- | --- |
 | **① 로컬(IndexedDB/Dexie)** | 전 데이터의 진실 사본 — 여행·순간·**원본 사진**·표시본·썸네일·비용 | 사용자 기기(앱이 통제) | 브라우저 축출·사이트데이터 삭제·기기 분실 (앱 통제 밖) |
-| **② 클라우드(Supabase)** | 메타(여행·순간·비용) + **표시본 사진**(Storage journey-media) — 원본·GPS는 없음 | 서버(소유자 RLS) | 프로젝트 중단·과금 정지·리전 장애·계정 상실 |
+| **② 클라우드(Supabase + R2)** | 메타(여행·순간·비용·**장소·소리**) + **표시본 사진**(R2) + **소리 원본 바이트**(R2) + 사진 GPS(0024). 사진 **원본** 바이트는 없음 | 서버(소유자 RLS) | 프로젝트 중단·과금 정지·리전 장애·계정 상실 |
 | **③ 백업 파일(JSON 또는 ZIP)** | export 시점의 전 테이블 스냅샷 + 사진(자족). **단일 JSON**(사진 base64 내장) 또는 **여행별 폴더 ZIP**(사진을 실제 이미지 파일로) | 사용자가 보관(파일) | 사용자가 파일을 잃음 |
 
 **핵심 성질(왜 우리가 튼튼한가)**:
@@ -50,7 +50,7 @@
 
 복구 절차가 "문서 속 약속"에 그치지 않도록 CI 게이트로 강제한다(`scripts/harness.mjs`):
 
-- **check-backup-coverage** — 모든 사용자 데이터 Dexie 테이블(localTrips·localMoments·localMedia·localExpenses)이 `exportBackup`·`importBackup` **양쪽**에서 참조되는지 저장소만으로 대조. 새 테이블을 추가하고 백업 반영을 잊으면 **빌드가 즉시 RED**. (파생 큐 `syncQueue`만 명시 제외.) → *시나리오 C·D의 최후 방어선인 ③이 "새 데이터를 빠뜨리지 않음"을 기계적으로 보장.*
+- **check-backup-coverage** — 모든 사용자 데이터 Dexie 테이블(**6개**: localTrips·localMoments·localMedia·localExpenses·**localAudio·localPlaces**)이 `exportBackup`·`importBackup` **양쪽**에서 참조되는지 저장소만으로 대조. 새 테이블을 추가하고 백업 반영을 잊으면 **빌드가 즉시 RED**. (제외 **3개**: `syncQueue·localFxRates·purgedIds` — 파생·표시상태라 기억이 아님.) → *시나리오 C·D의 최후 방어선인 ③이 "새 데이터를 빠뜨리지 않음"을 기계적으로 보장.* 🔴 **한계(2026-08-01 감사)**: 이 게이트는 **테이블 수준**이다 — 필드 하나가 직렬화에서 빠지는 회귀는 왕복 드릴(`backupRoundtrip.test.ts`)이 보완하되 그 픽스처에 그 필드가 있어야만 잡는다.
 - **check-schema-parity** — 클라 rowmap 필드 ⊆ 서버 마이그레이션 컬럼. ②로의 push가 조용히 깨지지 않게(드리프트 차단).
 - **merge 유닛(version 기반 tombstone 우위)** — 오래된 ③ 백업을 복원해도 삭제한 데이터가 되살아나지 않음(좀비 차단). 서버측도 `prevent_zombie_resurrection` 트리거로 동일 규칙.
 - **복원 왕복 드릴(`tests/unit/backupRoundtrip`)** — "백업이 쓴 것 == 복원이 읽는 것"을 매 빌드에서 검증한다. JSON·ZIP 두 형식 모두 export→import 후 전 행·사진 바이트·tombstone·고아·좌표가 그대로인지 대조(비공허 포함). 복원이 "가정"이 아니라 "검증"이 됨(DR 기준 #7).

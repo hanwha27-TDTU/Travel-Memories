@@ -29,9 +29,23 @@ MapLibre GL JS는 **벡터 타일을 렌더링하는 라이브러리**일 뿐이
 | `ReverseGeocoder` | 좌표 → 주소·장소 |
 | `TimezoneResolver` | 좌표 → IANA 시간대 후보(C-10 시간 신뢰도 입력) |
 
+> 🔴 **상태: 계획(미구현) — 2026-08-01 감사 실측(D-12).** 위 6개 어댑터 타입·`services/maps`
+> 디렉터리는 코드에 **없다**(출현 0). 실제로는 `mapView.ts`가 화면에서 직접 `maplibre-gl`을
+> 동적 import하고, 지오코딩만 `services/geocode.ts`가 제공자 추상화로 실질 구현한다(`Geocoder`
+> 1개는 다른 이름으로 존재). "MapLibre 교체 가능성"은 아직 확보되지 않았다 — 교체 제안이 오면
+> 이 경계가 없다는 사실을 먼저 반영할 것.
+
 geocoder·reverse geocoder·timezone·tile provider는 **미정**이므로 어댑터 인터페이스와 설정만 먼저 구현하고 실제 제공자는 이용약관·비용·개인정보 검토 후 선택한다(ASSUMPTIONS A-005). `services/maps`는 이 어댑터 경계를 노출하고 화면은 어댑터만 호출한다.
 
 ## 계층 경계 (§17)
+
+> 🔴 **정련(2026-08-01 감사 · D-13).** "Supabase SDK 직접 호출 금지"의 실제 계약은
+> **테이블 질의(`.from`/`.rpc`/`.storage`) 직접 호출 금지**다. 화면이 클라이언트 핸들을 얻어
+> 서비스 함수의 인자로 넘기는 것(의존성 주입)은 허용이고 실제로 그렇게 쓴다(tripDetail·r2Setup·
+> diagnostics — 원시 질의는 0건). 아래 트리의 `security/·export/·companion/·reflection/·
+> media/{intake,hash,thumbnail,worker}`와 `state.ts·events.ts`는 **미구현(목표 구조 · D-14)**;
+> 실제 구조는 `domain/`이 엔티티별로 쪼개진 형태이고, 「휴대용 단일 HTML판」(D-15)·「Web Worker+
+> OffscreenCanvas」(D-16)도 아직 없다. 권위는 실제 `src/` 트리.
 
 ```
 UI (screens/components/dialogs)
