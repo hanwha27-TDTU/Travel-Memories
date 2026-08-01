@@ -5,6 +5,18 @@
 
 ---
 
+## ADR-0037 · **셸의 구글 로그인은 커스텀 스킴 딥링크로 돌아온다** — 세션이 브라우저에 남으면 셸이 무의미해진다
+- 유형: `[AI-proposed→user-review-pending]`(사용자가 문제를 실측 보고 — *"어플에서 구글로그인 하면 자동으로 웹페이지로 가게되고 그러면 또 위치정보는 사라집니다"* — 해법 선택은 AI 제안, 실기기 확인 대기) · AI: Claude Code · 날짜: 2026-08-01
+- **문제(사용자 실측 12:52)**: 셸에서 구글 로그인을 누르면 ①`accounts.google.com`이 `allowNavigation` 밖이라 **시스템 브라우저로 나가고**(이건 우회 불가 — 구글이 WebView OAuth를 `disallowed_useragent`로 거부한다) ②로그인 후 Supabase가 웹 URL(`redirectTo`)로 돌려보내 **세션이 브라우저에 생긴다.** 사용자는 위치가 지워지는 옛 경로(브라우저)에 남는다 — 셸이 존재 이유를 잃는 흐름이다.
+- **채택 — 딥링크 복귀 + PKCE 교환**: 셸에서는 `redirectTo = app.bugeon.journey://auth-callback`(커스텀 스킴). 브라우저에서 구글 인증이 끝나면 안드로이드가 intent-filter로 **셸을 다시 열고**, `@capacitor/app`의 `appUrlOpen`이 URL을 웹에 넘기면 `exchangeCodeForSession(code)`로 세션을 교환한다. 클라이언트는 이미 `flowType: 'pkce'`이고 **code_verifier가 로그인을 시작한 셸 WebView의 저장소에 있으므로**, 이 교환은 셸 안에서만 성립한다(브라우저에 code가 새어도 verifier가 없어 무용 — PKCE의 설계 그대로).
+- **필요한 외부 설정(사용자 1회)**: Supabase 대시보드 → Authentication → URL Configuration → Redirect URLs에 `app.bugeon.journey://auth-callback` 추가. 등록 전에는 Supabase가 Site URL로 되돌려 **현 증상이 그대로**다(관리 API가 MCP에 없어 이 단계는 수동).
+- **기각**:
+  - **WebView 안에서 OAuth 진행**(allowNavigation에 구글 추가) — 구글 정책 위반·`disallowed_useragent` 차단. UA 위장은 언제 깨져도 이상하지 않다.
+  - **네이티브 Google Sign-In + `signInWithIdToken`** — 정석이지만 Google Cloud 콘솔에 Android 클라이언트(SHA-1) 등록이 필요하고, CI 러너가 매번 새 debug keystore를 만들어 **SHA-1이 빌드마다 바뀐다**(고정 keystore 관리가 따라온다). 개인앱 1인 사용에 과한 비용 — 딥링크로 충분하다.
+  - **HTTPS App Links** — `assetlinks.json`을 **도메인 루트**(`hanwha27-tdtu.github.io/.well-known/`)에 놓아야 하는데 그건 별도 사용자 사이트 저장소다. 커스텀 스킴은 개인앱 위협 모델에서 충분하다(스킴 가로채기는 같은 기기에 악성앱 설치를 전제하고, 가로채도 verifier 없이는 세션을 못 만든다).
+- **되돌리기**: `wireShellAuthReturn` 호출 제거 + intent-filter 삭제. 크롬 경로는 이 변경과 무관하게 그대로다(`shellState()==='browser'` 분기).
+- **정직한 경계**: 딥링크 왕복(브라우저→셸 재진입→교환)은 이 환경에서 못 돌린다 — **실기기 확인 대기**. 웹 쪽 판별(`authCodeFromUrl`)과 무행동 경계(크롬·옛 APK)는 유닛으로 잠갔다.
+
 ## ADR-0036 · **안드로이드 셸(Capacitor)을 입는다** — PWA로는 사진 위치를 원리적으로 못 받는다
 - 유형: `[user-decided]`(사용자 *"Capacitor 기반 Android 앱 또는 네이티브 Android 앱으로 감싼 뒤 MediaStore와 ACCESS_MEDIA_LOCATION을 사용하는 구조로 하는건 어떨까? … 갤러리에서 웹앱 올릴때 지워버리는거 같아. zip 파일은 사진파일이 아니니 못 지우는거고"*) · AI: Claude Code · 날짜: 2026-08-01
 - **문제**: 갤러리 사진의 GPS가 앱에 오는 길에 `0/0`으로 비워진다. 나흘의 조사(M-0054~M-0066) 끝에 앱 쪽 갈래는 전부 종결됐고, 남은 것은 **바이트가 브라우저에 닿기 전의 전달 경로**뿐이었다.

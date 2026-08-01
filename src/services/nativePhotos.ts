@@ -17,6 +17,8 @@
 // 그래야 미리보기·EXIF 읽기·🔬 관측 창·압축·저장이 전부 기존 문을 그대로 지난다.
 // 두 번째 파이프라인을 만들면 그 순간부터 한쪽이 낡는다(M-0060이 정확히 그 형태였다).
 
+import { shellPlugin } from './capacitorShell';
+
 /** 셸이 주입하는 브리지의 모양 — 플러그인(OriginalPhotosPlugin.java)과 1:1이다. */
 interface OriginalPhotosBridge {
   pick(): Promise<{
@@ -31,17 +33,9 @@ interface OriginalPhotosBridge {
   }>;
 }
 
-interface CapacitorGlobal {
-  isNativePlatform?: () => boolean;
-  Plugins?: { OriginalPhotos?: OriginalPhotosBridge };
-}
-
-/** 셸 안인가. 크롬에서는 undefined → 이 모듈 전체가 조용히 비켜선다. */
+/** 셸 안인가. 크롬에서는 null → 이 모듈 전체가 조용히 비켜선다. */
 function bridge(): OriginalPhotosBridge | null {
-  if (typeof window === 'undefined') return null; // 유닛(Node)·SSR — 셸일 리 없다
-  const cap = (window as Window & { Capacitor?: CapacitorGlobal }).Capacitor;
-  if (!cap?.isNativePlatform?.()) return null;
-  return cap.Plugins?.OriginalPhotos ?? null;
+  return shellPlugin<OriginalPhotosBridge>('OriginalPhotos');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -51,17 +45,7 @@ function bridge(): OriginalPhotosBridge | null {
 // **셸에서 돈 것인지 PWA에서 돈 것인지조차** 가릴 수 없었다(둘 다 주소창이 없다).
 // 관측 창이 GPS 사실은 말하면서 **경로**를 말하지 않아 생긴 왕복이다 — 앱이 아는 것을
 // 말하지 않으면 사람이 대신 나른다(§12). 그래서 여기서 경로 사실을 기록해 둔다.
-
-/** 이 실행 환경이 어느 문인가 — 관측 창의 「경로」 줄에 그대로 나간다. */
-export type ShellState = 'browser' | 'shell' | 'shell-no-plugin';
-
-export function shellState(): ShellState {
-  if (typeof window === 'undefined') return 'browser';
-  const cap = (window as Window & { Capacitor?: CapacitorGlobal }).Capacitor;
-  if (!cap?.isNativePlatform?.()) return 'browser';
-  // 셸인데 문이 없다 = APK가 이 플러그인이 실리기 전 판이다(재설치가 답인 상태).
-  return cap.Plugins?.OriginalPhotos ? 'shell' : 'shell-no-plugin';
-}
+// (「어느 환경인가」 자체는 capacitorShell.shellState()가 답한다 — 감지 규칙은 한 곳에만.)
 
 /** 파일 이름 → 네이티브 문이 말한 사실. 같은 이름을 다시 고르면 최신 것으로 덮인다. */
 const lastPick = new Map<string, { original: boolean; reason: string }>();

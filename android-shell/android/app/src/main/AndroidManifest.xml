@@ -22,6 +22,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- 구글 로그인 복귀 딥링크(ADR-0037). 셸에서 OAuth는 시스템 브라우저로 나가는데
+                 (구글이 WebView 로그인을 거부), 복귀가 웹 URL이면 세션이 브라우저에 생기고
+                 사용자는 위치가 지워지는 옛 경로에 남는다(실측 2026-08-01 12:52).
+                 이 스킴으로 Supabase가 되돌려 보내면 안드로이드가 셸을 다시 연다. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="app.bugeon.journey" />
+            </intent-filter>
+
         </activity>
 
         <provider

@@ -617,7 +617,8 @@ async function renderProbe(box: HTMLElement, files: File[]): Promise<void> {
   box.appendChild(sum);
   const { probeJpeg } = await import('../../media/exif');
   const { photoProbeLine, photoProbeNext, photoProbePath } = await import('../../domain/place/photoProbe');
-  const { shellState, pickedVia } = await import('../../services/nativePhotos');
+  const { pickedVia } = await import('../../services/nativePhotos');
+  const { shellState } = await import('../../services/capacitorShell');
   for (const f of files.slice(0, 3)) {
     const buf = await f.slice(0, 512 * 1024).arrayBuffer();
     // 해시는 **파일 전체**로 낸다 — 앞부분만 재면 폰의 원본과 대조할 수 없다.

@@ -5,7 +5,8 @@
 //   ① base64 → File 변환이 바이트를 보존하는가(한 바이트라도 어긋나면 EXIF가 통째로 깨진다)
 //   ② 크롬(브리지 없음)에서는 **아무것도 바뀌지 않는가** — 이게 이 설계의 절반이다
 import { describe, it, expect, afterEach } from 'vitest';
-import { b64ToFile, pickIntoInput, shellState, pickedVia } from '../../src/services/nativePhotos';
+import { b64ToFile, pickIntoInput, pickedVia } from '../../src/services/nativePhotos';
+import { shellState } from '../../src/services/capacitorShell';
 
 // Node 환경(vitest 기본)에는 window·document가 없다 — 그게 오히려 첫 검사다:
 // 브리지는 window 없이도 조용히 null이어야 한다(셸일 리 없으므로).
