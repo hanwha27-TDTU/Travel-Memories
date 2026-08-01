@@ -1,0 +1,45 @@
+# android-apk.yml — 셸(ADR-0036)의 APK를 CI가 굽는다.
+#
+# 왜 CI인가: 개발 샌드박스에는 Android SDK가 없다. GitHub Actions 러너에는 있다.
+# 산출물은 debug 서명 APK — 개인앱이라 Play 스토어 없이 **사이드로드**한다(폴드5·태블릿).
+#
+# 웹 내용의 배포와는 **무관하다**: 셸은 server.url로 GitHub Pages를 로드하므로,
+# 웹은 지금처럼 push→Pages로 즉시 반영되고 APK는 셸 자체가 바뀔 때만 다시 굽는다.
+name: Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'android-shell/**'
+      - '.github/workflows/android-apk.yml'
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: 셸 의존성
+        working-directory: android-shell
+        run: npm ci
+      - name: capacitor.config를 안드로이드 자산으로
+        working-directory: android-shell
+        run: npx cap sync android
+      - name: APK 빌드 (debug 서명 — 사이드로드용)
+        working-directory: android-shell/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+      - name: APK 산출물 업로드
+        uses: actions/upload-artifact@v4
+        with:
+          name: bugeon-journey-apk
+          path: android-shell/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30

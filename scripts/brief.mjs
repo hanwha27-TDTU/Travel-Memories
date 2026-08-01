@@ -65,6 +65,8 @@ export const SKILL_ROUTES = [
   { match: /^src\/media\//, skill: 'photo-storage-dev' },
   { match: /^src\/media\//, skill: 'photo-editor-dev' },
   { match: /^src\/services\/(media|r2)\.ts/, skill: 'photo-storage-dev' },
+  // 셸(ADR-0036)의 웹 쪽 절반 — 위치가 살아 있는 원본을 받는 유일한 문이므로 사진저장 헌장이다.
+  { match: /^src\/services\/nativePhotos/, skill: 'photo-storage-dev' },
   { match: /^src\/domain\/media\//, skill: 'photo-storage-dev' },
   { match: /^src\/ui\/panels\/(verdict|diagnostics)/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/(diagnostics|envReport|storeState)/, skill: 'diagnostics-dev' },

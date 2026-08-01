@@ -1,0 +1,9 @@
+{
+  "appId": "app.bugeon.journey",
+  "appName": "Bugeon Journey",
+  "webDir": "www",
+  "server": {
+    "url": "https://hanwha27-tdtu.github.io/Travel-Memories/",
+    "allowNavigation": ["hanwha27-tdtu.github.io"]
+  }
+}
