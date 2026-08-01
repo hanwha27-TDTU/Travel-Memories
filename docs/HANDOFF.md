@@ -8,9 +8,9 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.51<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->151<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.52<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->152<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
 
-> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->24<!--/reg-->개 적용(`supabase/migrations/` 전부).
+> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->25<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
 
 ### 🕐 직전 세션에서 무슨 일이 있었나 (2026-07-30 · 새 AI는 이것부터)
@@ -78,7 +78,7 @@ SCAN 범위도 `android-shell/android/app/src`(java)로 넓혔다 — node_modul
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**최신 배포(2026-08-01 실측)**: `5bfbd34`(v<!--reg:appVersion-->1.51<!--/reg--> · PR #149 스쿼시) — CI `harness`·`live-render` 그린, Pages `deploy-pages` **#192 success**. 🔴 **「배포 그린」과 「사이트에서 확인」은 다른 말이다** — 샌드박스가 `*.github.io`를 막으므로 화면 확인은 사용자 실기기 몫이다.
+**최신 배포(2026-08-01 실측)**: `5bfbd34`(v<!--reg:appVersion-->1.52<!--/reg--> · PR #149 스쿼시) — CI `harness`·`live-render` 그린, Pages `deploy-pages` **#192 success**. 🔴 **「배포 그린」과 「사이트에서 확인」은 다른 말이다** — 샌드박스가 `*.github.io`를 막으므로 화면 확인은 사용자 실기기 몫이다.
 
 <details><summary>과거 실측(2026-07-28 · v1.22)</summary>
 
@@ -306,6 +306,16 @@ npm run dev                            # 홈 화면 확인 (선택)
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
 
 ---
+
+## HANDOFF-0044 · v1.52 · **감사 후속 배치③ — 보안 서버(초대제 자물쇠)** (2026-08-01 17:45)
+
+감사 후속 4배치 중 ③. **파일만 커밋 — 실서버 배포(Edge Function deploy·migration apply)는 사용자 확인 대기.**
+- **M-0080 (H-1)**: media-sign·geocode에 `isInvited(req)` — 사용자 JWT로 `journey.is_allowed()` RPC(POST `/rest/v1/rpc/is_allowed`, `Content-Profile: journey`)에 되묻고, 인증 다음 줄에 `if (!(await isInvited(req))) return … 403`. RLS가 테이블에 거는 초대제를 DB 밖 경로에도 건다(§7). probe/capabilities는 초대제 앞(비밀 없음).
+- **M-0081 (M-16)**: 마이그레이션 0025 — `block_purged_reinsert()` 조건에 `and p.user_id = new.user_id`(소유자 범위). **한 함수를 6개 트리거가 공유**하므로 한 곳 수정으로 여섯 형제 동시 수정. search_path ''로 좁힘.
+- **게이트**: `check-edge-fn-ops`에 초대제 형태검사(헬퍼·RPC·403 가드) 추가, 주입 5건 RED 확인(§4). 유닛 mediaSign에 초대제 밖=403·probe는 앞 2건 추가.
+- **검증**: 전체 하네스 그린 + build + live 22/22 PASS. 화면 변경 없음(서버 경로) → 라이브는 회귀 확인용.
+- **배포 필요(사용자 확인 후)**: ① `supabase functions deploy media-sign geocode` ② migration 0025 apply. **초대제 안의 소유자(hanwha27@gmail.com)에게는 영향 없음** — is_allowed()가 true.
+- 남은 배치: ④ 디자인·정리(H-6 명암비·빈상태·죽은코드).
 
 ## HANDOFF-0043 · v1.51 · **감사 후속 배치② — 동기화·기능 결함 5건** (2026-08-01 17:15)
 

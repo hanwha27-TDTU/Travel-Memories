@@ -390,6 +390,42 @@ async function verifiedUserId(req: Request): Promise<string | null> {
   }
 }
 
+/**
+ * 🔐 초대제 확인 — **인증(sub 위조 차단)만으로는 부족하다.**
+ * journey 테이블은 RLS로 `auth.uid() = user_id AND journey.is_allowed()`를 이중으로 건다(0002).
+ * 그런데 R2 서명 경로는 **DB를 거치지 않으므로** 그 두 번째 방어(초대제)가 통째로 빠진다 —
+ * 허용목록 밖의 로그인 계정도 서명 URL을 받아 남의 버킷 접두사가 아닌 **자기 접두사**에
+ * 마음껏 올릴 수 있었다. RLS가 테이블에 거는 것과 **같은 판정**을 여기에도 건다(§7).
+ *
+ * 판정은 서버가 이메일을 다시 비교하지 않고 **PostgREST RPC로 DB에 되묻는다** —
+ * 허용목록의 SSOT는 `journey.allowed_users` 한 곳이고, 여기서 재구현하면 손편집 중복이 된다.
+ * 사용자 JWT로 호출해야 `is_allowed()` 안의 `auth.jwt() ->> 'email'`이 그 사용자로 평가된다.
+ * 못 읽거나 애매하면 **거부**한다(초대제는 열림보다 닫힘이 안전하다).
+ */
+async function isInvited(req: Request): Promise<boolean> {
+  const auth = req.headers.get('Authorization');
+  if (!auth || !auth.startsWith('Bearer ')) return false;
+  const base = envGet('SUPABASE_URL');
+  const anon = publishableKey(req);
+  if (!base || !anon) return false;
+  try {
+    const r = await fetch(`${base}/rest/v1/rpc/is_allowed`, {
+      method: 'POST',
+      headers: {
+        Authorization: auth,
+        apikey: anon,
+        'Content-Type': 'application/json',
+        'Content-Profile': 'journey', // RPC는 POST — 스키마 선택은 Content-Profile
+      },
+      body: '{}',
+    });
+    if (!r.ok) return false;
+    return (await r.json()) === true;
+  } catch {
+    return false;
+  }
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -455,6 +491,8 @@ export async function handler(req: Request): Promise<Response> {
 
   const userId = await verifiedUserId(req);
   if (!userId) return json({ error: 'unauthorized' }, 401);
+  // 🔐 초대제 — 인증 다음 줄. RLS가 테이블에 거는 journey.is_allowed()를 이 경로에도 건다(§7).
+  if (!(await isInvited(req))) return json({ error: 'forbidden' }, 403);
 
   // ── list: 내 폴더의 객체 목록 ────────────────────────────────────
   // 🔐 prefix는 **검증된 sub에서만** 나온다. 요청 본문의 prefix/delimiter/bucket은

@@ -8,7 +8,7 @@
 //   - 서명 재료(비밀키)가 URL·응답에 **새지 않는가**
 //   - 정규 URI가 서명에 실제로 **참여**하는가(키가 달라지면 서명이 달라진다)
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { mediaStoragePath } from '../../src/domain/media/rowmap';
 import { mediaIdFromPath, restOfPath } from '../../src/services/r2';
 
@@ -31,6 +31,8 @@ const ENV: Record<string, string> = {
 
 /** auth 확인 호출이 실제로 받은 apikey(테스트에서 폴백 경로를 확인하기 위해 기록). */
 let lastApiKey: string | null = null;
+/** 초대제 RPC(is_allowed)가 돌려줄 값 — 테스트마다 뒤집어 "허용목록 밖" 경로를 잰다. */
+let inviteAllowed = true;
 
 type Fn = typeof import('../../supabase/functions/media-sign/index');
 let fn: Fn;
@@ -41,7 +43,7 @@ beforeAll(async () => {
     env: { get: (k: string): string | undefined => ENV[k] },
     serve: (): void => {}, // 테스트에서 포트를 열지 않는다
   };
-  // 인증 확인(/auth/v1/user)만 가로챈다 — R2로는 실제로 나가지 않는다.
+  // 인증 확인(/auth/v1/user)과 초대제 RPC(is_allowed)만 가로챈다 — R2로는 실제로 나가지 않는다.
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith('/auth/v1/user')) {
@@ -49,6 +51,10 @@ beforeAll(async () => {
       // apikey 없이 오면 실제 Supabase도 401을 준다 — 그 현실을 그대로 흉내낸다.
       if (!lastApiKey) return new Response('{"message":"No API key found"}', { status: 401 });
       return new Response(JSON.stringify({ id: UID_A }), { status: 200 });
+    }
+    if (url.endsWith('/rest/v1/rpc/is_allowed')) {
+      // 초대제 판정을 DB에 되묻는 호출 — 허용목록 SSOT의 응답을 흉내낸다(true/false).
+      return new Response(JSON.stringify(inviteAllowed), { status: 200 });
     }
     if (init?.method === 'DELETE') return new Response('', { status: 204 });
     throw new Error(`예상치 못한 외부 호출: ${url}`);
@@ -81,6 +87,11 @@ describe('경로 규약 파리티 — 어긋나면 사진을 잃는다', () => {
     expect(mediaIdFromPath('../../etc/passwd')).toBeNull();
     expect(mediaIdFromPath(`${UID_A}/not-a-uuid.webp`)).toBeNull();
   });
+});
+
+// 기본은 "허용목록 안". 초대제를 잰 테스트가 뒤집었어도 다음 테스트로 새지 않게 되돌린다.
+beforeEach(() => {
+  inviteAllowed = true;
 });
 
 describe('접근 통제 — 서버가 키를 만든다', () => {
@@ -134,6 +145,22 @@ describe('접근 통제 — 서버가 키를 만든다', () => {
       body: JSON.stringify({ op: 'get', mediaId: MID }),
     });
     expect((await fn.handler(req)).status).toBe(401);
+  });
+
+  it('로그인했어도 허용목록 밖이면 403 — 서명 URL이 나가지 않는다(H-1 초대제)', async () => {
+    // 인증(sub 위조 차단)은 통과하지만 journey.is_allowed()가 false → 초대제 가드가 막는다.
+    // RLS가 테이블에 거는 것과 같은 판정을 R2 서명 경로에도 건다(§7).
+    inviteAllowed = false;
+    const res = await fn.handler(post({ op: 'get', mediaId: MID }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe('forbidden');
+  });
+
+  it('probe·capabilities는 초대제 이전에 답한다 — 허용목록 밖에서도 "서버가 낡았나"를 안다', async () => {
+    // 초대제 가드는 인증 뒤에 있고, probe/capabilities는 그 앞에서 답한다(비밀 없음).
+    inviteAllowed = false;
+    expect((await fn.handler(post({ op: 'capabilities' }))).status).toBe(200);
+    expect((await fn.handler(post({ op: 'probe' }))).status).toBe(200);
   });
 
   it('알 수 없는 op은 거부한다', async () => {
