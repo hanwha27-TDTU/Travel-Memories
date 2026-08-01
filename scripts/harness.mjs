@@ -85,6 +85,9 @@ const gates = [
   // 「이 저장소가 이미 아는가」를 묻는 문. **비어 있으면 조용히 쓸모없어진다** — 층 하나가
   // 빠져도 검색은 성공한 것처럼 보인다. 그래서 자기점검을 게이트로 돌린다(M-0064).
   { name: 'check-known-index', cmd: 'node scripts/known.mjs --selftest' },
+  // 「항상 최신 APK」 계약 — 워크플로(apk-latest 릴리스 --clobber) ↔ 앱 상수 ↔ 가이드 화면이
+  // 같은 고정 주소를 말하는가. 하나가 조용히 갈라지면 다운로드 버튼이 낡은 앱·죽은 링크가 된다.
+  { name: 'check-apk-release-link', cmd: 'node scripts/check-apk-release-link.mjs' },
   { slow: true, name: 'unit-tests', cmd: 'npm run -s test' },
   // 런타임 층 — 실제 Chromium이 `dist`를 열어 **화면에 나가는 것**을 잰다.
   // 전제(playwright + 최신 dist)가 없으면 SKIP, 돌았는데 위반이면 FAIL(위 계약 참조).

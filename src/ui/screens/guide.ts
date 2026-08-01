@@ -7,6 +7,7 @@
 // 모든 자유 텍스트는 textContent로만 넣는다(innerHTML 금지 — dom.ts 규칙·CSP 게이트).
 
 import { el } from '../dom';
+import { APK_LATEST_URL, APK_INSTALL_STEPS, APK_FACTS } from '../../app/apk';
 import { EVAL_ITEMS, summarize, gradeOf, CRITICAL_CAP } from '../../app/selfEval';
 import { openDiagnosticsHub } from './diagnosticsHub';
 import { REGISTRY } from '../../app/registry.gen';
@@ -127,6 +128,32 @@ const CONNECT_GROUP: GuideGroup = {
   title: '연결 · 설정 가이드',
   hint: '저장·사진·개발 도구를 앱에 연결하는 방법',
   cards: [
+    {
+      icon: '📱',
+      label: '안드로이드 앱 설치',
+      hint: '갤러리 사진 위치가 살아 있는 유일한 길',
+      render: () => {
+        // 🔒 순서·문장·주소를 여기 손으로 적지 않는다 — 전부 src/app/apk.ts(SSOT)에서 읽고,
+        // check-apk-release-link 게이트가 워크플로 ↔ 상수 ↔ 이 화면의 계약 일치를 강제한다.
+        const dl = el('a', 'guide-open-dashboard guide-apk-dl', '⬇️ 최신 앱(APK) 내려받기') as HTMLAnchorElement;
+        dl.href = APK_LATEST_URL;
+        dl.target = '_blank';
+        dl.rel = 'noopener';
+        const body = panel([
+          h('왜 앱이 따로 있나요'),
+          p(
+            '휴대폰(안드로이드)은 사진을 브라우저에 줄 때 위치를 지워서 줘요. 그래서 웹으로 쓰면 사진 위치가 안 들어와요. 이 앱만 위치가 살아 있는 원본 그대로 받을 수 있어요.',
+          ),
+          h('설치 순서 (한 번만 하면 돼요)'),
+          steps(APK_INSTALL_STEPS.map((s) => [s.title, s.desc] as [string, string])),
+        ]);
+        // 버튼은 단계 목록 **바로 아래**에 둔다 — 1단계가 "아래 버튼"이라고 말하므로(§7 화면 대칭).
+        body.appendChild(dl);
+        body.appendChild(h('알아두면 좋은 것'));
+        body.appendChild(bullets([...APK_FACTS]));
+        return body;
+      },
+    },
     {
       icon: '🗺',
       label: '무엇이 어디서 도나',

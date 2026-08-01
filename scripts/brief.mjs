@@ -70,6 +70,8 @@ export const SKILL_ROUTES = [
   // Capacitor 전역 접근 SSOT — 사진 문(OriginalPhotos)과 로그인 복귀(App)가 함께 기대므로
   // 셸의 존재 이유인 사진저장 헌장을 따른다(ADR-0036·0037).
   { match: /^src\/services\/capacitorShell/, skill: 'photo-storage-dev' },
+  // APK 배포 사실 SSOT(고정 릴리스 주소·설치 안내) — 셸 배포 계약이므로 같은 헌장.
+  { match: /^src\/app\/apk\.ts/, skill: 'photo-storage-dev' },
   { match: /^src\/domain\/media\//, skill: 'photo-storage-dev' },
   { match: /^src\/ui\/panels\/(verdict|diagnostics)/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/(diagnostics|envReport|storeState)/, skill: 'diagnostics-dev' },
