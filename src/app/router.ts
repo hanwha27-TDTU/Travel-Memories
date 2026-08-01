@@ -38,6 +38,10 @@ export function createRouter(render: RenderFn): {
 } {
   function apply() {
     render(pathToRoute(window.location.pathname), pathToParam(window.location.pathname));
+    // 화면 이동 신호 — 자동 갱신(appUpdate)이 「입력을 떠난 안전한 순간」으로 이 이벤트를 듣는다.
+    // 🔴 `hashchange`가 아니다: 이 라우터는 History API(pushState/popstate)라 hash가 안 바뀐다.
+    // 예전엔 appUpdate가 hashchange를 기다렸고 그건 **한 번도 발화하지 않았다**(H-4).
+    window.dispatchEvent(new Event('bj:route'));
   }
   function navigate(route: Route, param?: string) {
     let target: string;

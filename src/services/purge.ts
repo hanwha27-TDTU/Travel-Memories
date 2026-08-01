@@ -44,6 +44,22 @@ interface DomainPurge {
   remoteTable: string;
   /** 원격 바이트(R2·Supabase 객체)를 가진 도메인인가 — 사진만 해당. */
   hasRemoteBytes: boolean;
+  /**
+   * 이 도메인이 **여행의 자식인가**(서버 테이블에 `trip_id` 컬럼이 있어 `trip_id`로 묶어 지울 수 있는가).
+   *
+   * 🔴 왜 데이터인가(C-1 · 2026-08-01 감사·실서버 확정): 여행 영구삭제는 자식들을 `trip_id`로
+   * 찾는데 **`journey.places`에는 `trip_id`가 없다**(장소는 여행의 자식이 아니라 사용자 소유 —
+   * 0022의 의도적 비대칭). 그런데 자식 목록을 「`trip` 빼고 전부」로 뽑던 코드가 장소까지 넣어
+   * `trip_id`로 질의했고, PostgREST가 `42703 column does not exist`를 냈다 → **여행 단위
+   * 영구삭제 전체가 서버에 한 번도 전파되지 못하고 무한 재시도**에 빠졌다(다른 기기엔 그 여행이
+   * 영원히 살아 있었다). 게이트 40종·유닛이 전부 초록이었다.
+   *
+   * 근본형은 §7 M-0057이다 — *"형제의 규율을 물려받되, 그 자리에서 참인지 다시 묻는다."*
+   * 「trip 빼고 전부」라는 산문 대신 **각 형제가 자기 사정을 데이터로 선언**하게 한다: place가
+   * `false`를 안 적으면 이 Record가 컴파일되지 않는다. 그리고 `check-purge-scope`가 이 플래그를
+   * 실제 rowmap의 `trip_id` 유무와 대조해, 산문이 스키마와 갈라지는 것을 막는다(3층).
+   */
+  tripScoped: boolean;
 }
 
 /**
@@ -55,11 +71,13 @@ export const DOMAIN_PURGE: Record<PurgeDomain, DomainPurge> = {
     table: () => db().localTrips as unknown as Table<{ id: string }, string>,
     remoteTable: 'trips',
     hasRemoteBytes: false,
+    tripScoped: false, // 여행 자신은 부모다 — 자식으로서 trip_id로 묶이지 않는다
   },
   moment: {
     table: () => db().localMoments as unknown as Table<{ id: string }, string>,
     remoteTable: 'moments',
     hasRemoteBytes: false,
+    tripScoped: true,
   },
   media: {
     // 사진 바이트(표시본·썸네일 blob)는 **로컬 행에 붙어 있으므로** 행을 지우면 함께 사라진다.
@@ -68,11 +86,13 @@ export const DOMAIN_PURGE: Record<PurgeDomain, DomainPurge> = {
     table: () => db().localMedia as unknown as Table<{ id: string }, string>,
     remoteTable: 'media',
     hasRemoteBytes: true,
+    tripScoped: true,
   },
   expense: {
     table: () => db().localExpenses as unknown as Table<{ id: string }, string>,
     remoteTable: 'expenses',
     hasRemoteBytes: false,
+    tripScoped: true,
   },
   audio: {
     // 소리 바이트도 사진과 같다: 로컬 blob은 행에 붙어 있어 행을 지우면 함께 사라지고,
@@ -81,6 +101,7 @@ export const DOMAIN_PURGE: Record<PurgeDomain, DomainPurge> = {
     table: () => db().localAudio as unknown as Table<{ id: string }, string>,
     remoteTable: 'audio',
     hasRemoteBytes: true,
+    tripScoped: true,
   },
   place: {
     // 장소는 바이트가 없다(좌표와 글자뿐) — 지울 원격 객체가 없다.
@@ -92,8 +113,21 @@ export const DOMAIN_PURGE: Record<PurgeDomain, DomainPurge> = {
     table: () => db().localPlaces as unknown as Table<{ id: string }, string>,
     remoteTable: 'places',
     hasRemoteBytes: false,
+    tripScoped: false, // 🔴 여행의 자식이 아니다 — trip_id 컬럼이 없다(C-1). 여행 영구삭제가 건드리지 않는다.
   },
 };
+
+/**
+ * **여행의 자식 도메인들** — 여행을 영구삭제할 때 `trip_id`로 묶어 함께 지우는 대상.
+ *
+ * 🔴 장소는 여기 없다(C-1). 예전엔 `PURGE_DOMAINS.filter(d => d !== 'trip')`로 뽑아 장소까지
+ * 넣었고, `trip_id` 없는 장소 테이블에 `trip_id`로 질의해 여행 영구삭제가 서버에 영영 전파되지
+ * 않았다. 이제 **각 도메인이 선언한 `tripScoped`**로 뽑는다 — 새 형제가 자기 사정을 데이터로
+ * 밝히지 않으면 컴파일이 안 되고, `check-purge-scope`가 이 플래그를 실제 스키마와 대조한다.
+ */
+export function tripScopedChildDomains(): PurgeDomain[] {
+  return PURGE_DOMAINS.filter((d) => d !== 'trip' && DOMAIN_PURGE[d].tripScoped);
+}
 
 /**
  * **휴지통이 다루는 도메인 전부.** 사용자에게 보이는 층의 진실원이다.

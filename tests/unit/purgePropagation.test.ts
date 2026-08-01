@@ -29,8 +29,9 @@ import {
   purgeOpType,
   DOMAIN_PURGE,
   PURGE_DOMAINS,
+  tripScopedChildDomains,
 } from '../../src/services/purge';
-import { pushPending, pushPendingMoments, pushPendingMedia, pushPurges, type PurgeRemote } from '../../src/services/sync';
+import { pushPending, pushPendingMoments, pushPendingMedia, pushPurges, purgeRemote, type PurgeRemote } from '../../src/services/sync';
 
 beforeEach(async () => {
   const d = db();
@@ -429,5 +430,68 @@ describe('④ 도메인 등록부가 완전한가', () => {
     for (const dm of PURGE_DOMAINS) expect(purgeDomainOf(purgeOpType(dm))).toBe(dm);
     expect(purgeDomainOf('trip')).toBeNull();
     expect(purgeDomainOf('purge:없는도메인')).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// C-1(2026-08-01 감사·실서버 확정): 여행 영구삭제가 서버에 영영 전파되지 않았다 — 자식을
+// 「trip 빼고 전부」로 뽑아 **trip_id 없는 places**에 trip_id로 질의했고 PostgREST가 42703을
+// 냈다. 아래는 그 자리를 **행동으로** 잠근다: places는 trip_id로 질의되지 않아야 한다.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** places를 trip_id로 질의하면 42703을 내는 가짜 클라이언트. 어느 테이블이 질의됐는지 기록한다. */
+function fakeClientRecording(): { client: unknown; tripIdTables: string[] } {
+  const tripIdTables: string[] = [];
+  const makeBuilder = (table: string) => {
+    const res = () => {
+      // 실서버 재현: places를 trip_id로 치면 «컬럼 없음». 옛 코드는 여기서 무너졌다.
+      if (table === 'places') return { data: null, count: null, error: { message: 'column "trip_id" does not exist' } };
+      return { data: [], count: 0, error: null };
+    };
+    const builder: Record<string, unknown> = {
+      select: () => builder,
+      delete: () => builder,
+      not: () => builder,
+      eq: (col: string) => {
+        if (col === 'trip_id') tripIdTables.push(table);
+        return builder;
+      },
+      then: (resolve: (v: unknown) => unknown) => resolve(res()),
+    };
+    return builder;
+  };
+  return { client: { from: (t: string) => makeBuilder(t) }, tripIdTables };
+}
+
+describe('C-1 · 여행 영구삭제는 places를 trip_id로 건드리지 않는다', () => {
+  it('tripScopedChildDomains는 place를 빼고 자식 넷을 준다', () => {
+    const kids = tripScopedChildDomains();
+    expect(kids).not.toContain('place');
+    expect(kids).not.toContain('trip');
+    expect(kids.sort()).toEqual(['audio', 'expense', 'media', 'moment']);
+  });
+
+  it('familyIds가 places를 질의하지 않고 성공한다 (옛 코드였다면 42703으로 실패)', async () => {
+    const { client, tripIdTables } = fakeClientRecording();
+    const r = await purgeRemote(client as never).familyIds('trip-123');
+    expect(r.error).toBeUndefined();
+    expect(tripIdTables).not.toContain('places');
+    expect(tripIdTables).toEqual(expect.arrayContaining(['moments', 'media', 'expenses', 'audio']));
+  });
+
+  it('hardDeleteFamily·remainingInFamily·familyBytePaths도 places를 건드리지 않는다', async () => {
+    const a = fakeClientRecording();
+    expect((await purgeRemote(a.client as never).hardDeleteFamily('t')).error).toBeUndefined();
+    expect(a.tripIdTables).not.toContain('places');
+
+    const b = fakeClientRecording();
+    const rem = await purgeRemote(b.client as never).remainingInFamily('t');
+    expect(rem.error).toBeUndefined();
+    expect(b.tripIdTables).not.toContain('places');
+
+    const c = fakeClientRecording();
+    const bp = await purgeRemote(c.client as never).familyBytePaths('t');
+    expect(bp.error).toBeUndefined();
+    expect(c.tripIdTables).not.toContain('places'); // 바이트 도메인도 tripScoped만
   });
 });

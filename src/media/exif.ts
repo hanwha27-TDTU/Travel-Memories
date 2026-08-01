@@ -2,6 +2,24 @@
 // §0 절대규율: 압축 "전에" 촬영시각·GPS를 먼저 읽어 별도 저장한다.
 // 실패/미지원은 조용히 빈 결과 — 파이프라인은 계속 진행(파생 시각은 파일 mtime 폴백).
 
+// 「진짜 좌표인가」의 단일 판정 — 파서·프로브·다운스트림이 모두 이 한 함수를 지난다(H-3).
+import { isRealCoord } from '../domain/place/coordInput';
+
+/**
+ * EXIF를 읽을 때 파일 앞에서 **얼마를 읽는가** — 저장 경로와 🔬 관측 창이 **반드시 같은 값**을 쓴다.
+ *
+ * 🔴 왜 여기 한 곳인가(H-2 · 2026-08-01 감사): 예전엔 저장 경로가 256KB(`media.ts`), 🔬 창이
+ * 512KB(`tripDetail.ts`)를 손으로 따로 썼다. 그 사이에 EXIF가 앉으면 — APP1은 여러 개일 수 있고
+ * 사진이 편집기·클라우드·메신저를 거치면 Exif가 XMP 뒤로 밀린다(이 앱 사진 대부분이 그런 경로다)
+ * — 🔬는 "위치 있음 → **앱 결함입니다, 이 줄을 보내 주세요**"라고 말하는데 저장 경로는 좌표를
+ * 못 봐서 안 넣었다. **앱이 스스로를 결함이라 오신고**한 것이다(나흘 걸린 GPS 사가의 재발 지점).
+ *
+ * 두 창이 같은 상수를 쓰면 그 갈라짐이 원리적으로 불가능하다. 값은 **큰 쪽(512KB)**으로 통일한다
+ * — 앞부분 한 번 더 읽는 비용은 싸고, XMP-앞 사진의 좌표를 저장 경로가 놓치지 않는 것이 값지다.
+ * `check-exif-order` 검사 E가 두 호출부가 이 상수를 쓰는지(손 매직넘버가 없는지) 지킨다.
+ */
+export const EXIF_HEAD_BYTES = 512 * 1024;
+
 export interface ExifData {
   /**
    * 🔴 **시간대가 없는 벽시계** — `YYYY-MM-DDTHH:mm:ss`. **절대시각이 아니다.**
@@ -165,11 +183,13 @@ function parseTiff(view: DataView, tiffStart: number): ExifData {
       // **태그가 비어 있을** 확률이 압도적이다. 그리고 틀린 좌표를 넣는 것은
       // 좌표를 안 넣는 것보다 **훨씬 나쁘다** — 기억이 엉뚱한 곳에 찍히고, 그건 조용하다.
       // (0,0 하나라도 값이 있는 정상 좌표는 그대로 통과한다 — 막는 것은 **둘 다 0**일 때다.)
-      if (lat !== undefined && lng !== undefined && !(lat === 0 && lng === 0)) {
+      // 「진짜 좌표인가」는 단 하나의 함수(isRealCoord)가 판정한다(H-3). 여기 값은 부호 적용
+      // 전 크기(위도 0~90·경도 0~180)라 범위 검사에 그대로 걸리고, 0,0을 거른다(M-0057 기니만).
+      if (isRealCoord(lat, lng)) {
         const latSign = latRef && readAscii(view, tiffStart, latRef, little).startsWith('S') ? -1 : 1;
         const lngSign = lngRef && readAscii(view, tiffStart, lngRef, little).startsWith('W') ? -1 : 1;
-        out.gpsLat = lat * latSign;
-        out.gpsLng = lng * lngSign;
+        out.gpsLat = (lat as number) * latSign; // isRealCoord가 유한 수임을 보장(두 인자라 타입가드 불가)
+        out.gpsLng = (lng as number) * lngSign;
       }
     }
   }
@@ -316,7 +336,7 @@ export function probeJpeg(buf: ArrayBuffer): ExifProbe {
     out.gpsRaw = `${ref || '(ref없음)'} ${rawRationals(view, tiffStart, latE, little)}`;
     const lat = readDMS(view, tiffStart, latE, little);
     const lng = readDMS(view, tiffStart, lngE, little);
-    out.gps = lat !== undefined && lng !== undefined && !(lat === 0 && lng === 0) ? 'value' : 'zeroed';
+    out.gps = isRealCoord(lat, lng) ? 'value' : 'zeroed'; // 같은 단일 판정(H-3)
   } catch {
     /* 못 읽으면 관측을 거기까지만 — 지어내지 않는다 */
   }

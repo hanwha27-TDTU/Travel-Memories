@@ -122,6 +122,28 @@ export function findPickViolations(text) {
 }
 
 // ── 자체검사(§4: 알려진 실패를 주입해 RED를 확인한 뒤에만 이 게이트를 믿는다) ──
+/**
+ * E. 🔴 EXIF 읽기 창을 **손 매직넘버로 쓰지 않는가**(H-2 · 2026-08-01).
+ *
+ * 저장 경로(media.ts)와 🔬 관측 창(tripDetail.ts)이 서로 다른 크기(256KB vs 512KB)를 손으로
+ * 썼더니, 그 사이에 EXIF가 앉은 사진에서 🔬는 "위치 있음 → 앱 결함"이라 말하고 저장은 좌표를
+ * 못 봤다 — **앱이 스스로를 오신고**했다. 두 호출부가 `EXIF_HEAD_BYTES`(exif.ts SSOT)를 쓰면
+ * 그 갈라짐이 불가능하다. 그래서 `slice(0, <숫자> * 1024)`처럼 손으로 쓴 EXIF 창을 금지한다.
+ *
+ * 정직한 경계: `slice(0, N)`의 모든 용례가 EXIF 창은 아니다(해시 앞부분 등). 그래서 대상을
+ * **KB 단위 리터럴 슬라이스**(`* 1024`)로 좁힌다 — EXIF 창은 KB 규모이고, 바이트 몇 개짜리
+ * 슬라이스(마커 스캔)는 걸리지 않는다.
+ */
+export function findExifWindowViolations(text) {
+  const out = [];
+  const re = /\.slice\(\s*0\s*,\s*(\d+)\s*\*\s*1024\s*\)/g;
+  let m;
+  while ((m = re.exec(text))) {
+    out.push(`EXIF 창을 손 매직넘버(${m[1]}KB)로 씁니다 — exif.ts의 EXIF_HEAD_BYTES를 쓰세요(H-2).`);
+  }
+  return out;
+}
+
 function selfTest() {
   const fails = [];
   const ok = `{ const meta = await readPhotoMeta(file, zone); const x = await compressForStorage(editedBlob ?? file); }`;
@@ -156,6 +178,20 @@ function selfTest() {
     fails.push('기본값을 갤러리 상수로 돌려놨는데 못 잡았다');
   }
 
+  // E — EXIF 창 손 매직넘버
+  if (findExifWindowViolations('const buf = await f.slice(0, EXIF_HEAD_BYTES).arrayBuffer();').length !== 0) {
+    fails.push('상수로 쓴 EXIF 창을 위반으로 봤다(오탐)');
+  }
+  if (findExifWindowViolations('const buf = await f.slice(0, 512 * 1024).arrayBuffer();').length === 0) {
+    fails.push('EXIF 창을 512*1024 매직넘버로 쓰는데 못 잡았다');
+  }
+  if (findExifWindowViolations('file.slice(0, 256 * 1024)').length === 0) {
+    fails.push('EXIF 창을 256*1024 매직넘버로 쓰는데 못 잡았다');
+  }
+  if (findExifWindowViolations('buf.slice(2, 6)').length !== 0) {
+    fails.push('바이트 몇 개짜리 마커 슬라이스를 EXIF 창으로 오인했다(오탐)');
+  }
+
   return fails;
 }
 
@@ -167,10 +203,13 @@ if (selfFails.length > 0) {
 }
 
 const screenText = readFileSync(SCREEN, 'utf8');
+const mediaText = readFileSync(MEDIA, 'utf8');
 const problems = [
-  ...findOrderViolations(sliceFunctionBody(readFileSync(MEDIA, 'utf8'), 'addPhotoToMoment')).map((p) => `${MEDIA}: ${p}`),
+  ...findOrderViolations(sliceFunctionBody(mediaText, 'addPhotoToMoment')).map((p) => `${MEDIA}: ${p}`),
   ...findPickViolations(screenText).map((p) => `${SCREEN}: ${p}`),
   ...findGalleryDefaultViolations(screenText).map((p) => `${SCREEN}: ${p}`),
+  ...findExifWindowViolations(mediaText).map((p) => `${MEDIA}: ${p}`),
+  ...findExifWindowViolations(screenText).map((p) => `${SCREEN}: ${p}`),
 ];
 
 if (problems.length > 0) {

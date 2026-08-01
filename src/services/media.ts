@@ -5,7 +5,7 @@
 
 import { db, type LocalMedia, type SyncQueueItem } from '../offline/db';
 import { quotaVerdict, estimateLocalBytes, type StorageEstimateLike } from '../domain/media/quota';
-import { readJpegExif } from '../media/exif';
+import { readJpegExif, EXIF_HEAD_BYTES } from '../media/exif';
 import { wallClockToInstant, zoneOffsetAtWall, deviceZone } from '../domain/time';
 import { compressForStorage } from '../media/compress';
 import type { EditState } from '../media/editor-core';
@@ -35,12 +35,8 @@ export interface AddPhotoTarget {
  * editedBlob이 있으면(비파괴 편집 결과) 압축본·썸네일은 그것에서 파생하되,
  * EXIF(촬영시각·GPS)는 항상 "원본"에서 읽는다(§0 — 편집은 메타데이터를 잃지 않는다).
  */
-/**
- * EXIF를 담기에 넉넉한 **앞부분만** 읽는다. JPEG의 APP1(EXIF)은 규격상 SOI 바로 뒤에 오므로
- * 256KB면 내장 썸네일까지 들어간다. 사진 9장을 고른 순간 전체를 통째로 읽으면 수십 MB가
- * 한꺼번에 뜨는데, 이 앱은 **저메모리 기기**를 전제한다.
- */
-const EXIF_HEAD_BYTES = 256 * 1024;
+// EXIF 읽기 창은 `media/exif.ts`가 SSOT다 — 🔬 관측 창(tripDetail)과 **같은 값**이어야
+// 저장 경로가 본 것과 관측 창이 본 것이 갈라지지 않는다(H-2). 손으로 256KB를 다시 쓰지 않는다.
 
 export interface PhotoMeta {
   /**

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   coordInputLabel,
   isUsableCoord,
+  isRealCoord,
   orderPair,
   parseCoordinateInput,
   parseDms,
@@ -23,6 +24,34 @@ describe('isUsableCoord', () => {
   });
   it('0,0은 거른다 — 파싱 실패의 흔적이지 사용자의 기억이 아니다', () => {
     expect(isUsableCoord(0, 0)).toBe(false);
+  });
+});
+
+// 🔴 H-3: 「진짜 좌표인가」의 단일 판정. 예전엔 일곱~여덟 곳에 손으로 있어 갈라졌다(M-0060).
+// 특히 NaN·null·undefined를 막는 곳과 안 막는 곳이 섞여 `NaN, NaN`이 화면에 통과했다.
+describe('isRealCoord — 좌표 판정 SSOT', () => {
+  it('지구 위의 유효 좌표는 true', () => {
+    expect(isRealCoord(37.587, 127.0016)).toBe(true);
+    expect(isRealCoord(-33.86, 151.21)).toBe(true);
+  });
+  it('🔴 NaN·null·undefined를 한꺼번에 거른다(갈라짐의 원인이었다)', () => {
+    expect(isRealCoord(Number.NaN, 127)).toBe(false);
+    expect(isRealCoord(37, Number.NaN)).toBe(false);
+    expect(isRealCoord(null, 127)).toBe(false);
+    expect(isRealCoord(37, null)).toBe(false);
+    expect(isRealCoord(undefined, undefined)).toBe(false);
+  });
+  it('범위 밖·0,0을 거른다', () => {
+    expect(isRealCoord(91, 127)).toBe(false);
+    expect(isRealCoord(37, 181)).toBe(false);
+    expect(isRealCoord(0, 0)).toBe(false);
+  });
+  it('한쪽만 0인 진짜 좌표는 통과한다(막는 것은 둘 다 0일 때만)', () => {
+    expect(isRealCoord(0, 127.0016)).toBe(true);
+    expect(isRealCoord(37.587, 0)).toBe(true);
+  });
+  it('문자열 등 숫자가 아닌 것은 false(unknown 경계)', () => {
+    expect(isRealCoord('37' as unknown, '127' as unknown)).toBe(false);
   });
 });
 

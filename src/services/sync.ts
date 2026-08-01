@@ -13,6 +13,7 @@ import { toExpenseRow, fromExpenseRow, type ExpenseRow } from '../domain/expense
 import { toMediaRow, fromMediaRow, mediaStoragePath, type MediaRow } from '../domain/media/rowmap';
 import { toAudioRow, fromAudioRow, audioStoragePath, type AudioRow } from '../domain/audio/rowmap';
 import { toPlaceRow, fromPlaceRow, type PlaceRow } from '../domain/place/rowmap';
+import { isRealCoord } from '../domain/place/coordInput';
 import { compressForStorage } from '../media/compress';
 import { mergeDecision, isEmptyCloudAnomaly, classifyError, retryDelayMs, isRetryDue, mustUploadBytes } from '../sync/merge';
 import type { JourneyClient } from './supabase/client';
@@ -27,6 +28,7 @@ import {
   purgeDomainOf,
   DOMAIN_PURGE,
   PURGE_DOMAINS,
+  tripScopedChildDomains,
   type PurgeDomain,
 } from './purge';
 
@@ -1063,13 +1065,7 @@ export async function backfillMediaGpsOps(): Promise<number> {
   let added = 0;
   for (const m of await d.localMedia.toArray()) {
     if (queued.has(m.id)) continue;
-    const has =
-      m.gpsLat !== null &&
-      m.gpsLng !== null &&
-      Number.isFinite(m.gpsLat) &&
-      Number.isFinite(m.gpsLng) &&
-      !(m.gpsLat === 0 && m.gpsLng === 0);
-    if (!has) continue;
+    if (!isRealCoord(m.gpsLat, m.gpsLng)) continue; // 진짜 좌표만 백필(H-3 · 단일 판정)
     await d.syncQueue.add({
       operationId: crypto.randomUUID(),
       entityType: 'media',
@@ -1456,8 +1452,14 @@ function ledgerOps(client: JourneyClient): Pick<PurgeRemote, 'ledgerAdd' | 'ledg
 }
 
 export function purgeRemote(client: JourneyClient): PurgeRemote {
-  /** 자식 도메인만 훑는다(여행 자신은 호출부가 따로 처리). 등록부 기반이라 형제가 자동으로 따라온다. */
-  const childDomains = (): PurgeDomain[] => PURGE_DOMAINS.filter((d) => d !== 'trip');
+  /**
+   * 여행의 자식 도메인만 훑는다 — **`trip_id`로 묶어 지울 수 있는 것만**(`tripScoped`).
+   *
+   * 🔴 장소는 여기 없다(C-1). `PURGE_DOMAINS.filter(d => d !== 'trip')`로 뽑던 것이 장소까지
+   * 넣어 `trip_id` 없는 테이블에 질의했고, 여행 영구삭제가 서버에 영영 전파되지 않았다. 이제
+   * 등록부의 `tripScoped` 선언으로 뽑으므로 새 형제가 자기 사정을 밝히지 않으면 컴파일이 안 된다.
+   */
+  const childDomains = tripScopedChildDomains;
 
   return {
     ...ledgerOps(client),
@@ -1477,8 +1479,9 @@ export function purgeRemote(client: JourneyClient): PurgeRemote {
     async familyBytePaths(tripId) {
       try {
         const paths: string[] = [];
-        // 바이트를 가진 도메인 **전부**를 등록부에서 뽑는다 — 손으로 'media'라 적지 않는다.
-        for (const dm of PURGE_DOMAINS.filter((x) => DOMAIN_PURGE[x].hasRemoteBytes)) {
+        // 바이트를 가졌고 **여행의 자식인** 도메인만(trip_id로 질의하므로 tripScoped 필수 — C-1).
+        // 손으로 'media'라 적지 않는다.
+        for (const dm of PURGE_DOMAINS.filter((x) => DOMAIN_PURGE[x].hasRemoteBytes && DOMAIN_PURGE[x].tripScoped)) {
           const t = DOMAIN_PURGE[dm].remoteTable;
           const r = await client.from(t).select('storage_path').eq('trip_id', tripId).not('storage_path', 'is', null);
           if (r.error) return { paths: [], error: `${t}: ${r.error.message}` };
