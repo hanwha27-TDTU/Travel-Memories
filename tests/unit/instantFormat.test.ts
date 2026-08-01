@@ -24,7 +24,7 @@ import { checkIntegrity, type IntegritySnapshot } from '../../src/domain/integri
 
 /** 빈 스냅샷 위에 필요한 도메인만 얹는다 — 도메인이 늘어도 검사가 손댈 곳은 이 한 줄이다. */
 const snap = (p: Partial<IntegritySnapshot>): IntegritySnapshot =>
-  ({ trips: [], moments: [], media: [], expenses: [], audio: [], ...p });
+  ({ trips: [], moments: [], media: [], expenses: [], audio: [], places: [], ...p });
 import { groupMomentsByDay } from '../../src/domain/moment/timeline';
 import { latestOccurredAt } from '../../src/domain/moment/whenDefault';
 

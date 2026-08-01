@@ -15,7 +15,7 @@ import { toAudioRow, fromAudioRow, audioStoragePath, type AudioRow } from '../do
 import { toPlaceRow, fromPlaceRow, type PlaceRow } from '../domain/place/rowmap';
 import { isRealCoord } from '../domain/place/coordInput';
 import { compressForStorage } from '../media/compress';
-import { mergeDecision, isEmptyCloudAnomaly, classifyError, retryDelayMs, isRetryDue, mustUploadBytes } from '../sync/merge';
+import { mergeDecision, isEmptyCloudAnomaly, classifyError, retryDelayMs, isRetryDue, mustUploadBytes, writeLanded } from '../sync/merge';
 import type { JourneyClient } from './supabase/client';
 import { r2BlobStore, r2ListObjects } from './r2';
 // 바이트 대조가 「이 기기에 사본이 있는 id」를 물어본다. `storeState`는 Dexie만 읽는
@@ -37,6 +37,39 @@ export interface SyncResult {
   failed: number;
   pulled: number;
   skippedEmptyCloud: boolean;
+}
+
+/**
+ * 🔴 **한 테이블의 행을 전부 받는다 — 페이지네이션으로**(M-10 · 2026-08-01 감사).
+ *
+ * 왜(불변식 #6): `select('*')`만 쓰면 PostgREST가 서버 설정(`db-max-rows`, Supabase 기본
+ * **1000**)에서 **조용히 잘라** 준다 — 응답에 오류가 없다. 그 잘린 목록으로 빈-클라우드 가드가
+ * 「전체집합」을 판단하면, 사진 1000장을 넘긴 기기에서 새 기기 pull이 **나머지를 없는 것처럼**
+ * 동작한다("동기화 완료"라고 말하면서). R2 목록엔 이미 잘림 가드가 있는데 PostgREST 쪽에만
+ * 없었다(§7 비대칭). `.range()`로 **끝까지** 받아 잘림 자체를 없앤다 — 페이지가 가득 차면 다음
+ * 페이지를 확인하고, 덜 차면 마지막이다.
+ */
+const PAGE_SIZE = 1000;
+async function fetchAllRows<T>(
+  client: JourneyClient,
+  table: string,
+): Promise<{ data: T[]; error?: string | undefined }> {
+  const out: T[] = [];
+  let from = 0;
+  // 무한루프 방지 상한: 페이지 100개(=10만 행)면 개인 앱에선 사실상 무한이다.
+  for (let page = 0; page < 100; page += 1) {
+    try {
+      const r = await client.from(table).select('*').range(from, from + PAGE_SIZE - 1);
+      if (r.error) return { data: out, error: r.error.message };
+      const rows = (r.data as T[] | null) ?? [];
+      out.push(...rows);
+      if (rows.length < PAGE_SIZE) return { data: out }; // 마지막 페이지 — 잘림 없음
+      from += PAGE_SIZE;
+    } catch (e) {
+      return { data: out, error: (e as Error).message };
+    }
+  }
+  return { data: out, error: '목록이 상한(10만 행)을 넘었습니다 — 페이지네이션 상한 도달' };
 }
 
 /** 원격 저장소 포트 — 네트워크 격리(테스트 시 fake 주입). */
@@ -66,12 +99,7 @@ export function tripsRemote(client: JourneyClient): TripsRemote {
       }
     },
     async listAll() {
-      try {
-        const r = await client.from('trips').select('*');
-        return { data: (r.data as TripRow[] | null) ?? [], error: r.error?.message };
-      } catch (e) {
-        return { data: [], error: (e as Error).message };
-      }
+      return fetchAllRows<TripRow>(client, 'trips'); // 끝까지 받는다(잘림 없음 — M-10)
     },
   };
 }
@@ -102,12 +130,7 @@ export function momentsRemote(client: JourneyClient): MomentsRemote {
       }
     },
     async listAll() {
-      try {
-        const r = await client.from('moments').select('*');
-        return { data: (r.data as MomentRow[] | null) ?? [], error: r.error?.message };
-      } catch (e) {
-        return { data: [], error: (e as Error).message };
-      }
+      return fetchAllRows<MomentRow>(client, 'moments'); // 끝까지 받는다(잘림 없음 — M-10)
     },
   };
 }
@@ -138,12 +161,7 @@ export function expensesRemote(client: JourneyClient): ExpensesRemote {
       }
     },
     async listAll() {
-      try {
-        const r = await client.from('expenses').select('*');
-        return { data: (r.data as ExpenseRow[] | null) ?? [], error: r.error?.message };
-      } catch (e) {
-        return { data: [], error: (e as Error).message };
-      }
+      return fetchAllRows<ExpenseRow>(client, 'expenses'); // 끝까지 받는다(잘림 없음 — M-10)
     },
   };
 }
@@ -180,12 +198,7 @@ export function mediaRemote(client: JourneyClient): MediaRemote {
       }
     },
     async listAll() {
-      try {
-        const r = await client.from('media').select('*');
-        return { data: (r.data as MediaRow[] | null) ?? [], error: r.error?.message };
-      } catch (e) {
-        return { data: [], error: (e as Error).message };
-      }
+      return fetchAllRows<MediaRow>(client, 'media'); // 끝까지 받는다(잘림 없음 — M-10)
     },
     uploadDisplay: (path, blob) => blobs.uploadDisplay(path, blob),
     download: (path) => blobs.download(path),
@@ -229,12 +242,7 @@ export function audioRemote(client: JourneyClient): AudioRemote {
       }
     },
     async listAll() {
-      try {
-        const r = await client.from('audio').select('*');
-        return { data: (r.data as AudioRow[] | null) ?? [], error: r.error?.message };
-      } catch (e) {
-        return { data: [], error: (e as Error).message };
-      }
+      return fetchAllRows<AudioRow>(client, 'audio'); // 끝까지 받는다(잘림 없음 — M-10)
     },
     upload: (path, blob, contentType) => blobs.upload(path, blob, contentType),
     download: (path) => blobs.download(path),
@@ -550,6 +558,12 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
       continue;
     }
     const server = fromMediaRow(back.data);
+    // 🔴 내 쓰기가 실제로 착지했는가 — 경합으로 남의 행을 받았으면 덮지 않고 재시도(M-3).
+    if (!writeLanded(server, media.version, path)) {
+      await markFail(op, undefined);
+      failed++;
+      continue;
+    }
     await d.transaction('rw', d.localMedia, d.syncQueue, async () => {
       const cur = await d.localMedia.get(media.id);
       // 경로도 **같은 커밋에** 기억한다(M-0033의 교훈 — "곧 이어서 쓸 것"은 없는 것과 같다).
@@ -715,12 +729,7 @@ export function placesRemote(client: JourneyClient): PlacesRemote {
       }
     },
     async listAll() {
-      try {
-        const r = await client.from('places').select('*');
-        return { data: (r.data as PlaceRow[] | null) ?? [], error: r.error?.message };
-      } catch (e) {
-        return { data: [], error: (e as Error).message };
-      }
+      return fetchAllRows<PlaceRow>(client, 'places'); // 끝까지 받는다(잘림 없음 — M-10)
     },
   };
 }
@@ -867,6 +876,12 @@ export async function pushPendingAudio(remote: AudioRemote, userId: string): Pro
       continue;
     }
     const server = fromAudioRow(back.data);
+    // 🔴 내 쓰기가 실제로 착지했는가 — 경합으로 남의 행을 받았으면 덮지 않고 재시도(M-3, 사진과 같은 문).
+    if (!writeLanded(server, audio.version, path)) {
+      await markFail(op, undefined);
+      failed++;
+      continue;
+    }
     await d.transaction('rw', d.localAudio, d.syncQueue, async () => {
       const cur = await d.localAudio.get(audio.id);
       // 경로도 **같은 커밋에** 기억한다(M-0033 — "곧 이어서 쓸 것"은 없는 것과 같다).
@@ -1704,6 +1719,16 @@ export async function forceRepairCascadeOps(): Promise<{ media: number; expenses
   }
   const audio = await backfillAudioOps();
   if (audio) console.info(`소리 동기화 백필: ${audio}건 재큐잉`);
+  // 🔴 사진 GPS 백필도 **같은 버튼**이 되살린다(M-13). 예전엔 이 하나만 빠져서, 마이그레이션
+  // 배포 전/로그아웃 상태로 한 번 돌면 마커가 찍혀 그 기기의 사진 좌표가 어떤 조작으로도 서버에
+  // 못 갔다(이유 없는 제외 — §7). 형제 셋(cascade·stamp·audio)과 같은 자리에 둔다.
+  try {
+    localStorage.removeItem(MEDIA_GPS_BACKFILL_KEY);
+  } catch {
+    /* 표식을 못 지워도 아래 백필 자체는 동작한다. */
+  }
+  const mediaGps = await backfillMediaGpsOps();
+  if (mediaGps) console.info(`사진 위치 동기화 백필: ${mediaGps}건 재큐잉`);
   return requeueOrphanTombstones();
 }
 

@@ -146,3 +146,23 @@ export function mustUploadBytes(
   if (e.bytesMissing === true) return true; // 서버에 없음을 **확인**했다(추측이 아니다)
   return unknownPathMeansNeverUploaded && !e.storagePath;
 }
+
+/**
+ * 🔴 **내가 방금 보낸 쓰기가 서버에 실제로 착지했는가**(M-3 · 사진·소리 read-back).
+ *
+ * 왜 「행이 있다」로는 부족한가(2026-08-01 감사): 사진·소리 push는 upsert 뒤 `getById`로 되읽되
+ * **행이 존재하기만 하면** 서버의 `updatedAt`/`version`을 자기 로컬에 덮어쓰고 op을 지웠다.
+ * 그런데 그 사이 다른 기기가 **더 높은 version으로** 같은 행을 올렸으면 `getById`는 **그 행**을
+ * 돌려준다 — 내 좌표는 안 갔는데 남의 stamp를 내 내용에 얹고 op을 지워, **로컬·서버가 영구히
+ * 갈라진다**(형제 넷은 이미 제목·금액·좌표 대조로 이 창을 막고 있었다 — §7 비대칭).
+ *
+ * 그래서 **내가 보낸 판별 필드**로 대조한다: 같은 version + 같은 경로여야 「내 쓰기가 착지」다.
+ * 다르면(경합) false → 호출부가 실패로 두고 재시도한다(다음 pull이 병합하고 다시 push한다).
+ */
+export function writeLanded(
+  server: { version: number; storagePath?: string | null },
+  sentVersion: number,
+  sentPath: string,
+): boolean {
+  return server.version === sentVersion && server.storagePath === sentPath;
+}

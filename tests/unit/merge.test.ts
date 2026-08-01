@@ -1,6 +1,6 @@
 // 동기화 결정 순수함수 테스트 (SYNC_PROTOCOL 불변식을 게이트로 잠금).
 import { describe, it, expect } from 'vitest';
-import { mergeDecision, isEmptyCloudAnomaly, classifyError } from '../../src/sync/merge';
+import { mergeDecision, isEmptyCloudAnomaly, classifyError, writeLanded } from '../../src/sync/merge';
 import type { LocalTrip } from '../../src/offline/db';
 
 function trip(over: Partial<LocalTrip>): LocalTrip {
@@ -82,6 +82,21 @@ describe('isEmptyCloudAnomaly (빈-클라우드 가드)', () => {
   });
   it('서버에 데이터 있으면 정상', () => {
     expect(isEmptyCloudAnomaly(2, 3)).toBe(false);
+  });
+});
+
+describe('writeLanded (M-3 · 내 쓰기가 착지했는가 — 사진·소리 read-back)', () => {
+  it('같은 version + 같은 경로 = 내 쓰기가 착지', () => {
+    expect(writeLanded({ version: 3, storagePath: 'u/a.webp' }, 3, 'u/a.webp')).toBe(true);
+  });
+  it('🔴 경합으로 남의 더 높은 version이 오면 = 착지 아님(덮지 않고 재시도)', () => {
+    expect(writeLanded({ version: 4, storagePath: 'u/a.webp' }, 3, 'u/a.webp')).toBe(false);
+  });
+  it('경로가 다르면 = 착지 아님(다른 쓰기다)', () => {
+    expect(writeLanded({ version: 3, storagePath: 'u/other.webp' }, 3, 'u/a.webp')).toBe(false);
+  });
+  it('서버 경로가 null이면 = 착지 아님', () => {
+    expect(writeLanded({ version: 3, storagePath: null }, 3, 'u/a.webp')).toBe(false);
   });
 });
 

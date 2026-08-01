@@ -42,12 +42,14 @@ export const ITEM_CAP = 20;
 
 export async function diagnoseSync(): Promise<SyncDiagnosis> {
   const d = db();
-  const [queue, trips, moments, media, expenses, purged] = await Promise.all([
+  const [queue, trips, moments, media, expenses, audio, places, purged] = await Promise.all([
     d.syncQueue.toArray(),
     d.localTrips.toArray(),
     d.localMoments.toArray(),
     d.localMedia.toArray(),
     d.localExpenses.toArray(),
+    d.localAudio.toArray(),
+    d.localPlaces.toArray(),
     d.purgedIds.count(),
   ]);
 
@@ -63,11 +65,15 @@ export async function diagnoseSync(): Promise<SyncDiagnosis> {
   const opLessTombstones: Record<string, number> = {};
   const items: { type: string; id: string; deleted: boolean; queued: boolean }[] = [];
   let overflow = 0;
+  // 🔴 소리·장소도 본다(M-2). 예전엔 4종만 하드코딩해서, 소리·장소 tombstone이 op 없이 남아도
+  // 「0건」으로 보였다 — 그건 정상이 아니라 **안 봤다**는 뜻이고 §8이 금지하는 거짓말이다.
   const groups: [string, { id: string; deletedAt: string | null }[]][] = [
     ['trip', trips],
     ['moment', moments],
     ['media', media],
     ['expense', expenses],
+    ['audio', audio],
+    ['place', places],
   ];
   for (const [type, rows] of groups) {
     const dead = rows.filter((r) => r.deletedAt !== null);
@@ -127,12 +133,13 @@ export async function pendingOpCount(): Promise<number> {
  */
 export async function loadIntegritySnapshot(): Promise<IntegritySnapshot> {
   const d = db();
-  const [trips, moments, media, expenses, audio] = await Promise.all([
+  const [trips, moments, media, expenses, audio, places] = await Promise.all([
     d.localTrips.toArray(),
     d.localMoments.toArray(),
     d.localMedia.toArray(),
     d.localExpenses.toArray(),
     d.localAudio.toArray(),
+    d.localPlaces.toArray(), // 🔴 M-2 — 장소를 스냅샷에 넣는다(소리가 겪은 「안 봐서 0건」 반복 방지)
   ]);
-  return { trips, moments, media, expenses, audio };
+  return { trips, moments, media, expenses, audio, places };
 }
