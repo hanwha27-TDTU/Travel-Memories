@@ -214,3 +214,111 @@ export function readJpegExif(buf: ArrayBuffer): ExifData {
   }
   return {};
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴 **앱이 실제로 무엇을 받았는지 앱이 말한다** (2026-08-01 · M-0066)
+// ─────────────────────────────────────────────────────────────────────────────
+// 사용자: *"계속 안되네..해시값을 계속 앱 내에서 바꾸는 듯?"*
+//
+// 나는 나흘 동안 **추측으로** 원인을 좁혔다 — 파서, 읽기 순서, 선택기, 전달 경로.
+// 그때마다 사용자가 스크린샷을 찍어 날랐고, 나는 그 스크린샷을 보고 또 추측했다.
+// §12가 금지하는 바로 그 상태다: **앱이 아는 것을 말하지 않아 사람이 대신 나른다.**
+//
+// 그래서 이 함수는 **판정하지 않는다.** 사실만 돌려준다 — 이 바이트에 무엇이 있었나.
+// 판정(왜 없나)은 위에서 이미 네 번 틀렸다. 여기서는 **관측만** 한다(§8).
+//
+// 이 하나로 세 가설이 갈린다:
+//   · GPS IFD가 **아예 없다**        → 카메라가 위치를 안 적었다(위치 태그 꺼짐)
+//   · IFD는 있는데 값이 **0/0**      → 누군가 지우고 넘겼다(선택기·전달 경로)
+//   · 값이 **정상인데 앱이 못 읽음** → **내 파서 결함.** 그 자리를 고친다
+
+/** 이 바이트에서 관측한 사실. **판정이 아니다.** */
+export interface ExifProbe {
+  /** JPEG 시작 표식(SOI)이 있는가. 없으면 HEIC·PNG 등이라 이 파서로는 못 읽는다. */
+  isJpeg: boolean;
+  /** APP1 세그먼트 종류를 **순서대로**. 첫 칸이 Exif가 아니어도 뒤를 본다(M-0063). */
+  app1: Array<'exif' | 'xmp' | 'other'>;
+  /** 촬영시각(벽시계). 있으면 **파서가 EXIF를 제대로 읽었다는 증거**다. */
+  takenAtWall?: string;
+  /**
+   * GPS 태그의 상태 — 이 앱의 나흘이 걸린 자리.
+   *  · `'no-ifd'`   GPS IFD 자체가 없다
+   *  · `'zeroed'`   IFD는 있는데 값이 전부 0/0 — **누군가 비웠다**
+   *  · `'value'`    쓸 수 있는 좌표가 있다
+   */
+  gps: 'no-ifd' | 'zeroed' | 'value';
+  /** 사람이 눈으로 볼 원자료 한 줄(`N 36/1,36/1,32809680/1000000`). 추측을 막는다. */
+  gpsRaw?: string;
+}
+
+/** RATIONAL 3쌍을 `n/d,n/d,n/d`로 — 가공하지 않고 **적힌 그대로**. */
+function rawRationals(view: DataView, tiffStart: number, e: Entry, little: boolean): string {
+  const p = valuePtr(view, tiffStart, e, little);
+  const parts: string[] = [];
+  for (let i = 0; i < Math.min(e.count, 3); i += 1) {
+    if (p + i * 8 + 8 > view.byteLength) break;
+    parts.push(`${view.getUint32(p + i * 8, little)}/${view.getUint32(p + i * 8 + 4, little)}`);
+  }
+  return parts.join(',');
+}
+
+export function probeJpeg(buf: ArrayBuffer): ExifProbe {
+  const view = new DataView(buf);
+  const out: ExifProbe = { isJpeg: false, app1: [], gps: 'no-ifd' };
+  if (view.byteLength < 4 || view.getUint16(0, false) !== 0xffd8) return out;
+  out.isJpeg = true;
+
+  let tiffStart = -1;
+  let offset = 2;
+  while (offset + 4 <= view.byteLength) {
+    const marker = view.getUint16(offset, false);
+    if ((marker & 0xff00) !== 0xff00) break;
+    const size = view.getUint16(offset + 2, false);
+    if (marker === 0xffe1) {
+      const start = offset + 4;
+      const isExif =
+        start + 6 <= view.byteLength &&
+        view.getUint32(start, false) === 0x45786966 &&
+        view.getUint16(start + 4, false) === 0x0000;
+      let kind: 'exif' | 'xmp' | 'other' = 'other';
+      if (isExif) kind = 'exif';
+      else if (start + 4 <= view.byteLength && view.getUint32(start, false) === 0x68747470) kind = 'xmp'; // 'http'
+      out.app1.push(kind);
+      if (isExif && tiffStart < 0) tiffStart = start + 6;
+    }
+    offset += 2 + size;
+  }
+  if (tiffStart < 0) return out;
+
+  try {
+    const bo = view.getUint16(tiffStart, false);
+    const little = bo === 0x4949;
+    if (!little && bo !== 0x4d4d) return out;
+    const e0 = readEntries(view, tiffStart, view.getUint32(tiffStart + 4, little), little);
+
+    const exifPtr = e0.get(0x8769);
+    if (exifPtr) {
+      const exifIfd = readEntries(view, tiffStart, view.getUint32(exifPtr.valueOffset, little), little);
+      const dto = exifIfd.get(0x9003) ?? exifIfd.get(0x9004);
+      if (dto && dto.type === 2) {
+        const wall = exifDateToWall(readAscii(view, tiffStart, dto, little));
+        if (wall) out.takenAtWall = wall;
+      }
+    }
+
+    const gpsPtr = e0.get(0x8825);
+    if (!gpsPtr) return out;
+    const gps = readEntries(view, tiffStart, view.getUint32(gpsPtr.valueOffset, little), little);
+    const latE = gps.get(0x0002);
+    const lngE = gps.get(0x0004);
+    if (!latE || !lngE) return out; // IFD는 있는데 좌표 항목이 없다 = 없는 것과 같다
+    const ref = gps.get(0x0001) ? readAscii(view, tiffStart, gps.get(0x0001)!, little) : '';
+    out.gpsRaw = `${ref || '(ref없음)'} ${rawRationals(view, tiffStart, latE, little)}`;
+    const lat = readDMS(view, tiffStart, latE, little);
+    const lng = readDMS(view, tiffStart, lngE, little);
+    out.gps = lat !== undefined && lng !== undefined && !(lat === 0 && lng === 0) ? 'value' : 'zeroed';
+  } catch {
+    /* 못 읽으면 관측을 거기까지만 — 지어내지 않는다 */
+  }
+  return out;
+}

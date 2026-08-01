@@ -1055,6 +1055,36 @@ await page.setInputFiles('.moment-photo-input', [
 ]);
 await page.waitForTimeout(600);
 const timeOnly = await page.evaluate(() => document.querySelector('.place-photo-note')?.textContent ?? '');
+
+// ── 🔬 **앱이 받은 바이트를 앱이 말하는가** (2026-08-01 · M-0066 · §12) ──────────
+// 나흘 동안 사용자가 스크린샷을 날랐고 나는 추측했다. 앱은 그 바이트를 손에 쥐고도
+// 아무 말을 안 했다. 이 상자가 그 자리를 메운다 — **좌표를 못 얻었을 때만** 나온다.
+const probe = await page.evaluate(() => {
+  const b = document.querySelector('.pick-probe');
+  return {
+    shown: !!b && !b.hidden,
+    summary: b?.querySelector('summary')?.textContent ?? '',
+    line: b?.querySelector('.probe-line')?.textContent ?? '',
+    next: b?.querySelector('.probe-next')?.textContent ?? '',
+  };
+});
+check('🔬 좌표를 못 얻으면 **앱이 받은 바이트**를 화면에 내놓는다(§12 — 사람이 나르지 않게)', probe.shown, JSON.stringify(probe).slice(0, 200));
+check(
+  '🔬 크기와 해시를 적는다 — 사용자가 **폰의 원본과 대조**할 수 있게',
+  /바이트/.test(probe.line) && /sha256/.test(probe.line),
+  probe.line,
+);
+check(
+  '🔴 관측만 적고 **원인을 단정하지 않는다**(§8 — 이 건에서 네 번 틀렸다)',
+  !/지웠어요|지웁니다|때문입니다/.test(`${probe.line} ${probe.next}`),
+  `${probe.line} ${probe.next}`.slice(0, 160),
+);
+check(
+  '🔬 다음에 무엇을 할지 말한다(관측만 던지고 끝내지 않는다)',
+  probe.next.length > 10,
+  probe.next,
+);
+
 check(
   '🔴 생성 폼: 시각은 읽고 위치만 없으면 **원인을 구분해** 말한다(파서 탓이 아니다)',
   timeOnly.includes('촬영시각은 읽었') && timeOnly.includes('위치 태그') && !/지웠어요|지웁니다/.test(timeOnly),

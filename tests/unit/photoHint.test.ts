@@ -13,6 +13,7 @@ import {
   photoPlaceNotice,
   type PhotoMetaLike,
 } from '../../src/domain/place/photoHint';
+import { photoProbeLine, photoProbeNext } from '../../src/domain/place/photoProbe';
 
 const meta = (p: Partial<PhotoMetaLike> = {}): PhotoMetaLike => ({
   takenAt: null,
@@ -277,5 +278,57 @@ describe('photoHintOf — 세는 것들', () => {
     expect(h.photoCount).toBe(3);
     expect(h.timedCount).toBe(2);
     expect(h.coordCount).toBe(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔬 **앱이 받은 바이트의 사실** (2026-08-01 · M-0066)
+//
+// 나흘 동안 원인을 추측으로 좁혔고 네 번 틀렸다. 그동안 사용자는 스크린샷을 날랐고 앱은
+// 그 바이트를 손에 쥐고도 아무 말을 안 했다(§12). 이 문장이 그 자리를 메운다.
+//
+// 🔴 여기서 검사하는 것은 **판정을 하지 않는가**이다. 원인을 말하는 순간 이 도구는
+// 지난 나흘의 실수를 반복한다 — 관측만 적어야 한다(§8).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('photoProbeLine / photoProbeNext — 관측만 적는다', () => {
+  const base = { name: 'a.jpg', bytes: 2918760, sha16: 'fdfd864c57d62ed7' };
+  const P = (over: Partial<import('../../src/media/exif').ExifProbe> = {}) => ({
+    isJpeg: true,
+    app1: ['exif' as const],
+    gps: 'no-ifd' as const,
+    ...over,
+  });
+
+  it('크기와 해시를 **눈으로 대조할 수 있게** 적는다(폰의 원본과 맞춰 보라고)', () => {
+    const s = photoProbeLine({ ...base, probe: P() });
+    expect(s).toContain('2,918,760바이트');
+    expect(s).toContain('fdfd864c57d62ed7');
+  });
+
+  it('위치 칸이 **비워진 것**과 **없는 것**을 다르게 말한다(처방이 다르다)', () => {
+    expect(photoProbeLine({ ...base, probe: P({ gps: 'zeroed', gpsRaw: 'N 0/0,0/0,0/0' }) })).toContain('값이 비어 있음');
+    expect(photoProbeLine({ ...base, probe: P({ gps: 'no-ifd' }) })).toContain('위치 칸 자체가 없음');
+  });
+
+  it('원자료를 그대로 보여준다 — 가공하면 대조할 수 없다', () => {
+    const s = photoProbeLine({ ...base, probe: P({ gps: 'value', gpsRaw: 'N 36/1,36/1,32809680/1000000' }) });
+    expect(s).toContain('36/1,36/1,32809680/1000000');
+  });
+
+  it('🔴 **원인을 말하지 않는다**(§8 — 이 건에서 네 번 틀렸다)', () => {
+    for (const g of ['no-ifd', 'zeroed', 'value'] as const) {
+      const s = `${photoProbeLine({ ...base, probe: P({ gps: g }) })} ${photoProbeNext(P({ gps: g }))}`;
+      expect(s).not.toMatch(/지웠어요|지웁니다|때문입니다|안드로이드가/);
+    }
+  });
+
+  it('🔴 값이 정상인데 안 들어갔으면 **앱 결함이라고 말한다**(내 탓을 사용자에게 미루지 않는다)', () => {
+    expect(photoProbeNext(P({ gps: 'value' }))).toContain('앱 결함');
+  });
+
+  it('JPEG이 아니면 그 사실을 말하고 탈출구를 준다', () => {
+    const s = photoProbeLine({ ...base, probe: P({ isJpeg: false }) });
+    expect(s).toContain('JPEG이 아니라');
+    expect(photoProbeNext(P({ isJpeg: false }))).toContain('내 위치');
   });
 });

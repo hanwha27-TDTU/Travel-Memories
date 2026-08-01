@@ -586,6 +586,34 @@ function renderPlaceResults(
  *
  * FileList는 읽기 전용이라 DataTransfer로 다시 만들어 넣는다(표준 경로).
  */
+/**
+ * **앱이 받은 바이트의 사실**을 접힌 상자로. 좌표를 못 얻었을 때만 나온다(정상은 침묵 — §8).
+ *
+ * 🔴 왜 이게 필요했나(2026-08-01 · M-0066): 나흘 동안 *"왜 위치가 안 들어오나"*를 **추측으로**
+ * 좁혔고 네 번 틀렸다. 그 사이 사용자는 스크린샷을 찍어 날랐다 — §12가 금지하는 상태다.
+ * 앱은 그 바이트를 손에 쥐고 있으면서 **아무 말도 하지 않았다.**
+ *
+ * 여기서 **판정하지 않는다.** 관측만 적는다 — 왜 그런지는 이미 네 번 틀렸다(§8).
+ */
+async function renderProbe(box: HTMLElement, files: File[]): Promise<void> {
+  box.replaceChildren();
+  box.hidden = files.length === 0;
+  if (!files.length) return;
+  const sum = el('summary', '', '🔬 앱이 받은 사진 정보 보기');
+  box.appendChild(sum);
+  const { probeJpeg } = await import('../../media/exif');
+  const { photoProbeLine, photoProbeNext } = await import('../../domain/place/photoProbe');
+  for (const f of files.slice(0, 3)) {
+    const buf = await f.slice(0, 512 * 1024).arrayBuffer();
+    // 해시는 **파일 전체**로 낸다 — 앞부분만 재면 폰의 원본과 대조할 수 없다.
+    const digest = await crypto.subtle.digest('SHA-256', await f.arrayBuffer());
+    const sha16 = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+    const probe = probeJpeg(buf);
+    box.appendChild(el('div', 'probe-line', photoProbeLine({ name: f.name, bytes: f.size, sha16, probe })));
+    box.appendChild(el('div', 'probe-next muted', photoProbeNext(probe)));
+  }
+}
+
 function buildPickPreview(
   photoInput: HTMLInputElement,
   onMetas: (metas: PhotoMeta[]) => void,
@@ -593,6 +621,7 @@ function buildPickPreview(
 ): { el: HTMLElement; count: HTMLElement; setFiles: (files: File[]) => void } {
   const wrap = el('div', 'pick-preview');
   wrap.hidden = true;
+  const probeBox = el('details', 'pick-probe');
   const count = el('span', 'moment-photo-count', '');
   const clearAll = el('button', 'pick-clear-all', '전체 해제') as HTMLButtonElement;
   clearAll.type = 'button';
@@ -630,8 +659,14 @@ function buildPickPreview(
       wrap.appendChild(cell);
     }
     wrap.appendChild(clearAll);
+    wrap.appendChild(probeBox);
     void (async () => {
-      onMetas(await Promise.all(files.map((f) => readPhotoMeta(f, fallbackZone()))));
+      const metas = await Promise.all(files.map((f) => readPhotoMeta(f, fallbackZone())));
+      onMetas(metas);
+      // 🔴 **앱이 무엇을 받았는지 앱이 말한다**(M-0066). 좌표를 얻지 못했을 때만 — 정상은
+      // 침묵한다(§8). 이게 없어서 사용자가 나흘 동안 스크린샷을 날랐고 나는 추측했다(§12).
+      const noCoord = metas.every((m) => m.gpsLat === null || m.gpsLng === null);
+      await renderProbe(probeBox, noCoord ? files : []);
     })();
   }
 
