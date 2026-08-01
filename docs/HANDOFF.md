@@ -314,7 +314,7 @@ npm run dev                            # 홈 화면 확인 (선택)
 
 셸에서 구글 로그인 → `accounts.google.com`이 `allowNavigation` 밖 → **시스템 브라우저로 나가고 복귀도 브라우저**로 됨 → 세션이 브라우저에 생기고 사용자가 위치 지워지는 옛 경로에 머묾(사용자 실측 12:52). 구현: 셸이면 `redirectTo = app.bugeon.journey://auth-callback`(auth.ts 분기) · intent-filter + `@capacitor/app` · `wireShellAuthReturn()`이 appUrlOpen에서 `exchangeCodeForSession`. Capacitor 전역 접근은 `services/capacitorShell.ts`로 단일화(§7 2층).
 
-🔴 **남은 것 둘**: ① **사용자 1회 설정** — Supabase 대시보드 → Authentication → URL Configuration → Redirect URLs에 `app.bugeon.journey://auth-callback` 추가(관리 API가 MCP에 없어 수동. 등록 전에는 현 증상 그대로) ② **실기기 확인** — 새 APK 설치 후 셸에서 로그인 → 브라우저 인증 → **셸이 다시 열리고 로그인 상태**인가. 딥링크 왕복은 샌드박스에서 못 돌린다(정직한 경계 — ADR-0037).
+✅ **둘 다 완료**(2026-08-01 15:16 실기기): ① 사용자가 Supabase Redirect URLs에 `app.bugeon.journey://auth-callback` 등록(스크린샷 확인) ② 새 APK에서 로그인 → 브라우저 인증 → **셸 복귀·로그인 유지** 확인, 이어서 서버 데이터 동기화·갤러리 사진 좌표(36.33370, 127.41494 → 「선화서로, 대전」 자동)까지 전부 정상. **8일 사가(M-0054~M-0069) 종결.** 남는 플랫폼 경계: 안드로이드 브라우저(웹) 경로는 여전히 위치가 지워진 사본 — 폰에서는 셸이 답(0-C 갱신).
 
 ## HANDOFF-0037 · v1.43 · **🔬 한 줄이 판을 갈랐다** — 약속을 걷어내고 사실만 남김 (M-0068 · 2026-08-01 10:27)
 
