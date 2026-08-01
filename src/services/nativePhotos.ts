@@ -19,7 +19,16 @@
 
 /** 셸이 주입하는 브리지의 모양 — 플러그인(OriginalPhotosPlugin.java)과 1:1이다. */
 interface OriginalPhotosBridge {
-  pick(): Promise<{ photos: Array<{ name: string; data: string; original: boolean }> }>;
+  pick(): Promise<{
+    photos: Array<{
+      name: string;
+      data: string;
+      /** setRequireOriginal 승격이 실제로 됐는가. */
+      original: boolean;
+      /** 승격이 안 됐다면 어느 단계에서였나("pre-Q"·"getMediaUri-null"·…). 됐으면 "". */
+      reason: string;
+    }>;
+  }>;
 }
 
 interface CapacitorGlobal {
@@ -33,6 +42,36 @@ function bridge(): OriginalPhotosBridge | null {
   const cap = (window as Window & { Capacitor?: CapacitorGlobal }).Capacitor;
   if (!cap?.isNativePlatform?.()) return null;
   return cap.Plugins?.OriginalPhotos ?? null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔬 관측 창에 「이 바이트가 어느 문으로 들어왔나」를 준다 (2026-08-01 · M-0069)
+// ─────────────────────────────────────────────────────────────────────────────
+// 셸(v1.44)을 만들고 받은 첫 실기기 보고가 「아직 0/0」이었는데, 스크린샷만으로는
+// **셸에서 돈 것인지 PWA에서 돈 것인지조차** 가릴 수 없었다(둘 다 주소창이 없다).
+// 관측 창이 GPS 사실은 말하면서 **경로**를 말하지 않아 생긴 왕복이다 — 앱이 아는 것을
+// 말하지 않으면 사람이 대신 나른다(§12). 그래서 여기서 경로 사실을 기록해 둔다.
+
+/** 이 실행 환경이 어느 문인가 — 관측 창의 「경로」 줄에 그대로 나간다. */
+export type ShellState = 'browser' | 'shell' | 'shell-no-plugin';
+
+export function shellState(): ShellState {
+  if (typeof window === 'undefined') return 'browser';
+  const cap = (window as Window & { Capacitor?: CapacitorGlobal }).Capacitor;
+  if (!cap?.isNativePlatform?.()) return 'browser';
+  // 셸인데 문이 없다 = APK가 이 플러그인이 실리기 전 판이다(재설치가 답인 상태).
+  return cap.Plugins?.OriginalPhotos ? 'shell' : 'shell-no-plugin';
+}
+
+/** 파일 이름 → 네이티브 문이 말한 사실. 같은 이름을 다시 고르면 최신 것으로 덮인다. */
+const lastPick = new Map<string, { original: boolean; reason: string }>();
+
+/**
+ * 이 파일이 네이티브 문을 거쳤다면 그때의 사실을, 아니면 null.
+ * null인데 shellState()가 'shell'이면 — 셸인데 시스템 선택기 경로로 들어온 것이다.
+ */
+export function pickedVia(name: string): { original: boolean; reason: string } | null {
+  return lastPick.get(name) ?? null;
 }
 
 /**
@@ -60,7 +99,13 @@ export async function pickIntoInput(input: HTMLInputElement): Promise<boolean> {
   if (photos.length > 0) {
     const dt = new DataTransfer();
     for (const f of input.files ? Array.from(input.files) : []) dt.items.add(f);
-    for (const p of photos) dt.items.add(b64ToFile(p.name, p.data));
+    for (const p of photos) {
+      const file = b64ToFile(p.name, p.data);
+      // File의 실제 이름으로 기록한다(빈 이름 폴백 뒤) — 관측 창이 이 이름으로 되찾는다.
+      // 옛 APK의 플러그인은 reason을 안 보낸다 → undefined를 "모름"으로 뭉개지 않고 적는다.
+      lastPick.set(file.name, { original: p.original === true, reason: p.reason ?? '(옛 플러그인 — reason 미보고)' });
+      dt.items.add(file);
+    }
     input.files = dt.files;
     // 기존 파이프라인(buildPickPreview.render)이 듣는 그 이벤트다 — 여기서 끝, 나머지는 기존 문.
     input.dispatchEvent(new Event('change', { bubbles: true }));

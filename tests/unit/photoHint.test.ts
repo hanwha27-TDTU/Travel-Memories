@@ -13,7 +13,7 @@ import {
   photoPlaceNotice,
   type PhotoMetaLike,
 } from '../../src/domain/place/photoHint';
-import { photoProbeLine, photoProbeNext } from '../../src/domain/place/photoProbe';
+import { photoProbeLine, photoProbeNext, photoProbePath } from '../../src/domain/place/photoProbe';
 
 const meta = (p: Partial<PhotoMetaLike> = {}): PhotoMetaLike => ({
   takenAt: null,
@@ -333,5 +333,55 @@ describe('photoProbeLine / photoProbeNext — 관측만 적는다', () => {
     const s = photoProbeLine({ ...base, probe: P({ isJpeg: false }) });
     expect(s).toContain('JPEG이 아니라');
     expect(photoProbeNext(P({ isJpeg: false }))).toContain('내 위치');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔬 경로 줄 (2026-08-01 · M-0069)
+//
+// 셸(v1.44) 첫 실기기 보고 「아직 0/0」에서 스크린샷 한 장으로는 **셸인지 PWA인지조차**
+// 못 갈랐다(둘 다 주소창이 없다 — 실제로는 APK 미설치였고 그걸 아는 데 왕복 하나를 썼다).
+// 이 문장이 그 왕복을 없앤다. 여기서도 재는 것은 「판정하지 않는가」다(§8).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('photoProbePath — 바이트가 어느 문으로 들어왔는지', () => {
+  it('브라우저(PWA 포함)면 그 사실과 「살리는 문은 셸에만 있다」를 말한다', () => {
+    const s = photoProbePath({ shell: 'browser', picked: null });
+    expect(s).toContain('브라우저');
+    expect(s).toContain('셸(APK)');
+  });
+
+  it('셸 · 네이티브 문 · 원본 승격 ✓', () => {
+    const s = photoProbePath({ shell: 'shell', picked: { original: true, reason: '' } });
+    expect(s).toContain('원본 승격 ✓');
+  });
+
+  it('🔴 승격이 안 됐으면 플러그인이 적은 사유를 **가공 없이 그대로** 내보낸다(대조 가능해야 한다)', () => {
+    const s = photoProbePath({ shell: 'shell', picked: { original: false, reason: 'getMediaUri-null' } });
+    expect(s).toContain('원본 승격 안 됨');
+    expect(s).toContain('getMediaUri-null');
+  });
+
+  it('셸인데 이 파일이 네이티브 문을 안 거쳤으면 — 그 어긋남 자체를 말한다', () => {
+    const s = photoProbePath({ shell: 'shell', picked: null });
+    expect(s).toContain('네이티브 문을 거치지 않고');
+  });
+
+  it('셸인데 문이 없으면(옛 APK) 새 APK 설치를 가리킨다', () => {
+    const s = photoProbePath({ shell: 'shell-no-plugin', picked: null });
+    expect(s).toContain('네이티브 문이 없어요');
+    expect(s).toContain('APK');
+  });
+
+  it('🔴 다섯 경우 전부 **원인 단정어를 쓰지 않는다**(§8 — 이 건에서 네 번 틀렸다)', () => {
+    const cases: Parameters<typeof photoProbePath>[0][] = [
+      { shell: 'browser', picked: null },
+      { shell: 'shell', picked: { original: true, reason: '' } },
+      { shell: 'shell', picked: { original: false, reason: 'promote-failed:SecurityException' } },
+      { shell: 'shell', picked: null },
+      { shell: 'shell-no-plugin', picked: null },
+    ];
+    for (const c of cases) {
+      expect(photoProbePath(c)).not.toMatch(/지웠어요|지웁니다|때문입니다|안드로이드가/);
+    }
   });
 });

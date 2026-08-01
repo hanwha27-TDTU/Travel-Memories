@@ -43,6 +43,8 @@
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
     <!-- getMediaUri로 바꾼 MediaStore URI는 SAF 부여 밖이라 미디어 읽기 권한이 따로 필요하다. -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- 안드로이드 14 「일부 사진만 허용」 — 이걸 선언 안 하면 부분 허용이 곧 거부가 된다. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <!-- 📍 내 위치 — WebView의 geolocation 요청을 Capacitor 브리지가 앱 권한으로 잇는다. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
