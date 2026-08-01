@@ -20,7 +20,8 @@
 
 // 캐시 **형식** 버전. 앱 버전이 아니다 — 해시 자산은 릴리스가 바뀌어도 그대로 유효하므로
 // 릴리스마다 캐시를 비우면 이 워커의 존재 이유가 사라진다. 캐싱 규칙을 바꿀 때만 올린다.
-const CACHE = 'journey-shell-v1';
+// (v2: version.json 무개입 규칙 추가 — 2026-08-01)
+const CACHE = 'journey-shell-v2';
 
 // 자산 캐시 상한(개수). 배포를 거듭하면 사라진 해시 자산이 쌓이는데, 이 앱은 사용자의 사진이
 // 같은 저장소 예산을 쓴다 — 껍데기가 기억의 자리를 잠식하면 안 된다. 넘치면 **가장 오래
@@ -69,6 +70,11 @@ self.addEventListener('fetch', (event) => {
 
   // ① 교차 출처는 통째로 통과시킨다. Supabase·R2·타일·환율·지오코딩이 전부 여기 해당한다.
   if (url.origin !== self.location.origin) return;
+
+  // ①-B 갱신 신호(version.json)는 **아예 만지지 않는다**(appUpdate.ts가 ?ts= 쿼리로 묻는다).
+  // 캐시하면 두 가지가 깨진다: 신호가 낡아 갱신이 영영 안 오고, 매번 다른 쿼리가 캐시 항목을
+  // 하나씩 새로 만들어 상한(trim)이 **진짜 자산을** 밀어낸다.
+  if (url.pathname.endsWith('/version.json')) return;
 
   // ② 해시 자산 — 캐시 우선. 이름이 곧 내용의 지문이라 낡을 수 없다.
   if (url.pathname.includes('/assets/')) {

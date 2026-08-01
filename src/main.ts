@@ -39,6 +39,12 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   });
 }
 
+// 자동 갱신 — 셸·설치형 PWA는 페이지를 다시 로드할 일이 없어 새 배포가 화면에 안 닿는다.
+// 시작·복귀 때 배포의 version.json을 묻고 **안전할 때** 새로고침한다(services/appUpdate.ts).
+if (import.meta.env.PROD) {
+  void import('./services/appUpdate').then((m) => m.wireAutoUpdate());
+}
+
 const appEl = document.getElementById('app');
 if (!appEl) throw new Error('#app 마운트 지점을 찾을 수 없습니다.');
 const root: HTMLElement = appEl;
