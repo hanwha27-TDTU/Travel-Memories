@@ -72,6 +72,37 @@ export function audit(src) {
   return problems;
 }
 
+/**
+ * 🔐 초대제 형태검사 — Edge Function이 **인증만 하고 초대제를 빠뜨리지 않았는가.**
+ *
+ * 왜 생겼나(H-1 · 전수감사 2026-08-01): journey 테이블은 RLS로 `auth.uid() = user_id AND
+ * journey.is_allowed()`를 이중으로 건다(0002). 그런데 R2 서명·지오코딩은 **DB를 거치지
+ * 않으므로** 그 두 번째 방어(초대제)가 통째로 빠졌다 — 허용목록 밖 로그인 계정도 서명 URL을
+ * 받고 지도 API를 돌릴 수 있었다. 정확히 §7의 근본형("새 경로는 형제가 지키는 계약을
+ * 물려받지 않는다")이고, 이번엔 그 경로가 **DB 밖**이라 RLS가 못 따라왔다.
+ *
+ * 다음 Edge Function이 이 규율을 자동으로 물려받게 **형태로** 강제한다:
+ *   ① `isInvited` 헬퍼가 있고 ② 그것이 journey.is_allowed() RPC에 되묻고
+ *   ③ 인증 뒤에 `if (!(await isInvited(req))) return … 403` 가드가 있다.
+ * 산문(주석)은 코드가 바뀔 때 같이 안 바뀐다 — 그래서 형태로 잡는다(M-0060).
+ */
+export function inviteAudit(src) {
+  const problems = [];
+  const hasHelper = /async function isInvited\s*\(/.test(src);
+  const callsRpc = /rest\/v1\/rpc\/is_allowed/.test(src);
+  const hasGuard = /if\s*\(\s*!\s*\(\s*await\s+isInvited\s*\(\s*req\s*\)\s*\)\s*\)\s*return[^;\n]*403/.test(src);
+  if (!hasHelper) {
+    problems.push('isInvited 헬퍼가 없습니다 — 인증은 sub 위조만 막고 초대제는 못 겁니다(§7). RLS가 테이블에 거는 journey.is_allowed()를 이 경로에도 걸어야 합니다.');
+  }
+  if (!callsRpc) {
+    problems.push('isInvited가 journey.is_allowed() RPC(rest/v1/rpc/is_allowed)를 호출하지 않습니다 — 허용목록 SSOT에 되묻지 않으면 손편집 중복이 됩니다.');
+  }
+  if (!hasGuard) {
+    problems.push('인증 뒤 초대제 가드가 없습니다 — `if (!(await isInvited(req))) return … 403` 형태가 필요합니다. 허용목록 밖 계정이 이 함수를 쓸 수 있습니다.');
+  }
+  return problems;
+}
+
 // ── 비공허 자체검사 ─────────────────────────────────────────────────────────
 let selfTestCount = 0;
 {
@@ -114,6 +145,32 @@ if (op === 'list') { }`;
   selfTestCount = cases.length;
 }
 
+// ── 초대제 형태검사 자체검사 (§4 — 알려진 실패를 주입해 RED 확인) ────────────
+let inviteSelfTestCount = 0;
+{
+  const okInvite = `async function isInvited(req: Request): Promise<boolean> {
+  const r = await fetch(\`\${base}/rest/v1/rpc/is_allowed\`, { method: 'POST', body: '{}' });
+  if (!r.ok) return false;
+  return (await r.json()) === true;
+}
+const userId = await verifiedUserId(req);
+if (!userId) return json({ error: 'unauthorized' }, 401);
+if (!(await isInvited(req))) return json({ error: 'forbidden' }, 403);`;
+  const cases = [
+    { name: '헬퍼·RPC·가드 다 있으면 정상', src: okInvite, clean: true },
+    { name: 'isInvited 헬퍼가 없으면 검출', src: okInvite.replace('async function isInvited', 'async function unused'), clean: false },
+    { name: 'RPC 호출이 없으면 검출(허용목록에 안 되물음)', src: okInvite.replace('/rest/v1/rpc/is_allowed', '/auth/v1/user'), clean: false },
+    { name: '인증만 하고 초대제 가드가 없으면 검출(H-1의 형태)', src: okInvite.replace(/if \(!\(await isInvited\(req\)\)\) return json\({ error: 'forbidden' }, 403\);/, ''), clean: false },
+    { name: '가드가 403이 아니면 검출(거부하지 않음)', src: okInvite.replace('}, 403);', '}, 200);'), clean: false },
+  ];
+  const broken = cases.filter((c) => (inviteAudit(c.src).length === 0) !== c.clean);
+  if (broken.length) {
+    console.error(`check-edge-fn-ops: 초대제 셀프테스트 실패 — 게이트가 공허함: ${broken.map((c) => c.name).join(', ')}`);
+    process.exit(2);
+  }
+  inviteSelfTestCount = cases.length;
+}
+
 /**
  * 🔴 대상은 **손으로 세지 않고 디렉터리에서 뽑는다**(§7 — 형제 목록을 손으로 세지 마라).
  *
@@ -151,7 +208,7 @@ let failed = false;
 let opTotal = 0;
 for (const rel of targets) {
   const src = readFileSync(join(ROOT, rel), 'utf8');
-  const problems = audit(src);
+  const problems = [...audit(src), ...inviteAudit(src)];
   if (problems.length) {
     failed = true;
     for (const p of problems) console.error(`  ✗ ${rel}: ${p}`);
@@ -160,9 +217,9 @@ for (const rel of targets) {
   }
 }
 if (failed) {
-  console.error('check-edge-fn-ops: 함수의 능력 선언과 구현이 어긋납니다.');
+  console.error('check-edge-fn-ops: 함수의 능력 선언과 구현이 어긋나거나 초대제 가드가 빠졌습니다.');
   process.exit(1);
 }
 console.log(
-  `check-edge-fn-ops: OK (셀프테스트 ${selfTestCount}건 · 함수 ${targets.length}개 · 선언·구현 op ${opTotal}종 대칭)`,
+  `check-edge-fn-ops: OK (셀프테스트 ${selfTestCount}+${inviteSelfTestCount}건 · 함수 ${targets.length}개 · 선언·구현 op ${opTotal}종 대칭 · 초대제 가드 확인)`,
 );

@@ -262,6 +262,35 @@ async function verifyUser(req: Request): Promise<boolean> {
   }
 }
 
+/**
+ * 🔐 초대제 확인 — media-sign과 **같은 규율**. 인증만으로는 부족하다.
+ * journey 테이블은 RLS로 초대제(`journey.is_allowed()`)를 걸지만, 지오코딩은 DB를 거치지
+ * 않으므로 그 방어가 빠진다 — 허용목록 밖 계정도 우리 지도 API 키로 검색을 돌릴 수 있었다.
+ * 허용목록 SSOT(`journey.allowed_users`)에 **RPC로 되묻고**, 못 읽거나 애매하면 거부한다(§7).
+ */
+async function isInvited(req: Request): Promise<boolean> {
+  const auth = req.headers.get('Authorization') ?? '';
+  const url = envGet('SUPABASE_URL');
+  const anon = envGet('SUPABASE_ANON_KEY');
+  if (!auth.startsWith('Bearer ') || !url || !anon) return false;
+  try {
+    const r = await fetch(`${url}/rest/v1/rpc/is_allowed`, {
+      method: 'POST',
+      headers: {
+        Authorization: auth,
+        apikey: anon,
+        'Content-Type': 'application/json',
+        'Content-Profile': 'journey', // RPC는 POST — 스키마 선택은 Content-Profile
+      },
+      body: '{}',
+    });
+    if (!r.ok) return false;
+    return (await r.json()) === true;
+  } catch {
+    return false;
+  }
+}
+
 async function searchKakao(key: string, q: string): Promise<NormalizedRow[]> {
   const headers = { Authorization: `KakaoAK ${key}` };
   const base = 'https://dapi.kakao.com/v2/local/search';
@@ -308,6 +337,8 @@ DENO?.serve(async (req: Request): Promise<Response> => {
 
   // capabilities는 **인증 뒤**에 답한다. 어떤 제공자를 붙였는지는 우리 구성 정보다.
   if (!(await verifyUser(req))) return json({ error: 'unauthorized' }, 401);
+  // 🔐 초대제 — 인증 다음 줄. RLS가 테이블에 거는 journey.is_allowed()를 이 경로에도 건다(§7).
+  if (!(await isInvited(req))) return json({ error: 'forbidden' }, 403);
 
   if (op === 'capabilities') {
     return json({ version: FN_VERSION, ops: FN_OPS, providers: availableProviders(envGet) });
