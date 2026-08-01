@@ -17,6 +17,17 @@
 
 > **이 절은 "지금 이 순간"이다.** 아래 기능 지도가 *무엇이 있는가*를, 이 절이 *방금 무슨 일이 있었고 무엇이 아직 안 끝났는가*를 말한다.
 
+**한 줄(2026-08-01 · 코드 무변경 · android-apk-dev 신설)**: 사용자가 다른 프로젝트에도 이 앱과
+같은 안드로이드 셸 구조(Capacitor+server.url 분리·「항상 최신 APK」 고정 릴리스·자동 웹 갱신)를
+이식하고 싶다고 해서, 먼저 붙여넣기용 지시문을 만들고 그다음 **그 지시문을 이 저장소의 정본으로
+승격**했다 — `.claude/skills/android-apk-dev/SKILL.md` 신설(§6이 이식용 지시문 SSOT). 흩어져
+`photo-storage-dev`에만 걸려 있던 `apk.ts`·`capacitorShell.ts`·`nativePhotos.ts`와, 아무 헌장도
+없던 `android-shell/**`·`appUpdate.ts`·`check-apk-release-link.mjs`·`check-update-signal.mjs`·
+`gen-version-file.mjs`·`android-apk.yml`을 새 헌장으로 라우팅(`SKILL_ROUTES`). `check-skill-routing`의
+SCAN 범위도 `android-shell/android/app/src`(java)로 넓혔다 — node_modules·build 산출물이 실물로
+있어 루트 전체를 훑으면 벤더 코드를 우리 소스로 잘못 셀 뻔했다. `gen-registry.mjs` 재생성 +
+전체 하네스(275+22 라이브 포함) 그린. **버전 미변경**(문서·라우팅 전용, 앱 코드 무변경).
+
 **한 줄(2026-08-01 10:27 · v1.43 · 사진→장소)**: 🔴 **실기기 🔬 한 줄이 판을 갈랐다**(HANDOFF-0037). v1.42에서 파일 선택기·갤러리 **둘 다** `0/0`으로 도착(촬영시각은 읽힘) → **파서·배선 갈래 전부 종결**, M-0067은 이 증상의 원인이 아니었음. 화면의 「파일 선택기로 고르면 원본 그대로」 약속이 반증돼 걷어냈다(M-0068 · v1.43). 직접 촬영·내 위치·지도·좌표는 정상 작동(실측). 남은 변수는 **전달 경로 하나** — 전체 맥락은 `photo-storage-dev` §0-C.
 
 **한 줄(2026-08-01 · v1.42 · 사진→장소 미해결 건)**: 새 눈 점검으로 **`file.type` MIME 게이트가 SAF 기본 경로에서 좌표를 조용히 버릴 수 있던 구멍**을 찾아 막았다(M-0067 · HANDOFF-0036). → 10:27 실기기에서 **이 증상의 원인은 아니었음이 확정**됐다(결함 자체는 실재·수정 유효).
@@ -250,7 +261,7 @@
 4. 도메인 계약: `DATA_MODEL` · `SYNC_PROTOCOL` · `SECURITY` · `MEDIA_PIPELINE` · `PRIVACY` · `DEPLOYMENT` · `ARCHITECTURE` · **`DISASTER_RECOVERY`(백업·복원·복구 우선순위)**
 5. `docs/AGENT_REGISTRY.md` → `docs/DECISIONS.md` + `docs/ASSUMPTIONS.md`
 6. `docs/ROADMAP.md`(Phase 계획) → `docs/ACTIVE_TASKS.md`
-7. **작업 전 필수 스킬**(해당 영역 수정 시 **반드시 로드** — 현재 <!--reg:skillCount-->10<!--/reg-->개):
+7. **작업 전 필수 스킬**(해당 영역 수정 시 **반드시 로드** — 현재 <!--reg:skillCount-->11<!--/reg-->개):
 
 | 만지는 것 | 로드할 스킬 |
 |---|---|

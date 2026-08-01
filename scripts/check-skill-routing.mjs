@@ -56,6 +56,11 @@ const SCAN = [
   // > 주장보다 좁은 스캔은 그 차이만큼 초록이 거짓말이 된다.
   { dir: 'scripts', ext: /\.(mjs|py)$/ },
   { dir: 'supabase', ext: /\.(ts|sql)$/ },
+  // 셸(ADR-0036)의 네이티브 코드 — 2026-08-01 android-apk-dev 헌장 신설과 함께 넣었다.
+  // 🔴 android-shell/ 루트가 아니라 android/app/src로 좁힌다: 루트에는 node_modules(1800+
+  // 파일 · 벤더 .java 포함)와 android/app/build(gradle 산출물)가 실물로 존재해서, walk()가
+  // .gitignore를 안 보고 파일시스템을 그대로 훑으면 남의 코드를 우리 소스로 잘못 센다.
+  { dir: 'android-shell/android/app/src', ext: /\.java$/ },
 ];
 
 export function unrouted(paths, routes, excluded) {
