@@ -114,16 +114,6 @@ export async function diagnoseSync(): Promise<SyncDiagnosis> {
 }
 
 /**
- * 대기 중인 작업 수 — **모든 미완료 상태**를 센다.
- *
- * ⚠️ 결함 이력: 옛 `pendingSyncCount`는 `local_only`만 세어 **실패한 작업이 숨었다**.
- * 화면은 "동기화됨"인데 실제로는 서버에 못 간 변경이 쌓여 있을 수 있었다.
- */
-export async function pendingOpCount(): Promise<number> {
-  return db().syncQueue.count();
-}
-
-/**
  * 무결성 점검이 볼 **로컬 스냅샷을 한 곳에서** 만든다.
  *
  * 왜 여기로 뽑았나(§7 2층, 2026-07-27): 이 `Promise.all([...])`는 `diagnostics.ts` 안에

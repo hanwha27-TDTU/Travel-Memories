@@ -1697,16 +1697,4 @@ export function renderDiagTool(t: DiagTool): HTMLElement {
   return renderTool({ title: t.label, lead: t.lead, probe: t.probe });
 }
 
-function toolById(id: string): DiagTool {
-  const t = DIAG_TOOLS.find((x) => x.id === id);
-  if (!t) throw new Error(`진단 도구 없음: ${id}`);
-  return t;
-}
 
-// ── 다른 화면에서 직접 여는 진입점(데이터 관리·가이드) — 같은 렌더러를 쓴다 ──
-export function syncDiagnosticsPanel(): HTMLElement {
-  return renderDiagTool(toolById('sync'));
-}
-export function integrityPanel(): HTMLElement {
-  return renderDiagTool(toolById('integrity'));
-}

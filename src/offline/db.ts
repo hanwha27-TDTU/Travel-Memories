@@ -222,6 +222,9 @@ export interface LocalFxRate {
   fetchedAt: string;
 }
 
+/** 큐 항목 상태 — 셋뿐(SyncQueueItem.state 주석 참조). 성공은 행 삭제로 표현한다. */
+export type SyncQueueState = 'local_only' | 'retryable_failed' | 'permanent_failed';
+
 export interface SyncQueueItem {
   operationId: string;
   entityType: string;
@@ -233,7 +236,15 @@ export interface SyncQueueItem {
    * 막히고 이어서 원장 pull이 로컬 행까지 지운다. 그 순서를 끊기 위해 큐에 올린다.
    */
   operationType: 'insert' | 'update' | 'delete' | 'finalize_upload' | 'purge' | 'unpurge';
-  state: string;
+  /**
+   * 큐 항목의 처리 상태. **문자열이 아니라 닫힌 유니온이다** — 오타나 없는 상태가 컴파일에서
+   * 걸리게(전수 감사 정리). 값은 셋뿐이다:
+   *  · `local_only`       — 아직 서버에 못 보냄(기본·재시도 대기). 성공하면 큐에서 **삭제**된다.
+   *  · `retryable_failed` — 일시 실패(백오프 후 재시도). `nextRetryAt`이 다음 시각을 정한다.
+   *  · `permanent_failed` — 영구 실패(사람이 봐야 함). 자동 재시도하지 않는다.
+   * 성공은 별도 상태가 아니라 **행 삭제**로 표현한다(남아 있는 것이 곧 미완이다).
+   */
+  state: SyncQueueState;
   attempts: number;
   createdAt: string;
   /**
