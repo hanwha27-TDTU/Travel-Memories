@@ -640,6 +640,8 @@ button.chip { border: 0; font-family: inherit; }
    `<select>`라 폰에서 네이티브 선택기가 뜨고 오타가 원리적으로 불가능하다(2026-07-30 사용자 제안). */
 .zone-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .zone-field .zone-input { width: 100%; min-width: 0; }
+/* 검색은 목록을 좁히는 보조 칸이라 select보다 살짝 작다(2026-08-01 사용자 지적 — 찾기 힘듦). */
+.zone-search { width: 100%; min-width: 0; font-size: 0.9em; }
 /* 긴 시간대 이름이 칸을 밀어내지 않게 — 폴드5 접은 화면(344px)에서도 가로 넘침 0이어야 한다. */
 select.zone-input { text-overflow: ellipsis; }
 /* 📷 사진 위치 근거 줄 — 시각 근거 줄(.when-note)과 **같은 무게**다(§7 사용자 대면 대칭). */
