@@ -5,6 +5,12 @@
 #
 # 웹 내용의 배포와는 **무관하다**: 셸은 server.url로 GitHub Pages를 로드하므로,
 # 웹은 지금처럼 push→Pages로 즉시 반영되고 APK는 셸 자체가 바뀔 때만 다시 굽는다.
+#
+# 🔴 「항상 최신 APK」 계약(사용자 지시 2026-08-01): main에 셸 변경이 닿으면 이 워크플로가
+# 고정 태그 릴리스(apk-latest)에 APK를 **--clobber로 덮어쓴다**. 앱 내 가이드의 다운로드
+# 버튼(src/app/apk.ts의 APK_LATEST_URL)이 그 고정 주소를 가리키므로, 사람이 아무것도
+# 기억하지 않아도 버튼은 언제나 최신을 준다. 세 자리(워크플로·상수·가이드)의 계약 일치는
+# `check-apk-release-link` 게이트가 강제한다 — 이 단계를 지우면 게이트가 RED다.
 name: Android APK
 
 on:
@@ -13,6 +19,9 @@ on:
     paths:
       - 'android-shell/**'
       - '.github/workflows/android-apk.yml'
+
+permissions:
+  contents: write # apk-latest 릴리스 갱신(위 계약)에 필요 — 그 외에는 기본 읽기만 쓴다
 
 jobs:
   apk:
@@ -43,3 +52,17 @@ jobs:
           name: bugeon-journey-apk
           path: android-shell/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
+      - name: 최신 APK를 고정 주소로 (releases/apk-latest — main만)
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          APK=android-shell/android/app/build/outputs/apk/debug/app-debug.apk
+          # 태그가 없으면 만들고(첫 1회), 있으면 그대로 쓴다 — 멱등.
+          gh release view apk-latest >/dev/null 2>&1 || gh release create apk-latest \
+            --title "Bugeon Journey 안드로이드 앱 (항상 최신)" \
+            --notes "앱 내 가이드의 다운로드 버튼이 가리키는 고정 주소입니다."
+          # --clobber: 같은 이름 자산을 덮어쓴다 — 이 한 줄이 「항상 최신」 계약의 심장이다.
+          gh release upload apk-latest "$APK" --clobber
+          gh release edit apk-latest --notes "최신 빌드: ${GITHUB_SHA:0:7} · $(date -u '+%Y-%m-%d %H:%M UTC') — 이 주소는 언제나 최신 APK를 줍니다. 화면·기능 갱신은 재설치 없이 자동입니다."
