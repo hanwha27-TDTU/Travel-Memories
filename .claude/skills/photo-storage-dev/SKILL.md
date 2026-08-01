@@ -110,6 +110,19 @@ description: 사진 저장 전 경로 개발 프롬프트 — media/exif.ts·med
 그리고 사용자가 *"안 된다"*고 하면 **어느 버튼으로 골랐는지 먼저 물어라** — 경로를 안 묻고
 가설을 세우는 순간, 지난 나흘이 반복된다(M-0056·M-0064).
 
+### 해결 경로 착수 (ADR-0036 · 2026-08-01 · [user-decided])
+
+메커니즘이 확정됐다: 안드로이드 10+의 시스템 위치 지우기이고, 크롬은 `ACCESS_MEDIA_LOCATION`을
+요청하지 않아 **PWA로는 원리적으로 불가**다. 사용자 결정으로 **Capacitor 셸**(`android-shell/`)이
+생겼다 — WebView가 GitHub Pages를 그대로 로드하고, 네이티브 코드는 사진 고르기 하나뿐이다
+(`OriginalPhotosPlugin.java`: SAF → `getMediaUri` → `setRequireOriginal` → 원본 바이트).
+웹 쪽 문은 `src/services/nativePhotos.ts` — 크롬에서는 무행동, 셸에서는 기존 input에 주입.
+APK는 `android-apk.yml`이 굽는다(debug 서명·사이드로드).
+
+🔴 **남은 확인은 실기기 하나다**: APK 설치 후 [📷 사진 추가]로 갤러리 사진을 골랐을 때
+**🔬 한 줄이 「위치 있음」**을 보여주는가. `setRequireOriginal`이 그 폰에서 실제로 위치를
+살리는지는 그 줄이 판정한다 — 판정 도구가 이미 배 안에 있다.
+
 ## 1. 불변 계약 (어기면 기억이 사라진다)
 
 1. **원본을 바꾸지 않는다**(§0). 편집은 `editState`(직렬화 가능한 순수 값)로만 저장하고

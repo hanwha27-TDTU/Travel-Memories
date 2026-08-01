@@ -18,3 +18,10 @@ artifacts/agent-reports/
 # os / editor
 .DS_Store
 *.log
+
+# 안드로이드 셸(ADR-0036) — 빌드 산출물은 CI가 만든다
+android-shell/node_modules/
+android-shell/android/.gradle/
+android-shell/android/app/build/
+android-shell/android/build/
+android-shell/android/capacitor-cordova-android-plugins/build/

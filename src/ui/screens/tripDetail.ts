@@ -19,6 +19,7 @@ import { photoHintOf, photoPlaceLabel, photoPlaceNotice, type PhotoMetaLike } fr
 import { hereFailMessage, hereLabel, hereVerdict } from '../../domain/place/here';
 import { readHere } from '../../services/here';
 import { wireAltPick, ORIGINAL_ACCEPT, GALLERY_ACCEPT } from '../pickOriginal';
+import { wireNativeIntake } from '../../services/nativePhotos';
 import { hasAgreed, rememberAgreed, PHOTO_GEO_CONSENT_KEY, PHOTO_GEO_CONSENT_TEXT } from '../../services/consent';
 import {
   createMomentLocalFirst,
@@ -312,14 +313,27 @@ function wireMapPickButton(
  * 떼고 보니 이게 맞다 — 「사진을 어떤 선택기로 고르는가」는 이 앱에서 **위치 정보의 생사가
  * 갈리는 지점**이라(M-0054), 화면 300줄 안에 묻혀 있으면 다음 사람이 못 본다.
  */
-function buildAddPhotoRow(): { wrap: HTMLElement; input: HTMLInputElement; progress: HTMLElement } {
-  const wrap = el('div', 'moment-addphoto');
-  wrap.hidden = true;
+/**
+ * 사진 입력칸 공장 — **두 폼(생성·추가)이 같은 문을 지난다**(§7 2층).
+ *
+ * 여기 담긴 두 규율은 각각 나흘짜리였다: `ORIGINAL_ACCEPT`(M-0064 — 갤러리 선택기가 위치를
+ * 지운다) · `wireNativeIntake`(ADR-0036 — 셸 안에서는 ACCESS_MEDIA_LOCATION 문으로).
+ * 손으로 두 벌 만들면 한쪽이 낡는다 — 실제로 그랬다.
+ */
+function photoFileInput(): HTMLInputElement {
   const input = el('input', 'moment-photo-input') as HTMLInputElement;
   input.type = 'file';
   input.accept = ORIGINAL_ACCEPT; // 기본이 원본 보존 경로다(2026-08-01 — 위치를 잃지 않게)
+  wireNativeIntake(input); // 셸(ADR-0036) 안에서는 위치가 살아 있는 네이티브 문 — 크롬에선 무행동
   input.multiple = true;
   input.setAttribute('aria-label', '사진 추가');
+  return input;
+}
+
+function buildAddPhotoRow(): { wrap: HTMLElement; input: HTMLInputElement; progress: HTMLElement } {
+  const wrap = el('div', 'moment-addphoto');
+  wrap.hidden = true;
+  const input = photoFileInput();
   const label = el('label', 'moment-photo-label moment-addphoto-btn');
   label.append(document.createTextNode('📷 사진 추가 '), input);
   const progress = el('span', 'moment-addphoto-note muted small');
@@ -1493,11 +1507,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     // 사진 선택(원본은 기기에 보관·압축본은 파생, §0). label 안에 input을 넣어 접근성 확보.
     /** 이 여행에서 가장 늦은 순간의 발생 시각. `refresh()`가 채운다. */
     let latestMomentAt: string | null = null;
-    const photoInput = el('input', 'moment-photo-input') as HTMLInputElement;
-    photoInput.type = 'file';
-    photoInput.accept = ORIGINAL_ACCEPT; // 기본이 원본 보존 경로다(2026-08-01)
-    photoInput.multiple = true;
-    photoInput.setAttribute('aria-label', '사진 추가');
+    const photoInput = photoFileInput();
     const photoLabel = el('label', 'moment-photo-label');
     photoLabel.append(document.createTextNode('📷 사진 추가 '));
     // 선택한 사진 미리보기 + 해제. 로직은 최상위 `buildPickPreview`에 있다.
