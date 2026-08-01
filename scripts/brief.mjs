@@ -68,10 +68,24 @@ export const SKILL_ROUTES = [
   // 셸(ADR-0036)의 웹 쪽 절반 — 위치가 살아 있는 원본을 받는 유일한 문이므로 사진저장 헌장이다.
   { match: /^src\/services\/nativePhotos/, skill: 'photo-storage-dev' },
   // Capacitor 전역 접근 SSOT — 사진 문(OriginalPhotos)과 로그인 복귀(App)가 함께 기대므로
-  // 셸의 존재 이유인 사진저장 헌장을 따른다(ADR-0036·0037).
+  // 셸의 존재 이유인 사진저장 헌장을 따른다(ADR-0036·0037). **셸을 어떻게 짜는가**의
+  // 규율(server.url 분리·브리지 감지 단일화)은 android-apk-dev가 정본이라 함께 걸린다.
   { match: /^src\/services\/capacitorShell/, skill: 'photo-storage-dev' },
+  { match: /^src\/services\/capacitorShell/, skill: 'android-apk-dev' },
+  { match: /^src\/services\/nativePhotos/, skill: 'android-apk-dev' },
   // APK 배포 사실 SSOT(고정 릴리스 주소·설치 안내) — 셸 배포 계약이므로 같은 헌장.
+  // **「항상 최신 APK」 계약 자체**(고정 태그·--clobber·3자리 대조)의 정본은 android-apk-dev.
   { match: /^src\/app\/apk\.ts/, skill: 'photo-storage-dev' },
+  { match: /^src\/app\/apk\.ts/, skill: 'android-apk-dev' },
+  // Capacitor 셸 프로젝트 전체(웹 자산 미번들 계약·네이티브 플러그인) — 2026-08-01
+  // 사용자 지시로 전용 헌장이 생겼다: "안드로이드 APK 생성에 관한 스킬문서도 별도 관리하자".
+  { match: /^android-shell\//, skill: 'android-apk-dev' },
+  { match: /^\.github\/workflows\/android-apk\.yml/, skill: 'android-apk-dev' },
+  { match: /^scripts\/(check-apk-release-link|check-update-signal|gen-version-file)\.mjs/, skill: 'android-apk-dev' },
+  // 「접속하면 스스로 최신」 배선 — 재설치 없이 웹만 갱신되는 계약이라 셸 헌장이 정본이다.
+  // 예전엔 NO_SKILL_REQUIRED였다(계약이 check-update-signal에만 있다고 봤음) — 이제 전용
+  // 헌장이 생겼으니 그쪽으로 옮긴다(§7 — 새로 생긴 헌장이 형제의 규율을 물려받는 방향).
+  { match: /^src\/services\/appUpdate/, skill: 'android-apk-dev' },
   { match: /^src\/domain\/media\//, skill: 'photo-storage-dev' },
   { match: /^src\/ui\/panels\/(verdict|diagnostics)/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/(diagnostics|envReport|storeState)/, skill: 'diagnostics-dev' },
@@ -163,7 +177,6 @@ export const NO_SKILL_REQUIRED = new Map([
   ['src/app/changelog.ts', '사용자 대면 이력 데이터. 규율은 파일 머리주석에 있다'],
   ['src/app/researchLog.ts', '연구 기록 데이터 — 코드 규율 없음'],
   ['src/app/selfEval.ts', '자기평가 데이터 — check-self-eval이 직접 강제한다'],
-  ['src/services/appUpdate.ts', '자동 갱신 배선 — 계약은 check-update-signal이, 안전 규칙(입력 중 새로고침 금지)은 머리주석+유닛이 강제한다'],
   // *.gen.ts는 **손으로 고치는 파일이 아니다.** 읽을 문서는 그 생성기 쪽에 있고,
   // 드리프트는 짝 게이트가 막는다(정독 대상은 생성기이지 산출물이 아니다).
   ['src/app/registry.gen.ts', '자동 생성 — gen-registry.mjs가 SSOT, check-registry-gen이 강제'],
