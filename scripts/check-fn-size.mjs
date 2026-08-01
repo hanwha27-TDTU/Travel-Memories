@@ -46,21 +46,35 @@ const LEGACY = {
 
 /**
  * 최상위 함수의 (이름, 줄수)를 센다 — 순수 함수라 자체검사가 직접 부른다.
- * 세는 법: 열 0에서 시작하는 함수 선언부터, 열 0의 `}`까지. 이 저장소는 최상위 함수가
+ * 세는 법: 열 0에서 시작하는 선언부터, 열 0의 닫는 중괄호까지. 이 저장소는 최상위 함수가
  * 항상 열 0에서 닫히므로 결정적이다(파서 없이도 흔들리지 않는다).
+ *
+ * 🔴 **두 형태를 모두 센다**(전수 감사 정리): 예전엔 `function foo()`만 셌고, `const foo = () => {}`
+ * 화살표 함수는 **상한이 없는 것과 같았다**(자체검사조차 `notCounted`라 이름 붙여 그 구멍을
+ * 인정하고 있었다). 큰 로직이 화살표 상수로 태어나면 래칫을 통째로 우회했다 — §7의 근본형
+ * (형제 규율을 새 형태가 물려받지 않음). 이제 열 0의 `const NAME = (...) => {` 블록도 잰다.
+ * 닫힘은 화살표면 `};`, 선언 함수면 `}` — 둘 다 열 0에서만 나온다(중첩 닫힘은 들여쓰기됨).
  */
 export function topLevelFunctions(source) {
   const lines = source.split('\n');
   // 식별자에 `[A-Za-z_$]`만 허용하면 한글 이름 함수가 **조용히 안 세어진다**(주입시험에서 발견).
   // JS 식별자는 유니코드 문자를 허용하므로 \p{L}로 받는다 — 안 세어진 함수는 상한이 없는 것과 같다.
-  const decl = /^(?:export\s+)?(?:async\s+)?function\s+([\p{L}_$][\p{L}\p{N}_$]*)\s*[(<]/u;
+  const fnDecl = /^(?:export\s+)?(?:async\s+)?function\s+([\p{L}_$][\p{L}\p{N}_$]*)\s*[(<]/u;
+  // 블록 본문 화살표 함수: `const NAME = (...) => {` (async·타입주석·단일 매개변수 포함).
+  // 암시적 반환(`=> (` / `=> value`)은 블록이 없어 상한 대상이 아니다 — `=> {`만 잡는다.
+  const arrowDecl =
+    /^(?:export\s+)?const\s+([\p{L}_$][\p{L}\p{N}_$]*)\s*(?::[^=]+)?=\s*(?:async\s+)?(?:\([^)]*\)|[\p{L}_$][\p{L}\p{N}_$]*)\s*(?::[^=]+)?=>\s*\{\s*$/u;
   const out = [];
   for (let i = 0; i < lines.length; i++) {
-    const m = decl.exec(lines[i]);
-    if (!m) continue;
+    const fm = fnDecl.exec(lines[i]);
+    const am = fm ? null : arrowDecl.exec(lines[i]);
+    if (!fm && !am) continue;
+    const name = (fm ?? am)[1];
+    // 화살표 상수는 `};`로 닫히고, 선언 함수는 `}`로 닫힌다(둘 다 열 0).
+    const closes = am ? (s) => s === '};' || s.startsWith('};') : (s) => s === '}' || s.startsWith('} ');
     for (let j = i + 1; j < lines.length; j++) {
-      if (lines[j] === '}' || lines[j].startsWith('} ')) {
-        out.push({ name: m[1], lines: j - i + 1, line: i + 1 });
+      if (closes(lines[j])) {
+        out.push({ name, lines: j - i + 1, line: i + 1 });
         i = j;
         break;
       }
@@ -84,17 +98,27 @@ export function topLevelFunctions(source) {
     '  }',
     '}',
     '',
-    'const notCounted = () => {',
-    '  z();',
+    // 🔴 이제 화살표 상수도 센다 — 예전엔 이게 상한을 통째로 우회했다.
+    'export const c = (p: number): void => {',
+    '  if (p) {',
+    '    z();',
+    '  }',
     '};',
   ].join('\n');
   const fns = topLevelFunctions(src);
-  if (fns.length !== 2) throw new Error(`SELF-TEST 실패: 함수 2개를 못 셈(${fns.length}).`);
+  if (fns.length !== 3) throw new Error(`SELF-TEST 실패: 함수 3개를 못 셈(${fns.length}) — 화살표 상수를 놓쳤을 수 있음.`);
   const a = fns.find((f) => f.name === 'a');
   const b = fns.find((f) => f.name === 'b');
+  const c = fns.find((f) => f.name === 'c');
   if (a.lines !== 3) throw new Error(`SELF-TEST 실패: a 길이 오산(${a.lines} ≠ 3).`);
   // 중첩 블록의 닫는 중괄호(들여쓰기됨)를 함수 끝으로 오인하면 여기서 잡힌다.
   if (b.lines !== 7) throw new Error(`SELF-TEST 실패: b 길이 오산(${b.lines} ≠ 7) — 중첩 블록을 끝으로 착각.`);
+  if (!c) throw new Error('SELF-TEST 실패: 화살표 상수 c를 못 셈 — 화살표 커버리지 구멍.');
+  if (c.lines !== 5) throw new Error(`SELF-TEST 실패: c 길이 오산(${c.lines} ≠ 5) — 화살표는 '};'로 닫힌다.`);
+  // 주입: 121줄 화살표 함수가 상한을 넘는지(래칫이 화살표에도 걸리는가) 확인.
+  const bigArrow = ['const big = () => {', ...Array(120).fill('  work();'), '};'].join('\n');
+  const bf = topLevelFunctions(bigArrow).find((f) => f.name === 'big');
+  if (!bf || bf.lines !== 122) throw new Error(`SELF-TEST 실패: 큰 화살표 길이 오산(${bf?.lines}) — 주입이 무효.`);
 })();
 
 /**
