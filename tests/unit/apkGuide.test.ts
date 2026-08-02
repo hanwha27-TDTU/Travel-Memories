@@ -6,7 +6,25 @@
 //      섞이면 RED. 조항만으로는 다음 편집에서 또 섞인다(§7 — 관측된 사실이다).
 
 import { describe, it, expect } from 'vitest';
-import { APK_LATEST_URL, APK_RELEASE_TAG, APK_INSTALL_STEPS, APK_FACTS } from '../../src/app/apk';
+import { APK_LATEST_URL, APK_RELEASE_TAG, APK_RELEASE_API, APK_INSTALL_STEPS, APK_FACTS, parseShellBuild } from '../../src/app/apk';
+
+describe('셸 업데이트 감지 (§5-2 · 함정 D)', () => {
+  it('API는 자산이 아니라 릴리스 설명을 읽는 api.github.com 주소다(CORS로 막히지 않는 유일 경로)', () => {
+    expect(APK_RELEASE_API).toBe(
+      `https://api.github.com/repos/hanwha27-TDTU/Travel-Memories/releases/tags/${APK_RELEASE_TAG}`,
+    );
+  });
+  it('CI가 심는 마커 형식에서 versionCode를 뽑는다', () => {
+    expect(parseShellBuild('앞말\n<!-- shell-version: {"versionCode": 42} -->')).toBe(42);
+    expect(parseShellBuild('<!-- shell-version: {"versionCode": 7, "x": 1} -->')).toBe(7);
+  });
+  it('마커가 없거나(옛 릴리스) 깨졌으면 null — 모르면 배너를 띄우지 않는다', () => {
+    expect(parseShellBuild('최신 빌드: abc1234 · 2026-08-02')).toBeNull();
+    expect(parseShellBuild('<!-- shell-version: {broken -->')).toBeNull();
+    expect(parseShellBuild('<!-- shell-version: {"versionCode": "x"} -->')).toBeNull();
+    expect(parseShellBuild('')).toBeNull();
+  });
+});
 
 describe('APK 고정 주소', () => {
   it('릴리스 고정 형식 그대로다(태그가 주소 안에 있다)', () => {

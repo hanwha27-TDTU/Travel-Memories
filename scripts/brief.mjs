@@ -86,6 +86,8 @@ export const SKILL_ROUTES = [
   // 예전엔 NO_SKILL_REQUIRED였다(계약이 check-update-signal에만 있다고 봤음) — 이제 전용
   // 헌장이 생겼으니 그쪽으로 옮긴다(§7 — 새로 생긴 헌장이 형제의 규율을 물려받는 방향).
   { match: /^src\/services\/appUpdate/, skill: 'android-apk-dev' },
+  // 셸 자기갱신 배너(ADR-0040) — 새 APK 감지·shell-version 마커·함정 D/E가 전부 셸 헌장 소관.
+  { match: /^src\/services\/shellUpdate/, skill: 'android-apk-dev' },
   { match: /^src\/domain\/media\//, skill: 'photo-storage-dev' },
   { match: /^src\/ui\/panels\/(verdict|diagnostics)/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/(diagnostics|envReport|storeState)/, skill: 'diagnostics-dev' },

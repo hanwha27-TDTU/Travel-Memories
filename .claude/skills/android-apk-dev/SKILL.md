@@ -58,6 +58,13 @@ description: 안드로이드 APK 생성·배포 개발 프롬프트 — android-
    글을 날리는 것은 비타협 원칙 #1의 이웃(저장 안 된 기억)이다.
 8. **서비스워커는 `version.json`을 만지지 않는다** — 캐시하면 신호 자체가 낡는다. `?ts=`
    변형을 캐시하면 캐시 용량 상한이 진짜 자산을 밀어낸다.
+9. **셸 자체가 바뀌면(재설치 필요) 앱 안 배너로 알린다**(ADR-0040) — 웹 갱신(#7)으론 못
+   바꾸는 아이콘·권한·서명·네이티브가 바뀌면 `shellUpdate.ts`가 `현재 build < 최신 build`일 때만
+   배너를 띄운다. 계약이 **네 자리**로 맞물린다: 워크플로가 `-PAPP_VERSION_CODE=${{ github.run_number }}`로
+   versionCode를 올리고 릴리스 설명에 `<!-- shell-version: {"versionCode": N} -->`를 심는다 ·
+   `build.gradle`이 `APP_VERSION_CODE` 속성을 읽는다 · `apk.ts`가 `APK_RELEASE_API`(api.github.com —
+   자산 URL은 CORS로 막힘·함정 D)+`parseShellBuild`를 가진다. `check-apk-release-link`가 넷을
+   대조한다. 🔴 「닫기」는 세션 한정(함정 E) — 저장하면 미루는 사용자를 영영 놓친다.
 
 ## 2. 코드 관례 (실제로 걸렸던 것)
 
@@ -91,12 +98,22 @@ description: 안드로이드 APK 생성·배포 개발 프롬프트 — android-
   꽉 찬 디자인·아래 글자가 마스크에 안 잘리게). 🔴 **키 SSOT가 셋에 손으로 맞물린다**:
   `src/app/apk.ts`의 `APP_ICONS` ↔ `IconSwitcherPlugin.ALIASES` ↔ manifest alias 이름 —
   아이콘 추가 시 세 곳을 함께 고친다(교차언어라 게이트 없음, 주석으로 못박음).
+- **ADR-0040 · 새 APK가 나오면 앱 안 배너로 알린다**: 웹은 자동 갱신되지만(§5) **셸 자체**가
+  바뀌면 재설치가 필요한데 사용자가 그 사실을 몰랐다. `shellUpdate.ts`가 시작·복귀 때
+  `현재 build < 최신 build`면 하단 배너를 띄운다. 🔴 **함정 D**: 릴리스 '자산'(releases/download/…)은
+  302+CORS 없음이라 fetch가 조용히 막힌다 → **api.github.com의 릴리스 '설명'**에 심은
+  `<!-- shell-version: {"versionCode": N} -->` 마커를 `parseShellBuild`로 읽는다. 🔴 **함정 E**:
+  「닫기」를 저장하지 않는다(세션 한정) — 저장하면 설치를 미룬 사용자가 영영 안내를 못 받는다.
+  🔴 **셋이 맞물린다**: 워크플로가 `-PAPP_VERSION_CODE=${{ github.run_number }}`로 versionCode를
+  올리고 릴리스 설명에 마커를 심는다 · `build.gradle`이 `APP_VERSION_CODE` 속성을 읽는다 ·
+  `apk.ts`가 `APK_RELEASE_API`+`parseShellBuild`를 가진다 → `check-apk-release-link`가 넷을 대조.
+  배너는 **이 빌드 이상을 설치한 기기에서만** 뜬다(옛 앱엔 비교 기준 없음) → 다음 배포부터 작동.
 - 전체 상세는 `docs/DECISIONS.md`의 해당 ADR을 정본으로 본다 — 이 절은 요약일 뿐이다.
 
 ## 4. 검증 레시피 (정직한 완료)
 
 자동층:
-1. `npm run harness` — `check-apk-release-link`(3자리 계약) + `check-update-signal`(4자리 계약)
+1. `npm run harness` — `check-apk-release-link`(고정 URL 3자리 + 배너 4자리 계약) + `check-update-signal`(4자리 계약)
 2. CI(`android-apk.yml`)가 실제로 Gradle 빌드에 성공하는가 — **이 샌드박스는 Android SDK가
    없어 로컬로 재현할 수 없다.** 컴파일 확인은 CI 몫이다(정직한 경계).
 

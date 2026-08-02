@@ -43,6 +43,9 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
 // 시작·복귀 때 배포의 version.json을 묻고 **안전할 때** 새로고침한다(services/appUpdate.ts).
 if (import.meta.env.PROD) {
   void import('./services/appUpdate').then((m) => m.wireAutoUpdate());
+  // 셸(APK) 자체가 바뀌면(아이콘·권한·서명·네이티브) 재설치가 필요하다 — 새 APK가 나왔음을
+  // 앱 안에서 배너로 알린다(services/shellUpdate.ts). 크롬에서는 무행동.
+  void import('./services/shellUpdate').then((m) => m.wireShellUpdate());
 }
 
 const appEl = document.getElementById('app');
