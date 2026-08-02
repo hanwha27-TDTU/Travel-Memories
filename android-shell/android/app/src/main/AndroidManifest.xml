@@ -17,10 +17,9 @@
             android:launchMode="singleTask"
             android:exported="true">
 
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
+            <!-- 🔴 LAUNCHER는 MainActivity가 아니라 아래 activity-alias들이 가진다(아이콘 전환).
+                 전환할 때 alias만 켜고 끄면 되고, MainActivity(딥링크·singleTask)는 건드리지
+                 않는다. 그래서 이 activity에는 MAIN/LAUNCHER intent-filter가 **없다.** -->
 
             <!-- 구글 로그인 복귀 딥링크(ADR-0037). 셸에서 OAuth는 시스템 브라우저로 나가는데
                  (구글이 WebView 로그인을 거부), 복귀가 웹 URL이면 세션이 브라우저에 생기고
@@ -34,6 +33,52 @@
             </intent-filter>
 
         </activity>
+
+        <!-- ── 아이콘 전환 (ADR-0038) ──────────────────────────────────────────
+             각 아이콘 = 하나의 activity-alias. **정확히 하나만 enabled**. 기본은 여권(IconPassport).
+             IconSwitcherPlugin(네이티브)이 setComponentEnabledSetting으로 켜고 끈다.
+             alias 이름은 플러그인이 참조하므로 바꾸지 않는다(app.bugeon.journey.IconXxx).
+             웹/PWA에는 없는 기능 — 설치 시 아이콘이 고정되기 때문(셸 전용). -->
+        <activity-alias android:name=".IconPassport" android:enabled="true" android:exported="true"
+            android:targetActivity=".MainActivity" android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".IconCompass" android:enabled="false" android:exported="true"
+            android:targetActivity=".MainActivity" android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher_compass" android:roundIcon="@mipmap/ic_launcher_compass_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".IconGlobe" android:enabled="false" android:exported="true"
+            android:targetActivity=".MainActivity" android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher_globe" android:roundIcon="@mipmap/ic_launcher_globe_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".IconSuitcase" android:enabled="false" android:exported="true"
+            android:targetActivity=".MainActivity" android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher_suitcase" android:roundIcon="@mipmap/ic_launcher_suitcase_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".IconMountain" android:enabled="false" android:exported="true"
+            android:targetActivity=".MainActivity" android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher_mountain" android:roundIcon="@mipmap/ic_launcher_mountain_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -84,6 +84,13 @@ description: 안드로이드 APK 생성·배포 개발 프롬프트 — android-
 - **ADR-0037 · 구글 로그인은 커스텀 스킴 딥링크로 돌아온다**: 셸 안에서 OAuth 리다이렉트가
   시스템 브라우저에 남으면 셸이 무의미해진다 — 이 문서 범위 밖(인증 스킬 참고),
   다만 셸을 만들 때 로그인 플로우가 있으면 반드시 같이 검토한다.
+- **ADR-0038 · 앱 아이콘 여행 디자인 + APK 앱 내 전환기**: 아이콘=activity-alias(정확히 하나만
+  enabled), LAUNCHER를 MainActivity→alias로 이동(딥링크·singleTask는 MainActivity 유지).
+  `IconSwitcherPlugin`이 `setComponentEnabledSetting(DONT_KILL_APP)`로 토글. 웹/PWA엔 없다
+  (설치 시 아이콘 고정 — 셸 전용). 적응형 아이콘은 **배경에 전체 이미지 + 투명 전경**(가장자리
+  꽉 찬 디자인·아래 글자가 마스크에 안 잘리게). 🔴 **키 SSOT가 셋에 손으로 맞물린다**:
+  `src/app/apk.ts`의 `APP_ICONS` ↔ `IconSwitcherPlugin.ALIASES` ↔ manifest alias 이름 —
+  아이콘 추가 시 세 곳을 함께 고친다(교차언어라 게이트 없음, 주석으로 못박음).
 - 전체 상세는 `docs/DECISIONS.md`의 해당 ADR을 정본으로 본다 — 이 절은 요약일 뿐이다.
 
 ## 4. 검증 레시피 (정직한 완료)

@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.53<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->153<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.54<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->154<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->25<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -78,7 +78,7 @@ SCAN 범위도 `android-shell/android/app/src`(java)로 넓혔다 — node_modul
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**최신 배포(2026-08-01 실측)**: `5bfbd34`(v<!--reg:appVersion-->1.53<!--/reg--> · PR #149 스쿼시) — CI `harness`·`live-render` 그린, Pages `deploy-pages` **#192 success**. 🔴 **「배포 그린」과 「사이트에서 확인」은 다른 말이다** — 샌드박스가 `*.github.io`를 막으므로 화면 확인은 사용자 실기기 몫이다.
+**최신 배포(2026-08-01 실측)**: `5bfbd34`(v<!--reg:appVersion-->1.54<!--/reg--> · PR #149 스쿼시) — CI `harness`·`live-render` 그린, Pages `deploy-pages` **#192 success**. 🔴 **「배포 그린」과 「사이트에서 확인」은 다른 말이다** — 샌드박스가 `*.github.io`를 막으므로 화면 확인은 사용자 실기기 몫이다.
 
 <details><summary>과거 실측(2026-07-28 · v1.22)</summary>
 
@@ -306,6 +306,16 @@ npm run dev                            # 홈 화면 확인 (선택)
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
 
 ---
+
+## HANDOFF-0046 · v1.54 · **여행 앱 아이콘 + 앱 내 아이콘 전환기 (ADR-0038)** (2026-08-02)
+
+사용자가 여행 테마 아이콘 5종을 제공, 「1번(여권+노을) 기본 + 앱 내 전환기(APK)」 선택.
+- **에셋**: Chromium으로 5종을 APK 밀도(적응형 배경 108dp + 레거시 48dp)·웹(192/512/maskable/apple/favicon)·갤러리 썸네일로 변환(`scripts/`가 아니라 scratchpad 일회성 — 소스는 업로드 이미지). 소스가 정사각이라 리사이즈만, zoom 1.14로 흰 여백 트림(글자 유지, 눈으로 확인).
+- **APK 기본**: 적응형 아이콘 = 배경(전체 이미지)+투명 전경(`drawable/ic_transparent.xml`). 옛 Capacitor 전경/배경 리소스 제거.
+- **전환기(ADR-0038)**: AndroidManifest에 activity-alias 5개(IconPassport enabled, 나머지 disabled), LAUNCHER를 MainActivity→alias로 이동(딥링크 유지). `IconSwitcherPlugin.java`(setIcon/getIcon · setComponentEnabledSetting DONT_KILL_APP), MainActivity에 등록.
+- **웹**: `capacitorShell.ts` `iconSwitcher()`, `apk.ts` `APP_ICONS`(SSOT), 가이드 「앱 아이콘 바꾸기」 카드(셸 전용 — 브라우저엔 「앱에서만」 안내). 썸네일 `public/icons/app-icons/{key}.png`.
+- **검증**: build + 전체 하네스 + 아이콘 UI 라이브 7/7(브라우저 폴백·셸 5타일·현재표시·썸네일 로드·전환·안내문). 🔴 네이티브 전환 실동작 = 실기기 확인 대기(런처 반영 지연은 안드로이드 특성).
+- **⚠️ 키 SSOT 이중**: `APP_ICONS`(apk.ts) ↔ `IconSwitcherPlugin.ALIASES`(java) ↔ manifest alias 이름이 손으로 맞물림 — 아이콘 추가 시 세 곳 동기화(교차언어라 게이트 미적용, 주석으로 못박음).
 
 ## HANDOFF-0045 · v1.53 · **감사 후속 배치④ — 디자인·정리(명함비·터치·죽은코드)** (2026-08-01 18:40)
 
