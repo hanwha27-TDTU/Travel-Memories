@@ -16,7 +16,23 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // 🔴 고정 debug 서명키 (ADR-0039). 기본 debug 서명은 CI 러너마다 새 키스토어를 만들어
+    //    APK 서명이 매 빌드 달라지고, 그러면 이미 설치된 앱 위에 **업데이트가 거부된다**
+    //    ("앱이 설치되지 않음" — 실측 2026-08-02). 저장소에 고정 키를 두어 모든 빌드가 같은
+    //    서명을 갖게 한다. 이건 비밀이 아니다: debug 키는 사이드로드 전용(플레이스토어 불가)이고
+    //    비밀번호도 관례값('android')이다 — §0이 금하는 service_role/DB/JWT 부류가 아니다.
+    signingConfigs {
+        debug {
+            storeFile file('bugeon-debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
     buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
