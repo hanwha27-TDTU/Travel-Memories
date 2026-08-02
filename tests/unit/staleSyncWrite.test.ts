@@ -251,7 +251,7 @@ describe('stale push 거부 후 서버 최신본 수용', () => {
     expect((await db().syncQueue.get(LOCAL_OP))?.state).toBe('retryable_failed');
     expect((await db().localTrips.get(ID))?.title).toBe('오래된 기기 v2');
 
-    expect(await pullTrips(remote)).toEqual({ pulled: 1, skippedEmptyCloud: false });
+    expect(await pullTrips(remote, 'merge')).toEqual({ pulled: 1, skippedEmptyCloud: false });
     expect((await db().localTrips.get(ID))?.title).toBe('서버 최신 v3');
     expect(await db().syncQueue.where('entityId').equals(ID).count()).toBe(0);
   });
@@ -310,7 +310,7 @@ describe('stale push 거부 후 서버 최신본 수용', () => {
     });
 
     // LWW상 로컬이 최신이므로 pull은 로컬 변경을 버리지 않고 같은 op을 유지한다.
-    expect(await pullTrips(remote)).toEqual({ pulled: 0, skippedEmptyCloud: false });
+    expect(await pullTrips(remote, 'merge')).toEqual({ pulled: 0, skippedEmptyCloud: false });
     const waiting = await db().syncQueue.get(LOCAL_OP);
     expect(waiting).toBeDefined();
     const retryNow = { ...waiting! };

@@ -1806,11 +1806,20 @@ check('소리 칩: 재생 상태가 aria-pressed로 전해진다', playState.pre
 // 재생불가라고 안내하네요"*). 정리 과정이 `error`를 발화시켜, 정상 재생을 마친 **직후에만**
 // 「🔇 재생 불가」로 덮이고 있었다. 재생 중만 재면 이 부류는 영원히 안 잡힌다 —
 // 검사는 **끝난 뒤**를 봐야 한다.
-const afterEnd = await page.evaluate(async () => {
+// 픽스처의 미디어 시간은 1.5초지만, CI·저사양 기기에서는 실제 재생 시계가 벽시계보다
+// 느리게 갈 수 있다. 고정 sleep은 아직 재생 중인 정상 상태를 실패로 읽는다. 시작 상태를
+// 위에서 확인했으므로, 여기서는 앱이 종료/오류를 판정해 idle로 돌아올 때까지 기다린다.
+// 오류도 idle로 돌아오지만 바로 아래 「재생 불가」 판정이 따로 잡는다.
+await page
+  .waitForFunction(
+    () => document.querySelector('.chip.audio .chip-audio-play')?.getAttribute('aria-pressed') === 'false',
+    null,
+    { timeout: 15000 },
+  )
+  .catch(() => {});
+const afterEnd = await page.evaluate(() => {
   const chip = document.querySelector('.chip.audio');
   const btn = chip.querySelector('.chip-audio-play');
-  // 픽스처는 1.5초짜리 무음 WAV다. 넉넉히 기다려 자연 종료(ended)를 지난다.
-  await new Promise((r) => setTimeout(r, 2600));
   return {
     text: btn.textContent.trim(),
     pressed: btn.getAttribute('aria-pressed'),

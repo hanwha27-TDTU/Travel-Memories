@@ -36,6 +36,8 @@ export interface CanonicalMeta {
 interface RemoteResult<T> {
   data: T;
   error?: string | undefined;
+  /** PostgREST의 기계 판정 코드. 메시지 문구로 배포 상태를 추측하지 않는다. */
+  errorCode?: string | undefined;
 }
 
 export interface CanonicalRemote {
@@ -64,7 +66,7 @@ interface RemoteSnapshot {
 }
 
 export interface CanonicalPreflight {
-  mode: 'normal' | 'applied';
+  mode: 'legacy' | 'normal' | 'applied';
   version: string;
   pulled: number;
 }
@@ -151,7 +153,22 @@ export function canonicalRemote(client: JourneyClient): CanonicalRemote {
     async ensureMeta() {
       try {
         const r = await client.rpc('ensure_sync_meta');
-        return { data: parseMeta(r.data), error: r.error?.message };
+        if (r.error?.code === 'PGRST202') {
+          // RPC schema cache만 뒤처진 경우를 "migration 미적용"으로 오판하지 않는다. 0027의
+          // SELECT-only RLS 표를 직접 읽어 non-legacy 세대가 있으면 canonical 경로를 유지한다.
+          // 표 자체도 확인할 수 없을 때만 호출자가 server-read-only 전환 모드로 내려간다.
+          const probe = await client
+            .from('sync_meta')
+            .select('canonical_version,canonical_operation_id,canonical_device_id,updated_at')
+            .maybeSingle();
+          if (!probe.error) {
+            const found = parseMeta(probe.data);
+            // 0행은 "legacy"의 증명이 아니다. 아직 생성 전일 수도, RLS가 숨긴 것일 수도 있다.
+            // 관측한 행이 있을 때만 일반/canonical 경로로 복귀하고 나머지는 read-only로 둔다.
+            if (found) return { data: found };
+          }
+        }
+        return { data: parseMeta(r.data), error: r.error?.message, errorCode: r.error?.code };
       } catch (e) {
         return { data: null, error: (e as Error).message };
       }
@@ -194,11 +211,14 @@ function requireRemote<T>(result: RemoteResult<T>, label: string): T {
   return result.data;
 }
 
-async function readMeta(remote: CanonicalRemote): Promise<CanonicalMeta> {
-  const result = await remote.ensureMeta();
+function requireMeta(result: RemoteResult<CanonicalMeta | null>): CanonicalMeta {
   const meta = requireRemote(result, 'canonical 메타 조회 실패');
   if (!meta) throw new Error('canonical 메타 응답이 비었습니다. migration 0027 적용 상태를 확인해 주세요.');
   return meta;
+}
+
+async function readMeta(remote: CanonicalRemote): Promise<CanonicalMeta> {
+  return requireMeta(await remote.ensureMeta());
 }
 
 async function readStableSnapshot(remote: CanonicalRemote, expected: string): Promise<RemoteSnapshot> {
@@ -402,8 +422,24 @@ export async function ensureCanonicalBeforeSync(
   remote: CanonicalRemote,
   userId: string,
 ): Promise<CanonicalPreflight> {
-  const meta = await readMeta(remote);
   const state = await db().syncState.get(stateId(userId));
+  const metaResult = await remote.ensureMeta();
+  if (metaResult.errorCode === 'PGRST202') {
+    // 앱을 먼저 배포하고 migration 0027을 나중에 적용하는 전환 구간은 정상 상태다.
+    // 다만 PGRST202만으로 DB가 legacy라고 증명할 수 없으므로 일반 병합이 아니라 서버
+    // read-only 모드만 연다. 이미 새 세대를 소비했거나 게시가 미완료인 기기는 fail-closed다.
+    const legacySafe = !state?.pendingCanonical &&
+      (state?.canonicalVersion === undefined || state.canonicalVersion === LEGACY_CANONICAL_VERSION);
+    if (legacySafe) {
+      console.warn('canonical capability를 확인할 수 없어 서버 read-only 동기화로 계속합니다.');
+      return { mode: 'legacy', version: LEGACY_CANONICAL_VERSION, pulled: 0 };
+    }
+    throw new Error(
+      `canonical 메타 조회 실패: ${metaResult.error ?? 'ensure_sync_meta RPC 없음'} — ` +
+      '이미 canonical 상태가 있어 legacy 모드로 낮출 수 없습니다.',
+    );
+  }
+  const meta = requireMeta(metaResult);
   const pending = state?.pendingCanonical;
   if (pending) {
     if (meta.canonicalVersion === pending.nextVersion && meta.canonicalOperationId === pending.operationId) {
