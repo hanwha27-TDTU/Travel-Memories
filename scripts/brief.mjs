@@ -77,6 +77,8 @@ export const SKILL_ROUTES = [
   // **「항상 최신 APK」 계약 자체**(고정 태그·--clobber·3자리 대조)의 정본은 android-apk-dev.
   { match: /^src\/app\/apk\.ts/, skill: 'photo-storage-dev' },
   { match: /^src\/app\/apk\.ts/, skill: 'android-apk-dev' },
+  // 설치 가이드 문서(플레이북) — apk.ts SSOT에서 조립되는 셸 배포 산출물이라 같은 헌장.
+  { match: /^src\/app\/playbook\.ts/, skill: 'android-apk-dev' },
   // Capacitor 셸 프로젝트 전체(웹 자산 미번들 계약·네이티브 플러그인) — 2026-08-01
   // 사용자 지시로 전용 헌장이 생겼다: "안드로이드 APK 생성에 관한 스킬문서도 별도 관리하자".
   { match: /^android-shell\//, skill: 'android-apk-dev' },
