@@ -46,6 +46,20 @@ export const APK_INSTALL_STEPS: ReadonlyArray<{ title: string; desc: string }> =
   },
 ];
 
+/**
+ * 🎨 앱 아이콘 목록 (ADR-0038) — **키·라벨·순서의 SSOT.**
+ * `key`는 네이티브 `IconSwitcherPlugin.ALIASES`의 키와 **글자 단위로 같아야 한다**(전환기 동작).
+ * 썸네일은 `public/icons/app-icons/{key}.png`. 첫째(passport)가 기본.
+ * 셸(APK)에서만 전환 가능 — 웹/PWA는 설치 시 아이콘이 고정된다.
+ */
+export const APP_ICONS: ReadonlyArray<{ key: string; label: string }> = [
+  { key: 'passport', label: '여권·노을' },
+  { key: 'compass', label: '나침반' },
+  { key: 'globe', label: '지구본·비행기' },
+  { key: 'suitcase', label: '캐리어·핀' },
+  { key: 'mountain', label: '산·여정' },
+];
+
 /** 설치 안내 아래 붙는 사실 문장들 — 역시 데이터로 두고 유닛이 읽는다. */
 export const APK_FACTS: ReadonlyArray<string> = [
   '화면·기능 업데이트는 앱을 다시 설치하지 않아도 자동으로 들어와요 — 앱을 열면 항상 최신 화면이에요.',

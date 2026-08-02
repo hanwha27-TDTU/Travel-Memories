@@ -37,3 +37,18 @@ export function shellState(): ShellState {
   if (!cap) return 'browser';
   return cap.Plugins?.OriginalPhotos ? 'shell' : 'shell-no-plugin';
 }
+
+/**
+ * 🎨 런처 아이콘 전환기 (ADR-0038) — **셸에만 있다.**
+ * 웹/PWA에서는 `null`(설치 시 아이콘이 고정되므로 원리적으로 불가). 화면은 이 값이 null이면
+ * 아이콘 섹션 자체를 그리지 않는다 — 크롬에서 「안 되는 버튼」을 보여주지 않는다(§5).
+ */
+export interface IconSwitcher {
+  available(): Promise<{ keys: string[]; current: string }>;
+  getIcon(): Promise<{ current: string }>;
+  setIcon(opts: { key: string }): Promise<{ current: string }>;
+}
+
+export function iconSwitcher(): IconSwitcher | null {
+  return shellPlugin<IconSwitcher>('IconSwitcher');
+}

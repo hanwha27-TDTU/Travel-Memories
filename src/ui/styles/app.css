@@ -931,6 +931,22 @@ select.zone-input { text-overflow: ellipsis; }
 }
 .guide-detail-title { font-size: 0.95rem; font-weight: 850; color: var(--ink); }
 .guide-detail-body { display: flex; flex-direction: column; gap: var(--space-2); }
+
+/* 🎨 앱 아이콘 선택(가이드 · 셸 전용) */
+.icon-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--space-3); margin-top: var(--space-2);
+}
+.icon-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  min-height: var(--touch-target-min); padding: var(--space-2);
+  border: 2px solid var(--line); border-radius: var(--radius-medium);
+  background: var(--surface); color: var(--ink); cursor: pointer; font: inherit;
+}
+.icon-tile[aria-pressed="true"] { border-color: var(--accent-strong); box-shadow: var(--shadow-card); }
+.icon-tile-img { width: 100%; aspect-ratio: 1; border-radius: var(--radius-medium); object-fit: cover; display: block; }
+.icon-tile-label { font-size: 0.78rem; font-weight: 700; text-align: center; }
+.icon-grid-note { margin-top: var(--space-2); min-height: 1.2em; }
 .guide-h { margin: var(--space-3) 0 0; font-size: 0.86rem; font-weight: 850; color: var(--a1d); letter-spacing: 0.02em; }
 .guide-p { margin: 0; font-size: 0.86rem; line-height: 1.65; color: var(--ink); }
 .guide-ul { margin: 2px 0 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 4px; }

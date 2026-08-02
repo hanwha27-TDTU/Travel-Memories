@@ -7,7 +7,8 @@
 // 모든 자유 텍스트는 textContent로만 넣는다(innerHTML 금지 — dom.ts 규칙·CSP 게이트).
 
 import { el } from '../dom';
-import { APK_LATEST_URL, APK_INSTALL_STEPS, APK_FACTS } from '../../app/apk';
+import { APK_LATEST_URL, APK_INSTALL_STEPS, APK_FACTS, APP_ICONS } from '../../app/apk';
+import { iconSwitcher } from '../../services/capacitorShell';
 import { EVAL_ITEMS, summarize, gradeOf, CRITICAL_CAP } from '../../app/selfEval';
 import { openDiagnosticsHub } from './diagnosticsHub';
 import { REGISTRY } from '../../app/registry.gen';
@@ -57,6 +58,58 @@ function panel(children: HTMLElement[]): HTMLElement {
   const wrap = el('div', 'guide-detail-body');
   for (const c of children) wrap.appendChild(c);
   return wrap;
+}
+
+/**
+ * 🎨 앱 아이콘 선택 (ADR-0038). **셸(APK)에서만** 실제로 바꿀 수 있다 — 웹/PWA는 설치 시
+ * 아이콘이 고정된다(§5: 안 되는 버튼을 보여주지 않는다 → 크롬에서는 「앱에서만」 안내만).
+ * 라벨·순서·키는 `APP_ICONS`(SSOT)에서, 전환은 `iconSwitcher()`(네이티브) 한 곳으로만.
+ */
+function renderIconPicker(): HTMLElement {
+  const sw = iconSwitcher();
+  if (!sw) {
+    return panel([
+      h('앱에서만 바꿀 수 있어요'),
+      p('홈 화면 아이콘 바꾸기는 설치한 앱(APK)에서만 돼요. 웹/브라우저는 설치할 때 아이콘이 정해져서 나중에 못 바꿔요. 위 「안드로이드 앱 설치」로 앱을 설치하면 여기서 5가지 중 골라 바꿀 수 있어요.'),
+    ]);
+  }
+  const box = panel([h('홈 화면 아이콘'), p('원하는 아이콘을 누르면 홈 화면 아이콘이 바뀌어요.')]);
+  const grid = el('div', 'icon-grid');
+  const note = el('p', 'muted small icon-grid-note', '');
+  const tiles = new Map<string, HTMLButtonElement>();
+  const mark = (cur: string): void => {
+    for (const [key, t] of tiles) t.setAttribute('aria-pressed', String(key === cur));
+  };
+  const choose = async (key: string): Promise<void> => {
+    note.textContent = '바꾸는 중…';
+    try {
+      const r = await sw.setIcon({ key });
+      mark(r.current);
+      // 🔴 런처 반영 지연을 정직하게 알린다 — 즉시 안 바뀌는 건 안드로이드 특성이지 실패가 아니다.
+      note.textContent = '아이콘을 바꿨어요. 홈 화면에 바로 안 보이면 잠시 뒤(또는 홈을 나갔다 다시 오면) 반영돼요.';
+    } catch (e) {
+      note.textContent = `바꾸지 못했어요: ${String(e)}`;
+    }
+  };
+  for (const { key, label } of APP_ICONS) {
+    const t = el('button', 'icon-tile') as HTMLButtonElement;
+    t.type = 'button';
+    t.setAttribute('aria-pressed', 'false');
+    const img = el('img', 'icon-tile-img') as HTMLImageElement;
+    img.src = `${import.meta.env.BASE_URL}icons/app-icons/${key}.png`;
+    img.alt = label;
+    img.loading = 'lazy';
+    t.append(img, el('span', 'icon-tile-label', label));
+    t.addEventListener('click', () => void choose(key));
+    tiles.set(key, t);
+    grid.appendChild(t);
+  }
+  box.append(grid, note);
+  // 현재 선택 표시(실패해도 기본은 여권).
+  sw.available()
+    .then((r) => mark(r.current))
+    .catch(() => mark('passport'));
+  return box;
 }
 
 /**
@@ -153,6 +206,12 @@ const CONNECT_GROUP: GuideGroup = {
         body.appendChild(bullets([...APK_FACTS]));
         return body;
       },
+    },
+    {
+      icon: '🎨',
+      label: '앱 아이콘 바꾸기',
+      hint: '홈 화면 아이콘을 5가지 중에 골라요 (앱 전용)',
+      render: () => renderIconPicker(),
     },
     {
       icon: '🗺',
