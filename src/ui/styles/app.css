@@ -807,6 +807,35 @@ select.zone-input { text-overflow: ellipsis; }
 .moment-edit { margin-top: var(--space-3); }
 .edit-note { min-height: 44px; padding: var(--space-2) var(--space-3); resize: vertical; line-height: 1.5; }
 
+/* 새 앱(APK) 알림 배너 — 하단 중앙 알약. 모달보다 아래(z<80)라 창을 방해하지 않는다.
+   safe-area 하단 여백 준수(함정 H). [업데이트]는 강조 채움 위 흰 글자(대비 4.5:1↑, --accent-strong). */
+.shell-update-banner {
+  position: fixed; left: 50%; bottom: max(18px, env(safe-area-inset-bottom, 0));
+  transform: translateX(-50%); z-index: 55;
+  display: flex; align-items: center; gap: var(--space-2);
+  max-width: calc(100vw - 24px);
+  padding: 8px 8px 8px var(--space-4);
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-float);
+}
+.shell-update-msg { font-size: 0.86rem; font-weight: 700; white-space: nowrap; }
+.shell-update-go {
+  /* 🔴 flex-shrink:0 + nowrap — 안 그러면 좁은 상자가 버튼을 짜부라뜨려 「업/데/이/트」로
+     세로 줄바꿈된다(2026-08-02 라이브 캡처에서 실측·§13). 버튼은 오그라들지 않는다. */
+  flex-shrink: 0; white-space: nowrap;
+  min-height: var(--touch-target-min); display: inline-flex; align-items: center;
+  padding: 0 var(--space-4); border-radius: var(--radius-pill);
+  background: var(--accent-strong); color: #fff; font-weight: 800; font-size: 0.84rem;
+  text-decoration: none;
+}
+.shell-update-x {
+  flex-shrink: 0;
+  min-width: var(--touch-target-min); min-height: var(--touch-target-min);
+  border: 0; background: none; color: var(--ink-soft); font-size: 1rem; cursor: pointer;
+  border-radius: var(--radius-pill);
+}
+
 /* 실행취소 토스트 — 화면 하단 고정, 삭제를 되살릴 수 있음(§5). */
 .undo-toast {
   position: fixed; left: 50%; bottom: max(18px, env(safe-area-inset-bottom, 0));

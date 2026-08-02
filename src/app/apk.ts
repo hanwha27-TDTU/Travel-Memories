@@ -12,11 +12,39 @@
 // 🔴 이 URL을 다른 파일에 손으로 다시 적지 않는다(손편집 중복이 결함이다). 화면은 여기서
 // import 한다 — 게이트가 가이드의 하드코딩 URL을 잡는다.
 
+/** owner/repo — 다운로드 주소와 API 주소가 같은 저장소를 가리키게 하는 한 곳(SSOT). */
+const REPO_SLUG = 'hanwha27-TDTU/Travel-Memories';
+
 /** CI가 덮어쓰는 고정 릴리스 태그 — 워크플로의 `gh release upload` 대상과 1:1. */
 export const APK_RELEASE_TAG = 'apk-latest';
 
 /** 항상 최신 APK를 주는 고정 주소. GitHub 릴리스 자산은 공개 저장소라 로그인 없이 받아진다. */
-export const APK_LATEST_URL = `https://github.com/hanwha27-TDTU/Travel-Memories/releases/download/${APK_RELEASE_TAG}/app-debug.apk`;
+export const APK_LATEST_URL = `https://github.com/${REPO_SLUG}/releases/download/${APK_RELEASE_TAG}/app-debug.apk`;
+
+/**
+ * 🔴 릴리스 **설명(body)**을 읽는 API 주소 — 셸이 새 APK를 감지하는 유일한 경로.
+ * 함정 D: 릴리스 '자산'(releases/download/…)은 302 리다이렉트에 CORS 헤더가 없어 웹뷰 fetch가
+ * 조용히 막힌다. api.github.com은 `Access-Control-Allow-Origin: *`를 주므로, CI가 설명에 심은
+ * `shell-version` 마커를 여기서만 읽을 수 있다.
+ */
+export const APK_RELEASE_API = `https://api.github.com/repos/${REPO_SLUG}/releases/tags/${APK_RELEASE_TAG}`;
+
+/**
+ * 릴리스 설명의 `shell-version` 마커에서 versionCode를 뽑는다. 순수 — 유닛이 직접 돌린다.
+ * **워크플로(android-apk.yml)가 심는 형식과 계약**: `<!-- shell-version: {"versionCode": 42} -->`.
+ * 마커가 없거나(옛 릴리스) 깨졌으면 null → 배너를 띄우지 않는다(모르면 조르지 않는다).
+ */
+export function parseShellBuild(body: string): number | null {
+  const m = body.match(/shell-version:\s*(\{[^}]*\})/);
+  if (!m) return null;
+  try {
+    const parsed = JSON.parse(m[1]) as { versionCode?: unknown };
+    const n = Number(parsed.versionCode);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * 설치 순서 — **초등학생도 따라 할 수 있게**(사용자 지시). 화면(가이드)은 이 데이터를

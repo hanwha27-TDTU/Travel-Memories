@@ -45,7 +45,8 @@ jobs:
         working-directory: android-shell/android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          # 🔴 versionCode = run_number(단조증가) — 앱이 새 셸을 감지해 업데이트 배너를 띄우는 근거.
+          ./gradlew assembleDebug --no-daemon -PAPP_VERSION_CODE=${{ github.run_number }}
       - name: APK 산출물 업로드
         uses: actions/upload-artifact@v4
         with:
@@ -65,4 +66,9 @@ jobs:
             --notes "앱 내 가이드의 다운로드 버튼이 가리키는 고정 주소입니다."
           # --clobber: 같은 이름 자산을 덮어쓴다 — 이 한 줄이 「항상 최신」 계약의 심장이다.
           gh release upload apk-latest "$APK" --clobber
-          gh release edit apk-latest --notes "최신 빌드: ${GITHUB_SHA:0:7} · $(date -u '+%Y-%m-%d %H:%M UTC') — 이 주소는 언제나 최신 APK를 줍니다. 화면·기능 갱신은 재설치 없이 자동입니다."
+          # 🔴 shell-version 마커: 앱이 새 셸을 감지하는 유일한 경로(함정 D — 릴리스 '자산'은
+          #    302+CORS 없음이라 fetch 불가, api.github.com의 릴리스 '설명'만 CORS로 읽힌다).
+          #    형식은 src/app/apk.ts의 parseShellBuild와 계약 — check-apk-release-link가 대조한다.
+          gh release edit apk-latest --notes "최신 빌드: ${GITHUB_SHA:0:7} · $(date -u '+%Y-%m-%d %H:%M UTC') — 이 주소는 언제나 최신 APK를 줍니다. 화면·기능 갱신은 재설치 없이 자동입니다.
+
+          <!-- shell-version: {\"versionCode\": ${{ github.run_number }}} -->"

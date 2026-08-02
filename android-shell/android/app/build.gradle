@@ -7,7 +7,10 @@ android {
         applicationId "app.bugeon.journey"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
+        // 🔴 CI가 github.run_number를 주입해 빌드마다 1씩 증가시킨다(ADR-0038 확장 / 셸 업데이트 배너).
+        //    증가하는 versionCode가 있어야 ①앱이 「지금 build < 최신 build」를 비교해 업데이트를
+        //    알릴 수 있고 ②덮어설치가 '재설치'가 아니라 정상 '업데이트'로 처리된다. 로컬 빌드는 1.
+        versionCode project.hasProperty('APP_VERSION_CODE') ? APP_VERSION_CODE.toInteger() : 1
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
