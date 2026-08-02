@@ -6,6 +6,15 @@
 
 ## [Unreleased]
 
+### Windows 진단 라이브 게이트 복구 (2026-08-02)
+- `verify-diagnostics-live`의 `npx` 셸 shim 호출을 현재 Node+Vite JS 진입점 직접 실행으로 바꿨다. Windows의 `spawnSync npx ENOENT` SKIP을 제거하고 실제 Chromium 22개 판정을 다시 실행한다.
+- Vite 미설치는 전제 미충족(SKIP), 실행된 fixture 빌드 실패는 위반(FAIL)으로 분리했다. 깨진 import 주입으로 종료 1 RED, 복원 뒤 22/22 GREEN을 확인했다.
+
+### Canonical exact-set 동기화 안전층 (2026-08-02)
+- 일반 merge와 명시적 「이 기기 최종본」을 분리했다. 사용자별 generation 메타, 여섯 표 세대 fence, PostgreSQL exact-set RPC, Dexie 재개 상태, R2 operation staging/read-back을 추가했다.
+- 다른 기기는 새 generation을 어떤 push보다 먼저 적용하고 로컬 여섯 표·큐·영구삭제 원장을 정확 교체하며, 그 동기화 실행은 upsert하지 않는다. 데이터 관리 화면은 제거 범위를 두 단계로 경고한다.
+- migration 0026·0027은 저장소에만 있고 운영은 0025까지다. PostgreSQL transaction·실제 R2·실기기 2대 전파 확인 전 운영 판정은 HOLD다.
+
 > **v0.22–v0.40 기술 상세는 `docs/HANDOFF.md`의 Phase 기록과 `src/app/researchLog.ts`(사람/AI/결정 해시체인)가 정본이다.** 이 문서를 손으로 복제하지 않는다(LESSONS §7 — 손편집 중복은 결함). 새 AI는 HANDOFF 인계 요약의 "현재 기능 지도"로 전체 표면을 파악하고, 세부는 각 Phase 기록을 본다. 아래는 v0.21까지의 초기 기록(역사적 보존).
 
 ### Phase 6a — 개발자 정보·버전 관리 + 사진 폭 채우기 옵션 + 문서 규범 체계 (2026-07-23) · v0.21

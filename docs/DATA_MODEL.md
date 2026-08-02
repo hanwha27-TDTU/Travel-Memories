@@ -4,8 +4,9 @@
 
 > 🔴 **이 문서는 「목표 데이터 모델」이다 — 실제 배포 스키마는 `supabase/migrations/*.sql`이 정본**
 > (2026-08-01 감사 · D-09·D-17). 권위 순서상 코드/마이그레이션이 이긴다. 목표와 실제의 차이:
-> - **구현된 사용자 테이블(마이그레이션 0001~0024)**: `trips · moments · media · expenses ·
->   audio(0019) · places(0022) · purged_ids(0012) · allowed_users`.
+> - **구현된 사용자 테이블(운영은 migration 0025까지, 저장소는 0027까지)**: `trips · moments · media · expenses ·
+>   audio(0019) · places(0022) · purged_ids(0012) · allowed_users`. 저장소의 운영 미적용 0026은
+>   `base_version` OCC를, 0027은 `sync_meta`와 여섯 표의 `base_canonical_version`을 추가한다.
 > - **미구현(목표만)**: `trip_days · companions · trip_companions · reflections · tags ·
 >   moment_tags · ai_artifacts(Phase 7) · user_devices · client_operations · sync_changes ·
 >   sync_conflicts · deletion_jobs`. AI·확장 도메인은 `blueprint.ts`가 `implemented:false`로
@@ -32,7 +33,19 @@
 
 `deleted_at`은 여러 기기 동기화 완료 전까지 삭제 사실을 전달하는 **tombstone**이다. 클라이언트는 `created_at`/`updated_at`/`version`을 신뢰원으로 제공하지 않는다. UPDATE 트리거는 `user_id` 변경을 차단하고 `updated_at`·`version`을 설정한다.
 
+작업 트리 v1.60의 여섯 동기화 표는 `base_canonical_version text not null default 'legacy'`도 가진다
+(migration 0027, 운영 미적용). 이는 사용자 내용이 아니라 **마지막으로 본 최종본 세대**이며,
+authenticated 직접 쓰기가 다른 세대의 정확집합을 오염시키지 못하게 하는 fence다.
+
 **예외**: `profiles`(1:1, `deleted_at` 대신 `account_state`, `updated_by_device_id`/`last_operation_id` 없음), `client_operations`·`sync_changes`·`sync_conflicts`·`deletion_jobs`·`user_devices`(동기화 제어/원장 계열 — 공통 열 대신 각자 상태·시퀀스 열).
+
+### sync_meta (migration 0027 · 운영 미적용)
+
+사용자당 한 행(`UNIQUE(user_id)`)인 동기화 제어 테이블이다. `canonical_version`(text),
+`canonical_operation_id`(uuid, nullable), `canonical_device_id`(text, nullable), `created_at`, `updated_at`을
+가진다. 앱은 SELECT만 가능하고 메타 생성/전진은 좁은 SECURITY DEFINER RPC만 수행한다.
+백업 대상이 아니며, 로컬 대응 store `syncState`도 사용자 기억이 아니라 재개·세대 감지용 제어 상태라
+내보내기/복원에서 명시적으로 제외한다.
 
 ## 복합 소유자 FK (H-02)
 

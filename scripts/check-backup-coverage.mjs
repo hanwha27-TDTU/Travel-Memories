@@ -27,7 +27,9 @@ const BACKUP_FILE = join(ROOT, 'src/services/backup.ts');
 //   판단 기준("이걸 잃으면 사용자의 기억이 사라지나?"): 아니오 — 잃으면 휴지통에 다시 보일 뿐이다.
 //   백업에 담으면 오히려 해롭다: 복원은 기억을 **되살리는** 행위인데, 표식까지 복원되면 사용자가
 //   되살리려는 것을 다시 무시하게 된다(그래서 importMergeRows는 복원한 행의 표식을 지운다).
-const EXCLUDE = new Set(['syncQueue', 'localFxRates', 'purgedIds']);
+// syncState — canonical 세대·진행상태다. 복원하면 옛 기기가 새 세대를 이미 봤다고 오인해
+// 클라우드 최종본 교체를 건너뛸 수 있으므로 백업하지 않는 것이 안전하다.
+const EXCLUDE = new Set(['syncQueue', 'localFxRates', 'purgedIds', 'syncState']);
 
 /** db.ts에서 Dexie 테이블 프로퍼티명을 뽑는다: `localTrips!: Table<...>`. */
 function parseTableNames(src) {

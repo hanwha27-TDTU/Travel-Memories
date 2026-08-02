@@ -38,6 +38,35 @@ function hex(id: string, len = 32): string {
 }
 
 /**
+ * 바이트 객체를 **동기화 작업마다 새 키**로 격리한다(M-0087).
+ *
+ * DB의 OCC가 stale 행을 거절해도 R2 PUT은 되돌릴 수 없다. 같은 `storagePath`를 먼저 덮으면
+ * 메타데이터는 최신인데 바이트만 옛 판인 분리 상태가 된다. 그래서 operation id를 파일명에
+ * 넣되, Edge Function이 영구삭제 때 엔티티 id를 계속 읽을 수 있도록 **마지막 `__id32`는
+ * 그대로 유지**한다. 재시도는 같은 op 키를 쓰므로 멱등이고, 다음 편집은 이전 op 토큰을
+ * 교체하므로 이름이 끝없이 길어지지 않는다.
+ */
+export function operationStoragePath(currentPath: string, entityId: string, operationId: string): string {
+  const entity = hex(entityId);
+  const operation = hex(operationId);
+  if (entity.length !== 32 || operation.length !== 32) {
+    throw new Error('동기화 바이트 키에는 UUID 엔티티/작업 id가 필요합니다.');
+  }
+
+  const slash = currentPath.lastIndexOf('/');
+  const folder = slash >= 0 ? currentPath.slice(0, slash + 1) : '';
+  const file = slash >= 0 ? currentPath.slice(slash + 1) : currentPath;
+  const dot = file.lastIndexOf('.');
+  if (dot <= 0 || dot === file.length - 1) throw new Error('동기화 바이트 키에 확장자가 없습니다.');
+
+  const stem = file.slice(0, dot);
+  const ext = file.slice(dot);
+  const currentSuffix = new RegExp(`(?:__op_[0-9a-f]{32})?__${entity}$`, 'i');
+  const stableStem = currentSuffix.test(stem) ? stem.replace(currentSuffix, '') : stem;
+  return `${folder}${stableStem}__op_${operation}__${entity}${ext}`;
+}
+
+/**
  * 여행 폴더명: `제주여행__c9ff5188`.
  *
  * **제목이 바뀌어도 이 값은 안 바뀐다** — 뒷자리가 id에서 오기 때문이다. 그래서 여행 이름을

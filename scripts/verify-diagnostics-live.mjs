@@ -42,6 +42,12 @@ const DIST = join(ROOT, 'dist');
 const BASE = '/Travel-Memories/';
 /** 주입 층이 쓰는 임시 산출물. 점으로 시작해 어느 게이트의 스캔에도 걸리지 않는다. */
 const TMP = join(ROOT, '.diaglive');
+/**
+ * `npx`/`npx.cmd`는 셸 shim이라 `execFileSync`의 네이티브 실행 파일 계약이 아니다.
+ * Windows Node 24에서 실제로 `spawnSync npx ENOENT`가 나 진단 층 전체가 SKIP됐다(M-0091).
+ * `npm run build`가 쓰는 같은 Vite JS 진입점을 현재 Node로 직접 실행한다(M-0089와 같은 처방).
+ */
+const VITE = join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
 
 let chromium;
 for (const spec of ['playwright', '/opt/node22/lib/node_modules/playwright/index.mjs']) {
@@ -244,12 +250,24 @@ await writeFile(
   join(TMP, 'vite.config.mjs'),
   `import { defineConfig } from 'vite';\nexport default defineConfig({ root: '${join(TMP, 'src').replace(/\\/g, '/')}', base: './', build: { outDir: '${join(TMP, 'out').replace(/\\/g, '/')}', emptyOutDir: true } });\n`,
 );
+if (!existsSync(VITE)) {
+  console.error(
+    'verify-diagnostics-live: Vite 진입점을 찾을 수 없습니다 — 의존성이 설치되지 않아 주입 페이지를 빌드하지 못했습니다.\n' +
+      '  → 이 실행은 라이브 층을 재지 않았습니다(통과가 아닙니다). `npm ci` 후 재실행하세요.',
+  );
+  await rm(TMP, { recursive: true, force: true });
+  process.exit(2);
+}
 try {
-  execFileSync('npx', ['vite', 'build', '--config', join(TMP, 'vite.config.mjs')], { cwd: ROOT, stdio: 'pipe' });
+  execFileSync(process.execPath, [VITE, 'build', '--config', join(TMP, 'vite.config.mjs')], {
+    cwd: ROOT,
+    stdio: 'pipe',
+    windowsHide: true,
+  });
 } catch (e) {
   console.error(`verify-diagnostics-live: 주입 페이지 빌드 실패 — ${String(e.stderr ?? e).slice(0, 400)}`);
   await rm(TMP, { recursive: true, force: true });
-  process.exit(2);
+  process.exit(1);
 }
 
 // 🔴 포트는 **라이브 게이트마다 갈라 쓴다**(2026-07-29 · 속도 측정 중에 발견).

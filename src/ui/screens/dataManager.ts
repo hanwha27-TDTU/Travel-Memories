@@ -20,6 +20,9 @@ import { computeStorageUsage, formatBytes } from '../../services/storage';
 import { fxBase, setFxBase } from '../../services/fx';
 import { openR2Setup } from './r2Setup';
 import { CURRENCIES, currencyLabel } from '../../domain/expense/format';
+import { publishDeviceAsCanonical } from '../../services/canonicalSync';
+import { currentUser } from '../../services/auth';
+import { supabase } from '../../services/supabase/client';
 
 interface DataManagerOpts {
   /** 데이터가 바뀌면 호출(홈 목록·통계 갱신). */
@@ -494,6 +497,67 @@ function currencyPanel(): HTMLElement {
   return wrap;
 }
 
+/**
+ * 일반 병합과 다른 명시적 위험 작업. 첫 클릭은 설명만 펼치고, 두 번째 버튼만 실제 게시를 한다.
+ * 브라우저 confirm을 쓰지 않아 경고 문장과 영향 범위가 화면에 계속 남게 한다.
+ */
+function canonicalPanel(onChanged: () => void): HTMLElement {
+  const wrap = el('div', 'guide-detail-body');
+  wrap.append(
+    el('h3', 'guide-h', '이 기기를 클라우드 최종본으로'),
+    el('p', 'guide-p', '현재 이 기기에 저장된 여행·장소·순간·사진·비용·소리와 영구삭제 원장을 클라우드의 정확한 최종본으로 지정합니다.'),
+    el('p', 'guide-note', '⚠️ 일반 동기화와 다릅니다. 클라우드에만 있던 항목은 최종본에서 빠지고, 다른 기기는 다음 동기화 때 자기 로컬 전용 항목을 보존하지 않고 이 최종본에 맞춥니다. 먼저 완전백업을 내려받는 것을 권합니다.'),
+  );
+  const status = el('p', 'dm-status');
+  status.setAttribute('role', 'status');
+  const begin = el('button', 'btn-danger dm-wide', '이 기기를 최종본으로 지정') as HTMLButtonElement;
+  begin.type = 'button';
+  const confirm = el('button', 'btn-danger dm-wide', '정말 이 기기 기준으로 클라우드 교체') as HTMLButtonElement;
+  confirm.type = 'button';
+  confirm.hidden = true;
+  const cancel = el('button', 'btn-ghost dm-wide', '취소') as HTMLButtonElement;
+  cancel.type = 'button';
+  cancel.hidden = true;
+
+  begin.addEventListener('click', () => {
+    begin.hidden = true;
+    confirm.hidden = false;
+    cancel.hidden = false;
+    status.textContent = '마지막 확인: 이 기기에 없는 클라우드 항목은 최종본에서 제거됩니다.';
+    confirm.focus();
+  });
+  cancel.addEventListener('click', () => {
+    begin.hidden = false;
+    confirm.hidden = true;
+    cancel.hidden = true;
+    status.textContent = '';
+    begin.focus();
+  });
+  confirm.addEventListener('click', () => {
+    confirm.disabled = true;
+    cancel.disabled = true;
+    status.textContent = '최종본 스냅샷 고정 → 사진·소리 업로드 → 서버 원자 교체 → 되읽기 확인 중…';
+    void (async () => {
+      try {
+        const client = supabase();
+        const user = await currentUser();
+        if (!client || !user) throw new Error('로그인과 Supabase 연결이 필요합니다.');
+        const result = await publishDeviceAsCanonical(client, user.id);
+        status.textContent = `✅ 최종본 교체 확인 · 기록 ${result.rows}건 · 영구삭제 표식 ${result.purgedIds}건. 다른 기기는 다음 동기화 때 이 기준을 받습니다.`;
+        confirm.hidden = true;
+        cancel.hidden = true;
+        onChanged();
+      } catch (e) {
+        status.textContent = `최종본 교체 실패: ${e instanceof Error ? e.message : String(e)} 로컬 기록은 지우지 않았습니다. 응답이 유실됐을 수도 있으므로 같은 버튼으로 재개하면 서버 operation을 되읽어 확인합니다.`;
+        confirm.disabled = false;
+        cancel.disabled = false;
+      }
+    })();
+  });
+  wrap.append(begin, confirm, cancel, status);
+  return wrap;
+}
+
 
 function cards(onChanged: () => void): HubCard[] {
   return [
@@ -501,6 +565,7 @@ function cards(onChanged: () => void): HubCard[] {
     { icon: '☁️', label: 'R2 저장소 설정', hint: '사진 저장소 설정 절차·함정 기록', open: (h) => { h.close(); openR2Setup(); } },
     { icon: '💾', label: '백업 (내보내기)', hint: '기억을 파일로 저장', open: (h) => h.detail('💾 백업 (내보내기)', backupPanel()) },
     { icon: '📥', label: '복원 (가져오기)', hint: '백업 파일에서 병합 복원', open: (h) => h.detail('📥 복원 (가져오기)', restorePanel(onChanged)) },
+    { icon: '🔐', label: '이 기기를 클라우드 최종본으로', hint: '일반 병합이 아닌 명시적 전체 교체', open: (h) => h.detail('🔐 클라우드 최종본 지정', canonicalPanel(onChanged)) },
     { icon: '🩺', label: '진단 도구', hint: '동기화·무결성·저장소·환경·오류 한 곳에', open: (h) => { h.close(); openDiagnosticsHub(); } },
     { icon: '🗑', label: '휴지통', hint: '삭제한 여행 복원·영구삭제', open: (h) => h.detail('🗑 휴지통', trashPanel(onChanged, h.close)) },
     { icon: '📖', label: '가이드', hint: '연결·설정과 개발·설계 안내', open: (h) => { h.close(); openGuide(); } },

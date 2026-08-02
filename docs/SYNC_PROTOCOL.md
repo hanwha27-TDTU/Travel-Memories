@@ -17,10 +17,10 @@
 
 ## 로컬 저장소 (Dexie)
 
-> 🔴 **상태: 아래 목록은 「목표 데이터 모델」이고 실제 구현은 9개다**(2026-08-01 감사 실측 · D-03).
-> 권위 순서상 코드가 이긴다 — `src/offline/db.ts`가 정본. **실제 store 9개**:
+> 🔴 **상태: 아래 목록은 「목표 데이터 모델」이고 실제 구현은 10개다**(2026-08-02 실측 · D-03).
+> 권위 순서상 코드가 이긴다 — `src/offline/db.ts`가 정본. **실제 store 10개**:
 > `localTrips, localMoments, localMedia, localExpenses, localAudio(v7), localPlaces(v8),
-> syncQueue, localFxRates(v5), purgedIds(v6)`.
+> syncQueue, localFxRates(v5), purgedIds(v6), syncState(v9)`.
 > 미구현(계획): `local_trip_days · local_companions · local_reflections · local_tags ·
 > failed_operations · drafts · cached_thumbnails · app_state`(전부 미착수 — Phase 5·7).
 > `localAudio·localFxRates·purgedIds`는 이후 Phase에서 실제로 추가됐는데 이 목록엔 없었다.
@@ -52,13 +52,57 @@
 
 ## 서버 쓰기·pull 모델 (C-07 — operation receipt + base_version + change sequence + conflict table)
 
-> 🔴 **상태: 계약 명세 · 미구현(2026-08-01 감사 실측 · D-01·D-02·D-04).** 이 절이 말하는
+> 🔴 **상태: 목표 프로토콜 대부분 미구현(2026-08-02 실측).** 이 절이 말하는
 > `apply_client_operation` RPC · `client_operations` · `sync_changes`(단조 cursor) ·
-> `sync_conflicts` · `deletion_jobs` · `canonical_version`은 **어느 마이그레이션에도 없다.**
-> 현재 실제 구현은 `src/services/sync.ts`의 **직접 upsert + 정확한 read-back + version 기반
-> LWW**(좀비 가드는 실재 — 불변식 2). `SyncQueueItem.state`도 9단계 상태머신이 아니라 실사용
+> `sync_conflicts` · `deletion_jobs`는 **어느 적용된 마이그레이션에도 없다.** v1.60 작업 트리에는
+> 사용자별 `sync_meta.canonical_version`과 정확집합 RPC를 구현한 **운영 미적용 migration 0027**이 있다.
+> 운영 실측은 0025까지이고 0026·0027은 적용하지 않았다. v1.58 클라이언트와 migration 0026은 첫 안전층을 구현한다:
+> 직접 upsert에 `base_version` OCC를 걸고, `client_operation_id`+version(+바이트 경로)의 정확한
+> read-back 뒤에만 큐를 제거한다. 충돌은 서버 승자를 로컬+큐에 원자 반영하거나 로컬을 서버
+> version에 재기반화해 재시도한다. 사진·소리는 기존 R2 키를 먼저 덮지 않고 operation별 새 키에
+> 격리하며, DB 승인 뒤에만 그 경로를 publish한다(M-0087). v1.60의 canonical 교체는 아래 별도 모드이며,
+> change-log·receipt·conflict table은 여전히 후속이다.
+> `SyncQueueItem.state`도 9단계 상태머신이 아니라 실사용
 > **3개**(`local_only · retryable_failed · permanent_failed`)다. 아래는 서버 프로토콜을 갖추게
 > 될 때의 목표 설계다 — 맥락 없이 들어온 AI는 이 RPC들이 이미 있다고 가정하지 말 것.
+
+### 구현된 두 모드 (v1.60 작업 트리 · migration 0027 운영 미적용)
+
+**일반 병합**
+```text
+runSync 시작 → ensure_sync_meta + 로컬 syncState 세대 대조
+→ 같은 세대(또는 최초 legacy 기준선)면 repair/reconcile/push/pull
+→ 로컬 전용 항목도 클라우드에 upsert해 다른 기기로 전파
+```
+
+**「이 기기 → 클라우드 최종본」 게시**
+```text
+두 단계 사용자 확인
+→ 여섯 Dexie 표 + 큐 id + purged_ids를 한 transaction으로 캡처
+→ 사진·소리를 operation별 불변 R2 staging 경로에 업로드
+→ publish_canonical_snapshot(expected_version, next_version, operation_id, 전체 payload)
+→ 서버 한 transaction: 사용자 정확집합 교체 + purged 원장 + sync_meta CAS
+→ operation/meta read-back
+→ 캡처 당시 큐만 제거 + 여섯 로컬 표의 baseCanonicalVersion 및 사진·소리 승인 경로 전진
+→ 옛 R2 경로 최선노력 정리
+```
+네트워크 실패 시 `syncState.pendingCanonical`의 `uploading → publishing → read-back → local-commit`
+단계에서 재개한다. RPC 응답 유실은 operation id read-back으로 성공을 확정한다. 캡처 뒤 로컬 사진·소리가
+바뀌었으면 낡은 pending/staging을 폐기하고 **새 스냅샷으로 다시 시작**한다.
+
+**다른 기기의 새 세대 소비**
+```text
+runSync의 어떤 로컬 repair/push보다 먼저 canonical_version 변경 감지
+→ 서버 여섯 표(updated_at desc, 전체 페이지) + purged_ids(id 안정 정렬, 전체 페이지) 조회
+→ 사진·소리 바이트를 전부 먼저 다운로드
+→ 메타 세대를 다시 읽어 스냅샷 안정성 확인
+→ 여섯 로컬 표 + 큐 + purged_ids + syncState를 한 Dexie transaction으로 정확 교체
+→ 그 runSync는 pushed=0으로 즉시 종료(병합 결과 재업로드 금지)
+```
+첫 설치에서 메타가 `legacy`면 로컬을 지우지 않고 기준선만 찍는다. 반대로 로컬 상태가 없는데 서버가
+이미 non-legacy면 새/오래된 기기로 보고 클라우드 최종본을 적용한다. canonical은 사용자가 명시적으로
+선택한 파괴적 범위이므로 일반 모드의 빈-클라우드 가드를 적용하지 않는다. 대신 **모든 바이트 다운로드와
+세대 재확인 전에는 로컬 교체를 시작하지 않는다.**
 
 `updated_at`만으로 덮어쓰기 순서를 결정하지 않는다. 모든 앱 쓰기는 `operation_id`, `entity_id`, `base_version`을 가진다.
 
@@ -85,17 +129,18 @@
 
 ## 불변식 (절대 위반 금지 — LESSONS §1)
 
-1. **안정 id + created_at + updated_at.** 동일 id 충돌은 LWW(최신 `updated_at` 우선), 단 서버 시각 read-back으로 반영해 빠른 클라이언트 시계가 다른 기기의 최신 편집을 덮지 않게 한다.
+1. **안정 id + created_at + updated_at + 서버 기준 version.** 동일 id의 쓰기는 마지막으로 본 `base_version`이 현재 서버 version과 일치할 때만 받는다(0026, 적용 대기). 불일치면 행·서버시각을 바꾸지 않고 read-back으로 승자를 다시 판정한다. 같은 삭제 상태의 충돌은 정규화한 `updated_at` LWW, 삭제 상태 전이는 version으로 판정한다.
 2. **하드 삭제 없음.** `deleted_at` tombstone. **fence는 활성 행에만** 적용, tombstone은 항상 병합까지 통과. `if (row.deletedAt) return false`를 타임스탬프 비교 **앞에** 둔다.
-   - **좀비 절대 방지(ZOMBIE-GUARD, v0.29 구현 `src/sync/merge.ts`)**: 병합은 **version 기반 tombstone 우위**로 한다. 삭제상태가 다른 전이(활성↔tombstone)는 **오직 version으로만** 판정하고 **벽시계(`updated_at`)로는 부활시키지 않는다**(시계 스큐가 좀비의 근본원인). 활성 사본이 tombstone을 이기려면 **진짜 복원**(version이 tombstone보다 큼)이어야 하고, version 동률이면 **삭제가 이긴다**. 이 규칙은 **지연 pull·오래된 백업 복원**이 삭제된 데이터를 되살리지 못하게 잠근다. 적대적 유닛(`tests/unit/merge.test.ts` — 옛 시각-우선 로직 주입 시 RED)으로 비공허 검증. 서버측도 동일하게 tombstone을 낮은/동일 version 활성 upsert로 덮지 못하게 트리거/조건부 upsert로 강제해야 한다(Supabase 연결 시 마이그레이션 — 후속).
-3. **두 동기화 모드를 절대 섞지 않는다.** ① 일반 병합 동기화(`canonical_version` 읽고 LWW 병합) ② 카노니컬 교체(이 기기를 새 기준선으로 선언). 혼합은 다른 기기를 오염시킨다.
+   - **좀비 절대 방지(ZOMBIE-GUARD, v0.29 구현 `src/sync/merge.ts`)**: 병합은 **version 기반 tombstone 우위**로 한다. 삭제상태가 다른 전이(활성↔tombstone)는 **오직 version으로만** 판정하고 **벽시계(`updated_at`)로는 부활시키지 않는다**(시계 스큐가 좀비의 근본원인). 활성 사본이 tombstone을 이기려면 **진짜 복원**(version이 tombstone보다 큼)이어야 하고, version 동률이면 **삭제가 이긴다**. 이 규칙은 **지연 pull·오래된 백업 복원**이 삭제된 데이터를 되살리지 못하게 잠근다. 적대적 유닛(`tests/unit/merge.test.ts` — 옛 시각-우선 로직 주입 시 RED)으로 비공허 검증. 서버는 기존 `prevent_zombie_resurrection`과 0026의 OCC guard가 같은 규칙을 지킨다(0026은 운영 적용 대기).
+3. **두 동기화 모드를 절대 섞지 않는다.** ① 일반 병합 동기화(`canonical_version` 일치 후 LWW 병합·로컬 전용 전파) ② 카노니컬 정확집합 교체(이 기기를 새 기준선으로 선언하거나 새 기준선을 소비). 세대 변경을 소비한 실행은 어떤 upsert도 하지 않는다.
 4. **빈-클라우드 가드.** 클라우드가 0행(로컬엔 데이터)이면 이상 상황 — `_cloudEmptyAnomaly` 뒤에서만 로컬 교체. 절대 자동 wipe 금지.
-5. **정확한 read-back으로 확인.** HTTP 200 / 성공 토스트 / upsert 표현 / 후속 집계 동기화는 확인이 아니다. 같은 레코드를 되읽어 count+payload 일치 확인 후에만 완료 전진. 모든 도메인의 쓰기+read-back 성공 후에만 성공 토스트.
+5. **정확한 read-back으로 확인.** HTTP 200 / 성공 토스트 / upsert 표현 / 후속 집계 동기화는 확인이 아니다. 같은 레코드를 되읽어 **내 `client_operation_id` + 서버 version**이 확인된 뒤에만 큐를 제거한다. 사진·소리는 storage path도 같아야 한다. 부분 필드(제목·금액·좌표) 하나만 같은 것은 내 쓰기가 착지했다는 증거가 아니다.
+   - **외부 바이트도 같은 조건부 쓰기다(M-0087).** DB OCC보다 R2 PUT이 먼저이므로 기존 `storagePath`에 덮어쓰지 않는다. operation별 불변 키에 올리고 read-back이 그 path를 승인하면 로컬 경로를 전진·옛 키 정리, 거절이면 새 작업 키만 정리한다. 삭제 실패는 기억 손실보다 고아 사본을 택한다.
 6. **부분 슬라이스를 전체집합 판단에 넣지 않는다.** 삭제/부재/전체교체 판단은 완전한 id 집합 필요. 멤버십(`select=id`, 저렴)과 내용(`select=* where updated_at≥wm`)을 분리 조회. 델타 슬라이스만 넣으면 오래된 로컬 행이 "클라우드에 없음"으로 유실.
 7. **`false`/`null` 과적재 금지.** "실패"와 "무해한 무변경/대기"에 같은 값 반환 금지 — 구분된 센티넬/객체(`'held'` 등). 특히 상태 UI 연결 함수.
 8. **쓰기 능력 ↔ 동기화 자세 일치.** 로컬 변형 가능 도메인은 (1) 실제 업로드 경로 + (2) 병합(교체 아님) 새로고침을 **함께** 갖는다. 하나만 두면 다음 새로고침이 로컬을 덮어쓴다.
 9. **파이프라인 행(`source=pipeline`)은 소비 기기에서 읽기전용.** 로컬 부재 = "이 기기가 오래됨"이지 "사용자 삭제" 아님. 로컬 부재로 tombstone 금지.
-10. **카노니컬 저장 = 재개 가능 트랜잭션.** `pendingCanonicalVersion` + 단계(uploading/read-back/meta-saving) 기록. 데이터 쓰기 **및** 정확한 read-back 후에만 카노니컬 전진. 각 단계에 네트워크 실패를 주입해 거짓 완료가 없음을 증명.
+10. **카노니컬 저장 = 재개 가능한 두 트랜잭션+read-back.** Dexie `pendingCanonical`에 전체 메타 스냅샷·캡처 큐 id·단계(uploading/publishing/read-back/local-commit)를 기록한다. 서버는 `publish_canonical_snapshot` 한 transaction으로 정확집합+메타를 전진한다. operation/meta read-back 뒤에만 로컬 세대·큐를 전진시키며, 각 단계의 실패는 재개하거나 staging을 폐기한다.
 
 ## 충돌 해결 (§12.4)
 

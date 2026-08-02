@@ -15,6 +15,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -55,28 +56,33 @@ const LEGACY = {
  * (형제 규율을 새 형태가 물려받지 않음). 이제 열 0의 `const NAME = (...) => {` 블록도 잰다.
  * 닫힘은 화살표면 `};`, 선언 함수면 `}` — 둘 다 열 0에서만 나온다(중첩 닫힘은 들여쓰기됨).
  */
-export function topLevelFunctions(source) {
-  const lines = source.split('\n');
-  // 식별자에 `[A-Za-z_$]`만 허용하면 한글 이름 함수가 **조용히 안 세어진다**(주입시험에서 발견).
-  // JS 식별자는 유니코드 문자를 허용하므로 \p{L}로 받는다 — 안 세어진 함수는 상한이 없는 것과 같다.
-  const fnDecl = /^(?:export\s+)?(?:async\s+)?function\s+([\p{L}_$][\p{L}\p{N}_$]*)\s*[(<]/u;
-  // 블록 본문 화살표 함수: `const NAME = (...) => {` (async·타입주석·단일 매개변수 포함).
-  // 암시적 반환(`=> (` / `=> value`)은 블록이 없어 상한 대상이 아니다 — `=> {`만 잡는다.
-  const arrowDecl =
-    /^(?:export\s+)?const\s+([\p{L}_$][\p{L}\p{N}_$]*)\s*(?::[^=]+)?=\s*(?:async\s+)?(?:\([^)]*\)|[\p{L}_$][\p{L}\p{N}_$]*)\s*(?::[^=]+)?=>\s*\{\s*$/u;
+export function topLevelFunctions(source, fileName = 'source.ts') {
+  const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const out = [];
-  for (let i = 0; i < lines.length; i++) {
-    const fm = fnDecl.exec(lines[i]);
-    const am = fm ? null : arrowDecl.exec(lines[i]);
-    if (!fm && !am) continue;
-    const name = (fm ?? am)[1];
-    // 화살표 상수는 `};`로 닫히고, 선언 함수는 `}`로 닫힌다(둘 다 열 0).
-    const closes = am ? (s) => s === '};' || s.startsWith('};') : (s) => s === '}' || s.startsWith('} ');
-    for (let j = i + 1; j < lines.length; j++) {
-      if (closes(lines[j])) {
-        out.push({ name, lines: j - i + 1, line: i + 1 });
-        i = j;
-        break;
+
+  const add = (name, node) => {
+    const start = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+    const end = sourceFile.getLineAndCharacterOfPosition(node.end).line + 1;
+    out.push({ name, lines: end - start + 1, line: start });
+  };
+
+  // SourceFile의 직접 자식만 센다. 본문 경계는 중괄호/들여쓰기가 아니라 TypeScript 파서가
+  // 판정하므로 객체 반환 타입과 중첩 블록이 다음 최상위 함수를 삼킬 수 없다(M-0088).
+  for (const statement of sourceFile.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
+      add(statement.name.text, statement);
+      continue;
+    }
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      const initializer = declaration.initializer;
+      if (
+        ts.isIdentifier(declaration.name) &&
+        initializer &&
+        (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) &&
+        ts.isBlock(initializer.body)
+      ) {
+        add(declaration.name.text, statement);
       }
     }
   }
@@ -92,14 +98,16 @@ export function topLevelFunctions(source) {
     '',
     'export async function b(',
     '  p: number,',
-    '): Promise<void> {',
+    '): Promise<{ ok: boolean }> {',
     '  if (p) {',
     '    y();',
     '  }',
     '}',
     '',
-    // 🔴 이제 화살표 상수도 센다 — 예전엔 이게 상한을 통째로 우회했다.
-    'export const c = (p: number): void => {',
+    // 멀티라인 화살표도 센다 — 정규식 스캐너에서는 통째로 사라졌다.
+    'export const c = (',
+    '  p: number,',
+    '): void => {',
     '  if (p) {',
     '    z();',
     '  }',
@@ -114,11 +122,20 @@ export function topLevelFunctions(source) {
   // 중첩 블록의 닫는 중괄호(들여쓰기됨)를 함수 끝으로 오인하면 여기서 잡힌다.
   if (b.lines !== 7) throw new Error(`SELF-TEST 실패: b 길이 오산(${b.lines} ≠ 7) — 중첩 블록을 끝으로 착각.`);
   if (!c) throw new Error('SELF-TEST 실패: 화살표 상수 c를 못 셈 — 화살표 커버리지 구멍.');
-  if (c.lines !== 5) throw new Error(`SELF-TEST 실패: c 길이 오산(${c.lines} ≠ 5) — 화살표는 '};'로 닫힌다.`);
+  if (c.lines !== 7) throw new Error(`SELF-TEST 실패: c 길이 오산(${c.lines} ≠ 7) — 멀티라인 화살표 선언 누락.`);
+  // 회귀 주입: 옛 스캐너는 반환 타입의 `{`를 본문으로 오인해 다음 선언까지 삼켰다.
+  const typed = topLevelFunctions(
+    ['function typed(): { ok: boolean } {', '  return { ok: true };', '}', 'function next() {', '  work();', '}'].join('\n'),
+  );
+  if (typed.length !== 2 || typed[0].lines !== 3 || typed[1].lines !== 3) {
+    throw new Error('SELF-TEST 실패: 객체 반환 타입이 다음 최상위 함수를 삼킴 — 알려진 오판을 RED로 잡지 못함.');
+  }
   // 주입: 121줄 화살표 함수가 상한을 넘는지(래칫이 화살표에도 걸리는가) 확인.
   const bigArrow = ['const big = () => {', ...Array(120).fill('  work();'), '};'].join('\n');
   const bf = topLevelFunctions(bigArrow).find((f) => f.name === 'big');
-  if (!bf || bf.lines !== 122) throw new Error(`SELF-TEST 실패: 큰 화살표 길이 오산(${bf?.lines}) — 주입이 무효.`);
+  if (!bf || bf.lines !== 122 || bf.lines <= LIMIT) {
+    throw new Error(`SELF-TEST 실패: 큰 화살표 길이 오산(${bf?.lines}) — 알려진 상한 위반 주입을 RED로 잡지 못함.`);
+  }
 })();
 
 /**
@@ -145,7 +162,7 @@ const seen = new Set();
 for (const rel of files) {
   const abs = join(ROOT, rel);
   const key = (name) => `${relative(ROOT, abs).split('\\').join('/')}::${name}`;
-  for (const fn of topLevelFunctions(readFileSync(abs, 'utf8'))) {
+  for (const fn of topLevelFunctions(readFileSync(abs, 'utf8'), rel)) {
     const k = key(fn.name);
     const budget = LEGACY[k];
     if (budget === undefined) {

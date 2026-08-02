@@ -22,6 +22,7 @@ const media: LocalMedia = {
   bytesOriginal: 4000000,
   bytesDisplay: 660000,
   version: 2,
+  baseVersion: 2,
   createdAt: '2026-07-22T10:00:00.000Z',
   updatedAt: '2026-07-22T11:30:00.000Z',
   deletedAt: null,
@@ -58,6 +59,8 @@ describe('media rowmap 경계', () => {
     expect(row.user_id).toBe(USER);
     expect(row.bytes_display).toBe(660000);
     expect(row.source).toBe('user');
+    expect(row.base_version).toBe(2);
+    expect(row.base_canonical_version).toBe('legacy');
   });
 
   it('좌표가 없는 사진은 null로 간다 — **0으로 반올림하지 않는다**(M-0057)', () => {
@@ -85,6 +88,7 @@ describe('media rowmap 경계', () => {
     expect(meta.takenAt).toBe(media.takenAt);
     expect(meta.bytesDisplay).toBe(660000);
     expect(meta.version).toBe(2);
+    expect(meta.baseVersion).toBe(2);
     expect(meta.deletedAt).toBe(null);
     expect(meta.clientOperationId).toBe(media.clientOperationId);
     expect(meta.storagePath).toBe(mediaStoragePath(USER, media, '제주 여행'));

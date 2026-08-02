@@ -8,14 +8,58 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.57<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->157<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->1.62<!--/reg--> 미배포 / 라이브 v1.57**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 현재 브랜치 `codex/sync-hardening-v1-62`는 작업 시작 시 origin/main과 같은 커밋에서 분기했고, v1.58 동기화 보호+v1.59 게이트 복구+v1.60 canonical 최종본+v1.61 진단 라이브 복구+v1.62 RPC 입력 경계 변경을 한 PR 범위로 묶는다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->162<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->66<!--/reg-->개).
 
-> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->25<!--/reg-->개 적용(`supabase/migrations/` 전부).
-> **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
+> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, v1.58 작업 트리는 base_version OCC+operation read-back, v1.60은 canonical generation exact-set 모드를 보강했다. 서버 적용 상태는 **0025까지**이고, 저장소의 migration 파일은 <!--reg:migrationCount-->27<!--/reg-->개다. **0026·0027은 신형 앱 전기기 배포·DB 스냅샷 뒤 순서대로 적용해야 하므로 현재 운영 미적용**이다.
+> **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
 
 ### 🕐 직전 세션에서 무슨 일이 있었나 (2026-07-30 · 새 AI는 이것부터)
 
 > **이 절은 "지금 이 순간"이다.** 아래 기능 지도가 *무엇이 있는가*를, 이 절이 *방금 무슨 일이 있었고 무엇이 아직 안 끝났는가*를 말한다.
+
+**한 줄(2026-08-02 · v1.62 · canonical RPC 입력 경계/운영 rollback 사전검증)**: 운영
+Travel&Accounting(PostgreSQL 17)에서 0026→0027→두 SQL 공격검사를 한 transaction으로 실행하고
+전부 rollback했다. 기존 계약은 통과했지만 추가 공격에서 NULL operation id와 “snapshot 행 id =
+영구삭제 원장 id”를 RPC가 모두 받는 M-0092를 발견했다. 파괴적 DELETE 전에 두 입력을 SQLSTATE 22023으로
+거부하고, 공격검사에 두 케이스+거부 뒤 무변경을 추가했다. 각 guard 제거 주입은 RED, 복원 뒤
+`CANONICAL_SYNC_META_PASS`; read-back은 새 표/컬럼/트리거/테스트 계정·행 0이었다. 검증 도중 실제 앱의
+동시 쓰기로 순간 1·사진 1이 늘었지만 테스트 UUID는 0이고 생성시각이 검증 중이었다. 배포된
+`media-sign` v7은 로컬과 의미상 동일하고 protocol v6·시크릿 준비도 확인했다. 실제 authenticated R2
+데이터 왕복·2기기 왕복은 미검증이며 운영 DB는 여전히 0025다.
+
+**한 줄(2026-08-02 · v1.61 · 진단 라이브 복구)**: Windows에서 `npx` 셸 shim을 직접 호출해
+`spawnSync npx ENOENT`로 매번 SKIP되던 `verify-diagnostics-live`를 현재 Node+Vite JS 진입점 직접
+실행으로 바꿨다(M-0091). Vite 자체가 없을 때만 SKIP하고, 실행된 fixture 빌드 실패는 FAIL로 가른다.
+수정 전 실패 재현, 깨진 import 주입 종료 1 RED, 복원 후 실제 Chromium 22/22 PASS를 확인했다.
+제품 UI·동기화 계약·운영 DB는 바꾸지 않았고 v1.60 운영 HOLD도 그대로다.
+
+**한 줄(2026-08-02 · v1.60 작업 중 · canonical 최종본)**: 일반 merge와 「이 기기→클라우드
+최종본」을 별도 프로토콜로 구현했다(ADR-0044·M-0090). `sync_meta.canonical_version`과 여섯 표의
+세대 fence, exact-set RPC, Dexie 재개 상태, 사진·소리 operation별 staging을 추가했다. 소비 기기는
+새 세대를 어떤 push보다 먼저 감지해 완전 다운로드 후 로컬 여섯 표·큐·영구삭제 원장을 원자 교체하고
+그 실행을 **upsert 0건**으로 끝낸다. 데이터 관리 UI는 일반 동기화와 다름·클라우드 전용 제거·다른
+기기 로컬 전용 폐기를 두 단계로 경고한다. 운영 서버는 0025까지이고 `sync_meta`/
+`base_canonical_version`은 아직 없다. 0026·0027은 미적용이다. PostgreSQL rollback 사전검증과 Edge
+Function 판/시크릿 확인은 위 v1.62에서 해소했고, authenticated 실제 R2 데이터·2기기 왕복은 미검증이다.
+
+**한 줄(2026-08-02 · v1.59 · 게이트 복구)**: 전체 하네스의 두 RED는 제품 결함이 아니라
+게이트 결함이었다. `check-fn-size`는 반환 타입의 `{}`를 본문으로 오인해 짧은 함수를 200줄대로
+세고 멀티라인 함수를 누락했다(M-0088). TypeScript AST 최상위 statement 측정으로 바꿔 기존 래칫
+16개가 전부 기록값과 일치했다. `check-timezone`은 Windows Node 24에서 `npm.cmd`를 `execFile`로
+호출해 `spawn EINVAL`이 났다(M-0089). 현재 Node로 Vitest JS 진입점을 직접 실행하도록 바꿨고
+서울·호놀룰루 전체 유닛이 모두 통과했다. 그 다음 독립 항목이 위 v1.60 canonical 최종본 모드다.
+
+**한 줄(2026-08-02 · v1.58 작업 중 · stale-write 보호)**: 오래된 기기의 무조건 upsert가 서버
+최신 행을 낡은 내용+현재 서버시각으로 덮을 수 있던 M-0084를 보완했다(ADR-0043). 6개 도메인
+모두 `baseVersion` 기준선을 보존하고 operation id+version(+바이트 경로) read-back 뒤에만 큐를
+지운다. 충돌은 서버 승자를 로컬+큐에 원자 반영하거나 로컬을 서버 version에 재기반화한다.
+사진·소리는 기존 R2 키를 덮지 않고 operation별 새 키에 격리하며, DB가 같은 path를 승인한 뒤에만
+현재 경로로 채택한다(M-0087). stale DB 거절 시 서버 최신 바이트는 그대로이고 작업 키만 정리한다.
+`0026_reject_stale_sync_writes.sql`은 authenticated 쓰기에만 OCC를 걸고 관리자/복구 경로는 통과한다.
+🔴 **배포 보류**: 구버전 앱과 혼재 금지 — 신형 앱을 모든 활성 기기에 먼저 배포·확인하고 운영 DB
+스냅샷을 남긴 뒤 0026을 적용·authenticated read-back 해야 한다. PostgreSQL rollback 실실행은 v1.62에서
+통과했지만 운영 영구 적용은 하지 않았다. canonical 최종본은 후속 v1.60에서 구현했고 같은 순서 계약으로 운영 미적용이다.
+착수 브리핑과 어댑터 생성기의 Windows 경로 결함(M-0085)도 공용 정규화·파일 URL 변환·실제 생성 read-back으로 수정했다.
 
 **한 줄(2026-08-02 · v1.57 · 아이콘 글자 잘림 + 설치 플레이북)**: 사용자 실기기에서 홈 아이콘
 아래 「BG 여행」 글자가 **잘렸다**(M-0083). 원인은 ADR-0038의 **배경=전체이미지/전경=투명** —
@@ -96,11 +140,11 @@ SCAN 범위도 `android-shell/android/app/src`(java)로 넓혔다 — node_modul
 
 > **해소됨**: v1.21의 「[서버에 없는 자료 다시 올리기]를 눌러야 한다」는 사용자가 실기기에서 실행해 **소리 4:4로 맞았다**(2026-07-28 스크린샷). 그리고 그 노동 자체를 없앤 것이 v1.22 A다.
 
-**미배포 커밋 1개**: 위 9번(내가 직접 잰 검사들). **앱 코드 무변경**이라 사용자 화면에 차이가 없다 — 다음 앱 변경과 묶어 배포한다(사용자 방침: *"배포를 좀 모았다가"*).
+**현재 미배포 상태**: v1.59 작업 트리(v1.58 stale-write 보호 + v1.59 게이트 복구). 앱·DB 모두 아직 배포하지 않았고 0026은 앱 선배포 전 적용 금지다. 과거의 「미배포 커밋 1개」 상태는 이후 v1.57까지 병합되며 해소됐다.
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**최신 배포(2026-08-01 실측)**: `5bfbd34`(v<!--reg:appVersion-->1.57<!--/reg--> · PR #149 스쿼시) — CI `harness`·`live-render` 그린, Pages `deploy-pages` **#192 success**. 🔴 **「배포 그린」과 「사이트에서 확인」은 다른 말이다** — 샌드박스가 `*.github.io`를 막으므로 화면 확인은 사용자 실기기 몫이다.
+**과거 배포 실측(2026-08-01)**: `5bfbd34`(**v1.42** · PR #149 스쿼시) — CI `harness`·`live-render` 그린, Pages `deploy-pages` **#192 success**. 최신 라이브 판은 문서 맨 위의 v1.57 상태를 따른다. 🔴 **「배포 그린」과 「사이트에서 확인」은 다른 말이다** — 샌드박스가 `*.github.io`를 막으므로 화면 확인은 사용자 실기기 몫이다.
 
 <details><summary>과거 실측(2026-07-28 · v1.22)</summary>
 
@@ -123,7 +167,7 @@ SCAN 범위도 `android-shell/android/app/src`(java)로 넓혔다 — node_modul
 |---|---|---|
 | 여행·순간·장소·비용·사진 CRUD(로컬 우선, tombstone·실행취소·cascade) | ✅ | `services/{trips,moments,media,expenses}.ts`, `offline/db.ts`(Dexie) |
 | 비용 통화(36종·국기 파생) + **환율 자동 환산**(사용일 기준·근거 펼침·환산 합계) | ✅ | `domain/expense/{format,fx}.ts`, `domain/time.ts`, `services/fx.ts` (스킬: expense-fx-dev) |
-| 다기기 동기화(4엔티티, 좀비 차단) | ✅ 코드완성·실기기 몫 | `services/sync.ts`, `domain/*/rowmap.ts`, `supabase/migrations/*` |
+| 다기기 동기화(6엔티티, 좀비·stale-write 차단) | ⚠️ v1.58 코드완성·0026 운영 미적용 | `services/sync.ts`, `domain/*/rowmap.ts`, `supabase/migrations/*` |
 | 사진 편집기(크롭·자유크롭·잡티·색·프리셋·회전·반전·**원근 펴기**·**수평 보정**·재편집) | ✅ | `ui/photoEditor.ts`, `media/{editor-core,pixelops}.ts` (스킬: photo-editor-dev) |
 | 전체보기 뷰어(넘기기·회전·재편집·**확대/이동**·반응형) | ✅ | `ui/screens/tripDetail.ts` openViewer |
 | 지도·GeoJSON(MapLibre·OSM 타일·장소검색 Nominatim) | ✅ | `ui/screens/mapView.ts`, `domain/place/geojson.ts`, `services/geocode.ts` |
@@ -328,6 +372,49 @@ npm run dev                            # 홈 화면 확인 (선택)
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
 
 ---
+
+## HANDOFF-0052 · v1.62 · **canonical RPC 입력 경계 + 운영 rollback 사전검증 (M-0092)** (2026-08-02)
+
+- **운영 세계 측정**: Travel&Accounting는 ACTIVE_HEALTHY, PostgreSQL 17.6, journey는 0025까지다. 0026·0027은 미적용이고 `sync_meta`·`base_canonical_version`·두 guard trigger/function은 운영에 없다. 기준 행은 최초 조회 5/15/42/4/0/5였고, 검증 도중 실제 앱의 동시 쓰기로 순간 1·사진 1이 추가됐다(15:03 UTC 생성, 테스트 UUID 0).
+- **rollback 사전검증**: 저장소 0026→0027→`stale_sync_write_guard.sql`→`canonical_sync_meta.sql`을 한 `BEGIN…ROLLBACK`으로 운영 PostgreSQL에서 실행해 `CANONICAL_SYNC_META_PASS`. 뒤이어 새 표/컬럼/트리거/함수·테스트 auth/allowlist/엔티티 행이 모두 0임을 별도 read-back했다.
+- **RED에서 잡힌 결함**: NULL operation id 게시와 snapshot 행/영구삭제 원장 id 겹침을 기존 RPC가 모두 성공시켰다. 후자는 transaction 안에서 활성 trip과 `purged_ids`가 실제로 동시에 존재했다. 파괴적 exact-set의 최종 경계가 정상 클라이언트의 사전검사에 의존한 M-0092다.
+- **수정/비공허**: `publish_canonical_snapshot()`이 DELETE 전에 두 입력을 SQLSTATE 22023으로 거부한다. SQL 공격검사에 두 케이스와 거부 후 무변경 판정을 추가. operation guard만 제거하면 `FAIL: NULL canonical operation id`, overlap guard만 제거하면 `FAIL: canonical 행/영구삭제 원장 id 겹침`으로 각각 RED, 복원 뒤 rollback GREEN.
+- **R2 경계**: 배포 `media-sign` Edge version 7 ACTIVE, 로컬 소스와 의미상 동일, 함수 protocol 6/전체 ops, `secretsOk=true`, missing=[]를 확인했다. capability/probe는 R2 실제 객체 요청이 아니므로 authenticated list/put/get/delete와 2기기 왕복은 미검증이다.
+- **로컬 최종 검증**: 빠른 게이트 39/39 PASS, 전체 유닛 73파일 **1,112건 PASS**, build PASS(`dist/version.json=1.62`), 전체 harness **43/43 PASS · 0 FAIL · 0 SKIP**. 시간대 두 축과 editor/diagnostics Chromium 라이브가 모두 실제 실행됐다. 제품 UI 변경은 없다.
+- **운영 상태**: 앱·DB·GitHub에 영구 배포한 것은 없다. 0026·0027 HOLD는 유지한다. 신형 앱 전기기 배포·확인 → DB 스냅샷 → 0026 적용/read-back → 0027 적용 → authenticated 공격검사/read-back 순서가 다음 운영 단계다.
+
+## HANDOFF-0051 · v1.61 · **Windows 진단 라이브 게이트 복구 (M-0091)** (2026-08-02)
+
+- **범위**: `verify-diagnostics-live`의 fixture 빌드 실행 경계만 수정. `npx` 대신 현재 Node가 로컬 Vite JS 진입점을 직접 부른다. 제품 UI·동기화 프로토콜·Supabase 운영 상태는 변경하지 않음.
+- **판정 경계**: Vite 진입점 부재는 전제 미충족(SKIP), 진입점 실행 뒤 fixture 빌드 실패는 위반(FAIL)이다. 이전에는 둘 다 SKIP으로 반올림될 수 있었다.
+- **비공허 확인**: 수정 전 실제 Windows `spawnSync npx ENOENT` 재현. fixture import를 존재하지 않는 경로로 잠깐 바꿔 종료 1 RED 확인 후 복원, 실제 Chromium 진단 판정 22/22 GREEN.
+- **최종 검증**: 전체 유닛 73파일 1,112건 PASS, build PASS(`dist/version.json=1.61`), 전체 harness **43/43 PASS · 0 FAIL · 0 SKIP**. `verify-editor-live`와 `verify-diagnostics-live`가 둘 다 실제 실행됐다.
+- **운영 상태**: 앱·DB·GitHub에 배포하지 않았다. v1.58~v1.60 변경과 migration 0026·0027의 운영 HOLD는 그대로다.
+
+## HANDOFF-0050 · v1.60 작업 중 · **canonical 최종본 exact-set 모드 (ADR-0044 · M-0090)** (2026-08-02)
+
+- **범위**: `sync_meta.canonical_version`·여섯 표 `base_canonical_version` fence·원자 `publish_canonical_snapshot`(0027), Dexie v9 `syncState/pendingCanonical`, 게시/소비 오케스트레이션, R2 operation staging, `runSync` preflight, 데이터 관리 두 단계 경고 UI, 단위/SQL/라이브 계약 검사.
+- **소비 안전**: 새 generation은 repair/reconcile/push보다 먼저 판정한다. 서버 여섯 표를 `updated_at desc`로 끝까지 받고 사진·소리를 전부 materialize한 뒤 메타 세대를 다시 확인한다. 그 뒤에만 여섯 로컬 표+큐+원장을 한 transaction으로 정확 교체하고 즉시 반환한다. legacy 첫 기준선은 비파괴다.
+- **게시 안전**: 여섯 로컬 표+큐 id+영구삭제 원장을 한 Dexie transaction으로 캡처하고 단계별 pending을 남긴다. RPC 응답 유실은 operation read-back으로 확정한다. 네트워크 업로드 실패는 같은 pending을 재개하고, 캡처 뒤 로컬 바이트 변경은 낡은 pending/staging을 폐기해 새 작업으로 재시작한다.
+- **운영 실측(읽기 전용)**: 프로젝트 `ihxiywffzmvrwmqvatzt`는 journey migration 0025까지. `sync_meta=false`, 여섯 표 `base_canonical_version=false`; 행수 trips 5 / moments 15 / media 42 / expenses 4 / audio 0 / places 5. 운영 쓰기·migration 적용은 하지 않았다.
+- **집중 재감사에서 잡아 추가 교정**: `purged_ids`를 한 번에 100,000개 요청하면 PostgREST 상한에서 조용히 잘릴 수 있어 id 안정 정렬+1000개 페이지로 바꿨다. 게시 성공 후 로컬 사진·소리의 `storagePath`가 새 서버 승인 키로 전진하지 않던 결함도 캡처 후 미변경 행에 한해 원자 반영했다. 서버 객체가 달라졌는데 같은 id의 옛 로컬 원본/editState를 보존하던 길도 끊었다. 각 회귀를 대상 유닛에 남겼다.
+- **검증**: typecheck PASS, 전체 유닛 **73파일 1,112건 PASS**, build PASS(v1.60), 전체 harness **42 PASS / 0 FAIL / 1 SKIP**. `verify-editor-live` 최종 **279/279 PASS**; 경고 핵심 문구 임시 제거 시 해당 1건만 RED(278/279), 복원 GREEN. 412×915 모바일 렌더 스크린샷을 직접 확인했다. `verify-diagnostics-live`는 기존 Windows `spawnSync npx ENOENT`로 미측정(SKIP)이다.
+- 🔴 **배포 HOLD**: 신형 앱 전기기 배포·확인 → DB 스냅샷 → 0026 적용/read-back → 0027 적용 → authenticated 공격검사/행수·세대 read-back. 실제 2기기 exact-set 전파 전에는 완료로 반올림하지 않는다.
+
+## HANDOFF-0049 · v1.59 작업 중 · **함수 크기·시간대 게이트 복구 (M-0088·M-0089)** (2026-08-02)
+
+- **범위**: `check-fn-size`의 줄 정규식 파서를 TypeScript AST 최상위 statement 측정으로 교체. `check-timezone`의 Windows `npm.cmd` 실행을 현재 Node+Vitest JS 진입점 직접 호출로 교체. 제품 UI·동기화 계약은 변경하지 않음.
+- **실제 RED 주입**: 임시 122줄 최상위 함수를 넣어 `check-fn-size` exit 1 확인 후 제거. `TZ=UTC`를 요구하는 임시 유닛을 넣어 서울·호놀룰루 두 패스 모두 실패하고 `check-timezone` exit 1 확인 후 제거. 객체 반환 타입 뒤 형제 함수와 큰 화살표는 상시 셀프테스트에도 남김.
+- **검증**: build PASS(v1.59), 함수 래칫 기존 LEGACY 16개 실측 일치, 전체 harness **43개 중 42 PASS / 0 FAIL / 1 SKIP**. `verify-editor-live` PASS. `verify-diagnostics-live`는 Windows의 `spawnSync npx ENOENT`로 **미측정(SKIP)**이며 통과로 반올림하지 않는다.
+- **다음 항목**: 후속 HANDOFF-0050에서 `canonical_version` 메타와 「이 기기→클라우드」 최종본 교체 모드를 구현했다. v1.58 운영 HOLD·0026 앱 선배포 규칙은 그대로다.
+
+## HANDOFF-0048 · v1.58 작업 중 · **오래된 기기의 stale push 차단 (ADR-0043 · M-0084)** (2026-08-02)
+
+- **범위**: 6개 rowmap의 `base_version`, 모든 로컬 mutation의 기준선 보존, sync queue 최신 의사 접기, operation-id/version/path read-back, 서버 승자 원자 반영·로컬 재기반화, 사진·소리 operation별 불변 R2 키, migration 0026+transaction SQL 테스트. UI 변경 없음.
+- **복구 감사 후 교정**: 첫 trigger가 관리 UPDATE까지 막던 범위를 `current_user='authenticated'`로 좁혔다. 재감사에서 DB 거절 전에 같은 R2 키를 덮는 M-0087을 찾아 작업별 새 키→DB 승인→옛 키 정리로 교정했다. SQL 테스트는 관리자 bypass와 authenticated+JWT+RLS stale 차단을 함께 검사한다.
+- **검증 현황**: typecheck PASS, 전체 유닛 **72파일 1,104건 PASS**, M-0087 영향 유닛 5파일 94건 PASS, build PASS(v1.58), 관련 정적 게이트·시크릿·스키마·생성물 PASS. 전체 harness는 43개 중 **40 PASS / 2 FAIL / 1 SKIP**: `check-fn-size`의 기존 파서/LEGACY 드리프트와 Windows Node 24의 `check-timezone` `spawn EINVAL`이 FAIL, `verify-diagnostics-live`는 `npx ENOENT`로 SKIP했다. 이번 UI 변경은 없고 `verify-editor-live`는 PASS. 실제 PostgreSQL transaction과 실제 R2 PUT/GET/삭제 smoke test는 미실행이므로 운영 판정은 HOLD다.
+- **운영 상태**: 앱·DB 모두 미배포. 0026은 구버전 혼재 위험 때문에 앱 선배포 전 적용 금지. 롤백은 트리거 6개+함수 제거(데이터 변환 없음).
+- **후속**: HANDOFF-0050의 `canonical_version`/정확집합 모드로 일반 병합과 분리했다. 운영 적용·실기기 다기기 확인은 여전히 대기다.
 
 ## HANDOFF-0047 · v1.55 · **APK 서명 고정 — 「앱이 설치되지 않음」 해결 (ADR-0039)** (2026-08-02)
 

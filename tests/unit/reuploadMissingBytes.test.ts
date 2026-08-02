@@ -249,8 +249,9 @@ describe('사진 GPS — 모든 기기에서 보이게', () => {
   // 서버에 반영하는 길이 이것뿐이다. "경로가 있으면 건너뛴다"로 바꾸면 **편집한 사진이
   // 서버에서 영영 옛 모습**으로 남는다. 통과시키려고 코드를 바꾸지 않고 계약을 사실대로 적는다.
   //
-  // 대가는 **같은 키에 덮어쓰기**뿐이다 — 고아가 생기지 않으므로 정리할 것도 없다.
-  it('백필의 재업로드는 **같은 키에 덮어쓴다** — 고아를 만들지 않는다(정리 불필요)', async () => {
+  // 🔴 같은 키 덮어쓰기는 DB OCC보다 먼저 실행되어 stale 기기가 최신 바이트를 망가뜨릴 수 있다.
+  // 작업별 새 키에 올리고 DB read-back 성공 뒤 옛 키를 걷는다(M-0087).
+  it('백필 재업로드도 작업별 새 키에 착지한 뒤 옛 키를 정리한다', async () => {
     const id = await seedPhoto({ gpsLat: 36.6, gpsLng: 127.5, storagePath: 'u/already.webp' });
     await db().syncQueue.clear();
     const remote = fakeRemote();
@@ -258,7 +259,10 @@ describe('사진 GPS — 모든 기기에서 보이게', () => {
     await backfillMediaGpsOps();
     await pushPendingMedia(remote, USER);
 
-    expect(remote.uploads).toEqual(['u/already.webp']); // 기억한 키 그대로(새 키 아님)
+    expect(remote.uploads).toHaveLength(1);
+    expect(remote.uploads[0]).not.toBe('u/already.webp');
+    expect(remote.rows.get(id)!.storage_path).toBe(remote.uploads[0]);
+    expect(remote.removed).toContain('u/already.webp');
     expect(remote.rows.get(id)!.gps_lat).toBe(36.6);
   });
 });

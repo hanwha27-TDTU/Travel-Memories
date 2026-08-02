@@ -46,7 +46,7 @@ export function uploadGuards(text) {
     // 가장 가까운 `if (…) {` — 여러 개면 마지막(= 바로 감싼 것).
     const conds = [...before.matchAll(/if\s*\(([\s\S]*?)\)\s*\{/g)];
     const last = conds[conds.length - 1];
-    if (last) out.push({ cond: last[1], call: m[1] });
+    if (last) out.push({ cond: last[1], call: m[1], before });
   }
   return out;
 }
@@ -54,7 +54,14 @@ export function uploadGuards(text) {
 /** 손으로 판정한 자리를 찾는다. 반환이 비면 통과. */
 export function findHandRolledGuards(text) {
   return uploadGuards(text)
-    .filter((g) => !g.cond.includes('mustUploadBytes('))
+    .filter(
+      (g) =>
+        !g.cond.includes('mustUploadBytes(') &&
+        !(
+          g.cond.trim() === 'uploadsBytes' &&
+          /const\s+uploadsBytes\s*=\s*mustUploadBytes\s*\(/.test(g.before)
+        ),
+    )
     .map((g) => `remote.${g.call}(…)를 감싼 조건이 공용 문을 안 지납니다 — \`if (${g.cond.trim()})\``);
 }
 
@@ -68,11 +75,21 @@ export function countGateCalls(text) {
   return (text.match(/mustUploadBytes\s*\(/g) ?? []).length;
 }
 
+/** DB OCC보다 먼저 올리는 바이트가 작업별 불변 키를 쓰는 도메인 목록(M-0087). */
+export function operationFencedDomains(text) {
+  return new Set(
+    [...text.matchAll(/operationStoragePath\s*\(\s*stablePath\s*,\s*(media|audio)\.id\s*,/g)].map((m) => m[1]),
+  );
+}
+
 // ── 자체검사(§4: 알려진 실패를 주입해 RED를 확인한 뒤에만 이 게이트를 믿는다) ──
 function selfTest() {
   const fails = [];
   const ok = `    if (mustUploadBytes(media, false)) {\n      const up = await remote.uploadDisplay(path, b);\n`;
   if (findHandRolledGuards(ok).length !== 0) fails.push('정상 코드를 위반으로 봤다(오탐)');
+
+  const named = `    const uploadsBytes = mustUploadBytes(media, false);\n    if (uploadsBytes) {\n      const up = await remote.uploadDisplay(path, b);\n`;
+  if (findHandRolledGuards(named).length !== 0) fails.push('공용 판정을 이름 붙인 정상 코드를 위반으로 봤다(오탐)');
 
   const old = `    if (media.deletedAt === null) {\n      const up = await remote.uploadDisplay(path, b);\n`;
   if (findHandRolledGuards(old).length === 0) fails.push('옛 조건(deletedAt === null)을 못 잡았다');
@@ -89,6 +106,15 @@ function selfTest() {
   }
   if (countGateCalls('mustUploadBytes(a, true) mustUploadBytes (b, false)') !== 2) {
     fails.push('공용 문 호출 수를 잘못 셌다');
+  }
+  const fenced = operationFencedDomains(
+    'operationStoragePath(stablePath, media.id, op) operationStoragePath(stablePath, audio.id, op)',
+  );
+  if (fenced.size !== 2 || !fenced.has('media') || !fenced.has('audio')) {
+    fails.push('사진·소리 작업별 바이트 fence를 잘못 센다');
+  }
+  if (operationFencedDomains('const path = stablePath;').size !== 0) {
+    fails.push('같은 키 덮어쓰기를 작업별 fence로 잘못 본다');
   }
   return fails;
 }
@@ -112,6 +138,14 @@ if (calls !== domains) {
   );
 }
 
+const fenced = operationFencedDomains(sync);
+if (fenced.size !== domains) {
+  problems.push(
+    `${SYNC}: 바이트 도메인은 ${domains}개인데 operationStoragePath 작업별 fence를 지나는 도메인은 ` +
+      `${[...fenced].join(', ') || '0개'}입니다 — 같은 R2 키를 먼저 덮으면 DB OCC가 바이트를 보호하지 못합니다(M-0087).`,
+  );
+}
+
 if (problems.length > 0) {
   console.error('check-bytes-upload-symmetry: **바이트 업로드 판정이 갈라져 있습니다**(§7).');
   for (const p of problems) console.error(`  ✗ ${p}`);
@@ -120,5 +154,5 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `check-bytes-upload-symmetry: OK — 바이트 도메인 ${domains}개가 모두 공용 문을 지납니다(자체검사 6건 포함).`,
+  `check-bytes-upload-symmetry: OK — 바이트 도메인 ${domains}개가 공용 업로드 문+작업별 불변 키를 지납니다(자체검사 9건 포함).`,
 );

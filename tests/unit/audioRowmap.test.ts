@@ -39,6 +39,8 @@ const audio: LocalAudio = {
   durationSec: 14,
   recordedAt: '2026-07-16T14:32:00.000Z',
   version: 2,
+  baseVersion: 2,
+  baseCanonicalVersion: 'legacy',
   createdAt: '2026-07-16T14:32:00.000Z',
   updatedAt: '2026-07-16T14:33:10.000Z',
   deletedAt: null,
@@ -58,6 +60,8 @@ describe('① rowmap 왕복 — 한 칸도 새지 않는다', () => {
       bytes: 1234,
       recordedAt: audio.recordedAt,
       version: 2,
+      baseVersion: 2,
+      baseCanonicalVersion: 'legacy',
       createdAt: audio.createdAt,
       updatedAt: audio.updatedAt,
       deletedAt: null,
@@ -73,6 +77,8 @@ describe('① rowmap 왕복 — 한 칸도 새지 않는다', () => {
     expect(row.duration_sec).toBe(14);
     expect(row.updated_by_device).toBe('내폰#ab12');
     expect(row.source).toBe('user'); // 파이프라인 생성물이 아니다
+    expect(row.base_version).toBe(2);
+    expect(row.base_canonical_version).toBe('legacy');
   });
 
   it('🔴 바이트 수는 blob에서 읽는다 — 사용자가 적는 값이 아니라 사실이다', () => {

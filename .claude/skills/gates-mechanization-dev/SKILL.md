@@ -437,6 +437,12 @@ SKIP이라 다른 게이트를 막지 않으므로, `playwright` 같은 무거�
 
 | 사례 | 근본형 | 재발 방지 |
 |---|---|---|
+| **Windows 진단 라이브 게이트가 `npx`를 네이티브 실행 파일로 호출해 매번 SKIP**(M-0091) | M-0089를 시간대 게이트 한 곳에서만 고치고, 형제 프로세스 실행 경계를 수평전개하지 않음. 실행된 fixture 빌드 실패까지 전제 미충족으로 반올림 | `process.execPath`+Vite JS 진입점 직접 호출. 진입점 부재만 SKIP, 실행 후 빌드 실패는 FAIL. 깨진 fixture import 주입으로 종료 1 RED + Chromium 22/22 GREEN |
+| **Windows 시간대 게이트가 `npm.cmd`를 네이티브 실행 파일로 호출해 spawn EINVAL**(M-0089) | 플랫폼 분기로 이름만 바꾸고 셸 shim의 실제 실행 계약을 재지 않음 | 셸을 거치지 않고 `process.execPath`+Vitest JS 진입점을 직접 호출. Windows Node 24에서 두 시간대 전체 스위트 실실행 |
+| **함수 래칫이 객체 반환 타입 `{}`를 본문으로 오인해 짧은 함수를 200줄로 세고 기존 함수는 누락**(M-0088) | 문법 구조를 줄 정규식·들여쓰기 관습으로 대신해 합법적인 타입 표현에 경계가 무너짐 | TypeScript AST의 최상위 statement만 측정 + 객체 반환 타입 뒤 형제 함수·122줄 위반 주입 |
+| **DB OCC는 stale 행을 막지만 기존 R2 키 PUT은 이미 최신 바이트를 덮음**(M-0087) | 게이트가 DB 행만 보고 외부 바이너리를 같은 조건부 쓰기 표면으로 세지 않음 | `check-bytes-upload-symmetry`가 바이트 도메인 수와 `operationStoragePath` fence 도메인 수를 대조 + 같은 키 주입 RED + 실제 stale R2 경합 유닛 |
+| **과거 커밋에 현재 버전 마커를 다시 붙여 v1.42가 v1.58로 변함**(M-0086) | 같은 문서가 금지 이유까지 설명했지만, 마커의 **배치 위치**를 검사하지 않아 바로 아래 현재 배포 줄에서 재발 | `check-doc-counts`가 완전한 `appVersion` 마커를 HANDOFF의 `**현재 단계**` 한 곳만 허용. 과거 커밋 줄 주입 RED |
+| **Windows에서 브리핑·라우팅 게이트가 스킬 연결을 잃고 어댑터 생성기는 성공 no-op**(M-0085) | `/` 정규식에 `\`를 넣고, 파일 URL과 Windows 경로를 문자열로 직접 비교해 플랫폼 축이 갈라짐 | 라우팅 경계의 공용 `routePath()` + Windows 주입 셀프테스트. 직접 실행 판정은 `fileURLToPath()`와 `resolve()` 뒤 비교하고 실제 생성→parity PASS로 확인 |
 | 가이드 화면이 "6게이트·26에이전트"를 손 스냅샷으로 적어 실제(10·28)와 어긋남 | 손으로 센 숫자는 반드시 낡는다 | `gen-registry` 자동 집계 + `check-registry-gen`(커밋본==재생성본) | <!--hist-->
 | 문서 산문 숫자가 실제와 드리프트 | 산문은 게이트 밖이라 방치됨 | `<!--reg:키-->` 마커 + `check-doc-counts` |
 | `check-migration-grants`가 처음엔 공허 — 느슨한 정규식이 **문장 경계를 넘어** 다른 테이블의 GRANT를 매칭 | 정규식이 구조를 모른다 | 문장 단위 파싱 + 주입 RED 확인 |

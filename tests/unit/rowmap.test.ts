@@ -14,6 +14,8 @@ const trip: LocalTrip = {
   status: 'planned',
   timeZone: 'Asia/Ho_Chi_Minh', // 여행지 시간대도 왕복해야 한다(M-0049)
   version: 3,
+  baseVersion: 3,
+  baseCanonicalVersion: 'legacy',
   createdAt: '2026-07-22T10:00:00.000Z',
   updatedAt: '2026-07-22T11:30:00.000Z',
   deletedAt: null,
@@ -30,6 +32,8 @@ describe('trip rowmap 경계', () => {
     expect(row.user_id).toBe(USER);
     expect(row.start_date).toBe('2026-08-01');
     expect(row.client_operation_id).toBe(trip.clientOperationId);
+    expect(row.base_version).toBe(3);
+    expect(row.base_canonical_version).toBe('legacy');
     // camelCase 키가 행에 존재하면 경계 위반
     expect('startDate' in row).toBe(false);
     expect('updatedAt' in row).toBe(false);

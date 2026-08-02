@@ -16,6 +16,8 @@ export interface ExpenseRow {
   category: string;
   note: string;
   version: number;
+  base_version?: number | null;
+  base_canonical_version?: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -36,6 +38,8 @@ export function toExpenseRow(e: LocalExpense, userId: string, device?: string): 
     category: e.category,
     note: e.note,
     version: e.version,
+    base_version: e.baseVersion ?? Math.max(0, e.version - 1),
+    base_canonical_version: e.baseCanonicalVersion ?? 'legacy',
     created_at: e.createdAt,
     updated_at: e.updatedAt,
     deleted_at: e.deletedAt,
@@ -54,6 +58,8 @@ export function fromExpenseRow(r: ExpenseRow): WithInstants<LocalExpense> {
     category: r.category,
     note: r.note,
     version: r.version,
+    baseVersion: r.version,
+    baseCanonicalVersion: r.base_canonical_version ?? 'legacy',
     createdAt: isoInstant(r.created_at),
     updatedAt: isoInstant(r.updated_at),
     deletedAt: isoInstantOrNull(r.deleted_at),

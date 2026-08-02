@@ -100,7 +100,7 @@ export const SKILL_ROUTES = [
   // 자동 동기화 상태 → 사용자 문장. **판정 문장 자체가 결함일 수 있는** 부류라 진단 헌장이다
   // (§10 ③ · 7-D). 2026-07-27: 성공 72초 뒤인데 「판정 불가」로 총괄을 끌어내렸다.
   { match: /^src\/domain\/syncStatusVerdict/, skill: 'diagnostics-dev' },
-  { match: /^src\/services\/(sync|autoSync|purge|trips|moments|media|expenses|trash)\.ts/, skill: 'sync-offline-dev' },
+  { match: /^src\/services\/(sync|canonicalSync|autoSync|purge|trips|moments|media|expenses|trash)\.ts/, skill: 'sync-offline-dev' },
   { match: /^src\/(sync|offline)\//, skill: 'sync-offline-dev' },
   { match: /^src\/domain\/\w+\/rowmap/, skill: 'sync-offline-dev' },
   // 2026-07-27 M-0034로 옮겼다. 예전엔 "순수 날짜 함수"라며 문서 불필요로 분류돼 있었는데,
@@ -187,9 +187,15 @@ export const NO_SKILL_REQUIRED = new Map([
   ['src/app/platformMap.gen.ts', '자동 생성 — gen-platform-map.mjs가 코드에서 실측, check-platform-map이 강제'],
 ]);
 
+/** Windows의 `path.relative()`가 돌려주는 `\`를 라우팅 표의 `/` 표기로 맞춘다. */
+export function routePath(path) {
+  return path.replaceAll('\\', '/');
+}
+
 export function skillsFor(paths) {
   const out = new Map();
-  for (const p of paths) {
+  for (const rawPath of paths) {
+    const p = routePath(rawPath);
     for (const r of SKILL_ROUTES) {
       if (r.match.test(p)) {
         if (!out.has(r.skill)) out.set(r.skill, []);
@@ -206,7 +212,7 @@ export function siblingsOf(path) {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((f) => /\.(ts|mjs|css|sql)$/.test(f))
-    .map((f) => join(dirname(path), f))
+    .map((f) => routePath(join(dirname(path), f)))
     .filter((f) => f !== path);
 }
 
@@ -245,7 +251,9 @@ if (!isMain) {
   // 표만 제공하고 조용히 끝낸다.
 } else {
 const argv = process.argv.slice(2);
-const paths = (argv.length ? argv : changedPaths()).map((p) => relative(ROOT, join(ROOT, p)));
+const paths = (argv.length ? argv : changedPaths()).map((p) =>
+  routePath(relative(ROOT, join(ROOT, p))),
+);
 
 if (!paths.length) {
   console.log('변경 파일이 없습니다. 고칠 파일을 인자로 주세요: node scripts/brief.mjs src/ui/dom.ts');

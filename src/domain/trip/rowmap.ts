@@ -15,6 +15,8 @@ export interface TripRow {
   end_date: string | null;
   status: LocalTrip['status'];
   version: number;
+  base_version?: number | null;
+  base_canonical_version?: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -39,6 +41,8 @@ export function toRow(t: LocalTrip, userId: string, device?: string): TripRow {
     end_date: t.endDate || null,
     status: t.status,
     version: t.version,
+    base_version: t.baseVersion ?? Math.max(0, t.version - 1),
+    base_canonical_version: t.baseCanonicalVersion ?? 'legacy',
     created_at: t.createdAt,
     updated_at: t.updatedAt,
     deleted_at: t.deletedAt,
@@ -60,6 +64,8 @@ export function fromRow(r: TripRow): WithInstants<LocalTrip> {
     endDate: r.end_date ?? '',
     status: r.status,
     version: r.version,
+    baseVersion: r.version,
+    baseCanonicalVersion: r.base_canonical_version ?? 'legacy',
     createdAt: isoInstant(r.created_at),
     updatedAt: isoInstant(r.updated_at),
     deletedAt: isoInstantOrNull(r.deleted_at),

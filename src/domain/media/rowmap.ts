@@ -28,6 +28,8 @@ export interface MediaRow {
   bytes_display: number;
   source: string;
   version: number;
+  base_version?: number | null;
+  base_canonical_version?: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -49,6 +51,8 @@ export interface MediaMeta {
   takenAt: string;
   bytesDisplay: number;
   version: number;
+  baseVersion: number;
+  baseCanonicalVersion: string;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -71,6 +75,8 @@ export function toMediaRow(m: LocalMedia, userId: string, storagePath: string | 
     bytes_display: m.bytesDisplay,
     source: 'user',
     version: m.version,
+    base_version: m.baseVersion ?? Math.max(0, m.version - 1),
+    base_canonical_version: m.baseCanonicalVersion ?? 'legacy',
     created_at: m.createdAt,
     updated_at: m.updatedAt,
     deleted_at: m.deletedAt,
@@ -96,6 +102,8 @@ export function fromMediaRow(r: MediaRow): WithInstants<MediaMeta> {
     takenAt: isoInstant(r.taken_at ?? ''),
     bytesDisplay: r.bytes_display,
     version: r.version,
+    baseVersion: r.version,
+    baseCanonicalVersion: r.base_canonical_version ?? 'legacy',
     createdAt: isoInstant(r.created_at),
     updatedAt: isoInstant(r.updated_at),
     deletedAt: isoInstantOrNull(r.deleted_at),

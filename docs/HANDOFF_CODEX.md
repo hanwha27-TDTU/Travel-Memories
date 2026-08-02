@@ -1,7 +1,7 @@
 # HANDOFF_CODEX · Bugeon Journey 인계서
 
 > **읽는 사람**: 이 앱 제작에 거의 참여하지 않은 AI(Codex 등) 또는 새 Claude 세션.
-> **작성**: 2026-07-27 · **갱신 2026-08-02**(v1.57 — 아래 「🆕 v1.47 → v1.57」 절을 **가장 먼저** 읽어라. 셸(APK)·아이콘·자동갱신·플레이북이 그 사이 전부 새로 생겼다)
+> **작성**: 2026-07-27 · **갱신 2026-08-02**(v1.62 작업 중 — 바로 아래 최신 절을 **가장 먼저** 읽어라. 운영 라이브는 v1.57, DB는 0025까지이며 0026·0027은 적용하지 않았다)
 >
 > 🔴 **헌법은 `docs/CONSTITUTION.md`가 정본이다.** `CLAUDE.md`·`AGENTS.md`는 거기서 자동으로
 > 심어 받는 어댑터라 **글자 단위로 같다**. 헌법을 고칠 때는 정본만 고치고 `npm run gen:adapters`
@@ -10,6 +10,55 @@
 
 기존 `docs/HANDOFF.md`는 **참여한 사람을 위한 시간순 기록**이다. 이 문서는 다르다 —
 **아무 맥락 없이 들어와도 이어서 일할 수 있게** 쓴다. 중복은 의도적이다.
+
+---
+
+## 🆕 v1.62 — canonical RPC 입력 경계 + 운영 rollback 사전검증 (2026-08-02)
+
+- 운영 Travel&Accounting(PostgreSQL 17)에서 0026→0027→두 SQL 공격검사를 한 `BEGIN…ROLLBACK`으로 실제 실행했다. 기존 계약은 `CANONICAL_SYNC_META_PASS`, 롤백 뒤 `sync_meta`·새 컬럼·트리거·테스트 사용자/행은 모두 0이었다.
+- 추가 공격에서 M-0092를 잡았다. `publish_canonical_snapshot()`이 NULL operation id와 “snapshot 행 id = 영구삭제 원장 id” 모순을 모두 받았다. 전자는 응답 유실 재시도의 멱등 판정을 깨고, 후자는 소비 기기가 막 게시한 행을 다시 지우게 한다.
+- RPC가 파괴적 DELETE 전에 두 입력을 SQLSTATE 22023으로 거부한다. SQL 테스트에 두 케이스와 거부 뒤 무변경 판정을 추가했고, 각 guard 제거 주입은 정확히 RED, 복원 뒤 운영 rollback 재검증은 PASS했다.
+- 배포된 `media-sign` Edge version 7은 로컬 소스와 의미상 일치하고 protocol v6·R2 시크릿 4개 준비를 확인했다. 사용자 JWT가 필요한 실제 R2 list/put/get/delete와 2기기 왕복은 미검증이다.
+- 로컬 최종 검증은 빠른 게이트 39/39, 유닛 73파일 1,112건, build v1.62, 전체 harness 43/43 PASS·0 SKIP이다. UI 제품 동작은 바꾸지 않아 별도 새 화면은 없다.
+- 🔴 **운영 DB는 여전히 0025**다. 이번 검증은 전부 rollback했으며, 신형 앱 전기기 배포·DB 스냅샷 전에 0026·0027을 영구 적용하지 않는다.
+
+---
+
+## 🆕 v1.61 — Windows 진단 라이브 게이트 복구 (2026-08-02)
+
+- `verify-diagnostics-live`가 `npx` 셸 shim을 네이티브 실행 파일처럼 호출해 Windows Node 24에서 `spawnSync npx ENOENT`로 매번 SKIP되던 M-0091을 고쳤다.
+- 현재 Node가 로컬 Vite JS 진입점을 직접 부른다. Vite 미설치만 SKIP이고, 실행된 fixture 빌드 실패는 FAIL이다. 깨진 import 주입으로 종료 1 RED, 복원 뒤 실제 Chromium 22/22 PASS를 확인했다.
+- 최종 검증은 유닛 1,112건 PASS, build v1.61 PASS, 전체 harness 43/43 PASS·0 SKIP이다. 두 라이브 게이트가 모두 실제 실행됐다.
+- 제품 UI·동기화 계약·운영 DB는 바꾸지 않았다. v1.58~v1.60 미커밋 변경과 0026·0027 운영 HOLD는 그대로다.
+
+---
+
+## 🆕 v1.60 작업 중 — canonical 「이 기기 최종본」 exact-set 모드 (2026-08-02)
+
+- **왜**: 일반 merge는 로컬 전용 항목 보존/전파가 목적이라, 사용자가 한 기기를 최종본으로 골라도 다른 기기의 옛 로컬 전용 항목이 다시 살아날 수 있었다(M-0090 · ADR-0044).
+- **무엇**: `services/canonicalSync.ts`가 runSync preflight와 명시적 게시를 분리한다. 게시 기기는 Dexie pending+operation별 R2 staging+0027 exact-set RPC+operation/meta read-back을 거친다. 소비 기기는 새 generation의 여섯 표/바이트를 완전히 받은 뒤 로컬 여섯 표·큐·영구삭제 원장을 원자 교체하고 그 실행은 **0 upsert**로 끝낸다.
+- **UI**: 데이터 관리에서 일반 동기화와 다름, 클라우드 전용 제거, 다른 기기 로컬 전용 폐기를 먼저 말하고 두 번째 명시 버튼에서만 실행한다. 실패 시 로컬 보존과 재시도/read-back 경계를 말한다.
+- **서버 파일**: `0027_canonical_sync_meta.sql` + `canonical_sync_meta.sql`. `sync_meta`는 owner+초대제 SELECT만 직접 허용하고, `publish_canonical_snapshot`이 CAS/멱등/사용자범위/정확집합/메타를 한 transaction으로 처리한다. 여섯 표 authenticated 쓰기는 현재 `base_canonical_version`만 받는다.
+- 🔴 **운영 미적용**: 서버는 0025까지이고 `sync_meta`/`base_canonical_version`은 없다. 신형 앱 전기기→DB 스냅샷→0026→0027→authenticated 공격검사/read-back 순서를 지킨다. 실제 PostgreSQL transaction rollback 사전검증은 위 v1.62에서 통과했고 Edge Function 판/시크릿도 확인했다. authenticated 실제 R2 데이터 왕복·2기기 왕복은 아직 미검증이다.
+
+---
+
+## 🆕 v1.59 — 전체 하네스의 두 RED 복구 (2026-08-02)
+
+- `check-fn-size`: 줄 정규식 대신 TypeScript AST로 최상위 함수 선언·블록 화살표·함수식을 센다. 객체 반환 타입이 다음 함수를 삼키던 M-0088 회귀 주입을 포함하고, 기존 LEGACY 16개가 모두 기록값과 일치한다.
+- `check-timezone`: Windows에서 실행 불가능한 `npm.cmd` 대신 현재 Node가 Vitest JS 진입점을 직접 부른다(M-0089). 서울·호놀룰루 전체 유닛 재실행 PASS.
+- 제품 UI·동기화 계약은 바꾸지 않았다. v1.58의 운영 HOLD와 0026 앱 선배포 규칙은 그대로였다. 다음 항목은 위 v1.60에서 구현했다.
+
+---
+
+## 🆕 v1.58 작업 중 — 오래된 기기의 stale push 차단 (2026-08-02)
+
+- **왜**: 기존 직접 upsert는 서버 v3을 오래된 기기 v2가 덮을 수 있었고, `set_updated_at`이 낡은 내용을 현재 서버시각으로 찍어 다음 LWW가 손실을 굳힐 수 있었다(M-0084 · ADR-0043).
+- **무엇**: 6개 동기화 도메인이 서버 기준선 `baseVersion`을 보존·전송한다. 서버는 같은 기준선만 받고, 클라이언트는 `client_operation_id`+version(+사진·소리 경로)을 되읽은 뒤에만 큐를 지운다. 사진·소리는 기존 R2 키를 덮지 않고 operation별 새 키에 올려 DB가 승인한 경로만 채택한다(M-0087). 충돌은 서버 승자 원자 반영 또는 로컬 재기반화·재시도다.
+- **서버 파일**: `0026_reject_stale_sync_writes.sql` + `stale_sync_write_guard.sql`. guard는 authenticated 쓰기만 막고 postgres/service_role/복구 함수는 통과한다.
+- 🔴 **운영 미적용·혼재 배포 금지**: 먼저 신형 앱을 모든 활성 기기에 배포·확인하고 DB 스냅샷을 남긴 뒤 0026을 적용한다. 구버전은 부분-field read-back 때문에 거절을 성공으로 오인할 수 있다.
+- **후속**: `canonical_version` 메타와 「이 기기→클라우드 최종본」 교체는 위 v1.60에서 일반 병합과 별도 모드로 구현했다. 운영 적용은 아직이다.
+- **검증 경계**: TypeScript·전체 유닛 1,104건·build·관련 정적 게이트는 통과. v1.59에서 두 RED를 복구해 전체 harness는 **42 PASS/0 FAIL/1 SKIP**이며 diagnostics live의 Windows `npx ENOENT`는 미측정이다. 실제 PostgreSQL transaction·R2 smoke test·운영 적용·실기기 다기기 왕복은 아직 미확인이다. 완료 현황의 최신값은 `docs/HANDOFF.md` HANDOFF-0049를 따른다.
 
 ---
 
@@ -56,10 +105,9 @@
 - **플레이북(ADR-0041)**: 화면 안내를 문서에 손으로 복제하지 않고, 화면과 **같은 SSOT에서
   런타임 조립**한다 → 드리프트 원천 차단, 버전 자동 통일. `playbook.test.ts`가 잠근다.
 
-### 지금 상태 · 열린 것
+### v1.57 당시 상태 · 열린 것
 
-- **미배포 커밋 0 · 끊긴 작업 0.** v1.57까지 병합·배포 그린 확인됨. 브랜치는
-  `claude/travel-log-app-r2xd5f`, `main`과 동기화.
+- v1.57까지 병합·배포 그린 확인됨. **현재는 위 v1.58~v1.59 작업이 미커밋·미배포로 이어지고 있으므로 이 문장을 현재 상태로 읽지 않는다.**
 - **실기기 확인 대기(내가 못 잰 층)**: ① 새 아이콘이 실기기 런처에서 글자 안 잘리는지(APK
   재설치 후) ② 셸 업데이트 배너가 다음 APK 배포 때 실제로 뜨는지(이 빌드 이상 설치한 기기부터).
 - **다른 후보는 §6-B**(아래) — 우선순위는 사용자가 정한다.
@@ -177,8 +225,8 @@ npm run gates                           # 편집 루프용(6초). 커밋 전에�
 | 누구 | 1인 사용자(소유자 본인). 소셜 없음, 공개 없음 |
 | 배포 | GitHub Pages → `hanwha27-tdtu.github.io/Travel-Memories/` |
 | 브랜치 | 개발은 `claude/travel-log-app-r2xd5f`(또는 `codex/*`), `main` 직접 push 금지 |
-| 현재 판 | **v1.57** — 배포 그린 확인됨(main 워크플로 3종 success). 최신 세부는 아래 「🆕 v1.47 → v1.57」 |
-| 지금 하던 일 | **없다 — 끊긴 작업 없이 인계한다.** 미배포 커밋 0. v1.57까지 병합·배포 완료. 다음 후보는 §6-B + 아래 catch-up 절 말미 |
+| 현재 판 | **작업 트리 v1.62(미배포) / 운영 라이브 v1.57**. 최신 세부는 문서 맨 위 「🆕 v1.62」 |
+| 지금 하던 일 | canonical exact-set의 운영 rollback 사전검증과 RPC 입력 경계 보강 완료. 0026·0027은 앱 전기기 선배포·DB 스냅샷 전 운영 적용 금지 |
 | 가장 큰 함정 | 이 저장소는 **문서가 코드만큼 중요하다.** 규율을 안 읽고 짜면 반드시 형제 대칭을 깬다. 그리고 **문서가 게이트를 앞질러 있을 수 있다**(M-0051) |
 
 ---
@@ -368,6 +416,7 @@ src/
     */rowmap.ts      서버 row ↔ 로컬 타입. snake_case는 이 파일 밖으로 안 샌다
   services/          부수효과 — DB·네트워크
     sync.ts          🔴 최고 위험. push/pull/runSync + reconcileMissingBytes(바이트 되읽기)
+    canonicalSync.ts 🔴 일반 merge와 분리된 generation preflight + exact-set 게시/소비 + R2 staging
     trips.ts moments.ts media.ts expenses.ts audio.ts places.ts geocode.ts
     purge.ts trash.ts backup.ts storage.ts diagnostics.ts
     homeZone.ts      「집 시간대」 하나. 표시 설정이라 localStorage(§3-B)
@@ -383,8 +432,8 @@ src/
     registry.gen.ts  ⚠️ 생성물. 손편집 금지 — node scripts/gen-registry.mjs
 scripts/             게이트들 + harness + brief + gen-registry (개수는 재라 — 위 경고)
 supabase/
-  migrations/        0001~**0021**. **추가 전용** — 과거 파일 수정 금지
-                     (0021 = trips.time_zone · moments.tz_offset_min. 적용·되읽기 완료)
+  migrations/        0001~**0027**. **추가 전용** — 과거 파일 수정 금지
+                     (운영은 0025까지. 0026 stale-write + 0027 canonical exact-set은 순차 적용 대기)
   functions/media-sign/   🔴 R2 자격증명이 존재하는 유일한 장소
 ```
 
@@ -455,10 +504,10 @@ const when = localDate(iso);            // 게이트가 조용하다
 ### 동기화 순서 (`runSync` — 이 순서가 계약이다)
 
 ```
-pushUnpurges → pushPending(trips) → pushPendingMoments
-  → pushPendingMedia → pushPendingExpenses → pushPurges
+pushUnpurges → pushPending(trips) → pushPendingPlaces → pushPendingMoments
+  → pushPendingMedia → pushPendingExpenses → pushPendingAudio → pushPurges
   → ledgerAll → applyPurgedLedger
-  → pullTrips → pullMoments → pullMedia → pullExpenses
+  → pullTrips → pullMoments → pullMedia → pullExpenses → pullAudio → pullPlaces
 ```
 
 **부모 먼저**다. 복합 FK `(parent_id, user_id)`가 서버에 부모가 있기를 요구한다(H-02).

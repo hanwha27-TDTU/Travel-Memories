@@ -72,6 +72,33 @@ RLS SQL 파일을 읽는 **정적 validator만으로 통과 처리하지 않는�
 ```
 view를 만들면 Postgres 버전과 `security_invoker` 설정을 확인해 RLS 우회를 막는다. `SECURITY DEFINER` RPC는 non-exposed private schema·고정 `search_path`·명시적 `auth.uid()` 검증·최소 권한을 적용하고, 가능하면 security invoker 경로를 우선한다.
 
+## 동기화 쓰기 무결성 (migration 0026 · 운영 적용 대기)
+
+6개 사용자 동기화 테이블(trips·moments·media·expenses·audio·places)의 authenticated UPDATE는 마지막으로 본 `base_version`이 현재 서버 `version`과 일치할 때만 허용한다. `a_sync_write_guard`는 `set_updated_at`보다 먼저 실행되어 stale 요청을 **행·서버시각 모두 무변경**으로 만든다. 허용된 쓰기는 서버 version을 단조 증가시키며, 같은 operation 재시도는 멱등 no-op이다.
+
+가드는 **`current_user='authenticated'`에만** 적용한다. postgres·service_role·`SECURITY DEFINER` 복구 함수와 후속 migration까지 앱의 동기화 프로토콜로 묶으면 관리 UPDATE가 조용히 무효화되므로 명시적으로 통과시킨다. SQL 회귀 검사는 이 두 방향을 모두 재야 한다: 관리자 복구 UPDATE는 성공하고, `set local role authenticated` + 실제 JWT/RLS의 stale 쓰기는 거절되어야 한다.
+
+배포는 **신형 클라이언트 전기기 배포·확인 → 운영 DB 스냅샷 → 0026 적용 → authenticated read-back·행 수 확인** 순서다. 구버전 클라이언트와 혼재하면 거절된 쓰기를 옛 부분-field read-back이 성공으로 오인할 수 있으므로 서버 migration을 먼저 적용하지 않는다. 롤백은 6개 `a_sync_write_guard` 트리거와 `journey.guard_sync_write()` 함수 제거이며 데이터 변환은 없다.
+
+## 최종본 세대 격리 (migration 0027 · 운영 적용 대기)
+
+`journey.sync_meta`는 사용자별 `canonical_version`·마지막 operation/device를 보관한다. 일반 클라이언트에는
+**owner+초대제 SELECT만** 열고 INSERT/UPDATE/DELETE grant는 주지 않는다. 메타 생성과 정확집합 게시만
+이름 있는 좁은 문을 쓴다.
+
+- `ensure_sync_meta()`: `auth.uid()`와 `journey.is_allowed()`를 직접 확인한 뒤 자기 메타만 생성/반환한다.
+- `publish_canonical_snapshot(...)`: `expected_version` CAS, 같은 operation의 멱등 read-back, 여섯 payload의 모든 `user_id`·`base_canonical_version` 강제, 사용자 범위 delete/insert, `purged_ids`, 메타 전진을 한 transaction으로 처리한다.
+- 두 함수는 `SECURITY DEFINER SET search_path=''`, 모든 참조는 스키마 한정, `public`/`anon` EXECUTE 회수, `authenticated`만 실행 가능하다.
+- 여섯 사용자 표의 `a0_canonical_sync_guard`는 authenticated INSERT/UPDATE가 현재 메타 세대를 정확히 들고 올 때만 받는다. `legacy` 도입기만 NULL/legacy를 허용하며, 트리거 이름은 0026 OCC guard보다 먼저 실행되도록 고정했다. 관리·복구 역할은 0026과 같은 이유로 통과한다.
+
+공격검사 `supabase/tests/canonical_sync_meta.sql`은 owner publish·정확집합/세대 stamp·stale generation
+INSERT/UPDATE 거절·idempotent 재시도·stale CAS 원자 롤백·FK 실패 전면 롤백·타 사용자 메타 비노출을
+`BEGIN…ROLLBACK`으로 잰다. **아직 PostgreSQL에 실행하지 않았으므로 통과로 기록하지 않는다.**
+
+배포는 0026의 앱 선배포 조건을 먼저 충족한 뒤 **DB 스냅샷 → 0026 적용/read-back → 0027 적용 →
+authenticated 공격검사 → `sync_meta`/여섯 표 행수·세대 read-back** 순서다. 정확집합 게시 이후의 롤백은
+삭제 전 행을 자동 복원하지 못하므로 DB 스냅샷이 필수다. 현재 운영은 0025까지이며 0026·0027 모두 미적용이다.
+
 ## 키 관리 (H-13 — publishable/secret 키 체계)
 
 Supabase 신규 키 체계를 채택한다. 브라우저에는 **publishable key만** 노출한다. **secret key와 legacy `service_role` 키는 클라이언트에서 금지**한다.
@@ -100,6 +127,7 @@ Supabase 신규 키 체계를 채택한다. 브라우저에는 **publishable key
 | **토큰 스코프** | 계정 API 토큰이 **버킷 하나**만 열도록 발급 | 옆 앱(메디컬) 버킷까지 열림 — "코드로 막았다"가 아니라 **열쇠가 안 맞아야** 한다 |
 | **Edge Function `media-sign`** | 자격증명이 여기에만. 브라우저는 5분 서명 URL만 받음 | 브라우저에 자격증명이 내려가면 즉시 전면 유출 |
 | **서버 생성 객체 키** | 폴더 = 검증된 JWT `sub`, 파일명 = UUID `mediaId`. 클라이언트가 보낸 key/path는 **무시** | 남의 폴더 덮어쓰기·경로 조작 |
+| **동시성 fence** | 사진·소리를 operation별 새 R2 키에 PUT하고 DB operation/version/path read-back 뒤에만 현재 경로로 채택 | DB가 stale 행을 막아도 옛 기기가 기존 최신 바이트를 먼저 덮는 분리 상태(M-0087) |
 | **자체 인증 확인** | 플랫폼 `verify_jwt`에 기대지 않고 매 요청 `/auth/v1/user` 확인 | verify_jwt가 꺼진 채 배포되면 `sub` 위조가 성립 |
 | **읽기도 서명(정책 B)** | 버킷 비공개 유지. 공개 개발 URL·`R2_PUBLIC_BASE` **사용 안 함** | URL 유출 = 인증 없는 열람(원칙 #3 위반) |
 

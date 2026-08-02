@@ -5,6 +5,35 @@
 
 ---
 
+## ADR-0044 · **일반 병합과 사용자 지정 최종본 교체를 별도 프로토콜로 둔다** — canonical generation
+- 유형: `[AI-autonomous]`(사용자의 코드 건강진단·순차 보완 요청에 따라 ADR-0043 다음 데이터 안전 항목을 구현) · AI: Codex · 날짜: 2026-08-02
+- **문제**: 일반 동기화의 목적은 로컬 전용 기록을 보존해 다른 기기로 전파하는 것이다. 그래서 사용자가 한 기기를 최종본으로 정해도 다른 기기에만 남은 항목이 다음 병합에서 다시 클라우드로 올라와 기기별 개수가 계속 갈릴 수 있었다. 「빈 클라우드면 로컬 보존」도 일반 모드에는 맞지만 정확집합 교체에는 반대 규칙이다.
+- **채택 — 사용자별 canonical generation + 두 독립 모드**:
+  - 일반 모드는 `sync_meta.canonical_version`과 각 행의 `base_canonical_version`이 일치할 때만 기존 LWW/OCC 병합·upsert를 계속한다.
+  - 사용자가 데이터 관리에서 두 번 확인해 「이 기기 최종본」을 실행하면, 클라이언트가 여섯 표+`purged_ids`의 내구성 스냅샷과 큐 id를 한 Dexie transaction으로 캡처한다. 사진·소리는 operation별 불변 R2 경로에 먼저 staging한다.
+  - `publish_canonical_snapshot`은 `expected_version` CAS, operation 멱등 read-back, 정확한 사용자 범위, 여섯 표+영구삭제 원장 교체, 메타 전진을 **한 PostgreSQL transaction**에서 수행한다. 응답을 잃어도 operation id가 같으면 같은 결과를 확인한다.
+  - 다른 기기는 `runSync`의 어떤 repair/push보다 먼저 generation을 읽는다. 바뀌었으면 서버 여섯 표와 필요한 바이트를 전부 받은 뒤 로컬 여섯 표·큐·원장을 한 transaction으로 정확 교체하고, 그 실행은 **0 upsert**로 끝난다. 로컬 전용 항목을 보존하거나 교체 결과를 재업로드하지 않는다.
+  - 첫 도입 시 서버가 `legacy`이고 기기 상태가 없으면 로컬을 지우지 않고 기준선만 찍는다. 상태 없는 기기가 이미 non-legacy 세대를 만나면 클라우드 최종본을 적용한다.
+- **서버 방어**: 여섯 표의 `a0_canonical_sync_guard`가 authenticated 직접 쓰기의 `base_canonical_version`을 현재 메타와 대조한다. `sync_meta`는 owner+초대제 SELECT만 허용하고 직접 INSERT/UPDATE/DELETE grant는 없다. `ensure_sync_meta`·`publish_canonical_snapshot`만 `SECURITY DEFINER search_path=''`, `auth.uid()`·초대제·사용자 범위를 직접 검증해 연다.
+- **배포 순서/현재 상태**: 운영은 실측상 0025까지다. **신형 앱 전기기 배포·확인 → DB 스냅샷 → 0026 적용/read-back → 0027 적용 → authenticated 공격검사·메타/행수 read-back** 순서이며, 지금 0026·0027은 저장소에만 있고 운영 미적용이다.
+- **기각**: 일반 merge 결과를 빈 클라우드에 upsert(다른 기기 로컬 전용 항목 부활) · 클라이언트가 표별 delete/upsert를 순차 실행(부분 성공) · canonical 수신 후 merge 결과를 다시 push(새 최종본 오염) · 현재 R2 키 덮어쓰기(DB 실패 전에 바이트 손실).
+- **되돌리기**: 앱의 canonical UI/preflight를 먼저 비활성화한 뒤 여섯 `a0_canonical_sync_guard` 트리거·함수 3개와 `sync_meta`/`base_canonical_version`을 제거한다. 이미 게시된 정확집합의 이전 행은 자동 복원되지 않으므로 적용 전 DB 스냅샷이 되돌리기의 필수 근거다.
+- **정직한 경계**: TypeScript·fake IndexedDB/remote 단위 검사는 구현했지만, 0027 PostgreSQL transaction·실제 R2 PUT/GET/정리·실기기 2대 generation 전파는 아직 실행하지 않았다. 운영 판정은 HOLD다.
+
+## ADR-0043 · **동기화 쓰기는 마지막으로 본 서버 version과 일치할 때만 받는다** — stale overwrite 차단
+- 유형: `[AI-autonomous]`(사용자의 코드 건강진단·한 항목씩 보완 요청에 따라 첫 데이터 안전 항목을 선정) · AI: Codex · 날짜: 2026-08-02
+- **문제**: 기존 push는 직접 `upsert`였고 서버는 충돌 조건을 검사하지 않았다. 서버 v3이 있어도 오래된 기기의 로컬 v2가 먼저 UPDATE되면 `set_updated_at` 트리거가 그 낡은 내용을 현재 서버 시각으로 찍었다. 뒤이은 pull은 방금 덮어쓴 v2를 최신처럼 받아, LWW가 보호가 아니라 손실의 증폭기가 될 수 있었다.
+- **채택 — 1단계 OCC + 정확한 operation read-back**:
+  - 로컬 행은 서버에서 마지막으로 확인한 `baseVersion`을 유지한다. 오프라인에서 여러 번 고쳐도 기준선은 올리지 않고, 서버 read-back 성공 때만 서버 version으로 전진한다.
+  - migration `0026`의 `a_sync_write_guard`가 6개 동기화 테이블에서 `base_version = OLD.version`인 authenticated 쓰기만 허용하고 서버 version을 단조 증가시킨다. 불일치는 행·시각을 전혀 바꾸지 않는다.
+  - read-back은 제목·금액 같은 부분 필드가 아니라 변경마다 유일한 `client_operation_id` + version(+사진·소리 경로)로 확인한다. 거절됐는데 LWW상 로컬이 더 최신이면 서버 version에 재기반화해 같은 op을 재시도하고, 서버가 이기면 로컬 행과 그 행의 큐를 한 Dexie transaction에서 교체·정리한다.
+  - **R2도 같은 fence를 지난다(M-0087).** 사진·소리는 기존 키를 먼저 덮지 않고 operation별 새 키에 업로드한다. DB read-back이 그 operation/version/path를 승인한 뒤에만 로컬 키를 전진시키고 옛 키를 걷는다. DB가 거절하면 서버가 가리키는 최신 키는 그대로 두고 새 작업 키만 정리한다.
+  - 같은 엔티티의 연속 큐 작업은 현재 로컬 전체 snapshot을 대표하는 최신 시도 하나로 접는다. 최신 작업이 백오프/영구실패면 옛 작업으로 우회하지 않는다.
+- **관리·복구 경계**: guard는 `current_user='authenticated'`에만 적용한다. postgres/service_role/SECURITY DEFINER 복구 경로까지 조건부 쓰기로 묶으면 후속 migration이 조용히 무효화되므로 명시적으로 통과시킨다. SQL 테스트가 관리자 통과와 authenticated stale 차단을 반대 방향으로 함께 검사한다.
+- **배포 순서**: **신형 클라이언트를 모든 활성 기기에 먼저 배포·확인 → 운영 DB 스냅샷 → 0026 적용 → authenticated read-back**. 구버전 앱은 operation read-back이 불완전하므로 0026과 혼재 배포하지 않는다. 현재 0026은 저장소에만 있고 운영 미적용이다.
+- **기각**: 클라이언트 LWW만 신뢰(서버 UPDATE가 이미 끝난 뒤라 늦음) · 벽시계만 비교(기기 시계 스큐) · 당시 canonical 교체까지 같은 변경에 넣기(검증 범위가 커짐; 후속 ADR-0044에서 독립 구현).
+- **되돌리기**: 6개 `a_sync_write_guard` 트리거와 `journey.guard_sync_write()` 함수를 제거한다. 데이터 변환은 없어 롤백 시 행 손실은 없다. 작업별 R2 키는 DB가 실제 가리키는 `storage_path`가 정본이라 별도 역변환하지 않는다.
+
 ## ADR-0042 · **앱 아이콘을 두 층(흐린 장면 배경 + 안전지대 카드)으로 바꾼다** — 글자 잘림·과대 크기 수정
 - 유형: `[user-reported→AI-fixed]`(사용자 실기기 스크린샷 2026-08-02 — *"아이콘이 한 화면에 들어오질 않아요. 축소를 해야 할 거 같고"* · 원인 진단·해법은 AI) · AI: Claude Code · 날짜: 2026-08-02
 - **문제(사용자 실측)**: 런처에서 아이콘이 형제 앱보다 크고, 아래 「BG 여행」 배너 글자가 **잘렸다.** 원인은 ADR-0038의 구조 — **적응형 배경=전체 이미지 / 전경=투명**. 적응형 아이콘은 바깥 ~18dp가 **bleed**(마스크가 잘라내는 영역)라, 가장자리까지 꽉 찬 디자인의 아래 글자가 그 bleed에 걸려 잘린다. 게다가 생성기가 `zoom 1.14`로 안쪽을 더 확대해 글자를 더 밀어냈다. ADR-0038의 *"글자가 아래 끝이라 안 잘린다"* 가정이 실기기에서 반증됐다(§13 — 실기기가 유일한 검출기).
@@ -107,7 +136,7 @@
   - **좌표를 사진 파일(EXIF)에 다시 심어 올리기** — `check-exif-strip-on-share`를 정면으로 어긴다. 그러면 나중에 그 파일을 공유하는 순간 위치가 따라 나간다. **컬럼이 파일보다 안전하다.**
   - **로컬 전용 유지 + 「이 기기에서만 보입니다」 안내** — §12의 반대다(앱이 아는 것을 말만 하고 안 고치는 형태). 그리고 사용자가 명시적으로 거부했다.
   - **백필이 좌표 없는 사진까지 큐에 넣기** — 왕복만 늘고 서버에 보낼 새 정보가 없다.
-- **알려진 대가(정직하게)**: 백필이 만든 op을 push할 때 **표시본 바이트도 함께 다시 올라간다.** 활성 사진은 push마다 표시본을 올리는 것이 기존 동작이고, 그건 **옳다** — 사진은 편집(재굽기)될 수 있고 바뀐 표시본을 서버에 반영하는 길이 그것뿐이다. 대가는 **같은 키에 덮어쓰기**뿐이라 고아가 생기지 않는다(사진 30여 장 ≈ 수 MB).
+- **알려진 대가(정직하게)**: 백필이 만든 op을 push할 때 **표시본 바이트도 함께 다시 올라간다.** 활성 사진은 push마다 표시본을 올리는 것이 기존 동작이고, 그건 **옳다** — 사진은 편집(재굽기)될 수 있고 바뀐 표시본을 서버에 반영하는 길이 그것뿐이다. 당시에는 같은 키 덮어쓰기로 고아를 피했으나, v1.58 M-0087에서 stale 바이트 손실 창이 확인되어 **작업별 새 키→DB 승인→옛 키 정리**로 대체됐다.
 - **되돌리기**: `alter table journey.media drop column gps_lat, drop column gps_lng;` + rowmap에서 두 필드 제거. 로컬 좌표는 그대로 남고 앱은 다시 로컬 전용으로 동작한다.
 - **배포 순서**: 마이그레이션 0024 **먼저**, 앱 나중. 뒤집으면 앱이 없는 컬럼을 upsert해 media op이 전부 실패한다(PostgREST 400 = permanent).
 - **정직한 경계**: 이 환경은 `*.supabase.co`를 막으므로 **마이그레이션을 실제로 적용하지 못했고**, 2기기 전파도 재현할 수 없다. 검증된 것은 rowmap 왕복·push/pull 로직·백필 선별까지다 — **사용자 실기기 확인이 필요하다.**
