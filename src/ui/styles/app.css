@@ -1057,6 +1057,10 @@ select.zone-input { text-overflow: ellipsis; }
 }
 .guide-open-dashboard:hover { background: var(--surface-2, var(--bg)); border-color: var(--a1); }
 
+/* 설치 가이드(플레이북) 내려받기 — 두 형식 버튼을 나란히. 좁으면 줄바꿈. */
+.guide-pb-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.guide-pb-btn { margin-top: var(--space-2); }
+
 /* 기계화 검증 흐름도(mechChecks) — 가이드 모달 셸 재사용 + 전용 클래스 */
 .mc-flow { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-3) 0; }
 .mc-step {

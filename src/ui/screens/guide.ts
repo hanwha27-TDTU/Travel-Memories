@@ -8,6 +8,7 @@
 
 import { el } from '../dom';
 import { APK_LATEST_URL, APK_INSTALL_STEPS, APK_FACTS, APP_ICONS } from '../../app/apk';
+import { buildPlaybookHtml, buildPlaybookMarkdown, playbookFilename, PLAYBOOK_VERSION } from '../../app/playbook';
 import { iconSwitcher } from '../../services/capacitorShell';
 import { EVAL_ITEMS, summarize, gradeOf, CRITICAL_CAP } from '../../app/selfEval';
 import { openDiagnosticsHub } from './diagnosticsHub';
@@ -53,6 +54,37 @@ function steps(items: [string, string][]): HTMLElement {
 }
 function note(text: string): HTMLElement {
   return el('p', 'guide-note', text);
+}
+
+/**
+ * 📄 설치 가이드(플레이북) 내려받기 — 화면 가이드와 **같은 SSOT**(apk.ts·changelog)에서
+ * 실행 시점에 조립해 파일로 저장한다(app/playbook.ts). 버전은 앱 버전과 통일되고, 앱이
+ * 업데이트되면 이 문서도 자동으로 따라온다. HTML(예쁘게 읽힘)·Markdown(이식) 둘 다 준다.
+ */
+function playbookDownloads(): HTMLElement {
+  const box = el('div', 'guide-playbook');
+  const save = (content: string, ext: 'html' | 'md', mime: string) => {
+    const blob = new Blob([content], { type: `${mime};charset=utf-8` });
+    const url = URL.createObjectURL(blob);
+    const a = el('a') as HTMLAnchorElement;
+    a.href = url;
+    a.download = playbookFilename(ext);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // 즉시 revoke하면 일부 브라우저가 저장을 취소한다 — 다음 틱에 정리한다.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const html = el('button', 'guide-open-dashboard guide-pb-btn', '📄 HTML로 저장') as HTMLButtonElement;
+  html.type = 'button';
+  html.addEventListener('click', () => save(buildPlaybookHtml(), 'html', 'text/html'));
+  const md = el('button', 'guide-open-dashboard guide-pb-btn', '📝 Markdown으로 저장') as HTMLButtonElement;
+  md.type = 'button';
+  md.addEventListener('click', () => save(buildPlaybookMarkdown(), 'md', 'text/markdown'));
+  const row = el('div', 'guide-pb-row');
+  row.append(html, md);
+  box.append(row, note(`이 가이드를 파일로 저장해 두거나 다른 사람에게 보낼 수 있어요. 문서 버전은 앱 버전과 같아요(지금 v${PLAYBOOK_VERSION}) — 앱이 업데이트되면 이 문서도 같이 최신이 돼요.`));
+  return box;
 }
 function panel(children: HTMLElement[]): HTMLElement {
   const wrap = el('div', 'guide-detail-body');
@@ -204,6 +236,8 @@ const CONNECT_GROUP: GuideGroup = {
         body.appendChild(dl);
         body.appendChild(h('알아두면 좋은 것'));
         body.appendChild(bullets([...APK_FACTS]));
+        body.appendChild(h('이 설치 가이드를 파일로 저장'));
+        body.appendChild(playbookDownloads());
         return body;
       },
     },
