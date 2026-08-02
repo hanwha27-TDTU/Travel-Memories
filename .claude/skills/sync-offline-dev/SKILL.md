@@ -97,6 +97,7 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·s
 9. **snake_case 격리**: 서버 컬럼명은 `rowmap.ts` 밖으로 새지 않는다. 새 필드는 rowmap 왕복 유닛 + `check-schema-parity`로 잠근다.
 10. **일반 병합과 canonical 정확집합을 섞지 않는다**(v1.60 · M-0090): 일반 모드는 로컬 전용 항목을 보존·upsert하지만, `canonical_version` 변경을 소비한 실행은 서버 전체와 바이트를 먼저 받은 뒤 로컬 여섯 표·큐·영구삭제 원장을 한 transaction으로 정확 교체하고 **어떤 push도 하지 않는다**. 게시도 별도 사용자 액션+두 단계 확인+재개 가능한 pending+operation/meta read-back으로만 한다. 첫 `legacy` 기준선은 비파괴, 이미 non-legacy인 새 기기는 서버 기준 적용이다.
     - 🔴 **exact-set RPC가 최종 신뢰 경계다**(v1.62 · M-0092). 클라이언트가 operation id를 만들고 행/영구삭제 id 겹침을 검사해도 서버가 다시 검사한다. `operation_id IS NOT NULL`과 `(모든 snapshot 행 id) ∩ purged_ids = ∅`를 **기존 행 DELETE 전에** 강제한다. 전자는 응답 유실 재시도의 멱등 근거이고, 후자는 게시 직후 원장이 새 행을 다시 지우는 자기모순을 막는다. RPC 입력 검사는 정상 UI 픽스처만 보지 말고 직접 호출 공격검사를 `BEGIN…ROLLBACK`으로 실행한다.
+11. 🔴 **앱 선배포가 계약이면 새 서버 기능의 부재도 정상 전환 상태로 설계하되, capability 불명은 read-only다**(v1.63 · M-0093). v1.62는 0027보다 먼저 배포해야 했지만 `runSync` 첫 줄에서 아직 없는 `ensure_sync_meta()`를 필수 호출해, 로컬이 빈 기기의 pull까지 통째로 막았다. 그러나 PostgREST `PGRST202`는 migration 미적용의 증명이 아니라 함수 signature/schema cache 불일치일 수도 있다. 먼저 RLS가 적용된 `sync_meta`를 **직접 SELECT**해 non-legacy 세대를 되읽고, 그것도 확인할 수 없으며 로컬 canonical 상태가 absent/`legacy`이고 미완료 게시가 없을 때만 **서버 read-only pull**로 낮춘다. 이 모드는 repair/push, purge·unpurge 원장 변경, DB DELETE/upsert, R2 정리를 전부 금지하고 로컬 큐를 보존한다. 이미 non-legacy 세대를 소비했거나 pending 게시가 있으면 **fail-closed**다. 권한·네트워크·빈 응답 같은 다른 오류는 기능 부재로 반올림하지 않는다. 메시지 문구가 아니라 기계 오류 코드를 쓴다.
 
 ## 2. 새 엔티티를 동기화에 추가하는 순서 (빠뜨리기 쉬운 것 포함)
 
@@ -233,6 +234,7 @@ const w = momentWhen(m.occurredAt, m.tzOffsetMin, clock);
 
 | 버전 | 결함 | 근본형 | 재발 방지 |
 |---|---|---|---|
+| 1.63 | 앱 선배포 뒤 DB 0027 적용 전 `ensure_sync_meta` PGRST202가 runSync 전체를 막아 빈 기기에서 서버 5개 여행을 못 받음(M-0093) | “클라이언트 먼저”라는 배포 순서를 적었지만 새 서버 기능이 아직 없을 때의 실행 경로를 설계·검사하지 않음. 첫 수정도 PGRST202를 migration 미적용의 증명으로 오판해 purge/R2 파괴 경로를 열 뻔함 | RPC 실패 시 `sync_meta` read-only probe. capability 불명은 서버 read-only pull만 허용하고 큐·원장·DB·R2 변경 0. non-legacy/pending/다른 오류는 fail-closed. runSync 적대적 통합 유닛 |
 | 1.62 | canonical RPC가 NULL operation id와 행/영구삭제 원장 id 겹침을 받아들임(M-0092) | 정상 클라이언트가 먼저 검사한다는 이유로 SECURITY DEFINER 최종 경계의 독립 입력 검증을 생략 | 파괴적 DELETE 전 operation id 필수 + 여섯 snapshot 배열과 purged id 교집합 거부. SQL 공격검사 두 건과 guard 제거 RED, 운영 PostgreSQL rollback 사전검증 |
 | 1.60 | 한 기기를 최종본으로 삼아도 다른 기기의 로컬 전용 항목이 일반 merge에서 다시 살아날 수 있었음(M-0090) | 개별 행 LWW와 전체집합 기준선 선언을 같은 동기화로 취급. 사용자 의사를 나타낼 서버 generation이 없었음 | `sync_meta.canonical_version` + 여섯 표 세대 fence + 원자 exact-set RPC + Dexie pending/R2 staging + 수신 run의 0-upsert 조기 종료. 원장도 페이지 끝까지, 게시 뒤 로컬 바이트 경로도 서버 승인 키로 전진. 운영 0025, 0026·0027 적용 대기 |
 | 1.58 | 오래된 기기의 무조건 upsert가 서버 최신 행을 덮고, DB가 거절해도 같은 R2 키에 옛 사진 바이트를 먼저 덮을 수 있었음(M-0084·M-0087) | `base_version`·operation id가 서버 수락 조건에 연결되지 않았고, DB fence와 외부 바이트 PUT을 같은 손실 표면으로 보지 않음 | 0026 authenticated OCC + baseVersion/operation read-back + 서버 승자 원자 반영/로컬 재기반화 + 연속 큐 접기 + 사진·소리 `operationStoragePath` 불변 키와 거절 staging 정리. 구버전 혼재 금지 |

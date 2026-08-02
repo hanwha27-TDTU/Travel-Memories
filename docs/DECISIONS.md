@@ -5,6 +5,14 @@
 
 ---
 
+## ADR-0045 · **앱 선배포 중 canonical capability가 불명확하면 서버 read-only pull만 허용한다**
+- 유형: `[user-reported→AI-fixed]`(v1.62 다기기 스크린샷과 진단 오류 제시) · AI: Codex · 날짜: 2026-08-03
+- **문제**: ADR-0043·0044는 구버전과 새 DB guard 혼재를 막으려고 앱을 먼저 배포하도록 정했다. 그런데 v1.62 `runSync`는 아직 배포되지 않은 0027의 `ensure_sync_meta()`를 첫 필수 호출로 삼아, PC·태블릿의 안전한 pull까지 전부 중단했다. 서버 데이터는 보존됐지만 빈 기기에는 여행 0개가 보였다.
+- **채택 — probe 뒤 비파괴 fallback**: PostgREST가 `PGRST202`를 반환하면 먼저 owner RLS의 `sync_meta`를 직접 SELECT한다. 행을 읽으면 실제 generation을 canonical 경로로 처리한다. 표/capability까지 확인할 수 없고 로컬 `syncState`가 absent/legacy이며 `pendingCanonical`이 없을 때만 `mode='legacy'`를 열되, `runSync`는 서버 read-only pull로 즉시 분기한다. repair와 모든 push, purge·unpurge 원장 변경, DB upsert/DELETE, media 고아 tombstone/R2 삭제는 금지하며 큐는 다음 정상 실행까지 보존한다. 이미 non-legacy 세대를 소비했거나 게시가 미완료면 멈춘다. 권한·네트워크·빈 응답 등 다른 실패는 기능 부재로 반올림하지 않는다.
+- **기각**: 모든 canonical 오류를 무시(권한 결함 은폐) · `PGRST202`만으로 legacy 일반 병합을 허용(schema cache 지연이면 canonical CAS 밖의 purge/DELETE/R2 삭제가 가능) · non-legacy/pending도 legacy로 낮춤(최종본 오염) · DB를 앱보다 먼저 배포(구버전 부분 read-back이 stale 거절을 성공으로 오인) · 오류 문구 정규식(서버 문구 변경에 취약).
+- **운영 복구**: 2026-08-03 암호화 DB 행 스냅샷을 만들고 0026→SQL 검사→0027→SQL 검사 순으로 적용했다. `CANONICAL_SYNC_META_PASS`, 두 guard 회귀, RLS/ACL, 6+6 트리거, 전후 행수·내용 해시 동일, 테스트 픽스처 0건을 확인했다. PC 라이브는 5개 여행·동기화 올림 0/내림 0이다.
+- **검증/되돌리기 경계**: 첫 일반-sync fallback은 재해복구 감사에서 `pushUnpurges`, `pushPurges`, media 고아 스윕/R2 삭제 우회를 발견해 **출고 전에 폐기**했다. runSync 통합 픽스처가 non-legacy server row+purge/unpurge 큐+purged parent의 활성 사진을 두고 server upsert·DELETE·원장 RPC·R2 삭제 0과 큐 보존을 잠근다. 코드 fallback은 probe/read-only 분기와 이 유닛을 함께 되돌려야 한다. DB 롤백은 적용 전 암호화 스냅샷이 근거이며, 아직 canonical exact-set 게시를 실행하지 않았다. 실제 2기기 generation 왕복과 authenticated R2 PUT/GET/정리는 별도 검증으로 남는다.
+
 ## ADR-0044 · **일반 병합과 사용자 지정 최종본 교체를 별도 프로토콜로 둔다** — canonical generation
 - 유형: `[AI-autonomous]`(사용자의 코드 건강진단·순차 보완 요청에 따라 ADR-0043 다음 데이터 안전 항목을 구현) · AI: Codex · 날짜: 2026-08-02
 - **문제**: 일반 동기화의 목적은 로컬 전용 기록을 보존해 다른 기기로 전파하는 것이다. 그래서 사용자가 한 기기를 최종본으로 정해도 다른 기기에만 남은 항목이 다음 병합에서 다시 클라우드로 올라와 기기별 개수가 계속 갈릴 수 있었다. 「빈 클라우드면 로컬 보존」도 일반 모드에는 맞지만 정확집합 교체에는 반대 규칙이다.
@@ -15,10 +23,10 @@
   - 다른 기기는 `runSync`의 어떤 repair/push보다 먼저 generation을 읽는다. 바뀌었으면 서버 여섯 표와 필요한 바이트를 전부 받은 뒤 로컬 여섯 표·큐·원장을 한 transaction으로 정확 교체하고, 그 실행은 **0 upsert**로 끝난다. 로컬 전용 항목을 보존하거나 교체 결과를 재업로드하지 않는다.
   - 첫 도입 시 서버가 `legacy`이고 기기 상태가 없으면 로컬을 지우지 않고 기준선만 찍는다. 상태 없는 기기가 이미 non-legacy 세대를 만나면 클라우드 최종본을 적용한다.
 - **서버 방어**: 여섯 표의 `a0_canonical_sync_guard`가 authenticated 직접 쓰기의 `base_canonical_version`을 현재 메타와 대조한다. `sync_meta`는 owner+초대제 SELECT만 허용하고 직접 INSERT/UPDATE/DELETE grant는 없다. `ensure_sync_meta`·`publish_canonical_snapshot`만 `SECURITY DEFINER search_path=''`, `auth.uid()`·초대제·사용자 범위를 직접 검증해 연다.
-- **배포 순서/현재 상태**: 운영은 실측상 0025까지다. **신형 앱 전기기 배포·확인 → DB 스냅샷 → 0026 적용/read-back → 0027 적용 → authenticated 공격검사·메타/행수 read-back** 순서이며, 지금 0026·0027은 저장소에만 있고 운영 미적용이다.
+- **배포 순서/현재 상태**: **신형 앱 전기기 배포·확인 → DB 스냅샷 → 0026 적용/read-back → 0027 적용 → authenticated 공격검사·메타/행수 read-back** 순서를 2026-08-03 완료했다. 운영은 0027까지이며 상세 복구·호환성 경계는 ADR-0045다.
 - **기각**: 일반 merge 결과를 빈 클라우드에 upsert(다른 기기 로컬 전용 항목 부활) · 클라이언트가 표별 delete/upsert를 순차 실행(부분 성공) · canonical 수신 후 merge 결과를 다시 push(새 최종본 오염) · 현재 R2 키 덮어쓰기(DB 실패 전에 바이트 손실).
 - **되돌리기**: 앱의 canonical UI/preflight를 먼저 비활성화한 뒤 여섯 `a0_canonical_sync_guard` 트리거·함수 3개와 `sync_meta`/`base_canonical_version`을 제거한다. 이미 게시된 정확집합의 이전 행은 자동 복원되지 않으므로 적용 전 DB 스냅샷이 되돌리기의 필수 근거다.
-- **정직한 경계**: TypeScript·fake IndexedDB/remote 단위 검사는 구현했지만, 0027 PostgreSQL transaction·실제 R2 PUT/GET/정리·실기기 2대 generation 전파는 아직 실행하지 않았다. 운영 판정은 HOLD다.
+- **정직한 경계**: TypeScript·fake IndexedDB/remote와 운영 PostgreSQL transaction/공격검사는 통과했다. 실제 R2 PUT/GET/정리와 실기기 2대 generation 전파는 아직 실행하지 않았다. **운영 migration 적용은 PASS, 다기기 canonical 게시 판정은 HOLD**로 분리한다.
 
 ## ADR-0043 · **동기화 쓰기는 마지막으로 본 서버 version과 일치할 때만 받는다** — stale overwrite 차단
 - 유형: `[AI-autonomous]`(사용자의 코드 건강진단·한 항목씩 보완 요청에 따라 첫 데이터 안전 항목을 선정) · AI: Codex · 날짜: 2026-08-02
@@ -30,7 +38,7 @@
   - **R2도 같은 fence를 지난다(M-0087).** 사진·소리는 기존 키를 먼저 덮지 않고 operation별 새 키에 업로드한다. DB read-back이 그 operation/version/path를 승인한 뒤에만 로컬 키를 전진시키고 옛 키를 걷는다. DB가 거절하면 서버가 가리키는 최신 키는 그대로 두고 새 작업 키만 정리한다.
   - 같은 엔티티의 연속 큐 작업은 현재 로컬 전체 snapshot을 대표하는 최신 시도 하나로 접는다. 최신 작업이 백오프/영구실패면 옛 작업으로 우회하지 않는다.
 - **관리·복구 경계**: guard는 `current_user='authenticated'`에만 적용한다. postgres/service_role/SECURITY DEFINER 복구 경로까지 조건부 쓰기로 묶으면 후속 migration이 조용히 무효화되므로 명시적으로 통과시킨다. SQL 테스트가 관리자 통과와 authenticated stale 차단을 반대 방향으로 함께 검사한다.
-- **배포 순서**: **신형 클라이언트를 모든 활성 기기에 먼저 배포·확인 → 운영 DB 스냅샷 → 0026 적용 → authenticated read-back**. 구버전 앱은 operation read-back이 불완전하므로 0026과 혼재 배포하지 않는다. 현재 0026은 저장소에만 있고 운영 미적용이다.
+- **배포 순서**: **신형 클라이언트를 모든 활성 기기에 먼저 배포·확인 → 운영 DB 스냅샷 → 0026 적용 → authenticated read-back**. 구버전 앱은 operation read-back이 불완전하므로 0026과 혼재 배포하지 않는다. 이 순서는 2026-08-03 완료되어 현재 운영에 0026·0027이 적용돼 있다.
 - **기각**: 클라이언트 LWW만 신뢰(서버 UPDATE가 이미 끝난 뒤라 늦음) · 벽시계만 비교(기기 시계 스큐) · 당시 canonical 교체까지 같은 변경에 넣기(검증 범위가 커짐; 후속 ADR-0044에서 독립 구현).
 - **되돌리기**: 6개 `a_sync_write_guard` 트리거와 `journey.guard_sync_write()` 함수를 제거한다. 데이터 변환은 없어 롤백 시 행 손실은 없다. 작업별 R2 키는 DB가 실제 가리키는 `storage_path`가 정본이라 별도 역변환하지 않는다.
 

@@ -1,7 +1,7 @@
 # HANDOFF_CODEX · Bugeon Journey 인계서
 
 > **읽는 사람**: 이 앱 제작에 거의 참여하지 않은 AI(Codex 등) 또는 새 Claude 세션.
-> **작성**: 2026-07-27 · **갱신 2026-08-02**(v1.62 작업 중 — 바로 아래 최신 절을 **가장 먼저** 읽어라. 운영 라이브는 v1.57, DB는 0025까지이며 0026·0027은 적용하지 않았다)
+> **작성**: 2026-07-27 · **갱신 2026-08-03**(v1.63 작업 중 — 바로 아래 최신 절을 **가장 먼저** 읽어라. 운영 라이브는 v1.62, DB는 0027까지 적용 완료)
 >
 > 🔴 **헌법은 `docs/CONSTITUTION.md`가 정본이다.** `CLAUDE.md`·`AGENTS.md`는 거기서 자동으로
 > 심어 받는 어댑터라 **글자 단위로 같다**. 헌법을 고칠 때는 정본만 고치고 `npm run gen:adapters`
@@ -10,6 +10,16 @@
 
 기존 `docs/HANDOFF.md`는 **참여한 사람을 위한 시간순 기록**이다. 이 문서는 다르다 —
 **아무 맥락 없이 들어와도 이어서 일할 수 있게** 쓴다. 중복은 의도적이다.
+
+---
+
+## 🆕 v1.63 — 운영 동기화 복구 + 앱 선배포 호환성 (2026-08-03)
+
+- 사용자 화면은 폰 5개 여행, PC·태블릿 0개였고 태블릿 진단은 `ensure_sync_meta` PGRST202였다. 운영 DB가 0025인데 v1.62가 0027 RPC를 runSync 첫 필수 문으로 호출해 안전한 pull까지 막은 M-0093이다. 서버 자료 5/5/18/45/4/0·원장 4는 보존돼 있었다.
+- 최신 자동 물리 백업이 8월 1일이라 별도 DPAPI(CurrentUser) 암호화 행 스냅샷을 복호화·해시 검증했다. 이어 0026→stale SQL 검사→0027→canonical SQL 검사→stale 재검사를 운영에 영구 적용했다. `CANONICAL_SYNC_META_PASS`, 테스트 픽스처 0, 전후 행수·새 컬럼 제외 내용 해시 동일이다.
+- PC 실제 Chrome 앱은 여행 5개를 회복했고 진단 수동 동기화는 올림 0·내림 0으로 끝났다. `sync_meta`는 legacy 1행이다. 실제 2기기 canonical 게시/소비와 authenticated R2 왕복은 아직 미검증이다.
+- 코드는 `PGRST202` 뒤 `sync_meta`를 owner RLS로 직접 읽어 schema cache 지연과 migration 미적용을 가른다. capability까지 불명확하고 로컬이 absent/legacy·pending 없음일 때는 서버 read-only pull만 허용해 큐를 보존하고 repair/push·purge/unpurge·DB 쓰기/삭제·R2 정리를 전부 보류한다. 첫 일반-sync fallback의 파괴 우회는 재해복구 감사가 출고 전에 잡아 폐기했다. non-legacy/pending/다른 오류는 fail-closed이며 runSync 적대적 통합 유닛은 수정 전 RED·수정 후 targeted 62/62 PASS다. 전체 라이브에서 고정 2.6초 대기가 느린 정상 재생을 실패로 읽는 M-0094를 두 번 재현했고, 실제 ended 정리 누락 주입은 278/279 RED·원복 후 279/279 GREEN이었다. 빠른 게이트 39/39·전체 유닛 73파일 1,118건·build v1.63·전체 harness 43/43 PASS, FAIL/SKIP 0이다. 브랜치 `codex/sync-rollout-compat-v1-63`, 배포만 대기다.
+- 운영 스냅샷: `../BugeonJourney_DB_Backups/pre-0026-20260803.dpapi` + `.manifest.json`(DPAPI는 현재 Windows 사용자 계정에 묶임). 평문 임시는 삭제됐다.
 
 ---
 
@@ -225,8 +235,8 @@ npm run gates                           # 편집 루프용(6초). 커밋 전에�
 | 누구 | 1인 사용자(소유자 본인). 소셜 없음, 공개 없음 |
 | 배포 | GitHub Pages → `hanwha27-tdtu.github.io/Travel-Memories/` |
 | 브랜치 | 개발은 `claude/travel-log-app-r2xd5f`(또는 `codex/*`), `main` 직접 push 금지 |
-| 현재 판 | **작업 트리 v1.62(미배포) / 운영 라이브 v1.57**. 최신 세부는 문서 맨 위 「🆕 v1.62」 |
-| 지금 하던 일 | canonical exact-set의 운영 rollback 사전검증과 RPC 입력 경계 보강 완료. 0026·0027은 앱 전기기 선배포·DB 스냅샷 전 운영 적용 금지 |
+| 현재 판 | **작업 트리 v1.63(미배포) / 운영 라이브 v1.62**. 최신 세부는 문서 맨 위 「🆕 v1.63」 |
+| 지금 하던 일 | 운영 0026·0027 적용과 PC 동기화 복구 완료. RPC 불명 시 read-only pull·큐 보존(M-0093) 코드/통합 유닛 보강 후 전체 게이트/배포 대기 |
 | 가장 큰 함정 | 이 저장소는 **문서가 코드만큼 중요하다.** 규율을 안 읽고 짜면 반드시 형제 대칭을 깬다. 그리고 **문서가 게이트를 앞질러 있을 수 있다**(M-0051) |
 
 ---
@@ -433,7 +443,7 @@ src/
 scripts/             게이트들 + harness + brief + gen-registry (개수는 재라 — 위 경고)
 supabase/
   migrations/        0001~**0027**. **추가 전용** — 과거 파일 수정 금지
-                     (운영은 0025까지. 0026 stale-write + 0027 canonical exact-set은 순차 적용 대기)
+                     (운영도 0027까지 적용 완료. 2026-08-03 SQL 공격검사·행수/해시 read-back PASS)
   functions/media-sign/   🔴 R2 자격증명이 존재하는 유일한 장소
 ```
 

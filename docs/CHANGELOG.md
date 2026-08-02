@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+### 운영 동기화 복구 + 앱 선배포 호환성 (2026-08-03)
+- v1.62가 운영 0025보다 먼저 배포된 구간에서 `ensure_sync_meta()` PGRST202가 `runSync` 전체를 막아, 서버에는 여행 5개가 있는데 PC·태블릿은 0개로 보인 M-0093을 복구했다.
+- 자동 물리 백업이 최신 쓰기보다 오래된 것을 확인하고 별도 DPAPI 암호화 행 스냅샷을 복호화·해시 검증한 뒤, 0026→stale SQL 검사→0027→canonical SQL 검사→stale 재검사를 운영에 적용했다. `CANONICAL_SYNC_META_PASS`, 테스트 픽스처 0, 전후 행수·내용 해시 동일이다.
+- 앱은 `PGRST202`를 migration 미적용으로 단정하지 않고 `sync_meta`를 read-only로 다시 확인한다. capability까지 확인할 수 없고 로컬이 absent/legacy·pending 없음일 때는 **서버 read-only pull만** 수행하며 repair/push·purge/unpurge·DB 쓰기/삭제·R2 정리를 전부 보류하고 큐를 보존한다. non-legacy/pending/다른 오류는 fail-closed다. 첫 일반-sync fallback의 파괴 경로를 재해복구 감사가 출고 전에 잡았고, runSync 적대적 통합 유닛은 수정 전 RED·수정 후 GREEN이다.
+- PC 라이브에서 여행 5개가 다시 보이고 진단 수동 동기화가 올림 0건·내림 0건으로 끝났다. 실제 2기기 canonical generation 왕복과 authenticated R2 PUT/GET/정리는 아직 미검증이다.
+- 전체 라이브 검증에서 1.5초 음원이 벽시계 2.6초 안에 끝난다고 가정한 오디오 게이트 오판(M-0094)을 발견했다. 재생 시작을 확인한 뒤 실제 종료/오류 판정을 최대 15초 기다리도록 바꿔, 느린 미디어 시계의 정상 재생을 실패로 반올림하지 않는다.
+
 ### Windows 진단 라이브 게이트 복구 (2026-08-02)
 - `verify-diagnostics-live`의 `npx` 셸 shim 호출을 현재 Node+Vite JS 진입점 직접 실행으로 바꿨다. Windows의 `spawnSync npx ENOENT` SKIP을 제거하고 실제 Chromium 22개 판정을 다시 실행한다.
 - Vite 미설치는 전제 미충족(SKIP), 실행된 fixture 빌드 실패는 위반(FAIL)으로 분리했다. 깨진 import 주입으로 종료 1 RED, 복원 뒤 22/22 GREEN을 확인했다.
@@ -13,7 +20,7 @@
 ### Canonical exact-set 동기화 안전층 (2026-08-02)
 - 일반 merge와 명시적 「이 기기 최종본」을 분리했다. 사용자별 generation 메타, 여섯 표 세대 fence, PostgreSQL exact-set RPC, Dexie 재개 상태, R2 operation staging/read-back을 추가했다.
 - 다른 기기는 새 generation을 어떤 push보다 먼저 적용하고 로컬 여섯 표·큐·영구삭제 원장을 정확 교체하며, 그 동기화 실행은 upsert하지 않는다. 데이터 관리 화면은 제거 범위를 두 단계로 경고한다.
-- migration 0026·0027은 저장소에만 있고 운영은 0025까지다. PostgreSQL transaction·실제 R2·실기기 2대 전파 확인 전 운영 판정은 HOLD다.
+- migration 0026·0027은 2026-08-03 운영 적용·SQL 공격검사·행수/해시 read-back까지 통과했다. 실제 R2·실기기 2대 canonical 전파 확인은 계속 HOLD다.
 
 > **v0.22–v0.40 기술 상세는 `docs/HANDOFF.md`의 Phase 기록과 `src/app/researchLog.ts`(사람/AI/결정 해시체인)가 정본이다.** 이 문서를 손으로 복제하지 않는다(LESSONS §7 — 손편집 중복은 결함). 새 AI는 HANDOFF 인계 요약의 "현재 기능 지도"로 전체 표면을 파악하고, 세부는 각 Phase 기록을 본다. 아래는 v0.21까지의 초기 기록(역사적 보존).
 

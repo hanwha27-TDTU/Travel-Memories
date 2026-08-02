@@ -236,6 +236,12 @@ async function markFail(op: SyncQueueItem, status: number | undefined): Promise<
 
 type SyncEntityType = 'trip' | 'moment' | 'media' | 'expense' | 'audio' | 'place';
 
+/**
+ * `merge`는 평상시 양방향 동기화다. `server-read-only`는 서버 capability를 확인할 수 없는
+ * 배포 전환 구간 전용이며, 서버 쓰기뿐 아니라 기존 로컬 작업 큐를 pull이 지우는 것도 금지한다.
+ */
+export type PullMode = 'merge' | 'server-read-only';
+
 export interface SyncAttempt {
   /** 이 엔티티의 최신 의사. 네트워크에는 이것 하나만 보낸다. */
   op: SyncQueueItem;
@@ -308,6 +314,7 @@ async function applyServerWinner<T extends SyncMeta>(
   entityType: SyncEntityType,
   expected: T | undefined,
   server: T,
+  mode: PullMode,
 ): Promise<boolean> {
   const d = db();
   return d.transaction('rw', table, d.syncQueue, async () => {
@@ -323,7 +330,6 @@ async function applyServerWinner<T extends SyncMeta>(
       : cur === undefined;
     if (!unchanged) return false;
 
-    await table.put(server);
     const queued = await d.syncQueue.where('entityId').equals(server.id).toArray();
     const staleIds = queued
       .filter(
@@ -331,7 +337,11 @@ async function applyServerWinner<T extends SyncMeta>(
           q.entityType === entityType && q.operationType !== 'purge' && q.operationType !== 'unpurge',
       )
       .map((q) => q.operationId);
-    if (staleIds.length) await d.syncQueue.bulkDelete(staleIds);
+    // capability가 불명확한 동안에는 로컬 의사를 서버 snapshot으로 덮거나 큐에서 지우지 않는다.
+    if (mode === 'server-read-only' && staleIds.length) return false;
+
+    await table.put(server);
+    if (mode === 'merge' && staleIds.length) await d.syncQueue.bulkDelete(staleIds);
     return true;
   });
 }
@@ -452,7 +462,7 @@ export async function pushPending(remote: TripsRemote, userId: string): Promise<
  * 각 행은 LWW/tombstone 결정으로만 반영한다. 서버에 없는 로컬 행은 지우지 않는다
  * (아직 push 안 된 로컬 전용일 수 있음).
  */
-export async function pullTrips(remote: TripsRemote): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
+export async function pullTrips(remote: TripsRemote, mode: PullMode): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
   const d = db();
   const res = await remote.listAll();
   if (res.error) throw new Error(res.error);
@@ -472,7 +482,7 @@ export async function pullTrips(remote: TripsRemote): Promise<{ pulled: number; 
     const server = fromRow(r);
     const local = await d.localTrips.get(server.id);
     if (mergeDecision(local, server) === 'take-server') {
-      if (await applyServerWinner(d.localTrips, 'trip', local, server)) pulled++;
+      if (await applyServerWinner(d.localTrips, 'trip', local, server, mode)) pulled++;
     } else {
       await requeueIfServerStillActive('trip', local, server);
     }
@@ -540,7 +550,7 @@ export async function pushPendingMoments(
 }
 
 /** 서버의 내 순간을 로컬에 병합(교체 아님, 빈-클라우드 가드, LWW/tombstone). */
-export async function pullMoments(remote: MomentsRemote): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
+export async function pullMoments(remote: MomentsRemote, mode: PullMode): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
   const d = db();
   const res = await remote.listAll();
   if (res.error) throw new Error(res.error);
@@ -560,7 +570,7 @@ export async function pullMoments(remote: MomentsRemote): Promise<{ pulled: numb
     const server = fromMomentRow(r);
     const local = await d.localMoments.get(server.id);
     if (mergeDecision(local, server) === 'take-server') {
-      if (await applyServerWinner(d.localMoments, 'moment', local, server)) pulled++;
+      if (await applyServerWinner(d.localMoments, 'moment', local, server, mode)) pulled++;
     } else {
       await requeueIfServerStillActive('moment', local, server);
     }
@@ -628,7 +638,7 @@ export async function pushPendingExpenses(
 }
 
 /** 서버의 내 비용을 로컬에 병합(교체 아님, 빈-클라우드 가드, LWW/tombstone). */
-export async function pullExpenses(remote: ExpensesRemote): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
+export async function pullExpenses(remote: ExpensesRemote, mode: PullMode): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
   const d = db();
   const res = await remote.listAll();
   if (res.error) throw new Error(res.error);
@@ -648,7 +658,7 @@ export async function pullExpenses(remote: ExpensesRemote): Promise<{ pulled: nu
     const server = fromExpenseRow(r);
     const local = await d.localExpenses.get(server.id);
     if (mergeDecision(local, server) === 'take-server') {
-      if (await applyServerWinner(d.localExpenses, 'expense', local, server)) pulled++;
+      if (await applyServerWinner(d.localExpenses, 'expense', local, server, mode)) pulled++;
     } else {
       await requeueIfServerStillActive('expense', local, server);
     }
@@ -756,7 +766,7 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
  * (로컬에 없으면 skip). 활성은 표시본을 다운로드해 재구성하되 다운로드 실패 시 로컬을 그대로 둔다.
  * 원본은 소비 기기에 없으므로 표시본을 원본 폴백으로 둔다(절약 모드). GPS는 서버에 없어 로컬 값 유지.
  */
-export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
+export async function pullMedia(remote: MediaRemote, mode: PullMode): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
   const d = db();
   const res = await remote.listAll();
   if (res.error) throw new Error(res.error);
@@ -787,6 +797,8 @@ export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; 
     // 재큐잉으로는 **원리적으로 닿지 않는 사각지대**다(사용자가 겪은 바로 그 상태).
     // 여기서만 직접 tombstone을 밀고 바이트를 지운다. 되살려 로컬에 만들지 않는다.
     if (!local && server.deletedAt === null && purged.has(r.trip_id)) {
+      // 전환 모드는 서버 cleanup을 시도하지도, 이미 영구삭제한 부모 아래로 다시 받지도 않는다.
+      if (mode === 'server-read-only') continue;
       const tombstoneAt = new Date().toISOString();
       const res = await remote.upsert({
         ...r,
@@ -814,7 +826,7 @@ export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; 
           baseVersion: server.version,
           ...(server.clientOperationId ? { clientOperationId: server.clientOperationId } : {}),
         };
-        if (await applyServerWinner(d.localMedia, 'media', local, next)) pulled++;
+        if (await applyServerWinner(d.localMedia, 'media', local, next, mode)) pulled++;
       }
       continue;
     }
@@ -861,7 +873,7 @@ export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; 
       deletedAt: null,
       ...(local?.editState ? { editState: local.editState } : {}),
     };
-    if (await applyServerWinner(d.localMedia, 'media', local, next)) pulled++;
+    if (await applyServerWinner(d.localMedia, 'media', local, next, mode)) pulled++;
   }
   if (swept) console.info(`서버 고아 정리: 사진 ${swept}건(로컬에 없어 재큐잉이 닿지 못하던 것)`);
   return { pulled, skippedEmptyCloud: false };
@@ -977,7 +989,7 @@ export async function pushPendingPlaces(
 }
 
 /** 서버의 내 장소를 로컬에 병합(교체 아님, 빈-클라우드 가드, LWW/tombstone). */
-export async function pullPlaces(remote: PlacesRemote): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
+export async function pullPlaces(remote: PlacesRemote, mode: PullMode): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
   const d = db();
   const res = await remote.listAll();
   if (res.error) throw new Error(res.error);
@@ -995,7 +1007,7 @@ export async function pullPlaces(remote: PlacesRemote): Promise<{ pulled: number
     const server = fromPlaceRow(r);
     const local = await d.localPlaces.get(server.id);
     if (mergeDecision(local, server) === 'take-server') {
-      if (await applyServerWinner(d.localPlaces, 'place', local, server)) pulled++;
+      if (await applyServerWinner(d.localPlaces, 'place', local, server, mode)) pulled++;
     } else {
       await requeueIfServerStillActive('place', local, server);
     }
@@ -1103,7 +1115,7 @@ export async function pushPendingAudio(remote: AudioRemote, userId: string): Pro
  * blob을 지우지 않고 `deletedAt`만 세운다(로컬에 없으면 skip). 활성은 바이트를 내려받아
  * 재구성하되 **다운로드 실패 시 로컬을 그대로 둔다**(비파괴, 불변식 #8).
  */
-export async function pullAudio(remote: AudioRemote): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
+export async function pullAudio(remote: AudioRemote, mode: PullMode): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
   const d = db();
   const res = await remote.listAll();
   if (res.error) throw new Error(res.error);
@@ -1135,7 +1147,7 @@ export async function pullAudio(remote: AudioRemote): Promise<{ pulled: number; 
           baseVersion: server.version,
           ...(server.clientOperationId ? { clientOperationId: server.clientOperationId } : {}),
         };
-        if (await applyServerWinner(d.localAudio, 'audio', local, next)) pulled++;
+        if (await applyServerWinner(d.localAudio, 'audio', local, next, mode)) pulled++;
       }
       continue;
     }
@@ -1164,7 +1176,7 @@ export async function pullAudio(remote: AudioRemote): Promise<{ pulled: number; 
       deletedAt: null,
       storagePath: server.storagePath,
     };
-    if (await applyServerWinner(d.localAudio, 'audio', local, next)) pulled++;
+    if (await applyServerWinner(d.localAudio, 'audio', local, next, mode)) pulled++;
   }
   return { pulled, skippedEmptyCloud: false };
 }
@@ -2084,6 +2096,33 @@ export interface SyncOptions {
   deep?: boolean;
 }
 
+/**
+ * canonical capability를 증명할 수 없는 짧은 배포 전환 구간의 안전 경로.
+ * 서버에는 SELECT/R2 GET만 수행한다. 로컬 purge·unpurge·편집 큐는 그대로 두고, 서버 고아
+ * tombstone 같은 정리 쓰기도 하지 않는다. capability가 돌아오면 다음 동기화가 큐를 처리한다.
+ */
+async function runServerReadOnlySync(client: JourneyClient): Promise<SyncResult> {
+  const q = await pullTrips(tripsRemote(client), 'server-read-only');
+  const qm = await pullMoments(momentsRemote(client), 'server-read-only');
+  const qd = await pullMedia(mediaRemote(client), 'server-read-only');
+  const qe = await pullExpenses(expensesRemote(client), 'server-read-only');
+  const qa = await pullAudio(audioRemote(client), 'server-read-only');
+  const qpl = await pullPlaces(placesRemote(client), 'server-read-only');
+  return {
+    pushed: 0,
+    failed: 0,
+    pulled: q.pulled + qm.pulled + qd.pulled + qe.pulled + qa.pulled + qpl.pulled,
+    skippedEmptyCloud:
+      q.skippedEmptyCloud ||
+      qm.skippedEmptyCloud ||
+      qd.skippedEmptyCloud ||
+      qe.skippedEmptyCloud ||
+      qa.skippedEmptyCloud ||
+      qpl.skippedEmptyCloud,
+    canonicalApplied: false,
+  };
+}
+
 export async function runSync(
   client: JourneyClient,
   userId: string,
@@ -2101,6 +2140,7 @@ export async function runSync(
       canonicalApplied: true,
     };
   }
+  if (canonical.mode === 'legacy') return runServerReadOnlySync(client);
   // push보다 **먼저** 돈다 — 재큐잉된 op가 이번 동기화에서 바로 처리되도록.
   await repairCascadeOpsOnce();
   // 표기 정리도 **병합보다 먼저**다(M-0034). 아래 pull이 `mergeDecision`으로 승부를 내는데,
@@ -2149,12 +2189,12 @@ export async function runSync(
   if (ledger.error) console.error(`영구삭제 원장 조회 실패 — ${ledger.error}`);
   else await applyPurgedLedger(ledger.ids);
 
-  const q = await pullTrips(remote);
-  const qm = await pullMoments(mRemote);
-  const qd = await pullMedia(dRemote);
-  const qe = await pullExpenses(eRemote);
-  const qa = await pullAudio(aRemote);
-  const qpl = await pullPlaces(plRemote);
+  const q = await pullTrips(remote, 'merge');
+  const qm = await pullMoments(mRemote, 'merge');
+  const qd = await pullMedia(dRemote, 'merge');
+  const qe = await pullExpenses(eRemote, 'merge');
+  const qa = await pullAudio(aRemote, 'merge');
+  const qpl = await pullPlaces(plRemote, 'merge');
   return {
     pushed: pu.pushed + p.pushed + ppl.pushed + pm.pushed + pd.pushed + pe.pushed + pa.pushed + pp.pushed,
     failed: pu.failed + p.failed + ppl.failed + pm.failed + pd.failed + pe.failed + pa.failed + pp.failed,

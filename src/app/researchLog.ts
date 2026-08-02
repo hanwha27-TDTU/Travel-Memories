@@ -536,4 +536,20 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '운영 Travel&Accounting 프로젝트를 읽기 전용으로 재측정하고, 아직 미적용인 0026·0027과 두 SQL 공격검사를 `BEGIN…ROLLBACK` 한 번으로 실제 PostgreSQL 17에서 실행했다. 기존 계약은 통과했지만 RPC 입력 경계를 따로 공격하자 두 RED가 나왔다. `p_operation_id=NULL` 게시가 성공해 메타에 NULL이 남았고, 같은 id를 최종본 행과 `purged_ids`에 함께 넣어도 둘 다 저장됐다. 첫째는 응답 유실 재시도를 멱등 성공으로 알아보지 못하게 하고, 둘째는 소비 기기가 막 게시한 행을 영구삭제 원장 때문에 다시 지우게 한다. 둘 다 클라이언트 `capturePending`은 막고 있었지만 SECURITY DEFINER RPC 자체는 신뢰하고 있었다.',
     decision: '**파괴적 exact-set RPC는 클라이언트 검사를 신뢰하지 않고 자기 입력 불변식을 DELETE 전에 검증한다.** operation id NULL과 여섯 표 전체 id∩영구삭제 원장 겹침을 SQLSTATE 22023으로 거부했다. SQL 공격검사에 두 케이스와 거부 뒤 무변경 판정을 넣고, 각 guard만 메모리에서 제거해 두 테스트가 실제 RED가 되는 것을 확인했다. 패치 뒤 0026+0027+두 SQL 검사를 운영 DB의 한 transaction에서 다시 통과시킨 뒤 롤백했고, `sync_meta`·새 컬럼·트리거·테스트 계정/행이 모두 0임을 되읽었다. 검증 중 순간 1건·사진 1건이 늘었지만 테스트 UUID는 0이었고 생성시각이 검증 도중이라 실제 앱의 동시 쓰기로 판정했다. 배포된 `media-sign` v7의 소스는 로컬과 의미상 일치했고 프로토콜 v6·시크릿 4개 준비도 확인했지만, 사용자 JWT가 필요한 실제 R2 list/put/get/delete와 2기기 왕복은 여전히 미검증이다. 운영 0026·0027은 전기기 신형 앱 배포와 DB 스냅샷 전까지 적용하지 않는다.',
   },
+  {
+    seq: 67,
+    date: '2026-08-03',
+    topic: '앱 선배포와 서버 후배포 사이에서 동기화가 멈췄다',
+    human: '1.62 인거는 확인했습니다. 다만 동기화에 문제가 생긴거 같아요. (폰에는 여행 5개, PC·태블릿은 0개이고 태블릿 진단 화면에 ensure_sync_meta schema cache 실패 제시)',
+    ai: '화면의 관측을 운영 DB에 대조했다. v1.62는 runSync 첫 문에서 `ensure_sync_meta()`를 호출하지만 운영은 migration 0025까지라 함수가 없었다. 그래서 새/빈 기기는 서버의 여행 5개를 pull하기도 전에 멈췄다. 서버에는 여행 5·장소 5·순간 18·사진 45·비용 4·소리 0·영구삭제 원장 4가 그대로 있었다. Supabase 자동 물리 백업 최신본은 8월 1일이라 8월 2일 변경을 덮지 못해, 별도 JSON 스냅샷을 DPAPI(CurrentUser)로 암호화하고 복호화·행수·MD5/SHA-256 read-back했다. 그 뒤 0026과 0027을 각각 영구 적용하고 사이마다 SQL 공격검사·ACL/RLS/트리거·행수·내용 해시를 되읽었다. PC 라이브 탭은 자동으로 5개 여행을 회복했고 수동 동기화는 올림 0·내림 0으로 끝났다.',
+    decision: '**운영 복구와 배포 계약 보강을 함께 한다.** 운영 DB는 암호화 스냅샷 뒤 0026→stale guard 검사→0027→canonical 검사(`CANONICAL_SYNC_META_PASS`)→stale 재검사를 통과해 0027까지 전진했다. 전후 7개 내용 해시와 행수는 같고 테스트 픽스처는 0이다. 코드에서는 `PGRST202` 뒤 owner RLS의 `sync_meta`를 직접 읽어 schema cache 지연과 migration 미적용을 가른다. capability까지 불명확하고 로컬이 absent/legacy·pending 없음일 때는 서버 read-only pull만 허용하고 repair/push·purge/unpurge·DB 쓰기/삭제·R2 정리를 모두 보류해 큐를 보존한다. 첫 일반-sync fallback은 재해복구 감사가 canonical CAS 밖의 파괴 경로를 찾아 출고 전에 폐기했다. runSync 적대적 통합 픽스처는 수정 전 RED, 수정 후 서버 변경 0·큐 보존 GREEN이다. 교훈은 **선배포 순서를 문서에 적는 것과 그 중간 버전을 실행 가능하고 비파괴적으로 만드는 것은 다른 일**이라는 것이다.',
+  },
+  {
+    seq: 68,
+    date: '2026-08-03',
+    topic: '오디오 라이브 게이트가 정상 재생을 실패로 판정했다',
+    human: '이어서 진행',
+    ai: 'v1.63 전체 하네스는 279개 editor live 중 「재생이 끝나면 멈춤 상태」 하나만 두 번 실패했다. 앱 코드를 맞다고 가정하지 않고 실패 상태를 읽으니 첫 실행은 0:03·진행률 0, 두 번째는 0:01·진행률 0.62였다. 둘 다 `aria-pressed=true`라 종료 후 정리 실패가 아니라 아직 재생 중이었다. 픽스처 WAV는 1.5초지만 게이트가 벽시계 2.6초만 기다렸고, 부하가 걸린 Chromium의 미디어 시계는 그보다 느리게 갔다.',
+    decision: '**미디어 길이를 고정 sleep으로 종료 증거로 쓰지 않는다.** 먼저 `aria-pressed=true`로 재생 시작을 확인하고, 앱이 `ended` 또는 오류를 판정해 `aria-pressed=false`로 돌아올 때까지 최대 15초 기다린다. 오류도 idle이 되므로 바로 다음 「재생 불가」 판정이 별도로 잡고, 종료·오류가 모두 없으면 timeout 뒤 멈춤 판정이 RED다. 고정 sleep 판은 같은 환경에서 두 번 RED였고, 교정 뒤 전체 editor live는 279/279 GREEN이었다. 실제 ended 정리 누락을 주입하자 해당 판정만 실패해 278/279 RED, 원복 뒤 GREEN으로 비공허성도 확인했다. 최종 v1.63 빌드와 전체 하네스 43/43도 PASS, FAIL/SKIP 0이다.',
+  },
 ];

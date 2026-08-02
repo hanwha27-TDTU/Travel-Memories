@@ -54,9 +54,9 @@
 
 > 🔴 **상태: 목표 프로토콜 대부분 미구현(2026-08-02 실측).** 이 절이 말하는
 > `apply_client_operation` RPC · `client_operations` · `sync_changes`(단조 cursor) ·
-> `sync_conflicts` · `deletion_jobs`는 **어느 적용된 마이그레이션에도 없다.** v1.60 작업 트리에는
-> 사용자별 `sync_meta.canonical_version`과 정확집합 RPC를 구현한 **운영 미적용 migration 0027**이 있다.
-> 운영 실측은 0025까지이고 0026·0027은 적용하지 않았다. v1.58 클라이언트와 migration 0026은 첫 안전층을 구현한다:
+> `sync_conflicts` · `deletion_jobs`는 **어느 적용된 마이그레이션에도 없다.** 사용자별
+> `sync_meta.canonical_version`과 정확집합 RPC는 migration 0027에 구현되어 있다.
+> **운영 실측(2026-08-03)은 0027까지 적용 완료**다. v1.58 클라이언트와 migration 0026은 첫 안전층을 구현한다:
 > 직접 upsert에 `base_version` OCC를 걸고, `client_operation_id`+version(+바이트 경로)의 정확한
 > read-back 뒤에만 큐를 제거한다. 충돌은 서버 승자를 로컬+큐에 원자 반영하거나 로컬을 서버
 > version에 재기반화해 재시도한다. 사진·소리는 기존 R2 키를 먼저 덮지 않고 operation별 새 키에
@@ -66,7 +66,7 @@
 > **3개**(`local_only · retryable_failed · permanent_failed`)다. 아래는 서버 프로토콜을 갖추게
 > 될 때의 목표 설계다 — 맥락 없이 들어온 AI는 이 RPC들이 이미 있다고 가정하지 말 것.
 
-### 구현된 두 모드 (v1.60 작업 트리 · migration 0027 운영 미적용)
+### 구현된 두 모드 (v1.60 · migration 0027 운영 적용 완료)
 
 **일반 병합**
 ```text
@@ -104,6 +104,19 @@ runSync의 어떤 로컬 repair/push보다 먼저 canonical_version 변경 감�
 선택한 파괴적 범위이므로 일반 모드의 빈-클라우드 가드를 적용하지 않는다. 대신 **모든 바이트 다운로드와
 세대 재확인 전에는 로컬 교체를 시작하지 않는다.**
 
+**앱 선배포 전환 경계(v1.63 · M-0093).** 서버 migration보다 앱을 먼저 배포하는 계약이면 새 RPC가
+아직 없는 시간도 정상 전환 상태다. 다만 `ensure_sync_meta()`의 PostgREST `PGRST202`는 migration 미적용뿐
+아니라 함수 signature/schema cache 지연일 수도 있다. 그래서 먼저 `sync_meta`를 owner RLS로 직접 SELECT한다.
+실제 세대를 읽으면 canonical 경로를 계속하고, 표/capability까지 확인할 수 없으며 이 기기의 canonical 상태가
+absent/`legacy`이고 `pendingCanonical`도 없을 때만 **서버 read-only pull**로 낮춘다. 이 실행은 로컬 큐를
+보존하고 repair/backfill/reconcile, 모든 push, purge·unpurge 원장 변경, DB upsert/DELETE, media 고아
+tombstone/R2 삭제를 전부 건너뛴다. 이미 non-legacy 세대를 소비했거나 게시가 미완료인 기기는 멈춘다.
+권한·네트워크·빈 응답 등 다른 실패도 기능 미배포로 반올림하지 않는다. 운영 0026·0027은 2026-08-03에
+암호화 스냅샷→0026/SQL 검사→0027/SQL 검사→행수·해시 read-back
+순서로 적용했고, PC 라이브 동기화는 여행 5건·올림 0·내림 0으로 끝났다. 실제 2기기 canonical generation
+왕복과 authenticated R2 PUT/GET/정리는 아직 별도 검증 대상이다. 첫 수정의 일반-sync fallback은
+`pushUnpurges`·`pushPurges`·media 고아 스윕이 canonical CAS를 우회할 수 있어 재해복구 감사에서 출고 전 폐기했다.
+
 `updated_at`만으로 덮어쓰기 순서를 결정하지 않는다. 모든 앱 쓰기는 `operation_id`, `entity_id`, `base_version`을 가진다.
 
 **서버 쓰기 (apply_client_operation)**
@@ -129,9 +142,9 @@ runSync의 어떤 로컬 repair/push보다 먼저 canonical_version 변경 감�
 
 ## 불변식 (절대 위반 금지 — LESSONS §1)
 
-1. **안정 id + created_at + updated_at + 서버 기준 version.** 동일 id의 쓰기는 마지막으로 본 `base_version`이 현재 서버 version과 일치할 때만 받는다(0026, 적용 대기). 불일치면 행·서버시각을 바꾸지 않고 read-back으로 승자를 다시 판정한다. 같은 삭제 상태의 충돌은 정규화한 `updated_at` LWW, 삭제 상태 전이는 version으로 판정한다.
+1. **안정 id + created_at + updated_at + 서버 기준 version.** 동일 id의 쓰기는 마지막으로 본 `base_version`이 현재 서버 version과 일치할 때만 받는다(0026, 운영 적용 완료). 불일치면 행·서버시각을 바꾸지 않고 read-back으로 승자를 다시 판정한다. 같은 삭제 상태의 충돌은 정규화한 `updated_at` LWW, 삭제 상태 전이는 version으로 판정한다.
 2. **하드 삭제 없음.** `deleted_at` tombstone. **fence는 활성 행에만** 적용, tombstone은 항상 병합까지 통과. `if (row.deletedAt) return false`를 타임스탬프 비교 **앞에** 둔다.
-   - **좀비 절대 방지(ZOMBIE-GUARD, v0.29 구현 `src/sync/merge.ts`)**: 병합은 **version 기반 tombstone 우위**로 한다. 삭제상태가 다른 전이(활성↔tombstone)는 **오직 version으로만** 판정하고 **벽시계(`updated_at`)로는 부활시키지 않는다**(시계 스큐가 좀비의 근본원인). 활성 사본이 tombstone을 이기려면 **진짜 복원**(version이 tombstone보다 큼)이어야 하고, version 동률이면 **삭제가 이긴다**. 이 규칙은 **지연 pull·오래된 백업 복원**이 삭제된 데이터를 되살리지 못하게 잠근다. 적대적 유닛(`tests/unit/merge.test.ts` — 옛 시각-우선 로직 주입 시 RED)으로 비공허 검증. 서버는 기존 `prevent_zombie_resurrection`과 0026의 OCC guard가 같은 규칙을 지킨다(0026은 운영 적용 대기).
+   - **좀비 절대 방지(ZOMBIE-GUARD, v0.29 구현 `src/sync/merge.ts`)**: 병합은 **version 기반 tombstone 우위**로 한다. 삭제상태가 다른 전이(활성↔tombstone)는 **오직 version으로만** 판정하고 **벽시계(`updated_at`)로는 부활시키지 않는다**(시계 스큐가 좀비의 근본원인). 활성 사본이 tombstone을 이기려면 **진짜 복원**(version이 tombstone보다 큼)이어야 하고, version 동률이면 **삭제가 이긴다**. 이 규칙은 **지연 pull·오래된 백업 복원**이 삭제된 데이터를 되살리지 못하게 잠근다. 적대적 유닛(`tests/unit/merge.test.ts` — 옛 시각-우선 로직 주입 시 RED)으로 비공허 검증. 서버는 기존 `prevent_zombie_resurrection`과 운영 적용된 0026 OCC guard가 같은 규칙을 지킨다.
 3. **두 동기화 모드를 절대 섞지 않는다.** ① 일반 병합 동기화(`canonical_version` 일치 후 LWW 병합·로컬 전용 전파) ② 카노니컬 정확집합 교체(이 기기를 새 기준선으로 선언하거나 새 기준선을 소비). 세대 변경을 소비한 실행은 어떤 upsert도 하지 않는다.
 4. **빈-클라우드 가드.** 클라우드가 0행(로컬엔 데이터)이면 이상 상황 — `_cloudEmptyAnomaly` 뒤에서만 로컬 교체. 절대 자동 wipe 금지.
 5. **정확한 read-back으로 확인.** HTTP 200 / 성공 토스트 / upsert 표현 / 후속 집계 동기화는 확인이 아니다. 같은 레코드를 되읽어 **내 `client_operation_id` + 서버 version**이 확인된 뒤에만 큐를 제거한다. 사진·소리는 storage path도 같아야 한다. 부분 필드(제목·금액·좌표) 하나만 같은 것은 내 쓰기가 착지했다는 증거가 아니다.

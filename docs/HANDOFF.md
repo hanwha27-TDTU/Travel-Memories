@@ -8,14 +8,25 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->1.62<!--/reg--> 미배포 / 라이브 v1.57**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 현재 브랜치 `codex/sync-hardening-v1-62`는 작업 시작 시 origin/main과 같은 커밋에서 분기했고, v1.58 동기화 보호+v1.59 게이트 복구+v1.60 canonical 최종본+v1.61 진단 라이브 복구+v1.62 RPC 입력 경계 변경을 한 PR 범위로 묶는다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->162<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->66<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->1.63<!--/reg--> 미배포 / 라이브 v1.62**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 현재 브랜치 `codex/sync-rollout-compat-v1-63`는 origin/main(v1.62)에서 분기해 운영 DB 0026·0027 적용 기록과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)을 v1.63으로 보강한다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->163<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->68<!--/reg-->개).
 
-> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, v1.58 작업 트리는 base_version OCC+operation read-back, v1.60은 canonical generation exact-set 모드를 보강했다. 서버 적용 상태는 **0025까지**이고, 저장소의 migration 파일은 <!--reg:migrationCount-->27<!--/reg-->개다. **0026·0027은 신형 앱 전기기 배포·DB 스냅샷 뒤 순서대로 적용해야 하므로 현재 운영 미적용**이다.
+> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0027까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->27<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
 
 ### 🕐 직전 세션에서 무슨 일이 있었나 (2026-07-30 · 새 AI는 이것부터)
 
 > **이 절은 "지금 이 순간"이다.** 아래 기능 지도가 *무엇이 있는가*를, 이 절이 *방금 무슨 일이 있었고 무엇이 아직 안 끝났는가*를 말한다.
+
+**한 줄(2026-08-03 · v1.63 작업 중 · 운영 동기화 복구/선배포 호환성)**: 사용자 3기기
+스크린샷에서 폰은 여행 5개, PC·태블릿은 0개였고 태블릿 진단은 `ensure_sync_meta` PGRST202를
+보였다(M-0093). 운영은 0025라 v1.62의 첫 canonical preflight가 pull까지 막은 것이 원인이며 서버
+여행 5·장소 5·순간 18·사진 45·비용 4·소리 0은 보존돼 있었다. 최신 자동 물리 백업이 8월 1일이라
+별도 DPAPI 암호화 스냅샷을 복호화·해시 검증한 뒤 0026→stale SQL→0027→canonical SQL→stale SQL을
+영구 적용했다. `CANONICAL_SYNC_META_PASS`, 테스트 픽스처 0, 전후 행수·7개 내용 해시 동일이다.
+PC 라이브는 5개 여행을 되찾고 올림 0·내림 0으로 끝났다. 코드는 `PGRST202` 뒤 `sync_meta`를 직접
+SELECT하고, capability까지 불명확할 때만 서버 read-only pull로 낮춘다. 이 경로는 큐를 보존하고
+repair/push·원장·DB 쓰기/삭제·R2 정리를 모두 금지하며 non-legacy/pending/다른 오류는 fail-closed다. 실제 2기기
+canonical 게시/소비와 authenticated R2 왕복은 아직 미검증이다.
 
 **한 줄(2026-08-02 · v1.62 · canonical RPC 입력 경계/운영 rollback 사전검증)**: 운영
 Travel&Accounting(PostgreSQL 17)에서 0026→0027→두 SQL 공격검사를 한 transaction으로 실행하고
@@ -372,6 +383,15 @@ npm run dev                            # 홈 화면 확인 (선택)
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
 
 ---
+
+## HANDOFF-0053 · v1.63 작업 중 · **운영 동기화 복구 + 앱 선배포 호환성 (ADR-0045 · M-0093·M-0094)** (2026-08-03)
+
+- **사용자 실측/원인**: v1.62 폰은 여행 5개, PC·태블릿은 0개. 태블릿 진단의 `ensure_sync_meta` PGRST202와 운영 migration 0025 상태가 일치했다. 새 RPC를 `runSync` 첫 필수 문으로 둬 pull까지 멈췄고 서버 자료는 5/5/18/45/4/0·원장 4로 보존돼 있었다.
+- **백업**: Supabase 자동 물리 백업 최신본은 2026-08-01 20:04 UTC라 8월 2일 최신 쓰기를 포함하지 않았다. 별도 JSON 행 스냅샷을 `../BugeonJourney_DB_Backups/pre-0026-20260803.dpapi`에 Windows DPAPI(CurrentUser)로 암호화했고, manifest의 평문 MD5 `4c976e95fe9c25fdf1c1596e33a0e58d`·암호문 SHA-256 `6412c794…dbede63`·행수를 복호화 read-back했다. 평문 임시는 삭제했다. R2 바이트는 SQL 변경 대상도 스냅샷 대상도 아니다.
+- **운영 적용**: 0026 영구 적용→6 OCC trigger/ACL/search_path/행수·해시 확인→`stale_sync_write_guard.sql`→0027 영구 적용→RLS/ACL/함수 3개/6 generation trigger/legacy stamp 확인→`canonical_sync_meta.sql`=`CANONICAL_SYNC_META_PASS`→stale 재검사. 테스트 픽스처 0건, 새 컬럼을 제외한 7개 내용 해시는 전부 적용 전과 같다.
+- **라이브 read-back**: PC Chrome 실제 앱에서 여행 5개와 `☁️ 동기화됨`, 진단 수동 실행의 `동기화했어요 — 올림 0건 · 내림 0건`을 확인했다. `sync_meta`는 1행·legacy로 생성됐다. 태블릿/폰의 적용 후 새 실행은 사용자 확인이 필요하다.
+- **코드 보강/비공허**: `PGRST202`는 migration 미적용의 증명이 아니므로 먼저 `sync_meta`를 owner RLS로 직접 읽는다. 그것도 불가하고 로컬이 absent/legacy·pending 없음일 때만 서버 read-only pull을 연다. 이 모드는 repair/push·purge/unpurge·DB upsert/DELETE·media 고아/R2 정리를 실행하지 않고 큐를 보존한다. 첫 일반-sync fallback이 canonical CAS 밖의 영구삭제를 열 수 있다는 재해복구 FAIL을 출고 전에 확인해 폐기했다. non-legacy/pending/다른 오류는 fail-closed다. runSync 적대적 통합 유닛은 수정 전 실제 RED, 수정 후 targeted 62/62 PASS. 전체 라이브에서 고정 2.6초 대기가 느린 정상 재생을 실패로 읽는 M-0094도 두 번 재현해, 시작 확인 뒤 종료/오류 상태를 최대 15초 기다리도록 교정했다. 실제 ended 정리 누락 주입은 278/279 RED, 원복 뒤 개별 editor live 279/279 GREEN이었다. 최종 build v1.63·전체 유닛 73파일 1,118건·전체 harness 43/43 PASS, FAIL/SKIP 0이며 배포만 대기다.
+- **남은 경계**: 실제 2기기 canonical generation 게시/소비, authenticated R2 PUT/GET/delete. Supabase advisor의 새 SECURITY DEFINER 경고 둘은 authenticated가 호출해야 하는 의도된 좁은 RPC이며 search_path/auth.uid/초대제/사용자범위/SQL 공격검사로 통제한다. leaked-password 보호와 기존 FK 인덱스 권고는 별도 보완 항목이다.
 
 ## HANDOFF-0052 · v1.62 · **canonical RPC 입력 경계 + 운영 rollback 사전검증 (M-0092)** (2026-08-02)
 

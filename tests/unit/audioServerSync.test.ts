@@ -194,7 +194,7 @@ describe('② pull — 비파괴 (불변식 #8)', () => {
     await pushPendingAudio(remote, USER);
     await db().localAudio.clear(); // 다른 기기인 척
 
-    const r = await pullAudio(remote);
+    const r = await pullAudio(remote, 'merge');
     expect(r.pulled).toBe(1);
     const got = await db().localAudio.get(a.id);
     expect(got!.blob.size).toBe(512);
@@ -210,7 +210,7 @@ describe('② pull — 비파괴 (불변식 #8)', () => {
     const row = remote.rows.get(a.id)!;
     remote.rows.set(a.id, { ...row, deleted_at: new Date().toISOString(), version: row.version + 1 });
 
-    await pullAudio(remote);
+    await pullAudio(remote, 'merge');
     const got = await db().localAudio.get(a.id);
     expect(got!.deletedAt).not.toBeNull();
     expect(got!.blob.size).toBe(512); // 바이트는 그대로다
@@ -224,7 +224,7 @@ describe('② pull — 비파괴 (불변식 #8)', () => {
     remote.rows.set(a.id, { ...row, deleted_at: new Date().toISOString(), version: row.version + 1 });
     await db().localAudio.clear();
 
-    await pullAudio(remote);
+    await pullAudio(remote, 'merge');
     expect(await db().localAudio.count()).toBe(0);
   });
 
@@ -237,7 +237,7 @@ describe('② pull — 비파괴 (불변식 #8)', () => {
     broken.rows.set(a.id, ok.rows.get(a.id)!);
     await db().localAudio.clear();
 
-    const r = await pullAudio(broken);
+    const r = await pullAudio(broken, 'merge');
     expect(r.pulled).toBe(0);
     expect(await db().localAudio.count()).toBe(0); // 만들지도, 깨진 것을 넣지도 않는다
   });
@@ -245,7 +245,7 @@ describe('② pull — 비파괴 (불변식 #8)', () => {
   it('🔴 빈-클라우드 가드 — 서버가 비었다고 로컬을 지우지 않는다', async () => {
     await rec();
     await rec();
-    const r = await pullAudio(fakeRemote()); // 서버에 행이 하나도 없다
+    const r = await pullAudio(fakeRemote(), 'merge'); // 서버에 행이 하나도 없다
     expect(r.skippedEmptyCloud).toBe(true);
     expect(await db().localAudio.count()).toBe(2);
   });
@@ -257,7 +257,7 @@ describe('② pull — 비파괴 (불변식 #8)', () => {
     await db().localAudio.clear();
     await db().purgedIds.put({ id: a.id, entityType: 'audio', purgedAt: new Date().toISOString() });
 
-    await pullAudio(remote);
+    await pullAudio(remote, 'merge');
     expect(await db().localAudio.count()).toBe(0);
   });
 
@@ -271,7 +271,7 @@ describe('② pull — 비파괴 (불변식 #8)', () => {
 
     let downloads = 0;
     const counting: AudioRemote = { ...remote, download: (p) => { downloads++; return remote.download(p); } };
-    await pullAudio(counting);
+    await pullAudio(counting, 'merge');
     expect(downloads).toBe(0);
   });
 });

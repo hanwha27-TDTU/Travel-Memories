@@ -72,15 +72,15 @@ RLS SQL 파일을 읽는 **정적 validator만으로 통과 처리하지 않는�
 ```
 view를 만들면 Postgres 버전과 `security_invoker` 설정을 확인해 RLS 우회를 막는다. `SECURITY DEFINER` RPC는 non-exposed private schema·고정 `search_path`·명시적 `auth.uid()` 검증·최소 권한을 적용하고, 가능하면 security invoker 경로를 우선한다.
 
-## 동기화 쓰기 무결성 (migration 0026 · 운영 적용 대기)
+## 동기화 쓰기 무결성 (migration 0026 · 운영 적용 완료 2026-08-03)
 
 6개 사용자 동기화 테이블(trips·moments·media·expenses·audio·places)의 authenticated UPDATE는 마지막으로 본 `base_version`이 현재 서버 `version`과 일치할 때만 허용한다. `a_sync_write_guard`는 `set_updated_at`보다 먼저 실행되어 stale 요청을 **행·서버시각 모두 무변경**으로 만든다. 허용된 쓰기는 서버 version을 단조 증가시키며, 같은 operation 재시도는 멱등 no-op이다.
 
 가드는 **`current_user='authenticated'`에만** 적용한다. postgres·service_role·`SECURITY DEFINER` 복구 함수와 후속 migration까지 앱의 동기화 프로토콜로 묶으면 관리 UPDATE가 조용히 무효화되므로 명시적으로 통과시킨다. SQL 회귀 검사는 이 두 방향을 모두 재야 한다: 관리자 복구 UPDATE는 성공하고, `set local role authenticated` + 실제 JWT/RLS의 stale 쓰기는 거절되어야 한다.
 
-배포는 **신형 클라이언트 전기기 배포·확인 → 운영 DB 스냅샷 → 0026 적용 → authenticated read-back·행 수 확인** 순서다. 구버전 클라이언트와 혼재하면 거절된 쓰기를 옛 부분-field read-back이 성공으로 오인할 수 있으므로 서버 migration을 먼저 적용하지 않는다. 롤백은 6개 `a_sync_write_guard` 트리거와 `journey.guard_sync_write()` 함수 제거이며 데이터 변환은 없다.
+배포는 **신형 클라이언트 전기기 배포·확인 → 운영 DB 스냅샷 → 0026 적용 → authenticated read-back·행 수 확인** 순서다. 구버전 클라이언트와 혼재하면 거절된 쓰기를 옛 부분-field read-back이 성공으로 오인할 수 있으므로 서버 migration을 먼저 적용하지 않는다. 이 순서는 2026-08-03 완료됐고, 6개 `a_sync_write_guard`·고정 `search_path=''`·함수 직접 EXECUTE 회수와 `stale_sync_write_guard.sql`을 운영에서 확인했다. 롤백은 6개 트리거와 `journey.guard_sync_write()` 함수 제거이며 데이터 변환은 없다.
 
-## 최종본 세대 격리 (migration 0027 · 운영 적용 대기)
+## 최종본 세대 격리 (migration 0027 · 운영 적용 완료 2026-08-03)
 
 `journey.sync_meta`는 사용자별 `canonical_version`·마지막 operation/device를 보관한다. 일반 클라이언트에는
 **owner+초대제 SELECT만** 열고 INSERT/UPDATE/DELETE grant는 주지 않는다. 메타 생성과 정확집합 게시만
@@ -93,11 +93,22 @@ view를 만들면 Postgres 버전과 `security_invoker` 설정을 확인해 RLS 
 
 공격검사 `supabase/tests/canonical_sync_meta.sql`은 owner publish·정확집합/세대 stamp·stale generation
 INSERT/UPDATE 거절·idempotent 재시도·stale CAS 원자 롤백·FK 실패 전면 롤백·타 사용자 메타 비노출을
-`BEGIN…ROLLBACK`으로 잰다. **아직 PostgreSQL에 실행하지 않았으므로 통과로 기록하지 않는다.**
+`BEGIN…ROLLBACK`으로 잰다. 운영 PostgreSQL 17에서 `CANONICAL_SYNC_META_PASS`를 확인했고 테스트 행은
+rollback 뒤 0건이었다. `sync_meta`는 RLS 활성·authenticated SELECT만, 함수 둘은 authenticated EXECUTE만,
+guard 함수는 직접 EXECUTE 0으로 되읽었다.
 
 배포는 0026의 앱 선배포 조건을 먼저 충족한 뒤 **DB 스냅샷 → 0026 적용/read-back → 0027 적용 →
 authenticated 공격검사 → `sync_meta`/여섯 표 행수·세대 read-back** 순서다. 정확집합 게시 이후의 롤백은
-삭제 전 행을 자동 복원하지 못하므로 DB 스냅샷이 필수다. 현재 운영은 0025까지이며 0026·0027 모두 미적용이다.
+삭제 전 행을 자동 복원하지 못하므로 DB 스냅샷이 필수다. 2026-08-03 적용 전 사용자 행 77개와 원장을
+Windows DPAPI(CurrentUser)로 암호화해 복호화·MD5/SHA-256 read-back했고, 적용 후 새 컬럼을 제외한 7개
+내용 해시와 행 수가 모두 같았다. 현재 운영은 0027까지다. 아직 canonical exact-set 게시 자체는 실행하지 않았다.
+
+앱 선배포 중 `ensure_sync_meta()`가 `PGRST202`를 반환하면 ADR-0045의 read-only capability probe를 쓴다.
+먼저 `sync_meta`를 owner RLS로 직접 SELECT해 실제 generation을 확인한다. 표까지 확인할 수 없고 로컬 canonical
+상태가 absent/legacy이며 pending 게시가 없을 때만 **서버 read-only pull**을 허용한다. 이 경로는 repair/push,
+purge·unpurge 원장 변경, DB upsert/DELETE, media 고아 tombstone과 R2 삭제를 실행하지 않고 큐를 보존한다.
+non-legacy/pending 또는 다른 오류는 fail-closed다. `PGRST202`만으로 일반 병합을 열면 schema cache 지연 때
+canonical CAS 밖의 파괴 변경이 가능하므로 금지한다.
 
 ## 키 관리 (H-13 — publishable/secret 키 체계)
 

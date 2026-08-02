@@ -4,6 +4,7 @@ import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { db, type LocalMedia, type LocalTrip, type SyncQueueItem } from '../../src/offline/db';
 import {
+  canonicalRemote,
   ensureCanonicalBeforeSync,
   publishCanonicalWithRemote,
   type CanonicalMeta,
@@ -98,6 +99,84 @@ describe('canonical 소비 기기', () => {
     expect(result).toEqual({ mode:'normal',version:'legacy',pulled:0 });
     expect((await db().localTrips.get(LOCAL_ID))?.title).toBe('로컬 전용');
     expect((await db().localTrips.get(LOCAL_ID))?.baseCanonicalVersion).toBe('legacy');
+  });
+
+  it('앱 선배포 중 canonical RPC를 확인할 수 없으면 server read-only 문만 연다', async () => {
+    await db().localTrips.put(localTrip());
+    const remote = fakeRemote();
+    remote.ensureMeta = async () => ({
+      data:null,
+      error:'Could not find the function journey.ensure_sync_meta without parameters in the schema cache',
+      errorCode:'PGRST202',
+    });
+
+    await expect(ensureCanonicalBeforeSync(remote,USER)).resolves.toEqual({
+      mode:'legacy',version:'legacy',pulled:0,
+    });
+    expect((await db().localTrips.get(LOCAL_ID))?.title).toBe('로컬 전용');
+    expect(await db().syncState.get(`canonical:${USER}`)).toBeUndefined();
+  });
+
+  it('canonical 세대나 미완료 게시가 있으면 RPC 부재를 legacy로 낮추지 않는다', async () => {
+    const remote = fakeRemote();
+    remote.ensureMeta = async () => ({ data:null,error:'schema cache miss',errorCode:'PGRST202' });
+    await db().syncState.put({
+      id:`canonical:${USER}`,userId:USER,canonicalVersion:VERSION,updatedAt:'2026-08-02T00:00:00.000Z',
+    });
+    await expect(ensureCanonicalBeforeSync(remote,USER)).rejects.toThrow('legacy 모드로 낮출 수 없습니다');
+
+    await db().syncState.put({
+      id:`canonical:${USER}`,userId:USER,canonicalVersion:'legacy',updatedAt:'2026-08-02T00:00:00.000Z',
+      pendingCanonical:{
+        expectedVersion:'legacy',nextVersion:VERSION,operationId:'99999999-9999-4999-8999-999999999999',
+        device:'test',stage:'publishing',createdAt:'2026-08-02T00:00:00.000Z',queuedOperationIds:[],
+        stagedPaths:[],previousPaths:[],trips:[],places:[],moments:[],media:[],expenses:[],audio:[],purgedIds:[],
+      },
+    });
+    await expect(ensureCanonicalBeforeSync(remote,USER)).rejects.toThrow('legacy 모드로 낮출 수 없습니다');
+  });
+
+  it('RPC 부재가 아닌 서버 오류는 일반 동기화로 반올림하지 않는다', async () => {
+    const remote = fakeRemote();
+    remote.ensureMeta = async () => ({ data:null,error:'권한 거부',errorCode:'42501' });
+    await expect(ensureCanonicalBeforeSync(remote,USER)).rejects.toThrow('canonical 메타 조회 실패: 권한 거부');
+  });
+
+  it('RPC schema cache가 뒤처져도 sync_meta 직접 읽기로 non-legacy 세대를 확인한다', async () => {
+    const client = {
+      rpc:async () => ({ data:null,error:{ message:'schema cache miss',code:'PGRST202' } }),
+      from:() => ({
+        select:() => ({
+          maybeSingle:async () => ({
+            data:{
+              canonical_version:VERSION,canonical_operation_id:null,canonical_device_id:'tablet',
+              updated_at:'2026-08-03T00:00:00.000Z',
+            },
+            error:null,
+          }),
+        }),
+      }),
+      functions:{ invoke:async () => ({ data:null,error:null }) },
+    };
+
+    await expect(canonicalRemote(client as never).ensureMeta()).resolves.toEqual({
+      data:{
+        canonicalVersion:VERSION,canonicalOperationId:null,canonicalDeviceId:'tablet',
+        updatedAt:'2026-08-03T00:00:00.000Z',
+      },
+    });
+  });
+
+  it('sync_meta 0행은 legacy로 추측하지 않고 capability 불명으로 남긴다', async () => {
+    const client = {
+      rpc:async () => ({ data:null,error:{ message:'schema cache miss',code:'PGRST202' } }),
+      from:() => ({ select:() => ({ maybeSingle:async () => ({ data:null,error:null }) }) }),
+      functions:{ invoke:async () => ({ data:null,error:null }) },
+    };
+
+    await expect(canonicalRemote(client as never).ensureMeta()).resolves.toEqual({
+      data:null,error:'schema cache miss',errorCode:'PGRST202',
+    });
   });
 
   it('세대가 바뀌면 로컬 전용·대기열을 보존하지 않고 클라우드 정확집합으로 교체한다', async () => {
@@ -228,5 +307,97 @@ describe('runSync 오케스트레이션 이음매', () => {
     const result = await runSync(client as never,USER);
     expect(result).toMatchObject({ canonicalApplied:true,pushed:0,failed:0,pulled:1 });
     expect(upserts).toBe(0);
+  });
+
+  it('RPC capability가 불명확하면 read-only pull로 server 쓰기·ledger·R2를 막는다', async () => {
+    const purgedTripId = '88888888-8888-4888-8888-888888888888';
+    const mediaId = '99999999-9999-4999-8999-999999999999';
+    const unpurgeId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    const pulledTripId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const now = '2026-08-03T00:00:00.000Z';
+    const media: MediaRow = {
+      id:mediaId,user_id:USER,moment_id:MOMENT_ID,trip_id:purgedTripId,
+      storage_path:`${USER}/trip/photo__99999999999949998999999999999999.webp`,gps_lat:null,gps_lng:null,
+      width:100,height:100,taken_at:null,bytes_display:10,source:'user',version:2,base_version:1,
+      base_canonical_version:VERSION,created_at:'2026-08-01T00:00:00.000Z',updated_at:now,
+      deleted_at:null,client_operation_id:null,
+    };
+    await db().localTrips.put(localTrip(SERVER_ID,'기기에서 수정 중'));
+    await db().purgedIds.put({ id:purgedTripId,entityType:'trip',purgedAt:now });
+    await db().syncQueue.bulkAdd([
+      {
+        operationId:'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',entityType:'trip',entityId:SERVER_ID,
+        operationType:'update',state:'local_only',attempts:0,createdAt:now,
+      },
+      {
+        operationId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',entityType:'purge:trip',entityId:purgedTripId,
+        operationType:'purge',state:'local_only',attempts:0,createdAt:now,
+      },
+      {
+        operationId:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',entityType:'unpurge',entityId:unpurgeId,
+        operationType:'unpurge',state:'local_only',attempts:0,createdAt:now,
+      },
+    ]);
+
+    const mutations = { upsert:0,delete:0,rpc:0,r2:0 };
+    const rows: Record<string, unknown[]> = {
+      trips:[tripRow(),tripRow(pulledTripId,'서버에서 새로 받은 여행')],
+      // read-only 분기에 ledgerAll/applyPurgedLedger가 다시 연결되면 SERVER_ID 로컬 행을
+      // 지우게 만드는 적대값. 현재 경로는 이 표를 읽지도, 로컬에 적용하지도 않아야 한다.
+      places:[],moments:[],media:[media],expenses:[],audio:[],purged_ids:[{ id:SERVER_ID }],
+    };
+    const client = {
+      async rpc(name: string) {
+        if (name === 'ensure_sync_meta') {
+          return {
+            data:null,
+            error:{
+              message:'Could not find the function journey.ensure_sync_meta without parameters in the schema cache',
+              code:'PGRST202',
+            },
+          };
+        }
+        mutations.rpc += 1;
+        return { data:0,error:null };
+      },
+      from(table: string) {
+        const result = table === 'sync_meta'
+          ? { data:null,error:{ message:'schema cache miss',code:'PGRST205' },status:404 }
+          : { data:rows[table] ?? [],error:null,status:200 };
+        let query: unknown;
+        const target = {
+          then(resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) {
+            return Promise.resolve(result).then(resolve,reject);
+          },
+        };
+        query = new Proxy(target, {
+          get(obj, prop) {
+            if (prop === 'then') return obj.then.bind(obj);
+            return (..._args: unknown[]) => {
+              if (prop === 'upsert') mutations.upsert += 1;
+              if (prop === 'delete') mutations.delete += 1;
+              return query;
+            };
+          },
+        });
+        return query;
+      },
+      functions:{
+        invoke:async () => {
+          mutations.r2 += 1;
+          return { data:null,error:null };
+        },
+      },
+    };
+
+    const result = await runSync(client as never,USER);
+
+    expect(result).toMatchObject({ canonicalApplied:false,pushed:0,failed:0,pulled:1 });
+    expect(mutations).toEqual({ upsert:0,delete:0,rpc:0,r2:0 });
+    expect(await db().syncQueue.count()).toBe(3);
+    expect((await db().localTrips.get(SERVER_ID))?.title).toBe('기기에서 수정 중');
+    expect((await db().localTrips.get(pulledTripId))?.title).toBe('서버에서 새로 받은 여행');
+    expect(await db().purgedIds.get(purgedTripId)).toBeDefined();
+    expect(await db().localMedia.get(mediaId)).toBeUndefined();
   });
 });

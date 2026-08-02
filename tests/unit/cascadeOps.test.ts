@@ -196,7 +196,7 @@ describe('영구삭제(A안) — 지운 것이 되살아나지 않는다', () =>
       getById: async () => ({ data: null }),
       listAll: async () => ({ data: [serverRow] as never }),
     };
-    const r = await pullTrips(remote as never);
+    const r = await pullTrips(remote as never, 'merge');
     expect(r.pulled).toBe(0); // 건너뛴다
     expect(await db().localTrips.get(tripId)).toBeUndefined(); // 되살아나지 않는다
   });
@@ -219,7 +219,7 @@ describe('영구삭제(A안) — 지운 것이 되살아나지 않는다', () =>
       getById: async () => ({ data: null }),
       listAll: async () => ({ data: [serverRow] as never }),
     };
-    await pullTrips(remote as never);
+    await pullTrips(remote as never, 'merge');
     expect(await db().localTrips.get(tripId)).toBeTruthy(); // 옛 결함이 그대로 재현된다
   });
 });
@@ -279,7 +279,7 @@ describe('pull 대조 재큐잉 — "1회 표식" 설계의 구멍을 막는다'
     await db().syncQueue.clear(); // 삭제 op가 유실된 상태(= 실제로 겪은 고아)
 
     // 서버는 아직 **활성**(version 1) — 삭제가 도달하지 못했다는 직접 증거
-    await pullTrips(remoteOf([serverTripRow(tripId, null, 1)]) as never);
+    await pullTrips(remoteOf([serverTripRow(tripId, null, 1)]) as never, 'merge');
 
     expect((await queued()).get('trip')?.has(tripId)).toBe(true);
   });
@@ -289,14 +289,14 @@ describe('pull 대조 재큐잉 — "1회 표식" 설계의 구멍을 막는다'
     await softDeleteTripLocalFirst(tripId);
     await db().syncQueue.clear();
 
-    await pullTrips(remoteOf([serverTripRow(tripId, new Date().toISOString(), 2)]) as never);
+    await pullTrips(remoteOf([serverTripRow(tripId, new Date().toISOString(), 2)]) as never, 'merge');
 
     expect((await db().syncQueue.toArray()).length).toBe(0);
   });
 
   it('활성 항목은 건드리지 않는다', async () => {
     const { tripId } = await seedTrip(); // 삭제하지 않음
-    await pullTrips(remoteOf([serverTripRow(tripId, null, 1)]) as never);
+    await pullTrips(remoteOf([serverTripRow(tripId, null, 1)]) as never, 'merge');
     expect((await db().syncQueue.toArray()).filter((q) => q.operationType === 'delete').length).toBe(0);
   });
 });
@@ -341,7 +341,7 @@ describe('서버 기준 고아 스윕 — 재큐잉이 원리적으로 닿지 �
       },
       uploadDisplay: async () => ({}),
     };
-    await pullMedia(remote as never);
+    await pullMedia(remote as never, 'merge');
 
     expect(upserted.length).toBe(1);
     expect((upserted[0] as { deleted_at: string | null }).deleted_at).not.toBeNull(); // tombstone을 밀었다
@@ -363,7 +363,7 @@ describe('서버 기준 고아 스윕 — 재큐잉이 원리적으로 닿지 �
       remove: async () => ({}),
       uploadDisplay: async () => ({}),
     };
-    await pullMedia(remote as never);
+    await pullMedia(remote as never, 'merge');
     expect(upserted.length).toBe(0);
   });
 });
