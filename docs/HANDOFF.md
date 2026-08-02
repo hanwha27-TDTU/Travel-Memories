@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.54<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->154<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — v<!--reg:appVersion-->1.55<!--/reg--> 배포 라이브**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 아래 "현재 기능 지도"의 기능이 모두 구현·게이트·배포됨. 브랜치 `claude/travel-log-app-r2xd5f`, origin 동기화됨. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->155<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->61<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중(2026-07-23 DB 실측: auth.users 2명 provider=google, 실 owner 계정 동기화 확인). Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 4엔티티(trips·moments·media·expenses) 동기화 코드 완성: push 멱등 upsert+read-back+LWW, pull 빈-클라우드 가드+version 기반 tombstone 우위(좀비 차단), 서버 `prevent_zombie_resurrection` 트리거·소유자 RLS·복합 FK(H-02). 마이그레이션 <!--reg:migrationCount-->25<!--/reg-->개 적용(`supabase/migrations/` 전부).
 > **주의(정직·중요)**: 이 **샌드박스는 `*.supabase.co` 차단**이라 앱을 띄워 네트워크 동기화를 재현 검증할 수 없다 — 신규 동기화·Storage 업/다운·대용량 사진·실기기 터치(핀치·드래그)·PWA 설치는 **사용자 실기기 확인 몫**. 앱측 로직·서버 정책은 유닛/트랜잭션/라이브렌더로 검증됨(각 Phase 기록 참조).
@@ -78,7 +78,7 @@ SCAN 범위도 `android-shell/android/app/src`(java)로 넓혔다 — node_modul
 
 **이 영역을 만지기 전에 반드시 읽을 것**: `diagnostics-dev` **§7-C**(「없다」는 찾아보고 나서) · **§7-G**(「이 기기에 없다」는 「없다」가 아니다) · **§7-H**(버튼은 눌러 봐야 확인한 것) · `sync-offline-dev` **§2-B**(바이트 read-back 계약) · `gates-mechanization-dev` **§2-J**(안 잰 것을 문제 없음이라 말하지 마라). `npm run brief <파일>`이 자동으로 띄운다.
 
-**최신 배포(2026-08-01 실측)**: `5bfbd34`(v<!--reg:appVersion-->1.54<!--/reg--> · PR #149 스쿼시) — CI `harness`·`live-render` 그린, Pages `deploy-pages` **#192 success**. 🔴 **「배포 그린」과 「사이트에서 확인」은 다른 말이다** — 샌드박스가 `*.github.io`를 막으므로 화면 확인은 사용자 실기기 몫이다.
+**최신 배포(2026-08-01 실측)**: `5bfbd34`(v<!--reg:appVersion-->1.55<!--/reg--> · PR #149 스쿼시) — CI `harness`·`live-render` 그린, Pages `deploy-pages` **#192 success**. 🔴 **「배포 그린」과 「사이트에서 확인」은 다른 말이다** — 샌드박스가 `*.github.io`를 막으므로 화면 확인은 사용자 실기기 몫이다.
 
 <details><summary>과거 실측(2026-07-28 · v1.22)</summary>
 
@@ -306,6 +306,21 @@ npm run dev                            # 홈 화면 확인 (선택)
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
 
 ---
+
+## HANDOFF-0047 · v1.55 · **APK 서명 고정 — 「앱이 설치되지 않음」 해결 (ADR-0039)** (2026-08-02)
+
+사용자 실측: v1.54 APK 설치 시 "앱이 설치되지 않음"(아이콘·APK는 정상). 원인 = **서명 불일치**
+(`assembleDebug` 고정 키 없음 → CI 러너가 빌드마다 새 debug 키스토어 → 서명이 매번 달라 이미
+설치된 앱 위 업데이트 거부).
+- **수정**: `android-shell/android/app/bugeon-debug.keystore`(RSA2048·10000일·alias androiddebugkey·
+  비번 android) 커밋 + `build.gradle` `signingConfigs.debug` → 모든 빌드 동일 서명.
+- **§0 관계**: debug 키는 비밀 아님(사이드로드 전용·관례 비번). service_role/DB/JWT 부류 아님.
+  `.gitignore`의 `*.keystore`는 주석 처리돼 있어 커밋됨(확인).
+- **1회 비용**: 이미 설치된 앱은 옛 랜덤 키라 이번엔 **지우고 재설치** 필요(자료는 서버 복귀·
+  백업 권장). 이후 영구 덮어쓰기.
+- **안내**: `changelog v1.55` + `APK_FACTS`에 「앱이 설치되지 않음 → 지우고 재설치(1회)」 추가.
+- **검증**: 전체 하네스 그린. Gradle 서명 실동작·업데이트 덮어쓰기는 실기기 확인(다음 빌드부터).
+- 🔴 다음 빌드가 이 고정 키로 서명된 첫 APK다 — 사용자가 그걸로 재설치해야 이후 업데이트가 매끄럽다.
 
 ## HANDOFF-0046 · v1.54 · **여행 앱 아이콘 + 앱 내 아이콘 전환기 (ADR-0038)** (2026-08-02)
 
