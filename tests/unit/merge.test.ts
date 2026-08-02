@@ -85,18 +85,19 @@ describe('isEmptyCloudAnomaly (빈-클라우드 가드)', () => {
   });
 });
 
-describe('writeLanded (M-3 · 내 쓰기가 착지했는가 — 사진·소리 read-back)', () => {
-  it('같은 version + 같은 경로 = 내 쓰기가 착지', () => {
-    expect(writeLanded({ version: 3, storagePath: 'u/a.webp' }, 3, 'u/a.webp')).toBe(true);
+describe('writeLanded (M-3 · operation id 기반 read-back)', () => {
+  it('같은 operation + 같거나 높은 서버 version = 내 쓰기가 착지', () => {
+    expect(writeLanded({ version: 4, clientOperationId: 'op-1' }, 3, 'op-1')).toBe(true);
   });
-  it('🔴 경합으로 남의 더 높은 version이 오면 = 착지 아님(덮지 않고 재시도)', () => {
-    expect(writeLanded({ version: 4, storagePath: 'u/a.webp' }, 3, 'u/a.webp')).toBe(false);
+  it('🔴 제목 같은 남의 행이어도 operation이 다르면 착지 아님', () => {
+    expect(writeLanded({ version: 4, clientOperationId: 'other-op' }, 3, 'op-1')).toBe(false);
   });
-  it('경로가 다르면 = 착지 아님(다른 쓰기다)', () => {
-    expect(writeLanded({ version: 3, storagePath: 'u/other.webp' }, 3, 'u/a.webp')).toBe(false);
+  it('서버 version이 보낸 값보다 낮으면 같은 operation이어도 착지 아님', () => {
+    expect(writeLanded({ version: 2, clientOperationId: 'op-1' }, 3, 'op-1')).toBe(false);
   });
-  it('서버 경로가 null이면 = 착지 아님', () => {
-    expect(writeLanded({ version: 3, storagePath: null }, 3, 'u/a.webp')).toBe(false);
+  it('사진·소리는 operation 외에 경로도 같아야 한다', () => {
+    expect(writeLanded({ version: 3, clientOperationId: 'op-1', storagePath: 'u/a.webp' }, 3, 'op-1', 'u/a.webp')).toBe(true);
+    expect(writeLanded({ version: 3, clientOperationId: 'op-1', storagePath: 'u/other.webp' }, 3, 'op-1', 'u/a.webp')).toBe(false);
   });
 });
 

@@ -36,6 +36,8 @@ export interface PlaceRow {
   map_picked: boolean;
   source: string;
   version: number;
+  base_version?: number | null;
+  base_canonical_version?: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -79,6 +81,8 @@ export function toPlaceRow(p: LocalPlace, userId: string, device?: string): Plac
     map_picked: p.mapPicked,
     source: 'user',
     version: p.version,
+    base_version: p.baseVersion ?? Math.max(0, p.version - 1),
+    base_canonical_version: p.baseCanonicalVersion ?? 'legacy',
     created_at: p.createdAt,
     updated_at: p.updatedAt,
     deleted_at: p.deletedAt,
@@ -117,6 +121,8 @@ export function fromPlaceRow(r: PlaceRow): WithInstants<LocalPlace> {
     spanMeters: r.span_meters ?? null,
     mapPicked: r.map_picked === true,
     version: r.version,
+    baseVersion: r.version,
+    baseCanonicalVersion: r.base_canonical_version ?? 'legacy',
     createdAt: isoInstant(r.created_at),
     updatedAt: isoInstant(r.updated_at),
     deletedAt: isoInstantOrNull(r.deleted_at),

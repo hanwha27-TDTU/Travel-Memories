@@ -33,6 +33,7 @@ export async function createTripLocalFirst(input: CreateTripInput): Promise<Loca
     endDate: input.endDate ?? '',
     status: 'planned',
     version: 1,
+    baseVersion: 0,
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
@@ -104,7 +105,7 @@ export async function updateTripLocalFirst(id: string, patch: UpdateTripPatch): 
     ...(patch.timeZone !== undefined ? { timeZone: patch.timeZone } : {}),
     version: cur.version + 1,
     updatedAt: now,
-    baseVersion: cur.version,
+    baseVersion: cur.baseVersion ?? cur.version,
     clientOperationId: opId,
   };
   if (!next.title) throw new Error('제목이 비어 있습니다.');
@@ -185,7 +186,7 @@ export async function softDeleteTripLocalFirst(id: string): Promise<TripChildren
     deletedAt: now,
     version: cur.version + 1,
     updatedAt: now,
-    baseVersion: cur.version,
+    baseVersion: cur.baseVersion ?? cur.version,
     clientOperationId: tripOpId,
   };
 
@@ -224,15 +225,20 @@ export async function softDeleteTripLocalFirst(id: string): Promise<TripChildren
     ...expenses.map((e) => childOp('expense', e.id)),
     ...audio.map((a) => childOp('audio', a.id)),
   ];
+  const childOperationId = (entityType: ChildEntity, entityId: string): string => {
+    const found = ops.find((op) => op.entityType === entityType && op.entityId === entityId);
+    if (!found) throw new Error(`자식 동기화 작업 생성 실패: ${entityType}/${entityId}`);
+    return found.operationId;
+  };
 
   // 표 6개는 Dexie의 가변인자 오버로드 한도를 넘어 배열 형태를 쓴다(동작은 같다).
   await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.syncQueue], async () => {
     await d.localTrips.put(tombstonedTrip);
-    for (const m of moments) await d.localMoments.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now });
-    for (const m of media) await d.localMedia.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now });
-    for (const e of expenses) await d.localExpenses.put({ ...e, deletedAt: now, version: e.version + 1, updatedAt: now });
+    for (const m of moments) await d.localMoments.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now, baseVersion: m.baseVersion ?? m.version, clientOperationId: childOperationId('moment', m.id) });
+    for (const m of media) await d.localMedia.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now, baseVersion: m.baseVersion ?? m.version, clientOperationId: childOperationId('media', m.id) });
+    for (const e of expenses) await d.localExpenses.put({ ...e, deletedAt: now, version: e.version + 1, updatedAt: now, baseVersion: e.baseVersion ?? e.version, clientOperationId: childOperationId('expense', e.id) });
     // 오디오도 형제다 — 함께 사라지고, **서버에도 그 사실이 간다**(위 ops에 audio 포함).
-    for (const a of audio) await d.localAudio.put({ ...a, deletedAt: now, version: a.version + 1, updatedAt: now });
+    for (const a of audio) await d.localAudio.put({ ...a, deletedAt: now, version: a.version + 1, updatedAt: now, baseVersion: a.baseVersion ?? a.version, clientOperationId: childOperationId('audio', a.id) });
     for (const op of ops) await d.syncQueue.add(op);
   });
 
@@ -255,7 +261,7 @@ export async function restoreTripLocalFirst(id: string, children: TripChildren):
     deletedAt: null,
     version: cur.version + 1,
     updatedAt: now,
-    baseVersion: cur.version,
+    baseVersion: cur.baseVersion ?? cur.version,
     clientOperationId: tripOpId,
   };
   // 삭제와 **대칭**이어야 한다. 복원 op가 빠지면 서버에는 tombstone이 남아, 다음 pull에서
@@ -276,6 +282,11 @@ export async function restoreTripLocalFirst(id: string, children: TripChildren):
     ...expenseIds.map((eid) => childOp('expense', eid)),
     ...audioIds.map((aid) => childOp('audio', aid)),
   ];
+  const childOperationId = (entityType: ChildEntity, entityId: string): string => {
+    const found = ops.find((op) => op.entityType === entityType && op.entityId === entityId);
+    if (!found) throw new Error(`자식 동기화 작업 생성 실패: ${entityType}/${entityId}`);
+    return found.operationId;
+  };
 
   // 소리를 되살리려면 `localAudio`도 **트랜잭션 범위 안에** 있어야 한다. 빠지면 Dexie가
   // NotFoundError를 던져 **복원 전체가 실패**한다 — 삭제 쪽만 고치고 여기를 빠뜨리면
@@ -284,19 +295,19 @@ export async function restoreTripLocalFirst(id: string, children: TripChildren):
     await d.localTrips.put(restored);
     for (const mid of momentIds) {
       const m = await d.localMoments.get(mid);
-      if (m) await d.localMoments.put({ ...m, deletedAt: null, version: m.version + 1, updatedAt: now });
+      if (m) await d.localMoments.put({ ...m, deletedAt: null, version: m.version + 1, updatedAt: now, baseVersion: m.baseVersion ?? m.version, clientOperationId: childOperationId('moment', m.id) });
     }
     for (const mid of mediaIds) {
       const m = await d.localMedia.get(mid);
-      if (m) await d.localMedia.put({ ...m, deletedAt: null, version: m.version + 1, updatedAt: now });
+      if (m) await d.localMedia.put({ ...m, deletedAt: null, version: m.version + 1, updatedAt: now, baseVersion: m.baseVersion ?? m.version, clientOperationId: childOperationId('media', m.id) });
     }
     for (const eid of expenseIds) {
       const e = await d.localExpenses.get(eid);
-      if (e) await d.localExpenses.put({ ...e, deletedAt: null, version: e.version + 1, updatedAt: now });
+      if (e) await d.localExpenses.put({ ...e, deletedAt: null, version: e.version + 1, updatedAt: now, baseVersion: e.baseVersion ?? e.version, clientOperationId: childOperationId('expense', e.id) });
     }
     for (const aid of audioIds) {
       const a = await d.localAudio.get(aid);
-      if (a) await d.localAudio.put({ ...a, deletedAt: null, version: a.version + 1, updatedAt: now });
+      if (a) await d.localAudio.put({ ...a, deletedAt: null, version: a.version + 1, updatedAt: now, baseVersion: a.baseVersion ?? a.version, clientOperationId: childOperationId('audio', a.id) });
     }
     for (const op of ops) await d.syncQueue.add(op);
   });

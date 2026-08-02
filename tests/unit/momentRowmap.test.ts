@@ -17,6 +17,8 @@ const base: LocalMoment = {
   // 장소 라이브러리 링크(0023) — **왕복해야 한다.** 빠지면 다른 기기에서 링크만 사라진다.
   placeId: 'pl-1',
   version: 3,
+  baseVersion: 3,
+  baseCanonicalVersion: 'legacy',
   createdAt: '2026-07-10T09:20:00.000Z',
   updatedAt: '2026-07-10T09:25:00.000Z',
   deletedAt: null,
@@ -33,6 +35,8 @@ describe('moment rowmap 경계', () => {
     expect(row.place_lng).toBe(126.2396);
     expect(row.place_id).toBe('pl-1');
     expect(row.occurred_at).toBe('2026-07-10T09:20:00.000Z');
+    expect(row.base_version).toBe(3);
+    expect(row.base_canonical_version).toBe('legacy');
   });
 
   it('fromMomentRow ∘ toMomentRow = 항등(핵심 필드)', () => {

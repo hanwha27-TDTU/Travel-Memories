@@ -213,6 +213,7 @@ export async function addPhotoToMoment(
     bytesOriginal: file.size,
     bytesDisplay: display.blob.size,
     version: 1,
+    baseVersion: 0,
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
@@ -246,7 +247,7 @@ export async function softDeleteMediaLocalFirst(id: string): Promise<void> {
   const now = new Date().toISOString();
   const opId = uuid();
   await d.transaction('rw', d.localMedia, d.syncQueue, async () => {
-    await d.localMedia.put({ ...cur, deletedAt: now, version: cur.version + 1, updatedAt: now, baseVersion: cur.version, clientOperationId: opId });
+    await d.localMedia.put({ ...cur, deletedAt: now, version: cur.version + 1, updatedAt: now, baseVersion: cur.baseVersion ?? cur.version, clientOperationId: opId });
     await d.syncQueue.add(mediaOp(opId, id, 'delete', now));
   });
   const back = await d.localMedia.get(id);
@@ -261,7 +262,7 @@ export async function restoreMediaLocalFirst(id: string): Promise<void> {
   const now = new Date().toISOString();
   const opId = uuid();
   await d.transaction('rw', d.localMedia, d.syncQueue, async () => {
-    await d.localMedia.put({ ...cur, deletedAt: null, version: cur.version + 1, updatedAt: now, baseVersion: cur.version, clientOperationId: opId });
+    await d.localMedia.put({ ...cur, deletedAt: null, version: cur.version + 1, updatedAt: now, baseVersion: cur.baseVersion ?? cur.version, clientOperationId: opId });
     await d.syncQueue.add(mediaOp(opId, id, 'update', now));
   });
   const back = await d.localMedia.get(id);
@@ -296,7 +297,7 @@ export async function reeditMediaLocalFirst(
     bytesDisplay: display.blob.size,
     version: cur.version + 1,
     updatedAt: now,
-    baseVersion: cur.version,
+    baseVersion: cur.baseVersion ?? cur.version,
     clientOperationId: opId,
     ...(editState ? { editState } : {}),
   };
@@ -371,7 +372,7 @@ export async function rotateMediaLocalFirst(id: string): Promise<LocalMedia> {
     bytesDisplay: display.blob.size,
     version: cur.version + 1,
     updatedAt: now,
-    baseVersion: cur.version,
+    baseVersion: cur.baseVersion ?? cur.version,
     clientOperationId: opId,
   };
   await d.transaction('rw', d.localMedia, d.syncQueue, async () => {

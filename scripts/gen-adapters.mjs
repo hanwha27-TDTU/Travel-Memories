@@ -64,7 +64,7 @@ export function render(adapterText, constitutionText) {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (resolve(fileURLToPath(import.meta.url)) === resolve(process.argv[1])) {
   const constitution = readFileSync(join(ROOT, SOURCE), 'utf8');
   const done = [];
   for (const f of ADAPTERS) {

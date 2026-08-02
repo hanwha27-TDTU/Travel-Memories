@@ -89,6 +89,7 @@ export async function addAudioToMoment(
     durationSec: Math.min(Math.round(durationSec), MAX_SECONDS),
     recordedAt: now,
     version: 1,
+    baseVersion: 0,
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
@@ -130,7 +131,7 @@ export async function softDeleteAudio(id: string): Promise<void> {
       deletedAt: now,
       updatedAt: now,
       version: cur.version + 1,
-      baseVersion: cur.version,
+      baseVersion: cur.baseVersion ?? cur.version,
       clientOperationId: opId,
     });
     await d.syncQueue.add(audioOp(opId, id, 'delete', now));
@@ -152,7 +153,7 @@ export async function restoreAudio(id: string): Promise<void> {
       deletedAt: null,
       updatedAt: now,
       version: cur.version + 1,
-      baseVersion: cur.version,
+      baseVersion: cur.baseVersion ?? cur.version,
       clientOperationId: opId,
     });
     await d.syncQueue.add(audioOp(opId, id, 'update', now));

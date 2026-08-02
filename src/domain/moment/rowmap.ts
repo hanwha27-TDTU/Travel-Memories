@@ -20,6 +20,8 @@ export interface MomentRow {
   /** 장소 라이브러리 링크(선택 · 0023). 없는 것이 정상 — 자유 입력 장소는 링크가 없다. */
   place_id: string | null;
   version: number;
+  base_version?: number | null;
+  base_canonical_version?: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -44,6 +46,8 @@ export function toMomentRow(m: LocalMoment, userId: string, device?: string): Mo
     place_lng: m.placeLng ?? null,
     place_id: m.placeId ?? null,
     version: m.version,
+    base_version: m.baseVersion ?? Math.max(0, m.version - 1),
+    base_canonical_version: m.baseCanonicalVersion ?? 'legacy',
     created_at: m.createdAt,
     updated_at: m.updatedAt,
     deleted_at: m.deletedAt,
@@ -69,6 +73,8 @@ export function fromMomentRow(r: MomentRow): WithInstants<LocalMoment> {
     placeLng: r.place_lng,
     placeId: r.place_id ?? null,
     version: r.version,
+    baseVersion: r.version,
+    baseCanonicalVersion: r.base_canonical_version ?? 'legacy',
     createdAt: isoInstant(r.created_at),
     updatedAt: isoInstant(r.updated_at),
     deletedAt: isoInstantOrNull(r.deleted_at),

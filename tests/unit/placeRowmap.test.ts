@@ -23,6 +23,8 @@ const base: LocalPlace = {
   spanMeters: 1480,
   mapPicked: false,
   version: 3,
+  baseVersion: 3,
+  baseCanonicalVersion: 'legacy',
   createdAt: '2026-07-30T09:20:00.000Z',
   updatedAt: '2026-07-30T09:25:00.000Z',
   deletedAt: null,
@@ -38,6 +40,8 @@ describe('place rowmap 경계', () => {
     expect(row.map_picked).toBe(false);
     expect(row.longitude).toBe(127.0016);
     expect(row.latitude).toBe(37.587);
+    expect(row.base_version).toBe(3);
+    expect(row.base_canonical_version).toBe('legacy');
   });
 
   it('🔴 행에 `location`을 담지 않는다 — 서버 생성 컬럼이라 앱이 쓰면 안 된다(0022)', () => {

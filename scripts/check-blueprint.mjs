@@ -21,8 +21,9 @@ const DOMAIN_DIR = join(ROOT, 'src/domain');
 
 // 파생 데이터 테이블(도메인 발전원이 아님) — 배선맵의 '발전원'은 사용자 기억 도메인만 센다.
 // syncQueue=동기화 큐, localFxRates=환율 표 캐시(재취득 가능한 공개 데이터),
-// purgedIds=영구삭제 표식(로컬 표시 상태 — 화면에 그릴 기억이 아니다).
-const EXCLUDE_TABLES = new Set(['syncQueue', 'localFxRates', 'purgedIds']);
+// purgedIds=영구삭제 표식(로컬 표시 상태 — 화면에 그릴 기억이 아니다),
+// syncState=canonical 세대·재시작 fence(사용자 기억이 아니라 동기화 제어 상태).
+const EXCLUDE_TABLES = new Set(['syncQueue', 'localFxRates', 'purgedIds', 'syncState']);
 
 /** blueprint.ts에서 SOURCES 객체들을 뽑는다. */
 function parseSources(src) {
@@ -95,6 +96,10 @@ function selfTest() {
   const v = findViolations([{ key: 'trip', table: 'trips', implemented: true, localTable: 'localTrips' }], [], ['localGhost'], '');
   if (!v.some((x) => x.includes('localGhost'))) {
     throw new Error('SELF-TEST 실패: 빠진 발전원을 잡지 못함(게이트 공허).');
+  }
+  const parsed = parseDbTables('localGhost!: Table<X, string>; syncState!: Table<Y, string>;');
+  if (!parsed.includes('localGhost') || parsed.includes('syncState')) {
+    throw new Error('SELF-TEST 실패: 사용자 발전원과 canonical 제어 store를 구분하지 못함.');
   }
 }
 

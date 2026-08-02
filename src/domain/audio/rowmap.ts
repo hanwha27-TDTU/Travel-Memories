@@ -26,6 +26,8 @@ export interface AudioRow {
   recorded_at: string | null;
   source: string;
   version: number;
+  base_version?: number | null;
+  base_canonical_version?: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -45,6 +47,8 @@ export interface AudioMeta {
   bytes: number;
   recordedAt: string;
   version: number;
+  baseVersion: number;
+  baseCanonicalVersion: string;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -71,6 +75,8 @@ export function toAudioRow(
     recorded_at: a.recordedAt || null,
     source: 'user',
     version: a.version,
+    base_version: a.baseVersion ?? Math.max(0, a.version - 1),
+    base_canonical_version: a.baseCanonicalVersion ?? 'legacy',
     created_at: a.createdAt,
     updated_at: a.updatedAt,
     deleted_at: a.deletedAt,
@@ -97,6 +103,8 @@ export function fromAudioRow(r: AudioRow): WithInstants<AudioMeta> {
     bytes: r.bytes ?? 0,
     recordedAt: isoInstant(r.recorded_at ?? ''),
     version: r.version,
+    baseVersion: r.version,
+    baseCanonicalVersion: r.base_canonical_version ?? 'legacy',
     createdAt: isoInstant(r.created_at),
     updatedAt: isoInstant(r.updated_at),
     deletedAt: isoInstantOrNull(r.deleted_at),

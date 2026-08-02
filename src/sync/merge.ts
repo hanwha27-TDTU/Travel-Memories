@@ -156,13 +156,20 @@ export function mustUploadBytes(
  * 돌려준다 — 내 좌표는 안 갔는데 남의 stamp를 내 내용에 얹고 op을 지워, **로컬·서버가 영구히
  * 갈라진다**(형제 넷은 이미 제목·금액·좌표 대조로 이 창을 막고 있었다 — §7 비대칭).
  *
- * 그래서 **내가 보낸 판별 필드**로 대조한다: 같은 version + 같은 경로여야 「내 쓰기가 착지」다.
- * 다르면(경합) false → 호출부가 실패로 두고 재시도한다(다음 pull이 병합하고 다시 push한다).
+ * 그래서 **내가 보낸 operation id**로 대조한다. 제목·금액·좌표 한두 칸만 비교하면, 그 칸은
+ * 우연히 같고 다른 필드가 다른 서버 행을 내 성공으로 오인할 수 있다. operation id는 한 로컬
+ * 변경에 하나뿐이라 서버 read-back이 그 id를 돌려줄 때만 내 쓰기가 착지한 것이다.
+ *
+ * 서버 guard는 같은 상태의 최신 LWW 쓰기가 낮은 version을 들고 오면 version을 단조 증가시킬 수
+ * 있으므로 서버 version은 보낸 값보다 **크거나 같으면** 된다. 사진·소리는 여기에 객체 경로까지
+ * 더해, 행과 바이트가 같은 쓰기인지 확인한다.
  */
 export function writeLanded(
-  server: { version: number; storagePath?: string | null },
+  server: { version: number; clientOperationId?: string; storagePath?: string | null },
   sentVersion: number,
-  sentPath: string,
+  sentOperationId: string,
+  sentPath?: string,
 ): boolean {
-  return server.version === sentVersion && server.storagePath === sentPath;
+  if (server.clientOperationId !== sentOperationId || server.version < sentVersion) return false;
+  return sentPath === undefined || server.storagePath === sentPath;
 }

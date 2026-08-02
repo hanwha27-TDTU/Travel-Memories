@@ -11,6 +11,21 @@ import { collect, findMarkers, DOC_FILES } from './gen-registry.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
+/** 현재 버전 마커를 과거 커밋·배포 기록에 붙이면 생성 때마다 역사가 바뀐다(M-0086). */
+export function appVersionPlacementProblems(entries) {
+  const found = [];
+  for (const { rel, text } of entries) {
+    for (const [index, line] of text.split(/\r?\n/).entries()) {
+      if (!/<!--reg:appVersion-->.*?<!--\/reg-->/.test(line)) continue;
+      if (rel === 'docs/HANDOFF.md' && line.includes('**현재 단계**')) found.push({ allowed: true });
+      else found.push({ allowed: false, message: `${rel}:${index + 1} 현재 버전 마커는 과거 기록에 둘 수 없음` });
+    }
+  }
+  const bad = found.filter((x) => !x.allowed).map((x) => x.message);
+  if (found.length !== 1) bad.push(`현재 버전 마커는 HANDOFF의 현재 단계 한 곳이어야 함(현재 ${found.length}곳)`);
+  return bad;
+}
+
 // ── 비공허 자체검사: 값이 틀리면 반드시 ok=false로 잡혀야 한다 ──
 (() => {
   const reg = { gateCount: 11 };
@@ -20,16 +35,28 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
   if (!(good[0]?.ok === true)) throw new Error('SELF-TEST 실패: 맞는 값을 통과시키지 못함.');
   if (!(bad[0]?.ok === false)) throw new Error('SELF-TEST 실패: 틀린 값을 잡지 못함(게이트 공허).');
   if (!(unknown[0]?.ok === false)) throw new Error('SELF-TEST 실패: 알 수 없는 KEY를 잡지 못함.');
+
+  const placed = appVersionPlacementProblems([
+    { rel: 'docs/HANDOFF.md', text: '**현재 단계** v<!--reg:appVersion-->1.58<!--/reg-->' },
+  ]);
+  const historical = appVersionPlacementProblems([
+    { rel: 'docs/HANDOFF.md', text: '과거 abc1234 v<!--reg:appVersion-->1.58<!--/reg--> 배포' },
+  ]);
+  if (placed.length !== 0) throw new Error('SELF-TEST 실패: 현재 단계 버전 마커를 통과시키지 못함.');
+  if (historical.length === 0) throw new Error('SELF-TEST 실패: 과거 기록의 현재 버전 마커를 잡지 못함.');
 })();
 
 const reg = collect();
 const problems = [];
 let markerCount = 0;
+const docs = [];
 
 for (const rel of DOC_FILES) {
   const path = join(ROOT, rel);
   if (!existsSync(path)) continue;
-  const markers = findMarkers(readFileSync(path, 'utf8'), reg);
+  const doc = readFileSync(path, 'utf8');
+  docs.push({ rel, text: doc });
+  const markers = findMarkers(doc, reg);
   for (const m of markers) {
     markerCount++;
     if (m.ok) continue;
@@ -40,6 +67,7 @@ for (const rel of DOC_FILES) {
     );
   }
 }
+problems.push(...appVersionPlacementProblems(docs));
 
 if (problems.length > 0) {
   console.error('check-doc-counts: 문서 카운트 마커가 실제와 어긋남(손편집 드리프트).');

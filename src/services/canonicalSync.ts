@@ -1,0 +1,666 @@
+// services/canonicalSync.ts — 일반 병합과 사용자 지정 최종본 교체의 경계.
+// docs/SYNC_PROTOCOL.md의 canonical transaction을 구현한다. 세대 변경을 본 기기는 push하지
+// 않고 클라우드 정확집합만 원자 반영하며, 게시 기기는 작업 상태를 Dexie에 남겨 재시작한다.
+
+import type { Table } from 'dexie';
+import {
+  db,
+  type LocalAudio,
+  type LocalMedia,
+  type PendingCanonicalSnapshot,
+  type PurgedId,
+  type SyncMeta,
+} from '../offline/db';
+import { toRow, fromRow, type TripRow } from '../domain/trip/rowmap';
+import { toMomentRow, fromMomentRow, type MomentRow } from '../domain/moment/rowmap';
+import { toExpenseRow, fromExpenseRow, type ExpenseRow } from '../domain/expense/rowmap';
+import { toMediaRow, fromMediaRow, mediaStoragePath, type MediaRow } from '../domain/media/rowmap';
+import { toAudioRow, fromAudioRow, audioStoragePath, type AudioRow } from '../domain/audio/rowmap';
+import { toPlaceRow, fromPlaceRow, type PlaceRow } from '../domain/place/rowmap';
+import { operationStoragePath } from '../domain/media/naming';
+import { compressForStorage } from '../media/compress';
+import { deviceStamp } from '../app/deviceId';
+import type { JourneyClient } from './supabase/client';
+import { r2BlobStore } from './r2';
+
+export const LEGACY_CANONICAL_VERSION = 'legacy';
+const PAGE_SIZE = 1000;
+
+export interface CanonicalMeta {
+  canonicalVersion: string;
+  canonicalOperationId: string | null;
+  canonicalDeviceId: string | null;
+  updatedAt: string;
+}
+
+interface RemoteResult<T> {
+  data: T;
+  error?: string | undefined;
+}
+
+export interface CanonicalRemote {
+  ensureMeta(): Promise<RemoteResult<CanonicalMeta | null>>;
+  listTrips(): Promise<RemoteResult<TripRow[]>>;
+  listPlaces(): Promise<RemoteResult<PlaceRow[]>>;
+  listMoments(): Promise<RemoteResult<MomentRow[]>>;
+  listMedia(): Promise<RemoteResult<MediaRow[]>>;
+  listExpenses(): Promise<RemoteResult<ExpenseRow[]>>;
+  listAudio(): Promise<RemoteResult<AudioRow[]>>;
+  listPurgedIds(): Promise<RemoteResult<string[]>>;
+  publish(snapshot: PendingCanonicalSnapshot): Promise<RemoteResult<unknown>>;
+  upload(path: string, blob: Blob, contentType: string): Promise<{ error?: string | undefined }>;
+  download(path: string): Promise<{ data: Blob | null; error?: string | undefined }>;
+  remove(path: string): Promise<{ error?: string | undefined }>;
+}
+
+interface RemoteSnapshot {
+  trips: TripRow[];
+  places: PlaceRow[];
+  moments: MomentRow[];
+  media: MediaRow[];
+  expenses: ExpenseRow[];
+  audio: AudioRow[];
+  purgedIds: string[];
+}
+
+export interface CanonicalPreflight {
+  mode: 'normal' | 'applied';
+  version: string;
+  pulled: number;
+}
+
+export interface CanonicalPublishResult {
+  version: string;
+  rows: number;
+  purgedIds: number;
+}
+
+function stateId(userId: string): string {
+  return `canonical:${userId}`;
+}
+
+/** PostgREST 행 전체집합. updated_at 내림차순 + 페이지네이션은 모든 도메인이 공유한다. */
+export async function fetchAllRows<T>(
+  client: JourneyClient,
+  table: string,
+): Promise<RemoteResult<T[]>> {
+  const out: T[] = [];
+  let from = 0;
+  for (let page = 0; page < 100; page += 1) {
+    try {
+      const r = await client
+        .from(table)
+        .select('*')
+        .order('updated_at', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1);
+      if (r.error) return { data: out, error: r.error.message };
+      const rows = (r.data as T[] | null) ?? [];
+      out.push(...rows);
+      if (rows.length < PAGE_SIZE) return { data: out };
+      from += PAGE_SIZE;
+    } catch (e) {
+      return { data: out, error: (e as Error).message };
+    }
+  }
+  return { data: out, error: '목록이 상한(10만 행)을 넘었습니다 — 페이지네이션 상한 도달' };
+}
+
+/** updated_at이 없는 영구삭제 원장은 id 안정 정렬로 같은 페이지 계약을 지킨다. */
+export async function fetchAllIds(
+  client: JourneyClient,
+  table: string,
+): Promise<RemoteResult<string[]>> {
+  const out: string[] = [];
+  let from = 0;
+  for (let page = 0; page < 100; page += 1) {
+    try {
+      const r = await client
+        .from(table)
+        .select('id')
+        .order('id', { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
+      if (r.error) return { data: out, error: r.error.message };
+      const rows = (r.data as { id: string }[] | null) ?? [];
+      out.push(...rows.map((x) => x.id));
+      if (rows.length < PAGE_SIZE) return { data: out };
+      from += PAGE_SIZE;
+    } catch (e) {
+      return { data: out, error: (e as Error).message };
+    }
+  }
+  return { data: out, error: '영구삭제 원장이 상한(10만 건)을 넘었습니다 — 페이지네이션 상한 도달' };
+}
+
+function parseMeta(value: unknown): CanonicalMeta | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r['canonical_version'] !== 'string') return null;
+  return {
+    canonicalVersion: r['canonical_version'],
+    canonicalOperationId: typeof r['canonical_operation_id'] === 'string' ? r['canonical_operation_id'] : null,
+    canonicalDeviceId: typeof r['canonical_device_id'] === 'string' ? r['canonical_device_id'] : null,
+    updatedAt: typeof r['updated_at'] === 'string' ? r['updated_at'] : '',
+  };
+}
+
+/** 실제 Supabase/R2 어댑터. 테스트는 CanonicalRemote fake를 주입한다. */
+export function canonicalRemote(client: JourneyClient): CanonicalRemote {
+  const blobs = r2BlobStore(client);
+  return {
+    async ensureMeta() {
+      try {
+        const r = await client.rpc('ensure_sync_meta');
+        return { data: parseMeta(r.data), error: r.error?.message };
+      } catch (e) {
+        return { data: null, error: (e as Error).message };
+      }
+    },
+    listTrips: () => fetchAllRows<TripRow>(client, 'trips'),
+    listPlaces: () => fetchAllRows<PlaceRow>(client, 'places'),
+    listMoments: () => fetchAllRows<MomentRow>(client, 'moments'),
+    listMedia: () => fetchAllRows<MediaRow>(client, 'media'),
+    listExpenses: () => fetchAllRows<ExpenseRow>(client, 'expenses'),
+    listAudio: () => fetchAllRows<AudioRow>(client, 'audio'),
+    listPurgedIds: () => fetchAllIds(client, 'purged_ids'),
+    async publish(s) {
+      try {
+        const r = await client.rpc('publish_canonical_snapshot', {
+          p_expected_version: s.expectedVersion,
+          p_next_version: s.nextVersion,
+          p_operation_id: s.operationId,
+          p_device: s.device,
+          p_trips: s.trips,
+          p_places: s.places,
+          p_moments: s.moments,
+          p_media: s.media,
+          p_expenses: s.expenses,
+          p_audio: s.audio,
+          p_purged_ids: s.purgedIds,
+        });
+        return { data: r.data, error: r.error?.message };
+      } catch (e) {
+        return { data: null, error: (e as Error).message };
+      }
+    },
+    upload: (path, blob, contentType) => blobs.upload(path, blob, contentType),
+    download: (path) => blobs.download(path),
+    remove: (path) => blobs.remove(path),
+  };
+}
+
+function requireRemote<T>(result: RemoteResult<T>, label: string): T {
+  if (result.error) throw new Error(`${label}: ${result.error}`);
+  return result.data;
+}
+
+async function readMeta(remote: CanonicalRemote): Promise<CanonicalMeta> {
+  const result = await remote.ensureMeta();
+  const meta = requireRemote(result, 'canonical 메타 조회 실패');
+  if (!meta) throw new Error('canonical 메타 응답이 비었습니다. migration 0027 적용 상태를 확인해 주세요.');
+  return meta;
+}
+
+async function readStableSnapshot(remote: CanonicalRemote, expected: string): Promise<RemoteSnapshot> {
+  const [trips, places, moments, media, expenses, audio, purged] = await Promise.all([
+    remote.listTrips(),
+    remote.listPlaces(),
+    remote.listMoments(),
+    remote.listMedia(),
+    remote.listExpenses(),
+    remote.listAudio(),
+    remote.listPurgedIds(),
+  ]);
+  const snapshot: RemoteSnapshot = {
+    trips: requireRemote(trips, '여행 스냅샷 조회 실패'),
+    places: requireRemote(places, '장소 스냅샷 조회 실패'),
+    moments: requireRemote(moments, '순간 스냅샷 조회 실패'),
+    media: requireRemote(media, '사진 스냅샷 조회 실패'),
+    expenses: requireRemote(expenses, '비용 스냅샷 조회 실패'),
+    audio: requireRemote(audio, '소리 스냅샷 조회 실패'),
+    purgedIds: requireRemote(purged, '영구삭제 원장 조회 실패'),
+  };
+  const after = await readMeta(remote);
+  if (after.canonicalVersion !== expected) {
+    throw new Error('스냅샷을 읽는 동안 최종본 세대가 다시 바뀌었습니다. 로컬은 바꾸지 않고 재시도합니다.');
+  }
+  return snapshot;
+}
+
+async function materializeMedia(rows: MediaRow[], remote: CanonicalRemote, version: string): Promise<LocalMedia[]> {
+  const d = db();
+  const local = new Map((await d.localMedia.toArray()).map((x) => [x.id, x]));
+  const out: LocalMedia[] = [];
+  for (const row of rows) {
+    const server = fromMediaRow(row);
+    const old = local.get(server.id);
+    let display = old?.storagePath === server.storagePath ? old.displayBlob : undefined;
+    if (!display || display.size === 0) {
+      if (!server.storagePath) throw new Error(`사진 ${server.id}: 최종본에 표시본 경로가 없습니다.`);
+      const dl = await remote.download(server.storagePath);
+      if (dl.error || !dl.data) throw new Error(`사진 ${server.id} 다운로드 실패: ${dl.error ?? '빈 응답'}`);
+      display = dl.data;
+    }
+    let thumb = display;
+    try { thumb = (await compressForStorage(display)).thumb.blob; } catch { /* 표시본 폴백 */ }
+    const sameObject = old?.storagePath === server.storagePath;
+    out.push({
+      id: server.id,
+      momentId: server.momentId,
+      tripId: server.tripId,
+      mime: 'image/webp',
+      originalBlob: sameObject && old ? old.originalBlob : display,
+      displayBlob: display,
+      thumbBlob: thumb,
+      width: server.width,
+      height: server.height,
+      takenAt: server.takenAt,
+      gpsLat: server.gpsLat,
+      gpsLng: server.gpsLng,
+      bytesOriginal: sameObject && old ? old.bytesOriginal : display.size,
+      bytesDisplay: display.size,
+      ...(server.storagePath ? { storagePath: server.storagePath } : {}),
+      version: server.version,
+      baseVersion: server.version,
+      baseCanonicalVersion: version,
+      createdAt: server.createdAt,
+      updatedAt: server.updatedAt,
+      deletedAt: server.deletedAt,
+      ...(sameObject && old.editState ? { editState: old.editState } : {}),
+      ...(server.clientOperationId ? { clientOperationId: server.clientOperationId } : {}),
+    });
+  }
+  return out;
+}
+
+async function materializeAudio(rows: AudioRow[], remote: CanonicalRemote, version: string): Promise<LocalAudio[]> {
+  const d = db();
+  const local = new Map((await d.localAudio.toArray()).map((x) => [x.id, x]));
+  const out: LocalAudio[] = [];
+  for (const row of rows) {
+    const server = fromAudioRow(row);
+    const old = local.get(server.id);
+    let blob = old?.storagePath === server.storagePath ? old.blob : undefined;
+    if (!blob || blob.size === 0) {
+      if (!server.storagePath) throw new Error(`소리 ${server.id}: 최종본에 바이트 경로가 없습니다.`);
+      const dl = await remote.download(server.storagePath);
+      if (dl.error || !dl.data) throw new Error(`소리 ${server.id} 다운로드 실패: ${dl.error ?? '빈 응답'}`);
+      blob = dl.data;
+    }
+    out.push({
+      id: server.id,
+      momentId: server.momentId,
+      tripId: server.tripId,
+      blob,
+      mime: server.mime || old?.mime || 'audio/webm',
+      durationSec: server.durationSec,
+      recordedAt: server.recordedAt,
+      ...(server.storagePath ? { storagePath: server.storagePath } : {}),
+      version: server.version,
+      baseVersion: server.version,
+      baseCanonicalVersion: version,
+      createdAt: server.createdAt,
+      updatedAt: server.updatedAt,
+      deletedAt: server.deletedAt,
+      ...(server.clientOperationId ? { clientOperationId: server.clientOperationId } : {}),
+    });
+  }
+  return out;
+}
+
+async function stampTable<T extends SyncMeta>(table: Table<T, string>, version: string): Promise<void> {
+  const rows = await table.toArray();
+  const changed = rows.filter((x) => x.baseCanonicalVersion !== version);
+  if (changed.length) await table.bulkPut(changed.map((x) => ({ ...x, baseCanonicalVersion: version })) as T[]);
+}
+
+async function stampAllTables(version: string): Promise<void> {
+  const d = db();
+  await Promise.all([
+    stampTable(d.localTrips, version),
+    stampTable(d.localPlaces, version),
+    stampTable(d.localMoments, version),
+    stampTable(d.localMedia, version),
+    stampTable(d.localExpenses, version),
+    stampTable(d.localAudio, version),
+  ]);
+}
+
+async function setLegacyBaseline(userId: string, version: string): Promise<void> {
+  const d = db();
+  await d.transaction(
+    'rw',[d.localTrips,d.localPlaces,d.localMoments,d.localMedia,d.localExpenses,d.localAudio,d.syncState],
+    async () => {
+      await stampAllTables(version);
+      await d.syncState.put({ id: stateId(userId), userId, canonicalVersion: version, updatedAt: new Date().toISOString() });
+    },
+  );
+}
+
+async function replaceLocalSnapshot(
+  userId: string,
+  meta: CanonicalMeta,
+  snapshot: RemoteSnapshot,
+  remote: CanonicalRemote,
+): Promise<number> {
+  const d = db();
+  const media = await materializeMedia(snapshot.media, remote, meta.canonicalVersion);
+  const audio = await materializeAudio(snapshot.audio, remote, meta.canonicalVersion);
+  const beforeCommit = await readMeta(remote);
+  if (beforeCommit.canonicalVersion !== meta.canonicalVersion) {
+    throw new Error('바이트를 받는 동안 최종본 세대가 다시 바뀌었습니다. 로컬은 바꾸지 않고 재시도합니다.');
+  }
+  const trips = snapshot.trips.map((r) => ({ ...fromRow(r), baseCanonicalVersion: meta.canonicalVersion }));
+  const places = snapshot.places.map((r) => ({ ...fromPlaceRow(r), baseCanonicalVersion: meta.canonicalVersion }));
+  const moments = snapshot.moments.map((r) => ({ ...fromMomentRow(r), baseCanonicalVersion: meta.canonicalVersion }));
+  const expenses = snapshot.expenses.map((r) => ({ ...fromExpenseRow(r), baseCanonicalVersion: meta.canonicalVersion }));
+  const oldPurged = new Map((await d.purgedIds.toArray()).map((x) => [x.id, x]));
+  const purged: PurgedId[] = snapshot.purgedIds.map((id) => ({
+    id,
+    entityType: oldPurged.get(id)?.entityType ?? 'unknown',
+    purgedAt: new Date().toISOString(),
+  }));
+
+  await d.transaction(
+    'rw',[d.localTrips,d.localPlaces,d.localMoments,d.localMedia,d.localExpenses,d.localAudio,
+    d.syncQueue,d.purgedIds,d.syncState],
+    async () => {
+      await Promise.all([
+        d.localTrips.clear(),d.localPlaces.clear(),d.localMoments.clear(),d.localMedia.clear(),
+        d.localExpenses.clear(),d.localAudio.clear(),d.syncQueue.clear(),d.purgedIds.clear(),
+      ]);
+      await d.localTrips.bulkPut(trips);
+      await d.localPlaces.bulkPut(places);
+      await d.localMoments.bulkPut(moments);
+      await d.localMedia.bulkPut(media);
+      await d.localExpenses.bulkPut(expenses);
+      await d.localAudio.bulkPut(audio);
+      await d.purgedIds.bulkPut(purged);
+      await d.syncState.put({
+        id: stateId(userId),userId,canonicalVersion: meta.canonicalVersion,updatedAt: new Date().toISOString(),
+      });
+    },
+  );
+  return trips.length + places.length + moments.length + media.length + expenses.length + audio.length;
+}
+
+async function clearPending(userId: string, canonicalVersion: string): Promise<void> {
+  await db().syncState.put({
+    id: stateId(userId),userId,canonicalVersion,updatedAt: new Date().toISOString(),
+  });
+}
+
+async function cleanupPaths(remote: CanonicalRemote, paths: string[]): Promise<void> {
+  for (const path of [...new Set(paths)]) {
+    const r = await remote.remove(path);
+    if (r.error) console.warn(`canonical 임시 바이트 정리 실패(${path}): ${r.error}`);
+  }
+}
+
+/** 일반 동기화의 첫 문. applied이면 이번 실행은 여기서 끝내고 절대 push하지 않는다. */
+export async function ensureCanonicalBeforeSync(
+  remote: CanonicalRemote,
+  userId: string,
+): Promise<CanonicalPreflight> {
+  const meta = await readMeta(remote);
+  const state = await db().syncState.get(stateId(userId));
+  const pending = state?.pendingCanonical;
+  if (pending) {
+    if (meta.canonicalVersion === pending.nextVersion && meta.canonicalOperationId === pending.operationId) {
+      await finalizePublishedSnapshot(remote, userId, pending);
+      return ensureCanonicalBeforeSync(remote, userId);
+    }
+    if (meta.canonicalVersion === pending.expectedVersion) {
+      throw new Error('이 기기의 최종본 게시가 미완료입니다. 데이터 관리에서 같은 작업을 재개해 주세요.');
+    }
+    await cleanupPaths(remote, pending.stagedPaths);
+    await clearPending(userId, state?.canonicalVersion ?? LEGACY_CANONICAL_VERSION);
+  }
+
+  if (!state && meta.canonicalVersion === LEGACY_CANONICAL_VERSION) {
+    await setLegacyBaseline(userId, meta.canonicalVersion);
+    const after = await readMeta(remote);
+    return after.canonicalVersion === meta.canonicalVersion
+      ? { mode: 'normal', version: meta.canonicalVersion, pulled: 0 }
+      : ensureCanonicalBeforeSync(remote, userId);
+  }
+  if (state?.canonicalVersion === meta.canonicalVersion) {
+    await setLegacyBaseline(userId, meta.canonicalVersion);
+    const after = await readMeta(remote);
+    return after.canonicalVersion === meta.canonicalVersion
+      ? { mode: 'normal', version: meta.canonicalVersion, pulled: 0 }
+      : ensureCanonicalBeforeSync(remote, userId);
+  }
+
+  const snapshot = await readStableSnapshot(remote, meta.canonicalVersion);
+  const pulled = await replaceLocalSnapshot(userId, meta, snapshot, remote);
+  return { mode: 'applied', version: meta.canonicalVersion, pulled };
+}
+
+function asRecord<T extends object>(rows: T[]): Record<string, unknown>[] {
+  return rows as unknown as Record<string, unknown>[];
+}
+
+async function capturePending(
+  remote: CanonicalRemote,
+  userId: string,
+  meta: CanonicalMeta,
+): Promise<PendingCanonicalSnapshot> {
+  const [oldMediaResult, oldAudioResult] = await Promise.all([remote.listMedia(), remote.listAudio()]);
+  const oldMedia = requireRemote(oldMediaResult, '기존 사진 경로 조회 실패');
+  const oldAudio = requireRemote(oldAudioResult, '기존 소리 경로 조회 실패');
+  const check = await readMeta(remote);
+  if (check.canonicalVersion !== meta.canonicalVersion) throw new Error('최종본 캡처 전에 서버 세대가 바뀌었습니다.');
+
+  const d = db();
+  return d.transaction(
+    'rw',[d.localTrips,d.localPlaces,d.localMoments,d.localMedia,d.localExpenses,d.localAudio,
+    d.syncQueue,d.purgedIds,d.syncState],
+    async () => {
+      const [trips,places,moments,media,expenses,audio,queue,purged] = await Promise.all([
+        d.localTrips.toArray(),d.localPlaces.toArray(),d.localMoments.toArray(),d.localMedia.toArray(),
+        d.localExpenses.toArray(),d.localAudio.toArray(),d.syncQueue.toArray(),d.purgedIds.toArray(),
+      ]);
+      const operationId = crypto.randomUUID();
+      const nextVersion = crypto.randomUUID();
+      const device = deviceStamp();
+      const titles = new Map(trips.map((x) => [x.id, x.title]));
+      const mediaRows = media.map((x) => {
+        if (!x.displayBlob || x.displayBlob.size === 0) throw new Error(`사진 ${x.id}: 표시본 바이트가 비었습니다.`);
+        const stable = x.storagePath ?? mediaStoragePath(userId, x, titles.get(x.tripId));
+        const path = operationStoragePath(stable, x.id, operationId);
+        return toMediaRow({ ...x, baseCanonicalVersion: nextVersion }, userId, path, device);
+      });
+      const audioRows = audio.map((x) => {
+        if (!x.blob || x.blob.size === 0) throw new Error(`소리 ${x.id}: 원본 바이트가 비었습니다.`);
+        const stable = x.storagePath ?? audioStoragePath(userId, x, titles.get(x.tripId));
+        if (!stable) throw new Error(`소리 ${x.id}: 지원하지 않는 MIME(${x.mime})이라 최종본을 게시할 수 없습니다.`);
+        const path = operationStoragePath(stable, x.id, operationId);
+        return toAudioRow({ ...x, baseCanonicalVersion: nextVersion }, userId, path, device);
+      });
+      const ids = new Set([...trips,...places,...moments,...media,...expenses,...audio].map((x) => x.id));
+      const overlap = purged.find((x) => ids.has(x.id));
+      if (overlap) throw new Error(`최종본 행과 영구삭제 원장이 같은 id를 가리킵니다: ${overlap.id}`);
+      const snapshot: PendingCanonicalSnapshot = {
+        expectedVersion: meta.canonicalVersion,nextVersion,operationId,device,stage:'uploading',
+        createdAt:new Date().toISOString(),queuedOperationIds:queue.map((x) => x.operationId),
+        stagedPaths:[...mediaRows,...audioRows].flatMap((x) => x.storage_path ? [x.storage_path] : []),
+        previousPaths:[...oldMedia,...oldAudio].flatMap((x) => x.storage_path ? [x.storage_path] : []),
+        trips:asRecord(trips.map((x) => toRow({ ...x, baseCanonicalVersion: nextVersion },userId,device))),
+        places:asRecord(places.map((x) => toPlaceRow({ ...x, baseCanonicalVersion: nextVersion },userId,device))),
+        moments:asRecord(moments.map((x) => toMomentRow({ ...x, baseCanonicalVersion: nextVersion },userId,device))),
+        media:asRecord(mediaRows),
+        expenses:asRecord(expenses.map((x) => toExpenseRow({ ...x, baseCanonicalVersion: nextVersion },userId,device))),
+        audio:asRecord(audioRows),purgedIds:purged.map((x) => x.id),
+      };
+      await d.syncState.put({
+        id:stateId(userId),userId,canonicalVersion:meta.canonicalVersion,pendingCanonical:snapshot,
+        updatedAt:new Date().toISOString(),
+      });
+      return snapshot;
+    },
+  );
+}
+
+async function updatePendingStage(
+  userId: string,
+  pending: PendingCanonicalSnapshot,
+  stage: PendingCanonicalSnapshot['stage'],
+): Promise<PendingCanonicalSnapshot> {
+  const next = { ...pending, stage };
+  const current = await db().syncState.get(stateId(userId));
+  if (current?.pendingCanonical?.operationId !== pending.operationId) throw new Error('최종본 작업 상태가 바뀌었습니다.');
+  await db().syncState.put({ ...current, pendingCanonical: next, updatedAt: new Date().toISOString() });
+  return next;
+}
+
+class CanonicalSnapshotChangedError extends Error {}
+
+async function uploadPending(remote: CanonicalRemote, pending: PendingCanonicalSnapshot): Promise<void> {
+  const d = db();
+  const mediaTasks: { row: MediaRow; blob: Blob }[] = [];
+  for (const row of pending.media as unknown as MediaRow[]) {
+    if (!row.storage_path) throw new CanonicalSnapshotChangedError(`사진 ${row.id}: staging 경로가 없습니다.`);
+    const local = await d.localMedia.get(row.id);
+    if (!local?.displayBlob) throw new CanonicalSnapshotChangedError(`사진 ${row.id}: 게시할 로컬 표시본을 찾지 못했습니다.`);
+    if (local.updatedAt !== row.updated_at || local.displayBlob.size !== row.bytes_display) {
+      throw new CanonicalSnapshotChangedError(`사진 ${row.id}: 최종본 캡처 뒤 내용이 바뀌었습니다. 작업을 다시 시작해 주세요.`);
+    }
+    mediaTasks.push({ row, blob: local.displayBlob });
+  }
+  const audioTasks: { row: AudioRow; blob: Blob }[] = [];
+  for (const row of pending.audio as unknown as AudioRow[]) {
+    if (!row.storage_path) throw new CanonicalSnapshotChangedError(`소리 ${row.id}: staging 경로가 없습니다.`);
+    const local = await d.localAudio.get(row.id);
+    if (!local?.blob) throw new CanonicalSnapshotChangedError(`소리 ${row.id}: 게시할 로컬 바이트를 찾지 못했습니다.`);
+    if (local.updatedAt !== row.updated_at || local.blob.size !== row.bytes) {
+      throw new CanonicalSnapshotChangedError(`소리 ${row.id}: 최종본 캡처 뒤 내용이 바뀌었습니다. 작업을 다시 시작해 주세요.`);
+    }
+    audioTasks.push({ row, blob: local.blob });
+  }
+  for (const { row, blob } of mediaTasks) {
+    const r = await remote.upload(row.storage_path!, blob, 'image/webp');
+    if (r.error) throw new Error(`사진 ${row.id} 업로드 실패: ${r.error}`);
+  }
+  for (const { row, blob } of audioTasks) {
+    const r = await remote.upload(row.storage_path!, blob, row.mime);
+    if (r.error) throw new Error(`소리 ${row.id} 업로드 실패: ${r.error}`);
+  }
+}
+
+async function finalizePublishedSnapshot(
+  remote: CanonicalRemote,
+  userId: string,
+  pending: PendingCanonicalSnapshot,
+): Promise<void> {
+  const d = db();
+  await d.transaction(
+    'rw',[d.localTrips,d.localPlaces,d.localMoments,d.localMedia,d.localExpenses,d.localAudio,
+    d.syncQueue,d.syncState],
+    async () => {
+      for (const row of pending.media as unknown as MediaRow[]) {
+        const current = await d.localMedia.get(row.id);
+        if (current?.updatedAt === row.updated_at && row.storage_path) {
+          const { bytesMissing: _bytesMissing, ...kept } = current;
+          await d.localMedia.put({
+            ...kept,
+            storagePath: row.storage_path,
+            baseCanonicalVersion: pending.nextVersion,
+          });
+        }
+      }
+      for (const row of pending.audio as unknown as AudioRow[]) {
+        const current = await d.localAudio.get(row.id);
+        if (current?.updatedAt === row.updated_at && row.storage_path) {
+          const { bytesMissing: _bytesMissing, ...kept } = current;
+          await d.localAudio.put({
+            ...kept,
+            storagePath: row.storage_path,
+            baseCanonicalVersion: pending.nextVersion,
+          });
+        }
+      }
+      await stampAllTables(pending.nextVersion);
+      await d.syncQueue.bulkDelete(pending.queuedOperationIds);
+      await d.syncState.put({
+        id:stateId(userId),userId,canonicalVersion:pending.nextVersion,updatedAt:new Date().toISOString(),
+      });
+    },
+  );
+  const staged = new Set(pending.stagedPaths);
+  await cleanupPaths(remote, pending.previousPaths.filter((x) => !staged.has(x)));
+}
+
+async function resolvePublishReadBack(
+  remote: CanonicalRemote,
+  userId: string,
+  pending: PendingCanonicalSnapshot,
+  publishError?: string,
+): Promise<PendingCanonicalSnapshot> {
+  const meta = await readMeta(remote);
+  if (meta.canonicalVersion === pending.nextVersion && meta.canonicalOperationId === pending.operationId) {
+    return updatePendingStage(userId, pending, 'local-commit');
+  }
+  if (meta.canonicalVersion === pending.expectedVersion) {
+    await updatePendingStage(userId, pending, 'publishing');
+    throw new Error(publishError ?? '최종본 RPC가 서버 read-back에 나타나지 않았습니다. 같은 작업을 재시도합니다.');
+  }
+  await cleanupPaths(remote, pending.stagedPaths);
+  await clearPending(userId, pending.expectedVersion);
+  throw new Error('다른 기기가 먼저 최종본을 바꿨습니다. 이 기기의 staging은 폐기했고 클라우드를 다시 받아야 합니다.');
+}
+
+/** 테스트 가능한 핵심 오케스트레이션. 실제 UI는 아래 client 어댑터를 호출한다. */
+export async function publishCanonicalWithRemote(
+  remote: CanonicalRemote,
+  userId: string,
+): Promise<CanonicalPublishResult> {
+  const meta = await readMeta(remote);
+  const state = await db().syncState.get(stateId(userId));
+  let pending = state?.pendingCanonical ?? await capturePending(remote,userId,meta);
+  if (state?.pendingCanonical) {
+    const ownCommit = meta.canonicalVersion === pending.nextVersion && meta.canonicalOperationId === pending.operationId;
+    if (ownCommit) pending = await updatePendingStage(userId,pending,'local-commit');
+    else if (meta.canonicalVersion !== pending.expectedVersion) {
+      await cleanupPaths(remote,pending.stagedPaths);
+      await clearPending(userId,pending.expectedVersion);
+      throw new Error('다른 기기가 먼저 최종본을 바꿨습니다. 새 클라우드 최종본을 받은 뒤 다시 선택해 주세요.');
+    }
+  }
+
+  if (pending.stage === 'uploading') {
+    try {
+      await uploadPending(remote,pending);
+    } catch (error) {
+      if (error instanceof CanonicalSnapshotChangedError) {
+        await cleanupPaths(remote,pending.stagedPaths);
+        await clearPending(userId,pending.expectedVersion);
+      }
+      throw error;
+    }
+    pending = await updatePendingStage(userId,pending,'publishing');
+  }
+  if (pending.stage === 'publishing') {
+    const result = await remote.publish(pending);
+    pending = await updatePendingStage(userId,pending,'read-back');
+    pending = await resolvePublishReadBack(remote,userId,pending,result.error);
+  } else if (pending.stage === 'read-back') {
+    pending = await resolvePublishReadBack(remote,userId,pending);
+  }
+  if (pending.stage === 'local-commit') await finalizePublishedSnapshot(remote,userId,pending);
+
+  return {
+    version:pending.nextVersion,
+    rows:pending.trips.length+pending.places.length+pending.moments.length+pending.media.length+
+      pending.expenses.length+pending.audio.length,
+    purgedIds:pending.purgedIds.length,
+  };
+}
+
+/** 명시적 사용자 액션: 현재 기기의 스냅샷을 클라우드 정확집합으로 게시한다. */
+export async function publishDeviceAsCanonical(
+  client: JourneyClient,
+  userId: string,
+): Promise<CanonicalPublishResult> {
+  return publishCanonicalWithRemote(canonicalRemote(client), userId);
+}

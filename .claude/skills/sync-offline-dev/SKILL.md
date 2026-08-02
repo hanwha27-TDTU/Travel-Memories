@@ -14,7 +14,7 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·s
 | 파일 | 역할 | 성격 |
 |---|---|---|
 | `src/sync/merge.ts` | `mergeDecision`·`isEmptyCloudAnomaly`·`classifyError` | **순수 → 유닛테스트 대상**. 병합 판단은 전부 여기 |
-| `src/services/sync.ts` | 엔티티별 Remote 포트(trips·moments·expenses·media) + `pushPending*`/`pull*` + `runSync` | 네트워크. 포트 뒤로 백엔드 격리 |
+| `src/services/sync.ts` | 엔티티별 Remote 포트(trips·places·moments·media·expenses·audio) + `pushPending*`/`pull*` + `runSync` | 네트워크. 포트 뒤로 백엔드 격리 |
 | `src/offline/db.ts` | Dexie 스키마(로컬 진실 사본) + `syncQueue` | 버전 체인 — 기존 버전 수정 금지, 새 `.version(n)` 추가 |
 | `src/domain/*/rowmap.ts` | `XRow ↔ LocalX` 직렬화 경계(snake_case는 이 파일 밖 금지) | 순수. `check-schema-parity` 대상 |
 
@@ -50,7 +50,7 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·s
      돌리고, 유닛에는 autoSync가 없다. 그래서 **설계 시점의 자문**이 유일한 층이다.
 
 1-C. **저장 경로는 파생이 아니라 데이터다**(2026-07-27). 사진 객체 키에 여행 제목·촬영시각이 들어가면서 경로가 **움직이는 값의 함수**가 됐다. 매번 다시 계산하면 제목을 바꾼 뒤의 재전송이 **다른 키**로 올라가 옛 파일이 고아로 남고, 앱은 그걸 「설명할 수 없는 사진 파일」이라는 **문제**로 띄운다 — 제목 한 번 고쳤을 뿐인데.
-   - **바이트가 착지한 키가 곧 진실이다.** `LocalMedia.storagePath`에 기억하고, 있으면 그것을 쓴다. 없을 때만 만든다.
+   - **DB read-back이 승인한 바이트 키가 곧 진실이다.** 기존 키는 이름의 바탕으로만 쓰고 실제 PUT은 `operationStoragePath`의 작업별 새 키에 격리한다(M-0087). 승인 뒤에만 `LocalMedia.storagePath`를 전진시킨다.
    - 기억하는 시점은 **op를 지우는 그 트랜잭션**이다(M-0033 — "곧 이어서 쓸 것"은 없는 것과 같다).
    - 일반형: **외부에 부수효과를 남긴 주소는 다시 계산하지 말고 적어 둬라.** 계산식의 입력이 하나라도 사용자 편집 대상이면 그 순간부터 파생은 틀린다.
 
@@ -90,11 +90,13 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·s
 3. **version 기반 tombstone 우위(좀비 차단)**: 삭제상태가 다른 전이는 **벽시계가 아니라 version**으로 판정한다. 활성이 tombstone을 이기려면 version이 더 커야 하고(진짜 복원), **동률이면 삭제가 이긴다.**
    - 이유: 시계 스큐·지연 pull·**오래된 백업 복원**이 삭제한 데이터를 부활시키던 사고(메디컬 앱)를 원천 차단.
 4. **빈-클라우드 가드**: 서버가 빈 배열을 줘도 로컬을 지우지 않는다(`isEmptyCloudAnomaly`). 죽은/초기화된 서버가 기억을 삭제하지 못하게.
-5. **멱등 upsert + read-back**: HTTP 200이나 성공 토스트가 아니라 **같은 레코드를 되읽어** 확인한 뒤에만 큐 op를 제거한다.
-6. **push 순서 = 부모 먼저**: `runSync`는 여행 → 순간 → 비용·사진. 복합 FK `(parent_id,user_id)`가 서버에 부모가 있기를 요구한다(H-02).
+5. **조건부 upsert + operation read-back**: 로컬 mutation은 서버에서 마지막으로 확인한 `baseVersion`을 보존한다(연속 편집 때 `cur.version`으로 올리지 않는다). push는 `base_version`과 큐의 `operationId`를 보내고, 서버에서 **같은 `client_operation_id` + 보낸 값 이상의 version**(+사진·소리 경로)을 되읽은 뒤에만 큐 op를 제거한다. 불일치면 서버 승자를 로컬 행+큐에 원자 반영하거나, LWW상 로컬이 이길 때 서버 version으로 재기반화해 재시도한다. HTTP 200·부분 필드 일치는 성공 증거가 아니다.
+6. **push 순서 = 부모 먼저**: `runSync`는 unpurge → 여행 → 장소 → 순간 → 사진·비용·소리 → purge. 장소는 `moments.place_id`의 부모이고, 사진·비용·소리는 순간의 자식이라 이 순서를 어기면 복합 FK가 거절한다(H-02).
 7. **cascade는 큐까지 전파**: 순간을 삭제/복원하면 딸린 비용·사진에도 **각각 큐 op**를 넣어야 한다. 로컬만 바꾸고 큐를 빠뜨리면 다른 기기에서 되살아난다.
 8. **pull은 비파괴**: 다운로드 성공 시에만 로컬을 교체한다. tombstone pull은 `deletedAt`만 세팅하고 **로컬 blob을 지우지 않는다**. 로컬에 없는 행을 tombstone 하지 않는다(오래된 기기가 신선한 클라우드 데이터를 지우는 것 방지).
 9. **snake_case 격리**: 서버 컬럼명은 `rowmap.ts` 밖으로 새지 않는다. 새 필드는 rowmap 왕복 유닛 + `check-schema-parity`로 잠근다.
+10. **일반 병합과 canonical 정확집합을 섞지 않는다**(v1.60 · M-0090): 일반 모드는 로컬 전용 항목을 보존·upsert하지만, `canonical_version` 변경을 소비한 실행은 서버 전체와 바이트를 먼저 받은 뒤 로컬 여섯 표·큐·영구삭제 원장을 한 transaction으로 정확 교체하고 **어떤 push도 하지 않는다**. 게시도 별도 사용자 액션+두 단계 확인+재개 가능한 pending+operation/meta read-back으로만 한다. 첫 `legacy` 기준선은 비파괴, 이미 non-legacy인 새 기기는 서버 기준 적용이다.
+    - 🔴 **exact-set RPC가 최종 신뢰 경계다**(v1.62 · M-0092). 클라이언트가 operation id를 만들고 행/영구삭제 id 겹침을 검사해도 서버가 다시 검사한다. `operation_id IS NOT NULL`과 `(모든 snapshot 행 id) ∩ purged_ids = ∅`를 **기존 행 DELETE 전에** 강제한다. 전자는 응답 유실 재시도의 멱등 근거이고, 후자는 게시 직후 원장이 새 행을 다시 지우는 자기모순을 막는다. RPC 입력 검사는 정상 UI 픽스처만 보지 말고 직접 호출 공격검사를 `BEGIN…ROLLBACK`으로 실행한다.
 
 ## 2. 새 엔티티를 동기화에 추가하는 순서 (빠뜨리기 쉬운 것 포함)
 
@@ -231,6 +233,9 @@ const w = momentWhen(m.occurredAt, m.tzOffsetMin, clock);
 
 | 버전 | 결함 | 근본형 | 재발 방지 |
 |---|---|---|---|
+| 1.62 | canonical RPC가 NULL operation id와 행/영구삭제 원장 id 겹침을 받아들임(M-0092) | 정상 클라이언트가 먼저 검사한다는 이유로 SECURITY DEFINER 최종 경계의 독립 입력 검증을 생략 | 파괴적 DELETE 전 operation id 필수 + 여섯 snapshot 배열과 purged id 교집합 거부. SQL 공격검사 두 건과 guard 제거 RED, 운영 PostgreSQL rollback 사전검증 |
+| 1.60 | 한 기기를 최종본으로 삼아도 다른 기기의 로컬 전용 항목이 일반 merge에서 다시 살아날 수 있었음(M-0090) | 개별 행 LWW와 전체집합 기준선 선언을 같은 동기화로 취급. 사용자 의사를 나타낼 서버 generation이 없었음 | `sync_meta.canonical_version` + 여섯 표 세대 fence + 원자 exact-set RPC + Dexie pending/R2 staging + 수신 run의 0-upsert 조기 종료. 원장도 페이지 끝까지, 게시 뒤 로컬 바이트 경로도 서버 승인 키로 전진. 운영 0025, 0026·0027 적용 대기 |
+| 1.58 | 오래된 기기의 무조건 upsert가 서버 최신 행을 덮고, DB가 거절해도 같은 R2 키에 옛 사진 바이트를 먼저 덮을 수 있었음(M-0084·M-0087) | `base_version`·operation id가 서버 수락 조건에 연결되지 않았고, DB fence와 외부 바이트 PUT을 같은 손실 표면으로 보지 않음 | 0026 authenticated OCC + baseVersion/operation read-back + 서버 승자 원자 반영/로컬 재기반화 + 연속 큐 접기 + 사진·소리 `operationStoragePath` 불변 키와 거절 staging 정리. 구버전 혼재 금지 |
 | 0.29 | 좀비데이터(삭제한 것이 되살아남) | 병합이 **벽시계(updatedAt) 우선**이라 시계 스큐로 오래된 활성 사본이 tombstone을 덮음 | version 기반 tombstone 우위 + 적대적 유닛(옛 로직 주입 시 부활 4건 RED 재현) + 서버 `prevent_zombie_resurrection` 트리거 |
 | 0.32 | 클라가 서버에 없는 컬럼을 밀어 조용히 깨짐 | rowmap↔서버 스키마 드리프트 | `check-schema-parity` 게이트(신규 엔티티는 `ROW_TO_TABLE` 등록 강제). 실제로 0009 누락을 RED로 잡음 |
 | 0.33 | (예방) 순간 삭제 시 딸린 비용이 다른 기기에서 부활 위험 | cascade가 로컬만 바꾸고 큐 op 미전파 | moments cascade에서 비용·사진에 각각 큐 op enqueue |

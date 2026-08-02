@@ -14,6 +14,8 @@ const expense: LocalExpense = {
   category: '식비',
   note: '흑돼지',
   version: 2,
+  baseVersion: 2,
+  baseCanonicalVersion: 'legacy',
   createdAt: '2026-07-22T10:00:00.000Z',
   updatedAt: '2026-07-22T11:30:00.000Z',
   deletedAt: null,
@@ -33,6 +35,8 @@ describe('expense rowmap 경계', () => {
     expect(row.original_amount).toBe(15000);
     expect(row.original_currency).toBe('KRW');
     expect(row.client_operation_id).toBe(expense.clientOperationId);
+    expect(row.base_version).toBe(2);
+    expect(row.base_canonical_version).toBe('legacy');
   });
 
   it('tombstone(삭제) 행도 왕복 보존된다', () => {

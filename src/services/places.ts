@@ -142,6 +142,7 @@ export async function savePlace(input: NewPlace): Promise<LocalPlace> {
     spanMeters: input.spanMeters ?? null,
     mapPicked: input.mapPicked === true,
     version: 1,
+    baseVersion: 0,
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
@@ -231,7 +232,7 @@ export async function updatePlace(id: string, patch: PlacePatch): Promise<void> 
     ...(patch.mapPicked !== undefined ? { mapPicked: patch.mapPicked } : {}),
     updatedAt: now,
     version: cur.version + 1,
-    baseVersion: cur.version,
+    baseVersion: cur.baseVersion ?? cur.version,
     clientOperationId: opId,
   };
   await d.transaction('rw', d.localPlaces, d.syncQueue, async () => {
@@ -260,7 +261,7 @@ export async function softDeletePlace(id: string): Promise<void> {
       deletedAt: now,
       updatedAt: now,
       version: cur.version + 1,
-      baseVersion: cur.version,
+      baseVersion: cur.baseVersion ?? cur.version,
       clientOperationId: opId,
     });
     await d.syncQueue.add(placeOp(opId, id, 'delete', now));
@@ -282,7 +283,7 @@ export async function restorePlace(id: string): Promise<void> {
       deletedAt: null,
       updatedAt: now,
       version: cur.version + 1,
-      baseVersion: cur.version,
+      baseVersion: cur.baseVersion ?? cur.version,
       clientOperationId: opId,
     });
     await d.syncQueue.add(placeOp(opId, id, 'update', now));

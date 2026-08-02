@@ -242,6 +242,37 @@ while ((await page.locator('.guide-overlay').count()) > 0) {
   await page.waitForTimeout(200);
 }
 
+// v1.60: canonical 최종본은 일반 병합과 다른 위험 작업 — 경고와 2단계 확인까지만 누른다.
+// 실제 두 번째 버튼은 클라우드 전체 교체이므로 라이브 픽스처에서 실행하지 않는다.
+await page.locator('.data-open').click();
+await page.waitForSelector('.guide-overlay');
+await page.getByRole('button', { name: /이 기기를 클라우드 최종본으로/ }).click();
+const canonicalText = await page.$eval('.guide-body', (b) => b.textContent ?? '');
+check(
+  '최종본 지정: 일반 병합이 아니며 클라우드 전용·다른 기기 로컬 항목의 영향을 경고한다',
+  canonicalText.includes('일반 동기화와 다릅니다') &&
+    canonicalText.includes('클라우드에만 있던 항목') &&
+    canonicalText.includes('다른 기기'),
+  canonicalText.slice(0, 180),
+);
+await page.getByRole('button', { name: '이 기기를 최종본으로 지정', exact: true }).click();
+const canonicalConfirm = page.getByRole('button', { name: '정말 이 기기 기준으로 클라우드 교체', exact: true });
+check('최종본 지정: 첫 클릭은 실행하지 않고 두 번째 확인 버튼을 펼친다', await canonicalConfirm.isVisible(), '');
+const warningStatus = await page.$eval('.dm-status', (n) => n.textContent ?? '');
+check('최종본 지정: 마지막 확인이 제거 범위를 다시 말한다', warningStatus.includes('이 기기에 없는 클라우드 항목'), warningStatus);
+await page.getByRole('button', { name: '취소', exact: true }).click();
+check(
+  '최종본 지정: 취소하면 실행 버튼으로 되돌아간다',
+  await page.getByRole('button', { name: '이 기기를 최종본으로 지정', exact: true }).isVisible(),
+  '',
+);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(250);
+while ((await page.locator('.guide-overlay').count()) > 0) {
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+}
+
 // ── v0.55: R2 설정 가이드 — 데이터 관리 → 카드 → 단계·위험 경고 렌더 ──
 await page.locator('.data-open').click();
 await page.waitForSelector('.guide-overlay');

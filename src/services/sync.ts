@@ -12,6 +12,7 @@ import { toMomentRow, fromMomentRow, type MomentRow } from '../domain/moment/row
 import { toExpenseRow, fromExpenseRow, type ExpenseRow } from '../domain/expense/rowmap';
 import { toMediaRow, fromMediaRow, mediaStoragePath, type MediaRow } from '../domain/media/rowmap';
 import { toAudioRow, fromAudioRow, audioStoragePath, type AudioRow } from '../domain/audio/rowmap';
+import { operationStoragePath } from '../domain/media/naming';
 import { toPlaceRow, fromPlaceRow, type PlaceRow } from '../domain/place/rowmap';
 import { isRealCoord } from '../domain/place/coordInput';
 import { compressForStorage } from '../media/compress';
@@ -22,6 +23,7 @@ import { r2BlobStore, r2ListObjects } from './r2';
 // 하위 모듈이라 순환이 생기지 않는다(그쪽은 sync를 모른다).
 import { localBytesIds } from './storeState';
 import { deviceStamp } from '../app/deviceId';
+import { canonicalRemote, ensureCanonicalBeforeSync, fetchAllRows } from './canonicalSync';
 import {
   applyPurgedLedger,
   purgedIdSet,
@@ -37,39 +39,8 @@ export interface SyncResult {
   failed: number;
   pulled: number;
   skippedEmptyCloud: boolean;
-}
-
-/**
- * 🔴 **한 테이블의 행을 전부 받는다 — 페이지네이션으로**(M-10 · 2026-08-01 감사).
- *
- * 왜(불변식 #6): `select('*')`만 쓰면 PostgREST가 서버 설정(`db-max-rows`, Supabase 기본
- * **1000**)에서 **조용히 잘라** 준다 — 응답에 오류가 없다. 그 잘린 목록으로 빈-클라우드 가드가
- * 「전체집합」을 판단하면, 사진 1000장을 넘긴 기기에서 새 기기 pull이 **나머지를 없는 것처럼**
- * 동작한다("동기화 완료"라고 말하면서). R2 목록엔 이미 잘림 가드가 있는데 PostgREST 쪽에만
- * 없었다(§7 비대칭). `.range()`로 **끝까지** 받아 잘림 자체를 없앤다 — 페이지가 가득 차면 다음
- * 페이지를 확인하고, 덜 차면 마지막이다.
- */
-const PAGE_SIZE = 1000;
-async function fetchAllRows<T>(
-  client: JourneyClient,
-  table: string,
-): Promise<{ data: T[]; error?: string | undefined }> {
-  const out: T[] = [];
-  let from = 0;
-  // 무한루프 방지 상한: 페이지 100개(=10만 행)면 개인 앱에선 사실상 무한이다.
-  for (let page = 0; page < 100; page += 1) {
-    try {
-      const r = await client.from(table).select('*').range(from, from + PAGE_SIZE - 1);
-      if (r.error) return { data: out, error: r.error.message };
-      const rows = (r.data as T[] | null) ?? [];
-      out.push(...rows);
-      if (rows.length < PAGE_SIZE) return { data: out }; // 마지막 페이지 — 잘림 없음
-      from += PAGE_SIZE;
-    } catch (e) {
-      return { data: out, error: (e as Error).message };
-    }
-  }
-  return { data: out, error: '목록이 상한(10만 행)을 넘었습니다 — 페이지네이션 상한 도달' };
+  /** true면 canonical 세대 변경을 클라우드 기준으로 반영했고, 이 실행에서는 push하지 않았다. */
+  canonicalApplied: boolean;
 }
 
 /** 원격 저장소 포트 — 네트워크 격리(테스트 시 fake 주입). */
@@ -263,10 +234,155 @@ async function markFail(op: SyncQueueItem, status: number | undefined): Promise<
   });
 }
 
-/** 지금 밀어도 되는 op만 남긴다(백오프 대기 중인 것은 이번 회차에 건너뛴다). */
-function dueOps(items: SyncQueueItem[]): SyncQueueItem[] {
-  const now = new Date().toISOString();
-  return items.filter((q) => isRetryDue(q, now));
+type SyncEntityType = 'trip' | 'moment' | 'media' | 'expense' | 'audio' | 'place';
+
+export interface SyncAttempt {
+  /** 이 엔티티의 최신 의사. 네트워크에는 이것 하나만 보낸다. */
+  op: SyncQueueItem;
+  /** 최신 의사가 완전히 포함하므로 안전하게 접을 수 있는 옛 작업들. */
+  supersededOperationIds: string[];
+}
+
+/**
+ * 같은 엔티티의 연속 편집을 최신 작업 하나로 접는다.
+ *
+ * push는 큐의 각 op 시점 payload가 아니라 **현재 로컬 행**을 읽는다. 따라서 v2 op와 v3 op이
+ * 함께 있으면 둘 다 v3 payload를 보내게 된다. 첫 요청 뒤 서버시각이 전진하므로 둘째 요청은
+ * stale guard에 막히고 영원히 재시도될 수 있다. 최신 op 하나가 현재 행 전체를 대표하게 하고,
+ * 옛 op은 최신 op을 남긴 뒤에만 지운다(중간 crash에도 보낼 의사는 하나 남는다).
+ *
+ * 최신 op이 백오프 중이거나 permanent면 옛 op으로 우회하지 않는다. 그랬다간 최신 payload를
+ * 옛 작업의 재시도 정책으로 조기에 보내게 된다.
+ */
+export function collapseSyncAttempts(
+  items: SyncQueueItem[],
+  entityType: SyncEntityType,
+  nowIso = new Date().toISOString(),
+): SyncAttempt[] {
+  const grouped = new Map<string, { op: SyncQueueItem; operationIds: string[] }>();
+  for (const op of items) {
+    if (op.entityType !== entityType || op.operationType === 'purge' || op.operationType === 'unpurge') continue;
+    const found = grouped.get(op.entityId);
+    if (found) {
+      found.op = op; // createdAt 순으로 읽었으므로 마지막이 최신 의사다.
+      found.operationIds.push(op.operationId);
+    } else {
+      grouped.set(op.entityId, { op, operationIds: [op.operationId] });
+    }
+  }
+  return [...grouped.values()]
+    .filter(({ op }) =>
+      (op.state === 'local_only' || op.state === 'retryable_failed') && isRetryDue(op, nowIso),
+    )
+    .map(({ op, operationIds }) => ({
+      op,
+      supersededOperationIds: operationIds.filter((id) => id !== op.operationId),
+    }));
+}
+
+/** 최신 로컬 snapshot이 어느 큐 작업을 대표하는지 row에 명시한다. 옛 cascade/backfill도 보정된다. */
+function withSyncOperation<T extends SyncMeta>(entity: T, operationId: string): T {
+  return { ...entity, clientOperationId: operationId };
+}
+
+/** 네트워크 전에 옛 op만 접는다. 최신 op은 성공 read-back 전까지 반드시 남긴다. */
+async function removeSuperseded(attempt: SyncAttempt): Promise<void> {
+  if (attempt.supersededOperationIds.length) {
+    await db().syncQueue.bulkDelete(attempt.supersededOperationIds);
+  }
+}
+
+/** push 중 새 편집이 생겼으면 그 최신 로컬 행에는 옛 서버 stamp를 씌우지 않는다. */
+function isSameSnapshot(cur: SyncMeta | undefined, expected: SyncMeta): boolean {
+  return Boolean(
+    cur &&
+      cur.version === expected.version &&
+      cur.updatedAt === expected.updatedAt &&
+      cur.clientOperationId === expected.clientOperationId,
+  );
+}
+
+/** pull이 이긴 snapshot만 교체하고, 그 snapshot을 만들었던 도메인 op을 같은 트랜잭션에서 걷는다. */
+async function applyServerWinner<T extends SyncMeta>(
+  table: Table<T, string>,
+  entityType: SyncEntityType,
+  expected: T | undefined,
+  server: T,
+): Promise<boolean> {
+  const d = db();
+  return d.transaction('rw', table, d.syncQueue, async () => {
+    const cur = await table.get(server.id);
+    const unchanged = expected
+      ? Boolean(
+          cur &&
+            cur.version === expected.version &&
+            cur.updatedAt === expected.updatedAt &&
+            cur.deletedAt === expected.deletedAt &&
+            cur.clientOperationId === expected.clientOperationId,
+        )
+      : cur === undefined;
+    if (!unchanged) return false;
+
+    await table.put(server);
+    const queued = await d.syncQueue.where('entityId').equals(server.id).toArray();
+    const staleIds = queued
+      .filter(
+        (q) =>
+          q.entityType === entityType && q.operationType !== 'purge' && q.operationType !== 'unpurge',
+      )
+      .map((q) => q.operationId);
+    if (staleIds.length) await d.syncQueue.bulkDelete(staleIds);
+    return true;
+  });
+}
+
+/**
+ * 조건부 쓰기가 거절됐지만 LWW상 로컬이 이겨야 하면, 서버의 현재 version을 새 기준선으로 삼는다.
+ * 같은 로컬 snapshot일 때만 고쳐 push 도중 생긴 더 최신 편집을 건드리지 않는다.
+ */
+async function rebaseRejectedLocal<T extends SyncMeta>(
+  table: Table<T, string>,
+  expected: T,
+  operationId: string,
+  server: SyncMeta,
+): Promise<boolean> {
+  if (mergeDecision(expected, server) !== 'keep-local') return false;
+
+  const d = db();
+  return d.transaction('rw', table, async () => {
+    const cur = await table.get(expected.id);
+    const unchanged = Boolean(
+      cur &&
+        cur.version === expected.version &&
+        cur.updatedAt === expected.updatedAt &&
+        cur.deletedAt === expected.deletedAt &&
+        cur.clientOperationId === expected.clientOperationId,
+    );
+    if (!cur || !unchanged) return false;
+
+    await table.put({
+      ...cur,
+      baseVersion: server.version,
+      version: Math.max(cur.version, server.version + 1),
+      clientOperationId: operationId,
+    });
+    return true;
+  });
+}
+
+/** DB가 가리키지 않는 작업별 R2 키만 걷는다. 삭제 실패는 기억보다 고아 사본을 택해 재시도에 맡긴다. */
+async function removeUnreferencedBytes(
+  remote: Pick<MediaRemote, 'remove'> | Pick<AudioRemote, 'remove'>,
+  candidate: string | undefined,
+  referenced: string | null | undefined,
+): Promise<void> {
+  if (!candidate || candidate === referenced) return;
+  try {
+    const removed = await remote.remove(candidate);
+    if (removed.error) console.warn(`동기화 고아 바이트 정리 보류: ${removed.error}`);
+  } catch (e) {
+    console.warn(`동기화 고아 바이트 정리 보류: ${(e as Error).message}`);
+  }
 }
 
 /**
@@ -276,23 +392,21 @@ function dueOps(items: SyncQueueItem[]): SyncQueueItem[] {
  */
 export async function pushPending(remote: TripsRemote, userId: string): Promise<{ pushed: number; failed: number }> {
   const d = db();
-  const items = dueOps(
-    (await d.syncQueue.orderBy('createdAt').toArray()).filter(
-      (q) => q.state === 'local_only' || q.state === 'retryable_failed',
-    ),
-  );
+  const attempts = collapseSyncAttempts(await d.syncQueue.orderBy('createdAt').toArray(), 'trip');
   let pushed = 0;
   let failed = 0;
 
-  for (const op of items) {
-    if (op.entityType !== 'trip') continue;
+  for (const attempt of attempts) {
+    const { op } = attempt;
+    await removeSuperseded(attempt);
     const trip = await d.localTrips.get(op.entityId);
     if (!trip) {
       await d.syncQueue.delete(op.operationId); // 로컬에 없는 고아 작업 폐기
       continue;
     }
 
-    const up = await remote.upsert(toRow(trip, userId, deviceStamp()));
+    const sent = withSyncOperation(trip, op.operationId);
+    const up = await remote.upsert(toRow(sent, userId, deviceStamp()));
     if (up.error) {
       await markFail(op, up.status);
       failed++;
@@ -301,17 +415,31 @@ export async function pushPending(remote: TripsRemote, userId: string): Promise<
 
     // 정확한 read-back: 같은 레코드를 별도 조회해 확인(불변식 5).
     const back = await remote.getById(trip.id);
-    if (back.error || !back.data || back.data.title !== trip.title) {
+    const serverTrip = back.data ? fromRow(back.data) : null;
+    if (back.error || !serverTrip) {
       await markFail(op, back.status);
+      failed++;
+      continue;
+    }
+    if (!writeLanded(serverTrip, sent.version, op.operationId)) {
+      await rebaseRejectedLocal(d.localTrips, trip, op.operationId, serverTrip);
+      await markFail(op, undefined);
       failed++;
       continue;
     }
 
     // LWW 서버시각 반영 + 작업 원자 제거.
-    const serverTrip = fromRow(back.data);
     await d.transaction('rw', d.localTrips, d.syncQueue, async () => {
       const cur = await d.localTrips.get(trip.id);
-      if (cur) await d.localTrips.put({ ...cur, updatedAt: serverTrip.updatedAt, version: serverTrip.version });
+      if (isSameSnapshot(cur, trip)) {
+        await d.localTrips.put({
+          ...cur!,
+          updatedAt: serverTrip.updatedAt,
+          version: serverTrip.version,
+          baseVersion: serverTrip.version,
+          clientOperationId: op.operationId,
+        });
+      }
       await d.syncQueue.delete(op.operationId);
     });
     pushed++;
@@ -344,8 +472,7 @@ export async function pullTrips(remote: TripsRemote): Promise<{ pulled: number; 
     const server = fromRow(r);
     const local = await d.localTrips.get(server.id);
     if (mergeDecision(local, server) === 'take-server') {
-      await d.localTrips.put(server);
-      pulled++;
+      if (await applyServerWinner(d.localTrips, 'trip', local, server)) pulled++;
     } else {
       await requeueIfServerStillActive('trip', local, server);
     }
@@ -359,23 +486,21 @@ export async function pushPendingMoments(
   userId: string,
 ): Promise<{ pushed: number; failed: number }> {
   const d = db();
-  const items = dueOps(
-    (await d.syncQueue.orderBy('createdAt').toArray()).filter(
-      (q) => q.state === 'local_only' || q.state === 'retryable_failed',
-    ),
-  );
+  const attempts = collapseSyncAttempts(await d.syncQueue.orderBy('createdAt').toArray(), 'moment');
   let pushed = 0;
   let failed = 0;
 
-  for (const op of items) {
-    if (op.entityType !== 'moment') continue;
+  for (const attempt of attempts) {
+    const { op } = attempt;
+    await removeSuperseded(attempt);
     const moment = await d.localMoments.get(op.entityId);
     if (!moment) {
       await d.syncQueue.delete(op.operationId);
       continue;
     }
 
-    const up = await remote.upsert(toMomentRow(moment, userId, deviceStamp()));
+    const sent = withSyncOperation(moment, op.operationId);
+    const up = await remote.upsert(toMomentRow(sent, userId, deviceStamp()));
     if (up.error) {
       await markFail(op, up.status);
       failed++;
@@ -383,16 +508,30 @@ export async function pushPendingMoments(
     }
 
     const back = await remote.getById(moment.id);
-    if (back.error || !back.data || back.data.title !== moment.title) {
+    const serverMoment = back.data ? fromMomentRow(back.data) : null;
+    if (back.error || !serverMoment) {
       await markFail(op, back.status);
       failed++;
       continue;
     }
+    if (!writeLanded(serverMoment, sent.version, op.operationId)) {
+      await rebaseRejectedLocal(d.localMoments, moment, op.operationId, serverMoment);
+      await markFail(op, undefined);
+      failed++;
+      continue;
+    }
 
-    const serverMoment = fromMomentRow(back.data);
     await d.transaction('rw', d.localMoments, d.syncQueue, async () => {
       const cur = await d.localMoments.get(moment.id);
-      if (cur) await d.localMoments.put({ ...cur, updatedAt: serverMoment.updatedAt, version: serverMoment.version });
+      if (isSameSnapshot(cur, moment)) {
+        await d.localMoments.put({
+          ...cur!,
+          updatedAt: serverMoment.updatedAt,
+          version: serverMoment.version,
+          baseVersion: serverMoment.version,
+          clientOperationId: op.operationId,
+        });
+      }
       await d.syncQueue.delete(op.operationId);
     });
     pushed++;
@@ -421,8 +560,7 @@ export async function pullMoments(remote: MomentsRemote): Promise<{ pulled: numb
     const server = fromMomentRow(r);
     const local = await d.localMoments.get(server.id);
     if (mergeDecision(local, server) === 'take-server') {
-      await d.localMoments.put(server);
-      pulled++;
+      if (await applyServerWinner(d.localMoments, 'moment', local, server)) pulled++;
     } else {
       await requeueIfServerStillActive('moment', local, server);
     }
@@ -436,23 +574,21 @@ export async function pushPendingExpenses(
   userId: string,
 ): Promise<{ pushed: number; failed: number }> {
   const d = db();
-  const items = dueOps(
-    (await d.syncQueue.orderBy('createdAt').toArray()).filter(
-      (q) => q.state === 'local_only' || q.state === 'retryable_failed',
-    ),
-  );
+  const attempts = collapseSyncAttempts(await d.syncQueue.orderBy('createdAt').toArray(), 'expense');
   let pushed = 0;
   let failed = 0;
 
-  for (const op of items) {
-    if (op.entityType !== 'expense') continue;
+  for (const attempt of attempts) {
+    const { op } = attempt;
+    await removeSuperseded(attempt);
     const expense = await d.localExpenses.get(op.entityId);
     if (!expense) {
       await d.syncQueue.delete(op.operationId);
       continue;
     }
 
-    const up = await remote.upsert(toExpenseRow(expense, userId, deviceStamp()));
+    const sent = withSyncOperation(expense, op.operationId);
+    const up = await remote.upsert(toExpenseRow(sent, userId, deviceStamp()));
     if (up.error) {
       await markFail(op, up.status);
       failed++;
@@ -460,16 +596,30 @@ export async function pushPendingExpenses(
     }
 
     const back = await remote.getById(expense.id);
-    if (back.error || !back.data || back.data.original_amount !== expense.originalAmount) {
+    const serverExpense = back.data ? fromExpenseRow(back.data) : null;
+    if (back.error || !serverExpense) {
       await markFail(op, back.status);
       failed++;
       continue;
     }
+    if (!writeLanded(serverExpense, sent.version, op.operationId)) {
+      await rebaseRejectedLocal(d.localExpenses, expense, op.operationId, serverExpense);
+      await markFail(op, undefined);
+      failed++;
+      continue;
+    }
 
-    const serverExpense = fromExpenseRow(back.data);
     await d.transaction('rw', d.localExpenses, d.syncQueue, async () => {
       const cur = await d.localExpenses.get(expense.id);
-      if (cur) await d.localExpenses.put({ ...cur, updatedAt: serverExpense.updatedAt, version: serverExpense.version });
+      if (isSameSnapshot(cur, expense)) {
+        await d.localExpenses.put({
+          ...cur!,
+          updatedAt: serverExpense.updatedAt,
+          version: serverExpense.version,
+          baseVersion: serverExpense.version,
+          clientOperationId: op.operationId,
+        });
+      }
       await d.syncQueue.delete(op.operationId);
     });
     pushed++;
@@ -498,8 +648,7 @@ export async function pullExpenses(remote: ExpensesRemote): Promise<{ pulled: nu
     const server = fromExpenseRow(r);
     const local = await d.localExpenses.get(server.id);
     if (mergeDecision(local, server) === 'take-server') {
-      await d.localExpenses.put(server);
-      pulled++;
+      if (await applyServerWinner(d.localExpenses, 'expense', local, server)) pulled++;
     } else {
       await requeueIfServerStillActive('expense', local, server);
     }
@@ -513,31 +662,32 @@ export async function pullExpenses(remote: ExpensesRemote): Promise<{ pulled: nu
  */
 export async function pushPendingMedia(remote: MediaRemote, userId: string): Promise<{ pushed: number; failed: number }> {
   const d = db();
-  const items = dueOps(
-    (await d.syncQueue.orderBy('createdAt').toArray()).filter(
-      (q) => q.state === 'local_only' || q.state === 'retryable_failed',
-    ),
-  );
+  const attempts = collapseSyncAttempts(await d.syncQueue.orderBy('createdAt').toArray(), 'media');
   let pushed = 0;
   let failed = 0;
 
-  for (const op of items) {
-    if (op.entityType !== 'media') continue;
+  for (const attempt of attempts) {
+    const { op } = attempt;
+    await removeSuperseded(attempt);
     const media = await d.localMedia.get(op.entityId);
     if (!media) {
       await d.syncQueue.delete(op.operationId);
       continue;
     }
-    // **경로는 기억한 것을 쓴다.** 다시 계산하면 여행 제목이 바뀐 뒤의 재전송이 다른 키로
-    // 올라가 옛 파일이 고아로 남는다(그리고 앱은 그걸 '문제'로 띄운다). 바이트가 착지한 키가
-    // 곧 진실이므로, 처음 한 번만 만들고 그 뒤로는 저장된 값을 따른다.
+    // **기억한 경로를 안정적인 이름의 바탕으로 쓴다.** 제목에서 다시 계산하지는 않되, 실제 PUT은
+    // 아래에서 operation 토큰을 바꾼 새 키로 격리한다. DB read-back이 승인한 키만 다시 기억한다.
     const trip = await d.localTrips.get(media.tripId);
-    const path = media.storagePath ?? mediaStoragePath(userId, media, trip?.title ?? null);
+    const previousPath = media.storagePath;
+    const stablePath = previousPath ?? mediaStoragePath(userId, media, trip?.title ?? null);
     // 🔴 판정은 **공용 문**을 지난다(§7 2층 — M-0059). 예전엔 여기가 `deletedAt === null`
     // 한 줄이었고, 형제(소리)만 고쳐지면서 **휴지통 사진의 바이트가 영영 못 올라갔다.**
     // 사진은 `false` — 옛 키 형식 행은 경로를 기억하지 않으면서 바이트는 서버에 있으므로,
     // 「경로 기억 없음」을 「올라간 적 없음」으로 읽으면 고아 사본을 만든다.
-    if (mustUploadBytes(media, false)) {
+    const uploadsBytes = mustUploadBytes(media, false);
+    // 🔴 DB guard보다 R2 PUT이 먼저다. 작업별 새 키가 아니면 stale 기기가 최신 사진 바이트를
+    // 먼저 덮은 뒤 DB 행만 거절되는 분리 상태가 된다(M-0087).
+    const path = uploadsBytes ? operationStoragePath(stablePath, media.id, op.operationId) : stablePath;
+    if (uploadsBytes) {
       const up = await remote.uploadDisplay(path, media.displayBlob); // 표시본만(원본 미업로드)
       if (up.error) {
         await markFail(op, up.status);
@@ -545,7 +695,8 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
         continue;
       }
     }
-    const res = await remote.upsert(toMediaRow(media, userId, path, deviceStamp()));
+    const sent = withSyncOperation(media, op.operationId);
+    const res = await remote.upsert(toMediaRow(sent, userId, path, deviceStamp()));
     if (res.error) {
       await markFail(op, res.status);
       failed++;
@@ -559,7 +710,9 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
     }
     const server = fromMediaRow(back.data);
     // 🔴 내 쓰기가 실제로 착지했는가 — 경합으로 남의 행을 받았으면 덮지 않고 재시도(M-3).
-    if (!writeLanded(server, media.version, path)) {
+    if (!writeLanded(server, sent.version, op.operationId, path)) {
+      await removeUnreferencedBytes(remote, uploadsBytes ? path : undefined, server.storagePath);
+      await rebaseRejectedLocal(d.localMedia, media, op.operationId, server);
       await markFail(op, undefined);
       failed++;
       continue;
@@ -568,12 +721,21 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
       const cur = await d.localMedia.get(media.id);
       // 경로도 **같은 커밋에** 기억한다(M-0033의 교훈 — "곧 이어서 쓸 것"은 없는 것과 같다).
       // 「서버에 없다」 표시도 **같은 커밋에** 걷는다 — 방금 올렸으므로 더는 참이 아니다.
-      if (cur) {
-        const { bytesMissing: _done, ...keep } = cur;
-        await d.localMedia.put({ ...keep, storagePath: path, updatedAt: server.updatedAt, version: server.version });
+      if (isSameSnapshot(cur, media)) {
+        const { bytesMissing: _done, ...keep } = cur!;
+        await d.localMedia.put({
+          ...keep,
+          storagePath: path,
+          updatedAt: server.updatedAt,
+          version: server.version,
+          baseVersion: server.version,
+          clientOperationId: op.operationId,
+        });
       }
       await d.syncQueue.delete(op.operationId);
     });
+    // DB read-back과 로컬 커밋 뒤에만 옛 표시본을 걷는다. 실패하면 고아 사본만 남고 기억은 남는다.
+    if (uploadsBytes) await removeUnreferencedBytes(remote, previousPath, path);
     // ⚠️ 여기서 바이트를 지우지 않는다(정책 변경 2026-07-26, 사용자 결정).
     //
     // 예전에는 tombstone을 밀면서 곧바로 `remote.remove(path)`로 서버 사진을 지웠다. 그러면
@@ -625,7 +787,15 @@ export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; 
     // 재큐잉으로는 **원리적으로 닿지 않는 사각지대**다(사용자가 겪은 바로 그 상태).
     // 여기서만 직접 tombstone을 밀고 바이트를 지운다. 되살려 로컬에 만들지 않는다.
     if (!local && server.deletedAt === null && purged.has(r.trip_id)) {
-      const res = await remote.upsert({ ...r, deleted_at: new Date().toISOString(), version: r.version + 1 });
+      const tombstoneAt = new Date().toISOString();
+      const res = await remote.upsert({
+        ...r,
+        deleted_at: tombstoneAt,
+        updated_at: tombstoneAt,
+        version: r.version + 1,
+        base_version: r.version,
+        client_operation_id: crypto.randomUUID(),
+      });
       if (!res.error) {
         if (server.storagePath) await remote.remove(server.storagePath);
         swept++;
@@ -636,8 +806,15 @@ export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; 
     if (server.deletedAt !== null) {
       // tombstone — blob 파괴 없이 삭제 표시만. 로컬에 없으면 만들 blob이 없고 필요도 없어 skip.
       if (local) {
-        await d.localMedia.put({ ...local, deletedAt: server.deletedAt, version: server.version, updatedAt: server.updatedAt });
-        pulled++;
+        const next = {
+          ...local,
+          deletedAt: server.deletedAt,
+          version: server.version,
+          updatedAt: server.updatedAt,
+          baseVersion: server.version,
+          ...(server.clientOperationId ? { clientOperationId: server.clientOperationId } : {}),
+        };
+        if (await applyServerWinner(d.localMedia, 'media', local, next)) pulled++;
       }
       continue;
     }
@@ -677,13 +854,14 @@ export async function pullMedia(remote: MediaRemote): Promise<{ pulled: number; 
       bytesOriginal: local?.bytesOriginal ?? display.size,
       bytesDisplay: display.size,
       version: server.version,
+      baseVersion: server.version,
+      ...(server.clientOperationId ? { clientOperationId: server.clientOperationId } : {}),
       createdAt: server.createdAt,
       updatedAt: server.updatedAt,
       deletedAt: null,
       ...(local?.editState ? { editState: local.editState } : {}),
     };
-    await d.localMedia.put(next);
-    pulled++;
+    if (await applyServerWinner(d.localMedia, 'media', local, next)) pulled++;
   }
   if (swept) console.info(`서버 고아 정리: 사진 ${swept}건(로컬에 없어 재큐잉이 닿지 못하던 것)`);
   return { pulled, skippedEmptyCloud: false };
@@ -745,23 +923,21 @@ export async function pushPendingPlaces(
   userId: string,
 ): Promise<{ pushed: number; failed: number }> {
   const d = db();
-  const items = dueOps(
-    (await d.syncQueue.orderBy('createdAt').toArray()).filter(
-      (q) => q.state === 'local_only' || q.state === 'retryable_failed',
-    ),
-  );
+  const attempts = collapseSyncAttempts(await d.syncQueue.orderBy('createdAt').toArray(), 'place');
   let pushed = 0;
   let failed = 0;
 
-  for (const op of items) {
-    if (op.entityType !== 'place') continue;
+  for (const attempt of attempts) {
+    const { op } = attempt;
+    await removeSuperseded(attempt);
     const place = await d.localPlaces.get(op.entityId);
     if (!place) {
       await d.syncQueue.delete(op.operationId);
       continue;
     }
 
-    const up = await remote.upsert(toPlaceRow(place, userId, deviceStamp()));
+    const sent = withSyncOperation(place, op.operationId);
+    const up = await remote.upsert(toPlaceRow(sent, userId, deviceStamp()));
     if (up.error) {
       await markFail(op, up.status);
       failed++;
@@ -769,17 +945,30 @@ export async function pushPendingPlaces(
     }
 
     const back = await remote.getById(place.id);
-    // 좌표까지 되읽어 확인한다 — 여기서 어긋나면 지도가 다른 곳을 가리킨다.
-    if (back.error || !back.data || back.data.longitude !== place.longitude || back.data.latitude !== place.latitude) {
+    const serverPlace = back.data ? fromPlaceRow(back.data) : null;
+    if (back.error || !serverPlace) {
       await markFail(op, back.status);
       failed++;
       continue;
     }
+    if (!writeLanded(serverPlace, sent.version, op.operationId)) {
+      await rebaseRejectedLocal(d.localPlaces, place, op.operationId, serverPlace);
+      await markFail(op, undefined);
+      failed++;
+      continue;
+    }
 
-    const serverPlace = fromPlaceRow(back.data);
     await d.transaction('rw', d.localPlaces, d.syncQueue, async () => {
       const cur = await d.localPlaces.get(place.id);
-      if (cur) await d.localPlaces.put({ ...cur, updatedAt: serverPlace.updatedAt, version: serverPlace.version });
+      if (isSameSnapshot(cur, place)) {
+        await d.localPlaces.put({
+          ...cur!,
+          updatedAt: serverPlace.updatedAt,
+          version: serverPlace.version,
+          baseVersion: serverPlace.version,
+          clientOperationId: op.operationId,
+        });
+      }
       await d.syncQueue.delete(op.operationId);
     });
     pushed++;
@@ -806,8 +995,7 @@ export async function pullPlaces(remote: PlacesRemote): Promise<{ pulled: number
     const server = fromPlaceRow(r);
     const local = await d.localPlaces.get(server.id);
     if (mergeDecision(local, server) === 'take-server') {
-      await d.localPlaces.put(server);
-      pulled++;
+      if (await applyServerWinner(d.localPlaces, 'place', local, server)) pulled++;
     } else {
       await requeueIfServerStillActive('place', local, server);
     }
@@ -817,25 +1005,23 @@ export async function pullPlaces(remote: PlacesRemote): Promise<{ pulled: number
 
 export async function pushPendingAudio(remote: AudioRemote, userId: string): Promise<{ pushed: number; failed: number }> {
   const d = db();
-  const items = dueOps(
-    (await d.syncQueue.orderBy('createdAt').toArray()).filter(
-      (q) => q.state === 'local_only' || q.state === 'retryable_failed',
-    ),
-  );
+  const attempts = collapseSyncAttempts(await d.syncQueue.orderBy('createdAt').toArray(), 'audio');
   let pushed = 0;
   let failed = 0;
 
-  for (const op of items) {
-    if (op.entityType !== 'audio') continue;
+  for (const attempt of attempts) {
+    const { op } = attempt;
+    await removeSuperseded(attempt);
     const audio = await d.localAudio.get(op.entityId);
     if (!audio) {
       await d.syncQueue.delete(op.operationId);
       continue;
     }
-    // 경로는 **기억한 것을 쓴다**(사진과 같은 이유 — 제목을 바꿔도 키가 안 움직인다).
+    // 기억한 경로를 이름의 바탕으로 쓴다(사진과 같은 이유 — 제목 변경으로 폴더가 움직이지 않음).
     const trip = await d.localTrips.get(audio.tripId);
-    const path = audio.storagePath ?? audioStoragePath(userId, audio, trip?.title ?? null);
-    if (!path) {
+    const previousPath = audio.storagePath;
+    const stablePath = previousPath ?? audioStoragePath(userId, audio, trip?.title ?? null);
+    if (!stablePath) {
       await markFail(op, 400); // permanent — 형식이 바뀌지 않는 한 다시 시도해도 같다
       failed++;
       continue;
@@ -855,7 +1041,11 @@ export async function pushPendingAudio(remote: AudioRemote, userId: string): Pro
     // 판정은 **사진과 같은 문**을 지난다(§7 2층 — M-0059). 소리에 `true`를 주는 이유:
     // 키 형식이 하나뿐이라 「경로 기억 없음 = 올라간 적 없음」이 성립한다(사진은 옛 형식이
     // 있어 성립하지 않는다 — 그 비대칭은 `mustUploadBytes`의 인자 하나로 드러나 있다).
-    if (mustUploadBytes(audio, true)) {
+    const uploadsBytes = mustUploadBytes(audio, true);
+    // 현재 소리는 편집 불가지만 사진과 같은 불변 작업 키를 쓴다. 다음 바이트 형제가 생겨도
+    // 같은 fence를 자동으로 물려받게 하는 §7의 구조적 대칭이다.
+    const path = uploadsBytes ? operationStoragePath(stablePath, audio.id, op.operationId) : stablePath;
+    if (uploadsBytes) {
       const up = await remote.upload(path, audio.blob, audio.mime || 'application/octet-stream');
       if (up.error) {
         await markFail(op, up.status);
@@ -863,7 +1053,8 @@ export async function pushPendingAudio(remote: AudioRemote, userId: string): Pro
         continue;
       }
     }
-    const res = await remote.upsert(toAudioRow(audio, userId, path, deviceStamp()));
+    const sent = withSyncOperation(audio, op.operationId);
+    const res = await remote.upsert(toAudioRow(sent, userId, path, deviceStamp()));
     if (res.error) {
       await markFail(op, res.status);
       failed++;
@@ -877,7 +1068,9 @@ export async function pushPendingAudio(remote: AudioRemote, userId: string): Pro
     }
     const server = fromAudioRow(back.data);
     // 🔴 내 쓰기가 실제로 착지했는가 — 경합으로 남의 행을 받았으면 덮지 않고 재시도(M-3, 사진과 같은 문).
-    if (!writeLanded(server, audio.version, path)) {
+    if (!writeLanded(server, sent.version, op.operationId, path)) {
+      await removeUnreferencedBytes(remote, uploadsBytes ? path : undefined, server.storagePath);
+      await rebaseRejectedLocal(d.localAudio, audio, op.operationId, server);
       await markFail(op, undefined);
       failed++;
       continue;
@@ -886,12 +1079,20 @@ export async function pushPendingAudio(remote: AudioRemote, userId: string): Pro
       const cur = await d.localAudio.get(audio.id);
       // 경로도 **같은 커밋에** 기억한다(M-0033 — "곧 이어서 쓸 것"은 없는 것과 같다).
       // 표시를 걷는 것도 사진과 **같은 자리·같은 방식**이다(§7).
-      if (cur) {
-        const { bytesMissing: _done, ...keep } = cur;
-        await d.localAudio.put({ ...keep, storagePath: path, updatedAt: server.updatedAt, version: server.version });
+      if (isSameSnapshot(cur, audio)) {
+        const { bytesMissing: _done, ...keep } = cur!;
+        await d.localAudio.put({
+          ...keep,
+          storagePath: path,
+          updatedAt: server.updatedAt,
+          version: server.version,
+          baseVersion: server.version,
+          clientOperationId: op.operationId,
+        });
       }
       await d.syncQueue.delete(op.operationId);
     });
+    if (uploadsBytes) await removeUnreferencedBytes(remote, previousPath, path);
     pushed++;
   }
   return { pushed, failed };
@@ -926,8 +1127,15 @@ export async function pullAudio(remote: AudioRemote): Promise<{ pulled: number; 
     if (server.deletedAt !== null) {
       // tombstone — blob 파괴 없이 삭제 표시만. 로컬에 없으면 만들 바이트가 없고 필요도 없다.
       if (local) {
-        await d.localAudio.put({ ...local, deletedAt: server.deletedAt, version: server.version, updatedAt: server.updatedAt });
-        pulled++;
+        const next = {
+          ...local,
+          deletedAt: server.deletedAt,
+          version: server.version,
+          updatedAt: server.updatedAt,
+          baseVersion: server.version,
+          ...(server.clientOperationId ? { clientOperationId: server.clientOperationId } : {}),
+        };
+        if (await applyServerWinner(d.localAudio, 'audio', local, next)) pulled++;
       }
       continue;
     }
@@ -949,13 +1157,14 @@ export async function pullAudio(remote: AudioRemote): Promise<{ pulled: number; 
       durationSec: server.durationSec,
       recordedAt: server.recordedAt,
       version: server.version,
+      baseVersion: server.version,
+      ...(server.clientOperationId ? { clientOperationId: server.clientOperationId } : {}),
       createdAt: server.createdAt,
       updatedAt: server.updatedAt,
       deletedAt: null,
       storagePath: server.storagePath,
     };
-    await d.localAudio.put(next);
-    pulled++;
+    if (await applyServerWinner(d.localAudio, 'audio', local, next)) pulled++;
   }
   return { pulled, skippedEmptyCloud: false };
 }
@@ -1880,6 +2089,18 @@ export async function runSync(
   userId: string,
   opts: SyncOptions = {},
 ): Promise<SyncResult> {
+  // 🔴 어떤 로컬 repair/push보다 먼저 canonical 세대를 본다. 바뀌었으면 클라우드 정확집합만
+  // 반영하고 여기서 끝낸다 — 병합 결과를 다시 올리면 사용자가 고른 최종본이 즉시 오염된다.
+  const canonical = await ensureCanonicalBeforeSync(canonicalRemote(client), userId);
+  if (canonical.mode === 'applied') {
+    return {
+      pushed: 0,
+      failed: 0,
+      pulled: canonical.pulled,
+      skippedEmptyCloud: false,
+      canonicalApplied: true,
+    };
+  }
   // push보다 **먼저** 돈다 — 재큐잉된 op가 이번 동기화에서 바로 처리되도록.
   await repairCascadeOpsOnce();
   // 표기 정리도 **병합보다 먼저**다(M-0034). 아래 pull이 `mergeDecision`으로 승부를 내는데,
@@ -1945,5 +2166,6 @@ export async function runSync(
       qe.skippedEmptyCloud ||
       qa.skippedEmptyCloud ||
       qpl.skippedEmptyCloud,
+    canonicalApplied: false,
   };
 }

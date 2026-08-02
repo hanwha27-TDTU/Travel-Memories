@@ -47,6 +47,7 @@ export async function createMomentLocalFirst(input: CreateMomentInput): Promise<
     placeId: input.placeId ?? null,
     tzOffsetMin: input.tzOffsetMin ?? null,
     version: 1,
+    baseVersion: 0,
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
@@ -116,7 +117,7 @@ export async function updateMomentLocalFirst(id: string, patch: UpdateMomentPatc
     ...(patch.tzOffsetMin !== undefined ? { tzOffsetMin: patch.tzOffsetMin } : {}),
     version: cur.version + 1,
     updatedAt: now,
-    baseVersion: cur.version,
+    baseVersion: cur.baseVersion ?? cur.version,
     clientOperationId: opId,
   };
   if (!next.title) throw new Error('기록 내용이 비어 있습니다.');
@@ -186,7 +187,7 @@ export async function softDeleteMomentLocalFirst(id: string): Promise<MomentChil
     deletedAt: now,
     version: cur.version + 1,
     updatedAt: now,
-    baseVersion: cur.version,
+    baseVersion: cur.baseVersion ?? cur.version,
     clientOperationId: opId,
   };
   const op: SyncQueueItem = {
@@ -212,13 +213,13 @@ export async function softDeleteMomentLocalFirst(id: string): Promise<MomentChil
     for (const m of media) {
       // 사진도 동기화 대상 — cascade tombstone을 큐 op로 전파.
       const mOpId = uuid();
-      await d.localMedia.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now, baseVersion: m.version, clientOperationId: mOpId });
+      await d.localMedia.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now, baseVersion: m.baseVersion ?? m.version, clientOperationId: mOpId });
       await d.syncQueue.add({ operationId: mOpId, entityType: 'media', entityId: m.id, operationType: 'delete', state: 'local_only', attempts: 0, createdAt: now });
     }
     for (const e of expenses) {
       // 비용은 동기화 대상 — cascade tombstone도 큐 op로 전파(안 하면 서버에 삭제가 안 감).
       const eOpId = uuid();
-      await d.localExpenses.put({ ...e, deletedAt: now, version: e.version + 1, updatedAt: now, baseVersion: e.version, clientOperationId: eOpId });
+      await d.localExpenses.put({ ...e, deletedAt: now, version: e.version + 1, updatedAt: now, baseVersion: e.baseVersion ?? e.version, clientOperationId: eOpId });
       await d.syncQueue.add({ operationId: eOpId, entityType: 'expense', entityId: e.id, operationType: 'delete', state: 'local_only', attempts: 0, createdAt: now });
     }
     for (const a of audio) {
@@ -226,7 +227,7 @@ export async function softDeleteMomentLocalFirst(id: string): Promise<MomentChil
       // 순간을 지워도 서버의 소리 행이 활성으로 남고 R2 객체까지 잔류한다 — M-0006이 사진·
       // 비용에서 정확히 그랬다. 형제가 지키는 것을 새것도 지킨다.
       const aOpId = uuid();
-      await d.localAudio.put({ ...a, deletedAt: now, version: a.version + 1, updatedAt: now, baseVersion: a.version, clientOperationId: aOpId });
+      await d.localAudio.put({ ...a, deletedAt: now, version: a.version + 1, updatedAt: now, baseVersion: a.baseVersion ?? a.version, clientOperationId: aOpId });
       await d.syncQueue.add({ operationId: aOpId, entityType: 'audio', entityId: a.id, operationType: 'delete', state: 'local_only', attempts: 0, createdAt: now });
     }
     await d.syncQueue.add(op);
@@ -257,7 +258,7 @@ export async function restoreMomentLocalFirst(id: string, children: MomentChildr
     deletedAt: null,
     version: cur.version + 1,
     updatedAt: now,
-    baseVersion: cur.version,
+    baseVersion: cur.baseVersion ?? cur.version,
     clientOperationId: opId,
   };
   const op: SyncQueueItem = {
@@ -276,7 +277,7 @@ export async function restoreMomentLocalFirst(id: string, children: MomentChildr
       const m = await d.localMedia.get(mid);
       if (m) {
         const mOpId = uuid();
-        await d.localMedia.put({ ...m, deletedAt: null, version: m.version + 1, updatedAt: now, baseVersion: m.version, clientOperationId: mOpId });
+        await d.localMedia.put({ ...m, deletedAt: null, version: m.version + 1, updatedAt: now, baseVersion: m.baseVersion ?? m.version, clientOperationId: mOpId });
         await d.syncQueue.add({ operationId: mOpId, entityType: 'media', entityId: m.id, operationType: 'update', state: 'local_only', attempts: 0, createdAt: now });
       }
     }
@@ -285,7 +286,7 @@ export async function restoreMomentLocalFirst(id: string, children: MomentChildr
       if (e) {
         // 비용 복원도 큐 op로 전파(update — deletedAt=null·version+1로 삭제를 이긴다).
         const eOpId = uuid();
-        await d.localExpenses.put({ ...e, deletedAt: null, version: e.version + 1, updatedAt: now, baseVersion: e.version, clientOperationId: eOpId });
+        await d.localExpenses.put({ ...e, deletedAt: null, version: e.version + 1, updatedAt: now, baseVersion: e.baseVersion ?? e.version, clientOperationId: eOpId });
         await d.syncQueue.add({ operationId: eOpId, entityType: 'expense', entityId: e.id, operationType: 'update', state: 'local_only', attempts: 0, createdAt: now });
       }
     }
@@ -295,7 +296,7 @@ export async function restoreMomentLocalFirst(id: string, children: MomentChildr
       // 복원도 큐 op로 전파한다(update — deletedAt=null·version+1로 삭제를 이긴다).
       if (a) {
         const aOpId = uuid();
-        await d.localAudio.put({ ...a, deletedAt: null, version: a.version + 1, updatedAt: now, baseVersion: a.version, clientOperationId: aOpId });
+        await d.localAudio.put({ ...a, deletedAt: null, version: a.version + 1, updatedAt: now, baseVersion: a.baseVersion ?? a.version, clientOperationId: aOpId });
         await d.syncQueue.add({ operationId: aOpId, entityType: 'audio', entityId: a.id, operationType: 'update', state: 'local_only', attempts: 0, createdAt: now });
       }
     }

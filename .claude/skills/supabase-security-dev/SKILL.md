@@ -48,7 +48,8 @@ description: Supabase·보안·RLS 개발 프롬프트 — supabase/migrations/*
      텍스트를 진실원으로 삼으므로, `alter`로 고치면 게이트가 보는 것은 옛 정의로 남고
      그 자리는 **검사되지 않는 자리**가 된다.
 3. **복합 FK로 소유권 방어(H-02)**: 자식 테이블은 `(parent_id, user_id) → parent(id, user_id)`. 단일 FK면 남의 부모에 자식을 붙일 수 있다.
-4. **좀비 방지 트리거**: `prevent_zombie_resurrection` BEFORE UPDATE — tombstone은 **더 높은 version**으로만 부활한다(낮거나 같은 version의 활성 upsert는 거부). 클라이언트 병합 규율(`mergeDecision`)의 서버측 쌍둥이다.
+4. **좀비·stale-write 방지 트리거**: `prevent_zombie_resurrection`은 tombstone을 더 높은 version으로만 부활시킨다. migration 0026의 `a_sync_write_guard`는 authenticated 쓰기에 한해 `base_version = OLD.version`을 요구하고 `set_updated_at`보다 먼저 stale UPDATE를 no-op으로 만든다. **관리·복구 역할은 통과시킨다** — 앱의 조건부 쓰기 계약으로 후속 migration까지 묶지 않는다. 클라이언트는 operation-id read-back으로 no-op을 성공과 구분한다.
+   - migration 0027의 `a0_canonical_sync_guard`는 같은 여섯 표에서 authenticated INSERT/UPDATE의 `base_canonical_version`을 사용자 `sync_meta`와 대조하고 0026 guard보다 먼저 돈다. `sync_meta`는 SELECT만 직접 열고, generation 전진은 `auth.uid()`·초대제·CAS·payload user 범위를 직접 검증하는 `publish_canonical_snapshot` 좁은 문 하나로만 한다. 정확집합 delete/insert와 메타 전진은 **한 DB transaction**이어야 한다.
 5. **`SECURITY DEFINER` 함수는 `search_path=''` 고정**(권한 상승 경로 차단).
    본문 참조는 전부 스키마 한정(`journey.…`·`auth.uid()`)으로 쓴다 — 경로가 비므로 한정하지
    않은 이름은 못 찾는다. **이 조항은 처음부터 있었는데 `block_purged_reinsert()`(0012)와
@@ -131,6 +132,8 @@ ROLLBACK;   -- 프로덕션 무변경
 
 | 사례 | 근본형 | 대응 |
 |---|---|---|
+| **일반 merge로는 사용자가 정한 전체 최종본을 유지할 수 없음**(M-0090) | RLS/OCC는 행 하나의 권한·최신성만 지키며, 다른 기기의 로컬 전용 행이 어느 전체집합에 속하는지는 표현하지 못함 | 0027 `sync_meta` generation + 여섯 표 authenticated generation fence + CAS/멱등/정확집합 원자 RPC. owner+초대제 SELECT만 직접 허용, operation/meta read-back. 신형 앱 전기기→스냅샷→0026→0027 순 배포 |
+| **앱의 무조건 upsert가 최신 서버 행을 덮을 수 있었음**(M-0084) | RLS는 "누가"를 막았지만 "마지막으로 본 판이 맞는가"를 검사하지 않았다. 반대로 첫 guard는 모든 역할을 막아 복구 UPDATE까지 조용히 무효화할 뻔했다 | 0026을 **authenticated 전용** OCC guard로 한정 + 관리자 bypass와 authenticated stale 차단을 같은 transaction SQL에서 반대 검사 + 신형 앱 전기기 선배포 후 migration 적용 |
 | 공유 프로젝트의 Google 로그인이 전역이라 아무 계정이나 자기 기록 생성 가능 | 인증(공유)과 인가(앱별)를 혼동 | `allowed_users` + `is_allowed()`를 **모든 정책에 결합**. 앱 게이트는 UX일 뿐, 진짜 방어는 DB |
 | 클라가 서버에 없는 컬럼을 밀어 조용히 깨짐 | 클라↔서버 스키마 드리프트 | `check-schema-parity`(rowmap 필드 ⊆ 서버 컬럼) |
 | `SECURITY DEFINER` 함수 search_path 경고 | 권한 상승 경로 | `search_path=''` 고정 |

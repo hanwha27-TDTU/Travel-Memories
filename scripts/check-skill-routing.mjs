@@ -17,7 +17,7 @@
 import { readdirSync, existsSync, statSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SKILL_ROUTES, NO_SKILL_REQUIRED } from './brief.mjs';
+import { SKILL_ROUTES, NO_SKILL_REQUIRED, routePath } from './brief.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -26,7 +26,7 @@ function walk(dir, ext, out = []) {
   for (const f of readdirSync(dir)) {
     const p = join(dir, f);
     if (statSync(p).isDirectory()) walk(p, ext, out);
-    else if (ext.test(f)) out.push(relative(ROOT, p));
+    else if (ext.test(f)) out.push(routePath(relative(ROOT, p)));
   }
   return out;
 }
@@ -64,7 +64,9 @@ const SCAN = [
 ];
 
 export function unrouted(paths, routes, excluded) {
-  return paths.filter((p) => !excluded.has(p) && !routes.some((r) => r.match.test(p)));
+  return paths
+    .map(routePath)
+    .filter((p) => !excluded.has(p) && !routes.some((r) => r.match.test(p)));
 }
 
 export function orphanSkills(routes, available) {
@@ -83,6 +85,7 @@ let selfTestCount = 0;
   const R = [{ match: /^src\/a\//, skill: 'alpha' }];
   const cases = [
     { name: '전부 라우팅됨', fn: () => unrouted(['src/a/x.ts'], R, new Map()), clean: true },
+    { name: 'Windows 경로도 라우팅됨', fn: () => unrouted(['src\\a\\x.ts'], R, new Map()), clean: true },
     { name: '라우팅 안 된 파일 검출', fn: () => unrouted(['src/b/y.ts'], R, new Map()), clean: false },
     { name: '이유 있는 제외는 통과', fn: () => unrouted(['src/b/y.ts'], R, new Map([['src/b/y.ts', '이유']])), clean: true },
     { name: '죽은 링크 검출(문서 없음)', fn: () => deadLinks(R, []), clean: false },

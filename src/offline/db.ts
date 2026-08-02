@@ -14,7 +14,43 @@ export interface SyncMeta {
   deletedAt: string | null;
   updatedByDevice?: string;
   baseVersion?: number;
+  /** 마지막으로 확인한 서버 최종본 세대. canonical 교체 뒤 옛 기기 쓰기를 막는 fence다. */
+  baseCanonicalVersion?: string;
   clientOperationId?: string;
+}
+
+export type CanonicalStage = 'uploading' | 'publishing' | 'read-back' | 'local-commit';
+
+/**
+ * 「이 기기 → 클라우드 최종본」의 재시작 가능한 작업 기록.
+ * 메타 스냅샷만 보관하고 Blob은 도메인 store의 내구성 사본을 사용한다.
+ */
+export interface PendingCanonicalSnapshot {
+  expectedVersion: string;
+  nextVersion: string;
+  operationId: string;
+  device: string;
+  stage: CanonicalStage;
+  createdAt: string;
+  queuedOperationIds: string[];
+  stagedPaths: string[];
+  previousPaths: string[];
+  trips: Record<string, unknown>[];
+  places: Record<string, unknown>[];
+  moments: Record<string, unknown>[];
+  media: Record<string, unknown>[];
+  expenses: Record<string, unknown>[];
+  audio: Record<string, unknown>[];
+  purgedIds: string[];
+}
+
+/** 동기화 제어 상태. 사용자 기억이 아니므로 백업·서버 병합 대상이 아니다. */
+export interface LocalSyncState {
+  id: string;
+  userId: string;
+  canonicalVersion?: string;
+  pendingCanonical?: PendingCanonicalSnapshot;
+  updatedAt: string;
 }
 
 export interface LocalTrip extends SyncMeta {
@@ -81,14 +117,15 @@ export interface LocalMedia extends SyncMeta {
   bytesOriginal: number;
   bytesDisplay: number;
   /**
-   * **서버에 실제로 올라간 객체 키.** 한 번 정해지면 안 바뀐다 — 다시 계산하지 않는다.
+   * **서버 행이 현재 가리키는 실제 객체 키.** 파생값이 아니며, DB OCC가 승인한 새 바이트
+   * 작업이 착지할 때만 작업별 불변 키로 전진한다(M-0087).
    *
    * 왜 기억하나(2026-07-27): 키에 여행 제목이 들어가면서 경로가 **움직이는 값의 함수**가 됐다.
    * 매번 다시 계산하면 제목을 바꾼 뒤의 재전송이 **다른 키**로 올라가 옛 파일이 고아로 남는다.
    * R2에는 '이름 바꾸기'가 없으니 그 고아는 사람이 치워야 하고, 앱은 그걸 「설명할 수 없는
    * 사진 파일」이라는 **문제**로 띄운다 — 제목 한 번 고쳤을 뿐인데.
    *
-   * 그래서 **바이트가 착지한 키가 곧 진실**이고, 파생이 아니라 데이터로 둔다.
+   * 그래서 **DB read-back으로 승인된 바이트 키가 곧 진실**이고, 파생이 아니라 데이터로 둔다.
    * 인덱스는 필요 없다(조회 대상이 아님) → Dexie 스키마 버전 증가 없이 붙는 평범한 속성.
    * 옛 행에는 없을 수 있으므로 선택 필드다(없으면 그때 계산해 채운다).
    */
@@ -294,6 +331,7 @@ export class JourneyDB extends Dexie {
   localFxRates!: Table<LocalFxRate, string>;
   purgedIds!: Table<PurgedId, string>;
   syncQueue!: Table<SyncQueueItem, string>;
+  syncState!: Table<LocalSyncState, string>;
 
   constructor() {
     super('journey-archive');
@@ -337,6 +375,10 @@ export class JourneyDB extends Dexie {
     // 전수 스캔은 밀리초라, 로컬에 공간 인덱스를 흉내 내는 복잡도를 들일 이유가 없다.
     this.version(8).stores({
       localPlaces: 'id, updatedAt, providerKey',
+    });
+    // v9: canonical 세대·재시작 상태. 기억 데이터가 아니라 동기화 fence라 별도 store로 둔다.
+    this.version(9).stores({
+      syncState: 'id, userId, updatedAt',
     });
   }
 }

@@ -15,10 +15,11 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execSync, execFile } from 'node:child_process';
+import { execFile } from 'node:child_process';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'src');
+const VITEST = join(ROOT, 'node_modules', 'vitest', 'vitest.mjs');
 
 // UTC가 아닌 시간대 두 곳(동/서 양방향) — 부호가 다른 오프셋이라 한쪽으로만 치우친 가정도 깨진다.
 const TZS = ['Asia/Seoul', 'Pacific/Honolulu'];
@@ -155,12 +156,23 @@ const runs = await Promise.all(
   TZS.map(
     (tz) =>
       new Promise((resolve) => {
-        execFile(
-          process.platform === 'win32' ? 'npm.cmd' : 'npm',
-          ['run', '-s', 'test'],
-          { cwd: ROOT, env: { ...process.env, TZ: tz }, maxBuffer: 32 * 1024 * 1024 },
-          (err, stdout) => resolve({ tz, err, stdout }),
-        );
+        // `.cmd`는 실행 파일이 아니다. Windows의 Node 24는 execFile 콜백을 부르기 전에
+        // EINVAL을 던지므로, npm test가 가리키는 Vitest를 현재 Node로 직접 실행한다(M-0089).
+        try {
+          execFile(
+            process.execPath,
+            [VITEST, 'run'],
+            {
+              cwd: ROOT,
+              env: { ...process.env, TZ: tz },
+              maxBuffer: 32 * 1024 * 1024,
+              windowsHide: true,
+            },
+            (err, stdout, stderr) => resolve({ tz, err, stdout, stderr }),
+          );
+        } catch (err) {
+          resolve({ tz, err, stdout: '', stderr: '' });
+        }
       }),
   ),
 );
@@ -171,6 +183,7 @@ if (bad.length) {
   for (const r of bad) {
     console.error(`check-timezone: TZ=${r.tz} 에서 유닛 실패 — 시간대 의존 가정이 있습니다.`);
     if (r.stdout) process.stderr.write(String(r.stdout).split('\n').slice(-40).join('\n'));
+    if (r.stderr) process.stderr.write(String(r.stderr).split('\n').slice(-40).join('\n'));
   }
   process.exit(1);
 }

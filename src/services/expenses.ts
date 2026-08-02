@@ -45,6 +45,7 @@ export async function createExpenseLocalFirst(input: CreateExpenseInput): Promis
     category: input.category?.trim() ?? '',
     note: input.note?.trim() ?? '',
     version: 1,
+    baseVersion: 0,
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
@@ -87,7 +88,7 @@ export async function updateExpenseLocalFirst(id: string, patch: UpdateExpensePa
     ...(patch.note !== undefined ? { note: patch.note.trim() } : {}),
     version: cur.version + 1,
     updatedAt: now,
-    baseVersion: cur.version,
+    baseVersion: cur.baseVersion ?? cur.version,
     clientOperationId: opId,
   };
   await d.transaction('rw', d.localExpenses, d.syncQueue, async () => {
@@ -112,7 +113,7 @@ export async function softDeleteExpenseLocalFirst(id: string): Promise<void> {
       deletedAt: now,
       version: cur.version + 1,
       updatedAt: now,
-      baseVersion: cur.version,
+      baseVersion: cur.baseVersion ?? cur.version,
       clientOperationId: opId,
     });
     await d.syncQueue.add(expenseOp(opId, id, 'delete', now));
@@ -139,7 +140,7 @@ export async function restoreExpenseLocalFirst(id: string): Promise<void> {
       deletedAt: null,
       version: cur.version + 1,
       updatedAt: now,
-      baseVersion: cur.version,
+      baseVersion: cur.baseVersion ?? cur.version,
       clientOperationId: opId,
     });
     await d.syncQueue.add(expenseOp(opId, id, 'update', now));
