@@ -1,7 +1,7 @@
 # HANDOFF_CODEX · Bugeon Journey 인계서
 
 > **읽는 사람**: 이 앱 제작에 거의 참여하지 않은 AI(Codex 등) 또는 새 Claude 세션.
-> **작성**: 2026-07-27 · **갱신 2026-08-03**(v1.64 배포 준비 완료 — 바로 아래 최신 절을 **가장 먼저** 읽어라. 작업 트리 v1.64·운영 라이브 v1.63, DB 0027까지 적용 완료)
+> **작성**: 2026-07-27 · **갱신 2026-08-03**(v1.64 배포 완료 — 바로 아래 최신 절을 **가장 먼저** 읽어라. 작업 트리·운영 라이브 v1.64, DB 0027까지 적용 완료)
 >
 > 🔴 **헌법은 `docs/CONSTITUTION.md`가 정본이다.** `CLAUDE.md`·`AGENTS.md`는 거기서 자동으로
 > 심어 받는 어댑터라 **글자 단위로 같다**. 헌법을 고칠 때는 정본만 고치고 `npm run gen:adapters`
@@ -13,13 +13,13 @@
 
 ---
 
-## 🆕 v1.64 배포 준비 완료 — 정상 삭제 동기화 영구 경고 해소 (2026-08-03)
+## 🆕 v1.64 배포 완료 — 정상 삭제 동기화 영구 경고 해소 (2026-08-03)
 
 - 태블릿 진단은 `지웠지만 보낼 목록엔 없는 항목 5건`을 계속 경고했지만, 화면의 비용 `f9e7a210…`은 운영 서버에서 `deleted=true`, version 4, 같은 `client_operation_id`로 이미 정상 반영돼 있었다. 성공 뒤 큐 op이 사라지는 정상 흐름을 실패 증거로 쓴 M-0095다.
 - 진단은 여섯 도메인의 로컬 tombstone을 서버 `deleted_at`·version·operation id와 `purged_ids`에 읽기 전용으로 대조한다. canonical generation을 전후로 읽어 중간에 최종본이 바뀌면 결과 전체를 폐기한다. 서버 tombstone은 정상으로 숨기고, 서버 active는 공용 `mergeDecision`, 행·원장 부재·부분 실패는 `unknown`으로 남겨 자동 수정하지 않는다.
 - 무차별 [정리 실행]과 로컬-only cascade 재큐잉을 제거했다. audio/GPS 백필도 서버 행+원장 evidence를 먼저 읽고 확인된 tombstone·동일 snapshot·영구삭제 id에는 큐/DB/R2 작업을 만들지 않는다. capability-unknown read-only pull은 로컬 큐도 불변이며, pull이 확인해 만든 삭제 op은 같은 `runSync`의 부모→자식 후행 push에서 끝난다.
 - 역주입은 tombstone 오판 3 RED, read-only/GPS 가드 2 RED, audio 가드 2 RED였다. 원복 후 GPS local tombstone 큐/R2 0 직접 회귀를 더해 관련 6파일 93/93, 전체 유닛 74파일 1,138건, build v1.64, 전체 harness 43/43 PASS·FAIL/SKIP 0이다. 재해복구 독립감사는 핵심 7파일 115/115와 P0/P1 0. 운영 DB는 조사 중 읽기만 했고 migration/R2 함수 변경은 없다.
-- 아직 남은 것: PR 병합·Pages v1.64 read-back, 로그인된 태블릿에서 진단의 정상 5건이 사라지는 사용자 확인.
+- PR #170 squash `1b14532`; main CI #30775691998·Pages #30775692000 success. 공개 `version.json`은 캐시 우회 HTTP 200으로 v1.64를 반환했다. 남은 것은 로그인된 태블릿에서 진단의 정상 5건이 사라지는 사용자 확인이다.
 
 ---
 
@@ -245,8 +245,8 @@ npm run gates                           # 편집 루프용(6초). 커밋 전에�
 | 누구 | 1인 사용자(소유자 본인). 소셜 없음, 공개 없음 |
 | 배포 | GitHub Pages → `hanwha27-tdtu.github.io/Travel-Memories/` |
 | 브랜치 | 개발은 `claude/travel-log-app-r2xd5f`(또는 `codex/*`), `main` 직접 push 금지 |
-| 현재 판 | **작업 트리 v1.64 · 운영 라이브 v1.63**. 최신 세부는 문서 맨 위 「🆕 v1.64」 |
-| 지금 하던 일 | 정상 반영된 tombstone 영구 경고(M-0095)를 서버 read-back으로 교정하고 전체 게이트·독립감사까지 완료. 다음은 PR 병합·Pages v1.64 확인과 사용자 태블릿 진단 재확인 |
+| 현재 판 | **작업 트리·운영 라이브 v1.64**. 최신 세부는 문서 맨 위 「🆕 v1.64」 |
+| 지금 하던 일 | 정상 반영된 tombstone 영구 경고(M-0095)를 서버 read-back으로 교정하고 전체 게이트·독립감사·Pages 배포까지 완료. 다음은 사용자 태블릿 진단 재확인 |
 | 가장 큰 함정 | 이 저장소는 **문서가 코드만큼 중요하다.** 규율을 안 읽고 짜면 반드시 형제 대칭을 깬다. 그리고 **문서가 게이트를 앞질러 있을 수 있다**(M-0051) |
 
 ---
