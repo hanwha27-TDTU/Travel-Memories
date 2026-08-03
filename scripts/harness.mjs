@@ -41,6 +41,7 @@ const FAST = process.argv.includes('--fast');
 const gates = [
   { name: 'typecheck', cmd: 'npm run -s typecheck' },
   { name: 'check-secret-leak', cmd: 'node scripts/check-secret-leak.mjs' },
+  { name: 'check-hooks-wired', cmd: 'node scripts/check-hooks-wired.mjs' },
   { name: 'check-domain-wiring', cmd: 'node scripts/check-domain-wiring.mjs' },
   { name: 'check-csp', cmd: 'node scripts/check-csp.mjs' },
   { name: 'check-base-consistency', cmd: 'node scripts/check-base-consistency.mjs' },

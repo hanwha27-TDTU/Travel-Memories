@@ -1,6 +1,31 @@
 {
-  "_note": "Bugeon Journey · Claude Code 프로젝트 설정. hook 후보는 docs/SECURITY.md의 'Hook / 게이트 후보' 참조. 실제 hook은 Phase 0에서 scripts/ 구현 후 활성화한다(현재는 존재하지 않는 스크립트를 가리키지 않도록 비워 둠).",
-  "hooks": {},
+  "_note": "Bugeon Journey · Claude Code 프로젝트 설정. 🔴 헌법 S-09: CLAUDE.md는 맥락이고 **강제는 hook과 CI**다. 아래 PreToolUse 훅은 '되돌릴 수 없는 방향'만 막는다(파괴적 SQL·자격증명 쓰기). 훅 등록·스크립트 실재·셀프테스트는 `check-hooks-wired` 게이트가 대조하므로 여기를 비우면 하네스가 RED다 — 예전엔 비어 있었고 아무도 몰랐다(T-003).",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__Supabase__execute_sql|mcp__Supabase__apply_migration",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/hook-sql-safe.mjs",
+            "timeout": 20,
+            "statusMessage": "SQL 안전 검사"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/hook-secret-guard.mjs",
+            "timeout": 20,
+            "statusMessage": "자격증명 형태 검사"
+          }
+        ]
+      }
+    ]
+  },
   "permissions": {
     "allow": [
       "Read",
