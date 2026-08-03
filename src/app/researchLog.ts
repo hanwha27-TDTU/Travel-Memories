@@ -552,4 +552,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: 'v1.63 전체 하네스는 279개 editor live 중 「재생이 끝나면 멈춤 상태」 하나만 두 번 실패했다. 앱 코드를 맞다고 가정하지 않고 실패 상태를 읽으니 첫 실행은 0:03·진행률 0, 두 번째는 0:01·진행률 0.62였다. 둘 다 `aria-pressed=true`라 종료 후 정리 실패가 아니라 아직 재생 중이었다. 픽스처 WAV는 1.5초지만 게이트가 벽시계 2.6초만 기다렸고, 부하가 걸린 Chromium의 미디어 시계는 그보다 느리게 갔다.',
     decision: '**미디어 길이를 고정 sleep으로 종료 증거로 쓰지 않는다.** 먼저 `aria-pressed=true`로 재생 시작을 확인하고, 앱이 `ended` 또는 오류를 판정해 `aria-pressed=false`로 돌아올 때까지 최대 15초 기다린다. 오류도 idle이 되므로 바로 다음 「재생 불가」 판정이 별도로 잡고, 종료·오류가 모두 없으면 timeout 뒤 멈춤 판정이 RED다. 고정 sleep 판은 같은 환경에서 두 번 RED였고, 교정 뒤 전체 editor live는 279/279 GREEN이었다. 실제 ended 정리 누락을 주입하자 해당 판정만 실패해 278/279 RED, 원복 뒤 GREEN으로 비공허성도 확인했다. 최종 v1.63 빌드와 전체 하네스 43/43도 PASS, FAIL/SKIP 0이다.',
   },
+  {
+    seq: 69,
+    date: '2026-08-03',
+    topic: '성공한 삭제가 전송 큐에서 사라진 뒤 진단이 영구 경고했다',
+    human: '태블릿 진단 화면에서 「지웠지만 보낼 목록엔 없는 항목 5건」과 비용 f9e7a210이 보임 — 이 문제 확인해주고 해결 부탁합니다.',
+    ai: '운영 서버를 읽기 전용으로 대조하니 해당 비용은 deleted=true, version 4이며 로컬 작업과 같은 client_operation_id로 이미 정상 반영돼 있었다. 성공한 tombstone push는 큐 op을 지우는 것이 계약인데, 기존 진단은 로컬 tombstone에 큐가 없다는 사실만으로 무조건 unknown을 만들었다. 그래서 다시 동기화해도 경고가 사라질 수 없었다. 더구나 [정리 실행]은 확인 없이 media/expense 삭제 op을 되살리고 오디오·GPS 보정까지 함께 수행해, 정상 삭제 재전송과 바이트 재업로드 가능성을 만들었다.',
+    decision: '**삭제 반영 진단과 해소 경로 모두 서버 증거를 기준으로 한다.** 여섯 도메인의 op 없는 tombstone을 서버 deleted_at·version·operation id와 purged_ids 원장에 대조하고 canonical 세대를 전후 확인한다. 서버 tombstone은 정상, server active는 공용 mergeDecision, 행·원장 부재·부분 실패·세대 변경은 unknown이다. 사후 재해복구 감사에서 진단 밖의 같은 결함군도 발견했다: cascade 1회 복구와 audio/GPS 백필이 서버 확인 없이 새 op을 만들고, capability-unknown read-only pull도 로컬 큐를 바꿀 수 있었다. cascade blind repair와 무차별 [정리 실행]을 제거하고, audio/GPS 백필은 서버 행+원장 evidence가 있을 때만 실행하며 조회 실패면 완료 표식도 남기지 않는다. read-only 모드는 큐 불변이고, pull이 확인해 만든 delete op은 같은 run의 부모→자식 후행 push로 끝낸다. 정상 항목은 cap 전에 걷어 실제 문제가 가려지지 않게 한다.',
+  },
 ];

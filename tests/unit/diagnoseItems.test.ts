@@ -13,6 +13,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import 'fake-indexeddb/auto';
 import { db } from '../../src/offline/db';
 import { diagnoseSync, ITEM_CAP } from '../../src/services/diagnostics';
+import { PURGE_DOMAINS } from '../../src/services/purge';
 
 const U = (n: number): string => `${String(n).padStart(8, '0')}-1111-4222-8333-444444444444`;
 
@@ -31,7 +32,15 @@ function mediaRow(id: string, deleted: boolean): Record<string, unknown> {
 
 beforeEach(async () => {
   const d = db();
-  await Promise.all([d.localMedia.clear(), d.localExpenses.clear(), d.localTrips.clear(), d.localMoments.clear(), d.syncQueue.clear()]);
+  await Promise.all([
+    d.localMedia.clear(),
+    d.localExpenses.clear(),
+    d.localTrips.clear(),
+    d.localMoments.clear(),
+    d.localAudio.clear(),
+    d.localPlaces.clear(),
+    d.syncQueue.clear(),
+  ]);
 });
 
 describe('진단 목록 — 정상은 나열하지 않는다', () => {
@@ -47,6 +56,7 @@ describe('진단 목록 — 정상은 나열하지 않는다', () => {
     const d = await diagnoseSync();
     expect(d.items.map((i) => i.id)).toEqual([U(2)]);
     expect(d.items[0]?.deleted).toBe(true);
+    expect(d.opLessItems.map((i) => i.id)).toEqual([U(2)]);
   });
 
   it('큐에 남아 있으면 활성이어도 목록에 담긴다 — 왜 아직 안 갔는지 설명이 필요하다', async () => {
@@ -63,6 +73,29 @@ describe('진단 목록 — 정상은 나열하지 않는다', () => {
     const d = await diagnoseSync();
     expect(d.items.map((i) => i.id)).toEqual([U(3)]);
     expect(d.items[0]?.queued).toBe(true);
+  });
+});
+
+describe('진단 목록 — 여섯 동기화 형제 대칭', () => {
+  it('큐 없는 tombstone을 trip·moment·media·expense·audio·place에서 모두 서버 대조 대상으로 낸다', async () => {
+    const d = db();
+    const base = {
+      createdAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: '2026-07-02T00:00:00.000Z',
+      deletedAt: '2026-07-02T00:00:00.000Z',
+      version: 1,
+    };
+    await Promise.all([
+      d.localTrips.put({ ...base, id: U(801) } as never),
+      d.localMoments.put({ ...base, id: U(802) } as never),
+      d.localMedia.put({ ...base, id: U(803) } as never),
+      d.localExpenses.put({ ...base, id: U(804) } as never),
+      d.localAudio.put({ ...base, id: U(805) } as never),
+      d.localPlaces.put({ ...base, id: U(806) } as never),
+    ]);
+    const result = await diagnoseSync();
+    expect(result.opLessItems.map((x) => x.domain)).toEqual(PURGE_DOMAINS);
+    expect(result.items.map((x) => x.type)).toEqual(PURGE_DOMAINS);
   });
 });
 

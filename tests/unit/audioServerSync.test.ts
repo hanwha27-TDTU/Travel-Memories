@@ -16,13 +16,14 @@
 //   ② pull의 tombstone이 로컬 blob을 파괴하면 → 되살렸을 때 소리가 안 난다(비파괴 불변식 #8).
 //   ③ 백필이 없으면 v1.20 이전 녹음은 **영원히** 로컬에만 남는다 — 앱은 조용하다(M-0023 형태).
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import 'fake-indexeddb/auto';
 import { db, type LocalAudio } from '../../src/offline/db';
 import {
   pushPendingAudio,
   pullAudio,
   backfillAudioOps,
+  backfillAudioOnce,
   requeueMissingBytes,
   type AudioRemote,
 } from '../../src/services/sync';
@@ -32,6 +33,19 @@ import { toAudioRow, type AudioRow } from '../../src/domain/audio/rowmap';
 const USER = 'c9ff5188-51a7-4c01-b653-b6e1d73d0790';
 const TRIP = 'd4e5f6a7-b8c9-4d0e-8f1a-2b3c4d5e6f70';
 const MOMENT = '22222222-2222-4222-8222-222222222222';
+const AUDIO_BACKFILL_KEY = 'bj.repair.audioSync.v1';
+
+function memoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() { return values.size; },
+    clear: () => values.clear(),
+    getItem: (key) => values.get(key) ?? null,
+    key: (index) => [...values.keys()][index] ?? null,
+    removeItem: (key) => { values.delete(key); },
+    setItem: (key, value) => { values.set(key, value); },
+  };
+}
 
 /** 서버 흉내 — 표(rows)와 저장소(objects)를 따로 들고 있어야 "행은 갔는데 파일이 안 갔다"를 잰다. */
 function fakeRemote(opts: { downloadFails?: boolean } = {}): AudioRemote & {
@@ -95,6 +109,8 @@ beforeEach(async () => {
   await Promise.all([d.localTrips.clear(), d.localAudio.clear(), d.syncQueue.clear(), d.purgedIds.clear()]);
   await seedTrip();
 });
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe('① push — 바이트와 메타가 함께 간다', () => {
   it('활성 녹음은 바이트를 올리고 행을 만들고 **op을 지운다**', async () => {
@@ -297,27 +313,98 @@ describe('🔴 ③ 백필 — v1.20 이전 녹음을 데려온다 (§9 4단계)'
 
   it('큐 op가 없는 옛 녹음에 op을 만든다 — 없으면 영원히 안 올라간다', async () => {
     await legacyRow('11111111-1111-4111-8111-111111111111');
-    expect(await backfillAudioOps()).toBe(1);
+    expect(await backfillAudioOps([], new Set())).toBe(1);
     const ops = await db().syncQueue.toArray();
     expect(ops[0]!.entityType).toBe('audio');
     expect(ops[0]!.operationType).toBe('insert');
   });
 
-  it('tombstone된 옛 녹음도 데려온다 — 지운 사실도 서버가 알아야 한다', async () => {
+  it('서버에 행이 없는 옛 tombstone은 새 삭제 행·바이트를 만들지 않는다', async () => {
     await legacyRow('11111111-1111-4111-8111-111111111112', true);
-    await backfillAudioOps();
-    expect((await db().syncQueue.toArray())[0]!.operationType).toBe('delete');
+    expect(await backfillAudioOps([], new Set())).toBe(0);
+    expect(await db().syncQueue.count()).toBe(0);
+  });
+
+  it('서버에서 확인된 tombstone은 새 작업번호로 재전송하거나 R2에 다시 올리지 않는다', async () => {
+    const id = '11111111-1111-4111-8111-111111111114';
+    await legacyRow(id, true);
+    const local = (await db().localAudio.get(id))!;
+    const serverRow = toAudioRow(local, USER, null);
+    expect(await backfillAudioOps([serverRow], new Set())).toBe(0);
+    const remote = fakeRemote();
+    remote.rows.set(id, serverRow);
+    expect(await pushPendingAudio(remote, USER)).toEqual({ pushed: 0, failed: 0 });
+    expect(remote.uploads).toEqual([]);
+  });
+
+  it('자동 백필도 확인된 tombstone에는 queue/upsert/R2 변경을 만들지 않는다', async () => {
+    vi.stubGlobal('localStorage', memoryStorage());
+    const id = '11111111-1111-4111-8111-111111111116';
+    await legacyRow(id, true);
+    const local = (await db().localAudio.get(id))!;
+    const remote = fakeRemote();
+    remote.rows.set(id, toAudioRow(local, USER, null));
+
+    await backfillAudioOnce(remote, { ledgerAll: async () => ({ ids: [] }) });
+
+    expect(await db().syncQueue.count()).toBe(0);
+    expect(remote.uploads).toEqual([]);
+    expect(localStorage.getItem(AUDIO_BACKFILL_KEY)).not.toBeNull();
+    expect(await pushPendingAudio(remote, USER)).toEqual({ pushed: 0, failed: 0 });
+  });
+
+  it('더 최신 서버 복원본은 백필하지 않고 pull에서 수용한다', async () => {
+    vi.stubGlobal('localStorage', memoryStorage());
+    const id = '11111111-1111-4111-8111-111111111117';
+    await legacyRow(id, true);
+    const local = (await db().localAudio.get(id))!;
+    await db().localAudio.update(id, { version: 4 });
+    const remote = fakeRemote();
+    const path = `${USER}/trip/audio__11111111111141118111111111111117.webm`;
+    remote.rows.set(id, {
+      ...toAudioRow({ ...local, version: 4 }, USER, path),
+      version: 5,
+      base_version: 5,
+      deleted_at: null,
+      updated_at: '2026-08-04T00:00:00.000Z',
+    });
+    remote.objects.set(path, local.blob);
+
+    await backfillAudioOnce(remote, { ledgerAll: async () => ({ ids: [] }) });
+    expect(await db().syncQueue.count()).toBe(0);
+    await pullAudio(remote, 'merge');
+    expect((await db().localAudio.get(id))?.deletedAt).toBeNull();
+  });
+
+  it('서버 소리 목록이나 원장 조회가 실패하면 queue와 완료 표식을 남기지 않는다', async () => {
+    vi.stubGlobal('localStorage', memoryStorage());
+    await legacyRow('11111111-1111-4111-8111-111111111118');
+    const failedList = { ...fakeRemote(), listAll: async () => ({ data: [], error: '목록 실패' }) };
+    await backfillAudioOnce(failedList, { ledgerAll: async () => ({ ids: [] }) });
+    expect(await db().syncQueue.count()).toBe(0);
+    expect(localStorage.getItem(AUDIO_BACKFILL_KEY)).toBeNull();
+
+    await backfillAudioOnce(fakeRemote(), { ledgerAll: async () => ({ ids: [], error: '원장 실패' }) });
+    expect(await db().syncQueue.count()).toBe(0);
+    expect(localStorage.getItem(AUDIO_BACKFILL_KEY)).toBeNull();
+  });
+
+  it('영구삭제 원장의 활성 로컬 사본도 백필로 재삽입하지 않는다', async () => {
+    const id = '11111111-1111-4111-8111-111111111115';
+    await legacyRow(id);
+    expect(await backfillAudioOps([], new Set([id]))).toBe(0);
+    expect(await db().syncQueue.count()).toBe(0);
   });
 
   it('멱등 — 이미 op이 있으면 다시 넣지 않는다', async () => {
     await rec(); // 새 경로로 만든 것(이미 op이 있다)
-    expect(await backfillAudioOps()).toBe(0);
+    expect(await backfillAudioOps([], new Set())).toBe(0);
     expect(await db().syncQueue.count()).toBe(1);
   });
 
   it('백필한 것이 그대로 push된다(백필 → 전송이 이어진다)', async () => {
     await legacyRow('11111111-1111-4111-8111-111111111113');
-    await backfillAudioOps();
+    await backfillAudioOps([], new Set());
     const remote = fakeRemote();
     expect((await pushPendingAudio(remote, USER)).pushed).toBe(1);
     expect(remote.objects.size).toBe(1);

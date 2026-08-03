@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.63<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 main에 병합·배포됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->163<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->68<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->1.64<!--/reg--> · 라이브 v1.63**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 배포 전 검증 중이다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 main에 병합·배포됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->164<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->69<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0027까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->27<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
@@ -16,6 +16,18 @@
 ### 🕐 직전 세션에서 무슨 일이 있었나 (2026-07-30 · 새 AI는 이것부터)
 
 > **이 절은 "지금 이 순간"이다.** 아래 기능 지도가 *무엇이 있는가*를, 이 절이 *방금 무슨 일이 있었고 무엇이 아직 안 끝났는가*를 말한다.
+
+**한 줄(2026-08-03 · v1.64 배포 전 · 삭제 반영 진단 오탐 해소)**: 사용자 태블릿은
+「지웠지만 보낼 목록엔 없는 항목 5건」을 계속 경고했지만, 운영 서버에서 화면의 비용
+`f9e7a210…`은 `deleted=true`·version 4·같은 operation id로 이미 반영돼 있었다(M-0095).
+성공한 tombstone push가 큐를 지우는 정상 흐름을 실패 증거로 쓴 것이 원인이다. 이제 여섯 도메인을
+서버 삭제 상태·version·operation id와 영구삭제 원장에 읽기 전용으로 대조한다. 서버 tombstone은
+정상으로 숨기고, server active는 `mergeDecision`으로 최신 복원을 보호하며, 행·원장 부재나 부분
+조회 실패는 자동 수정하지 않는다. 무차별 [정리 실행]도 제거했다. 옛 오판 주입은 정확한 사례와
+6형제에서 3 RED였다. read-only 큐·GPS 동일본 가드 제거는 2 RED, audio 확인본 가드 제거는
+2 RED였고 모두 원복했다. 관련 6파일 93/93·전체 유닛 1,138/1,138·build v1.64·전체 harness
+43/43 PASS, FAIL/SKIP 0이다. 재해복구 독립감사도 핵심 7파일 115/115와 P0/P1 0으로 끝났다.
+배포·라이브 read-back은 아직 남았다.
 
 **한 줄(2026-08-03 · v1.63 배포 완료 · 운영 동기화 복구/선배포 호환성)**: 사용자 3기기
 스크린샷에서 폰은 여행 5개, PC·태블릿은 0개였고 태블릿 진단은 `ensure_sync_meta` PGRST202를
@@ -383,6 +395,14 @@ npm run dev                            # 홈 화면 확인 (선택)
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
 
 ---
+
+## HANDOFF-0054 · v1.64 · **정상 삭제 동기화 영구 경고 해소 (M-0095)** (2026-08-03)
+
+- **사용자 실측/서버 대조**: 태블릿 진단은 op 없는 tombstone 5건을 `unknown`으로 보였지만, 상세의 비용 `f9e7a210…`은 운영 서버에서 `deleted=true`, version 4, 로컬과 같은 `client_operation_id`로 이미 삭제 반영이 끝나 있었다. 데이터 유실·업로드 누락·삭제 실패가 아니라 진단 오탐이다.
+- **근본 원인**: 성공한 tombstone push는 operation read-back 뒤 큐 op을 지우는 것이 계약인데, 진단은 완료 뒤 사라지는 큐를 성공 여부의 유일한 증거로 썼다. [다시 확인]은 같은 로컬 숫자만 다시 읽어 해소될 수 없었고, [정리 실행]은 확인된 삭제까지 media/expense op으로 되살리며 오디오·GPS 보정과 바이트 작업을 함께 건드릴 수 있었다.
+- **수정/안전 경계**: `syncTombstoneVerdict.ts`의 순수 판정이 여섯 도메인의 서버 `deleted_at`·version·operation id와 `purged_ids`를 읽기 전용으로 대조한다. canonical generation을 조회 전후로 확인해 중간에 최종본이 바뀐 감사는 통째로 `unknown` 처리한다. 서버 tombstone은 재전송 없이 정상, active는 공용 `mergeDecision`으로 오래된 삭제 재전송/최신 복원 수용을 가르고, 행·원장 부재·부분 실패도 자동 op 없이 `unknown`으로 남긴다. 확인된 정상은 `ITEM_CAP` 적용 전에 걷고 무차별 [정리 실행]을 제거했다. 같은 로컬-only 가정을 쓰던 cascade·오디오·GPS 백필도 서버 행+원장 증거 기반으로 바꿨으며 capability-unknown read-only pull은 큐까지 불변이다. pull에서 확인된 삭제 op은 같은 `runSync`의 부모→자식 후행 push 한 번으로 마쳐 첫 클릭 뒤 재실행을 요구하지 않는다. DB schema·migration·R2 함수는 바꾸지 않았다.
+- **비공허/검증**: 세 차례 역주입에서 ① `server tombstone → unknown`은 정확한 expense 사례·다른 operation tombstone·여섯 도메인 대칭 3건, ② read-only 큐 가드와 같은 GPS 건너뜀 제거는 각 1건씩, ③ 확인된 audio tombstone/동일 snapshot 가드 제거는 2건이 각각 RED였다. 모두 원복 후 GPS local tombstone의 큐/R2 0 직접 회귀를 더해 관련 6파일 93건 PASS. 전체 유닛 74파일 1,138건 PASS, build PASS(`dist/version.json=1.64`), 전체 harness 43/43 PASS·FAIL/SKIP 0이며 editor/diagnostics Chromium 라이브가 모두 실행됐다.
+- **운영 상태**: 코드 배포 전. 운영 DB는 읽기 전용 조회만 했고 변경 0이며 migration은 0027 그대로다. 로그인된 실제 태블릿에서 진단 5건이 정상으로 사라지는 최종 확인은 배포 뒤 사용자 확인이 필요하다.
 
 ## HANDOFF-0053 · v1.63 · **운영 동기화 복구 + 앱 선배포 호환성 (ADR-0045 · M-0093·M-0094)** (2026-08-03)
 
@@ -1542,7 +1562,7 @@ git merge-base --is-ancestor origin/main HEAD || <흡수 절차>
 ### 🔴 사용자 확인이 필요한 것
 
 - **다른 기기에서 소리가 들리는가** — 2기기 전파는 이 환경에서 재현할 수 없다(§10의 마지막 층).
-- **옛 녹음이 올라갔는가** — 앱 새로고침 → 동기화 1회 → 「앱 상태 확인」의 **「소리」 줄**에서 `클라우드 N · 이 기기 N`이 같아지는지. 안 맞으면 진단의 [정리 실행].
+- **옛 녹음이 올라갔는가** — 앱 새로고침 → 동기화 1회 → 「앱 상태 확인」의 **「소리」 줄**에서 `클라우드 N · 이 기기 N`이 같아지는지. 안 맞으면 [지금 동기화] 뒤 [다시 확인]으로 서버 상태를 재판정한다. v1.64부터 무차별 [정리 실행]은 없다(M-0095).
 - Cloudflare R2에서 여행 폴더 안에 `…webm` 파일이 사진과 나란히 보이는지.
 
 ---
@@ -1751,7 +1771,7 @@ git merge-base --is-ancestor origin/main HEAD || <흡수 절차>
 - `domain/{trip,moment,media,expense}/rowmap.ts` — `from*Row` 반환형을 `WithInstants<…>`로. 날것 대입은 **컴파일 오류**(주입 확인: TS2322) → 형제 4곳이 자동으로 따라온다(§7 2층).
 - `sync/merge.ts` — LWW를 `compareInstants()`로. 문자열 대소 금지.
 - `services/backup.ts` — 복원 행을 `withCanonicalStamps()`로(타입이 안 걸리는 **두 번째 유입구**: 옛 백업 파일).
-- `services/sync.ts` — `normalizeStamps()`/`normalizeStampsOnce()`: **이미 저장된 행**을 동기화 앞에서 1회 정리(§10 ②). 같은 순간·다른 표기라 version이 안 바뀌고 sync op을 만들지 않는다. 커서로 돌아 사진 blob을 메모리에 올리지 않는다. 「정리 실행」 버튼이 다시 돌게 한다.
+- `services/sync.ts` — `normalizeStamps()`/`normalizeStampsOnce()`: **이미 저장된 행**을 동기화 앞에서 1회 정리(§10 ②). 같은 순간·다른 표기라 version이 안 바뀌고 sync op을 만들지 않는다. 커서로 돌아 사진 blob을 메모리에 올리지 않는다. 당시에는 「정리 실행」이 표식을 초기화했지만, v1.64에서 서버 확인 없는 재큐잉 위험 때문에 그 버튼을 제거했다(M-0095).
 - `domain/integrity.ts` — `TIME_INVERSION`을 **순간으로** 재고, 표기 문제는 `BAD_TIME_FORMAT`(신설)으로 분리. 점검 10 → 11가지. `check-fn-size` 래칫이 증가를 막아 `timeChecks()`로 추출.
 - `scripts/check-instant-normalization.mjs`(신설) — **타입이 못 잡는 구멍**만 본다: 새 rowmap이 반환형을 안 쓰는 경우 · 백업 복원 · LWW 회귀. 자체검사 4건.
 
