@@ -19,14 +19,15 @@
 - 진단은 여섯 도메인의 로컬 tombstone을 서버 `deleted_at`·version·operation id와 `purged_ids`에 읽기 전용으로 대조한다. canonical generation을 전후로 읽어 중간에 최종본이 바뀌면 결과 전체를 폐기한다. 서버 tombstone은 정상으로 숨기고, 서버 active는 공용 `mergeDecision`, 행·원장 부재·부분 실패는 `unknown`으로 남겨 자동 수정하지 않는다.
 - 무차별 [정리 실행]과 로컬-only cascade 재큐잉을 제거했다. audio/GPS 백필도 서버 행+원장 evidence를 먼저 읽고 확인된 tombstone·동일 snapshot·영구삭제 id에는 큐/DB/R2 작업을 만들지 않는다. capability-unknown read-only pull은 로컬 큐도 불변이며, pull이 확인해 만든 삭제 op은 같은 `runSync`의 부모→자식 후행 push에서 끝난다.
 - 역주입은 tombstone 오판 3 RED, read-only/GPS 가드 2 RED, audio 가드 2 RED였다. 원복 후 GPS local tombstone 큐/R2 0 직접 회귀를 더해 관련 6파일 93/93, 전체 유닛 74파일 1,138건, build v1.64, 전체 harness 43/43 PASS·FAIL/SKIP 0이다. 재해복구 독립감사는 핵심 7파일 115/115와 P0/P1 0. 운영 DB는 조사 중 읽기만 했고 migration/R2 함수 변경은 없다.
-- PR #170 squash `1b14532`; main CI #30775691998·Pages #30775692000 success. 공개 `version.json`은 캐시 우회 HTTP 200으로 v1.64를 반환했다. 남은 것은 로그인된 태블릿에서 진단의 정상 5건이 사라지는 사용자 확인이다.
+- PR #170 squash `1b14532`; main CI #30775691998·Pages #30775692000 success. 공개 `version.json`은 캐시 우회 HTTP 200으로 v1.64를 반환했다. 로그인된 태블릿 확인은 2026-08-03에 완료됐다(아래 줄).
+- 2026-08-03 11:33 KST 로그인된 태블릿(SM-X906N·Android 16 WebView·앱 v1.64)의 [진단 요약 복사] 실측으로 기대 결과를 확인했다. 예전 「지웠지만 보낼 목록엔 없는 항목 5건」 경고는 사라졌고, 동기화 상태는 ok·「삭제 반영 확인: 지금 5건 모두 서버 반영」으로 접혔다(moment 4·expense 1, `f9e7a210…` 포함). 클라우드 대조는 여섯 도메인 전부 같음(살아 있는 기록 59건), 막힌 작업·보낼 대기·오류 0. 총괄 판정 todo는 저장소 보호(persist=false) 미적용 안내 하나뿐으로 결함이 아니다. M-0095 수정의 실기기 확인이 끝났다(HANDOFF-0056).
 
 ### Claude에게 넘길 다음 시작점
 
 1. `git pull --ff-only origin main` 뒤 작업 트리가 깨끗하고 앱 버전이 v1.64인지 확인한다. 이 문서와 `docs/CONSTITUTION.md`를 읽고, **실제로 고칠 파일들로** `npm run brief -- <paths...>`를 돌린다.
-2. 첫 미완료 항목은 로그인된 태블릿의 사용자 확인이다. 사이트 데이터를 지우지 말고 앱을 완전히 다시 열어 v1.64를 확인한 뒤, `데이터 관리 → 앱 상태 확인 → 동기화 상태 → 다시 확인`을 실행한다. 기대값은 예전 5건 경고가 지속되지 않고 서버에서 확인된 tombstone이 정상 집계로 접히는 것이다.
-3. 여전히 이상하면 화면을 추측하지 말고 복사 가능한 진단 요약과 문제 항목 id·도메인·로컬 상태를 받는다. 먼저 서버 행·`purged_ids`·canonical generation을 **읽기 전용**으로 대조한다. `[정리 실행]` 같은 무차별 재큐잉을 되살리거나 사이트 데이터를 지우라고 권하지 않는다.
-4. 운영 DB는 0027까지 적용돼 있고 이번 인계 갱신은 앱·DB·R2를 바꾸지 않는다. 실제 2기기 canonical 게시/소비와 authenticated R2 왕복은 여전히 미검증 경계다.
+2. 태블릿 확인은 완료됐다(위 실측 — 예전 5건 경고 해소). 남은 미검증 경계는 실제 2기기 canonical 게시/소비 왕복과 authenticated R2 PUT/GET/delete 왕복이며, 둘 다 사용자 로그인 세션과 실기기가 필요하다. 동기화 이상이 새로 보고되면 화면을 추측하지 말고 [진단 요약 복사] 텍스트와 문제 항목 id·도메인·로컬 상태를 먼저 받고, 서버 행·`purged_ids`·canonical generation을 **읽기 전용**으로 대조한다. `[정리 실행]` 같은 무차별 재큐잉을 되살리거나 사이트 데이터를 지우라고 권하지 않는다.
+3. 태블릿 총괄 판정에 남은 todo는 저장소 보호(persist=false) 미적용 하나다. 앱의 [저장소 보호 요청] 버튼으로 사용자가 켤 수 있고, 브라우저가 거절해도 결함이 아니다 — 강요하지 않는다.
+4. 운영 DB는 0027까지 적용돼 있고 이번 인계 갱신은 앱·DB·R2를 바꾸지 않는다.
 
 ---
 
