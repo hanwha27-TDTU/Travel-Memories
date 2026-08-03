@@ -21,6 +21,7 @@ export const CATEGORY_LABEL: Record<GateCategory, string> = {
 export const GATE_DESC: Record<string, string> = {
   typecheck: 'TypeScript strict 타입 오류 0',
   'check-secret-leak': '시크릿(키·토큰) 형태가 코드에 새지 않았는지',
+  'check-hooks-wired': '강제층(Claude Code hook)이 등록돼 있고 자체검사를 통과하는지',
   'check-domain-wiring': '도메인↔화면 배선이 죽지 않았는지',
   'check-csp': 'CSP 위반(인라인·외부 리소스) 없는지',
   'check-base-consistency': 'base 경로·자산 참조 일관성',
@@ -82,6 +83,7 @@ export const GATE_DESC: Record<string, string> = {
 export const GATE_CATEGORY: Record<string, GateCategory> = {
   typecheck: 'static',
   'check-secret-leak': 'static',
+  'check-hooks-wired': 'static',
   'check-domain-wiring': 'generated',
   'check-csp': 'static',
   'check-base-consistency': 'generated',

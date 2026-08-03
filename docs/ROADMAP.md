@@ -52,7 +52,7 @@ v0.2 S-10에 따라 첫 실행에서 문서와 scaffold가 혼재하지 않도�
 - [x] `docs/records/coding-mistakes.md` 실수 원장 운영 시작.
 - [x] SW 캐시 버저닝 — `public/sw.js`의 `CACHE='journey-shell-v2'`(판 올림 방식) · OAuth PKCE 실연동 라이브(2026-08-03 교차검증으로 [x] 확인 — 문서만 낡아 있었다).
 - [x] 배선맵·경계 게이트 — 원래 구상(`TERMINALS`·empty-seed 게이트)은 그 이름으로 만들지 않았고, 목적은 `src/app/blueprint.ts` SOURCES + `check-blueprint`·`check-schema-parity`(rowmap↔서버 컬럼)·`check-domain-wiring`이 다른 형태로 달성했다(이름이 아니라 행동 기준 — 게이트 헌장 §2-I).
-- [ ] `check-supabase-sql-safe` hook — **여전히 미구현.** S-09(강제 규칙은 hook으로) 전체가 미구현 상태다: `.claude/settings.json`의 hooks가 비어 있다. 별도 작업으로 남김.
+- [x] **강제층(S-09) 구현 완료**(2026-08-03 · T-003) — `.claude/settings.json`에 PreToolUse 훅 2종: `hook-sql-safe`(Supabase execute_sql/apply_migration의 파괴적 SQL 차단, `BEGIN…ROLLBACK`과 이유 있는 `-- sql-safe-ok:`만 예외)와 `hook-secret-guard`(Write/Edit에 자격증명 **형태** 쓰기 차단 — 낱말이 아니라 형태라 계약 문서는 계속 고칠 수 있다). 탐지는 `lib/secret-patterns.mjs` 한 곳이 정본이라 게이트와 갈라지지 않는다. `check-hooks-wired`가 등록·실재·셀프테스트를 대조해 다시 비워지면 RED다.
 
 > (역사) Supabase 프로비저닝·migration·pgTAP·실제 사진/동기화/지도 로직은 Phase 1+로 계획했었다.
 
