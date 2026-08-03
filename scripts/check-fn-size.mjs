@@ -31,7 +31,7 @@ const LEGACY = {
   'src/ui/screens/tripDetail.ts::renderTripDetail': 542,
   'src/ui/panels/diagnostics.ts::storeStateProbe': 222,
   'src/ui/photoViewer.ts::openPhotoViewer': 251,
-  'src/ui/screens/home.ts::renderHome': 235,
+  'src/ui/screens/home.ts::renderHome': 224,
   'src/ui/screens/designOverview.ts::openDesignOverview': 209,
   'src/ui/screens/dataManager.ts::trashPanel': 177,
   'src/ui/screens/aboutApp.ts::openAboutApp': 168,

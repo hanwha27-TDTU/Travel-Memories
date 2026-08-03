@@ -2078,6 +2078,80 @@ const noteBox = await page.evaluate(() => {
 check('상태 줄: 전폭 배너가 아님(내용 폭만)', !noteBox || noteBox.w < noteBox.vw * 0.5,
   noteBox ? `${noteBox.w}px / ${noteBox.vw}px` : 'none');
 
+// ── v1.66: 홈 기간 트리(연도▸월) — 2단 레이아웃 + 필터가 실제로 도는가 ──────────
+// 계약: ①≥1100px에서 [트리 | 목록] 2단, 트리는 펼침·summary 숨김 ②그 미만은 1단, 접힌
+// 필터(summary 보임) ③어느 폭에서도 가로 넘침 0 ④트리 버튼을 누르면 목록이 걸러지고
+// 현재선택 줄(✕ 포함)이 나타나며, ✕를 누르면 원복된다(§13 4항 — 버튼은 눌러 봐야 확인).
+// 지금 홈 화면(1480×920) 상태에서 시작하고, 끝나면 뷰포트·필터를 스스로 되돌린다(§3-C).
+async function homeTreeAt(w, h) {
+  await page.setViewportSize({ width: w, height: h });
+  await page.waitForTimeout(220);
+  return page.evaluate(() => {
+    window.scrollTo(0, 0);
+    const de = document.documentElement;
+    const fold = document.querySelector('.tree-fold');
+    const main = document.querySelector('.home-main');
+    const sum = fold?.querySelector('summary');
+    const f = fold?.getBoundingClientRect();
+    const m = main?.getBoundingClientRect();
+    return {
+      overflow: de.scrollWidth - de.clientWidth,
+      exists: Boolean(fold && main),
+      sideBySide: !!(f && m) && f.right <= m.left + 1 && Math.abs(f.top - m.top) < 80,
+      open: fold instanceof HTMLDetailsElement ? fold.open : false,
+      summaryShown: Boolean(sum) && sum.offsetHeight > 0,
+      buttons: document.querySelectorAll('.home-tree button').length,
+    };
+  });
+}
+const treeWide = await homeTreeAt(1480, 920);
+// §2-J: 대상 확보를 먼저 판정한다 — 트리가 아예 없으면 나머지 판정은 공허하다.
+if (!treeWide.exists) {
+  check('홈 트리: 대상 확보 — 재지 못함(공허 통과 방지)', false, '.tree-fold/.home-main 없음');
+} else {
+  check('홈 트리: 넓은 화면(1480)에서 [트리 | 목록] 2단 + 넘침 0',
+    treeWide.sideBySide && treeWide.overflow <= 0, `sbs=${treeWide.sideBySide} overflow=${treeWide.overflow}`);
+  check('홈 트리: 넓은 화면에서 펼쳐져 있고 summary는 숨김',
+    treeWide.open && !treeWide.summaryShown, `open=${treeWide.open} summary=${treeWide.summaryShown}`);
+  check('홈 트리: 항목이 그려짐(전체 + 연/월 또는 기간 미정)', treeWide.buttons >= 2, `buttons=${treeWide.buttons}`);
+  const treeEdge = await homeTreeAt(1099, 900);
+  check('홈 트리: 경계 1099에서 1단 + 넘침 0', !treeEdge.sideBySide && treeEdge.overflow <= 0,
+    `sbs=${treeEdge.sideBySide} overflow=${treeEdge.overflow}`);
+  const treePhone = await homeTreeAt(412, 915);
+  check('홈 트리: 폰(412)에서 1단 + 접힌 필터(summary 보임) + 넘침 0',
+    !treePhone.sideBySide && treePhone.summaryShown && treePhone.overflow <= 0,
+    `sbs=${treePhone.sideBySide} summary=${treePhone.summaryShown} overflow=${treePhone.overflow}`);
+  // 되돌리기 + 상호작용: 넓은 화면에서 트리 버튼을 실제로 누른다.
+  await page.setViewportSize({ width: 1480, height: 920 });
+  await page.waitForTimeout(220);
+  const before = await page.evaluate(() => document.querySelectorAll('.trip-list > *').length);
+  // '전체'가 아닌 첫 항목(연도/월/기간 미정)을 누른다 — 없으면 대상 미확보로 실패.
+  const clicked = await page.evaluate(() => {
+    const b = document.querySelector('.home-tree button.tree-year, .home-tree button.tree-undated');
+    if (!(b instanceof HTMLElement)) return false;
+    b.click();
+    return true;
+  });
+  await page.waitForTimeout(250);
+  const filtered = await page.evaluate(() => ({
+    nowShown: !document.querySelector('.filter-now')?.hidden,
+    nowText: document.querySelector('.filter-now')?.textContent ?? '',
+    pressed: document.querySelectorAll('.home-tree button[aria-pressed="true"]').length,
+    cards: document.querySelectorAll('.trip-list > *').length,
+  }));
+  check('홈 트리: 항목을 누르면 현재선택 줄이 나타나고(개수 포함) 눌림 상태가 표시됨',
+    clicked && filtered.nowShown && /개/.test(filtered.nowText) && filtered.pressed >= 1,
+    `clicked=${clicked} now="${filtered.nowText}" pressed=${filtered.pressed}`);
+  await page.evaluate(() => { const x = document.querySelector('.filter-clear'); if (x instanceof HTMLElement) x.click(); });
+  await page.waitForTimeout(250);
+  const cleared = await page.evaluate(() => ({
+    nowHidden: Boolean(document.querySelector('.filter-now')?.hidden),
+    cards: document.querySelectorAll('.trip-list > *').length,
+  }));
+  check('홈 트리: ✕로 해제하면 현재선택 줄이 사라지고 목록이 원복됨(§13 4항 — 재판정까지)',
+    cleared.nowHidden && cleared.cards === before, `hidden=${cleared.nowHidden} cards=${cleared.cards}/${before}`);
+}
+
 // ── v0.94: 상태 줄이 **갈 곳을 준다**(사용자 제안 2026-07-26) ──────────────
 // 계약: 조치할 것이 있는 상태(info/error)는 눌러서 조치할 화면으로 데려간다. 정상(ok)은
 // 갈 곳을 만들지 않는다 — 아무 할 일 없는 상태가 화면에서 제일 시끄러워지면 안 된다(§5.1).

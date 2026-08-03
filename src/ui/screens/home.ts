@@ -39,6 +39,14 @@ import {
 } from '../theme';
 import type { Route } from '../../app/router';
 import type { LocalTrip } from '../../offline/db';
+import {
+  buildTimeTree,
+  matchesPeriod,
+  monthLabel,
+  periodLabel,
+  type PeriodSel,
+  type TimeTree,
+} from '../../domain/trip/timeTree';
 
 type Navigate = (route: Route, param?: string) => void;
 
@@ -208,6 +216,157 @@ async function trySync(_user: SessionUser | null): Promise<void> {
   await requestSync('홈 저장/변경');
 }
 
+/** 기간 트리 버튼 한 줄 — 라벨 + 개수. 눌림 상태는 aria-pressed(색만으로 인코딩하지 않는다). */
+function treeBtn(cls: string, label: string, count: number, pressed: boolean, onClick: () => void): HTMLButtonElement {
+  const b = el('button', cls) as HTMLButtonElement;
+  b.type = 'button';
+  b.setAttribute('aria-pressed', String(pressed));
+  b.appendChild(el('span', undefined, label));
+  b.appendChild(el('span', 'tree-count', String(count)));
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+/** 기간 트리 렌더 — 여행 데이터에서 파생(SSOT), 여행 있는 연·월만 그린다(빈 달은 침묵). */
+function renderPeriodTree(nav: HTMLElement, tree: TimeTree, sel: PeriodSel, onSelect: (next: PeriodSel) => void): void {
+  nav.innerHTML = '';
+  const isAll = !sel.year && !sel.undated;
+  nav.appendChild(treeBtn('tree-all', '전체', tree.total, isAll, () => onSelect({})));
+  for (const y of tree.years) {
+    const yearOn = sel.year === y.year;
+    nav.appendChild(
+      // 같은 연도를 다시 누르면 해제(선택할 수 있으면 해제할 수 있다 — ui 계약 #9).
+      treeBtn('tree-year', `${y.year}년`, y.count, yearOn && !sel.month, () => onSelect(yearOn && !sel.month ? {} : { year: y.year })),
+    );
+    for (const m of y.months) {
+      const monthOn = yearOn && sel.month === m.month;
+      nav.appendChild(
+        treeBtn('tree-month', monthLabel(m.month), m.count, monthOn, () =>
+          onSelect(monthOn ? { year: y.year } : { year: y.year, month: m.month }),
+        ),
+      );
+    }
+  }
+  if (tree.undated > 0) {
+    nav.appendChild(treeBtn('tree-undated', '기간 미정', tree.undated, Boolean(sel.undated), () => onSelect(sel.undated ? {} : { undated: true })));
+  }
+}
+
+/** 목록이 아예 빌 때의 빈 상태(뷰별 문구). */
+function emptyListState(view: 'active' | 'archived'): HTMLElement {
+  const empty = el('div', 'empty-state');
+  if (view === 'archived') {
+    empty.appendChild(el('p', 'empty-emoji', '📦'));
+    empty.appendChild(el('h2', undefined, '보관함이 비어 있어요'));
+    empty.appendChild(el('p', 'muted', '여행 편집에서 상태를 “보관”으로 바꾸면 여기로 들어와요.'));
+  } else {
+    empty.appendChild(el('p', 'empty-emoji', '✈️'));
+    empty.appendChild(el('h2', undefined, '첫 여행을 기록해보세요'));
+    empty.appendChild(el('p', 'muted', '제목 하나면 충분해요. 이 기기에 안전하게 저장됩니다.'));
+  }
+  return empty;
+}
+
+/** 기간 필터가 다 걸러낸 상태 — 막다른 문장으로 끝내지 않는다(§13): 되돌아갈 버튼을 준다. */
+function filteredEmptyState(onReset: () => void): HTMLElement {
+  const empty = el('div', 'empty-state');
+  empty.appendChild(el('p', 'empty-emoji', '🗓️'));
+  empty.appendChild(el('h2', undefined, '이 기간에는 여행이 없어요'));
+  const back = el('button', 'btn-ghost', '전체 보기') as HTMLButtonElement;
+  back.type = 'button';
+  back.addEventListener('click', onReset);
+  empty.appendChild(back);
+  return empty;
+}
+
+/** 새 여행 폼 — 제출 흐름(비활성화·초기화)은 여기, 저장·동기화는 onCreate가 맡는다. */
+function buildTripForm(onCreate: (title: string) => Promise<void>): HTMLFormElement {
+  const form = el('form', 'trip-form') as HTMLFormElement;
+  const input = el('input') as HTMLInputElement;
+  input.type = 'text';
+  input.placeholder = '여행 제목 (예: 제주도 여름 여행)';
+  input.maxLength = 100;
+  input.required = true;
+  input.setAttribute('aria-label', '여행 제목');
+  const submit = el('button', 'btn-primary', '+ 새 여행') as HTMLButtonElement;
+  submit.type = 'submit';
+  form.append(input, submit);
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    submit.disabled = true;
+    void (async () => {
+      try {
+        await onCreate(input.value);
+        input.value = '';
+      } catch {
+        // 실패 문구는 onCreate가 상태 줄에 이미 표시했다 — 입력값은 지우지 않는다(다시 치게 하지 않기).
+      } finally {
+        submit.disabled = false;
+      }
+    })();
+  });
+  return form;
+}
+
+/** 기간 필터 UI 묶음 — 선택 상태를 갖고, refresh가 apply()로 목록을 거른다. */
+interface PeriodUi {
+  fold: HTMLDetailsElement;
+  filterNow: HTMLElement;
+  /** 현재 선택으로 items를 거르고 트리·요약·현재선택 줄을 다시 그린다. */
+  apply(items: LocalTrip[], onChange: () => void): LocalTrip[];
+  /** 선택 해제(전체로). [전체 보기]·✕가 부른다. */
+  clear(): void;
+}
+
+function buildPeriodUi(): PeriodUi {
+  let sel: PeriodSel = {};
+  const fold = el('details', 'tree-fold') as HTMLDetailsElement;
+  const summary = el('summary', 'tree-fold-sum');
+  const nav = el('nav', 'home-tree');
+  nav.setAttribute('aria-label', '기간별 보기');
+  fold.append(summary, nav);
+  const filterNow = el('div', 'filter-now');
+  filterNow.hidden = true;
+  // 넓은 화면(≥1100px)에서는 트리가 옆 칸에 늘 펼쳐진다 — summary는 CSS가 숨긴다.
+  // 좁은 화면은 접힌 필터로 내려간다(주 사용처인 폰 세로를 해치지 않는다).
+  const wideMq = window.matchMedia('(min-width: 1100px)');
+  fold.open = wideMq.matches;
+  wideMq.addEventListener('change', (e) => {
+    if (e.matches) fold.open = true;
+  });
+  return {
+    fold,
+    filterNow,
+    apply(items, onChange) {
+      const tree = buildTimeTree(items);
+      renderPeriodTree(nav, tree, sel, (next) => {
+        sel = next;
+        onChange();
+      });
+      summary.textContent = `🗓️ 기간: ${periodLabel(sel)}`;
+      const shown = items.filter((t) => matchesPeriod(t, sel));
+      const isAll = !sel.year && !sel.undated;
+      filterNow.hidden = isAll; // 전체(정상)는 침묵 — 필터가 걸렸을 때만 말한다.
+      if (!isAll) {
+        filterNow.innerHTML = '';
+        filterNow.appendChild(el('span', undefined, `🗓️ ${periodLabel(sel)} · ${shown.length}개`));
+        const x = el('button', 'filter-clear', '✕') as HTMLButtonElement;
+        x.type = 'button';
+        x.setAttribute('aria-label', '기간 필터 해제');
+        x.addEventListener('click', () => {
+          sel = {};
+          onChange();
+        });
+        filterNow.appendChild(x);
+      }
+      return shown;
+    },
+    clear() {
+      sel = {};
+    },
+  };
+}
+
 export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   if (unsubscribeAuth) {
     unsubscribeAuth();
@@ -226,6 +385,8 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   const list = el('div', 'trip-list');
   const status = el('p', 'sync-note muted');
   status.setAttribute('role', 'status');
+  // 기간 트리(연도▸월): 넓은 화면에선 왼쪽 고정 칸, 좁은 화면에선 접힌 필터.
+  const periodUi = buildPeriodUi();
 
   // 목록 뷰: 활성(홈) ↔ 보관함. 보관 상태 여행은 홈에서 숨고 보관함에서 본다.
   let view: 'active' | 'archived' = 'active';
@@ -274,34 +435,16 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
     })();
   }
 
-  const form = el('form', 'trip-form');
-  const input = el('input') as HTMLInputElement;
-  input.type = 'text';
-  input.placeholder = '여행 제목 (예: 제주도 여름 여행)';
-  input.maxLength = 100;
-  input.required = true;
-  input.setAttribute('aria-label', '여행 제목');
-  const submit = el('button', 'btn-primary', '+ 새 여행') as HTMLButtonElement;
-  submit.type = 'submit';
-  form.appendChild(input);
-  form.appendChild(submit);
-
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    submit.disabled = true;
-    void (async () => {
-      try {
-        await createTripLocalFirst({ title: input.value });
-        input.value = '';
-        await refresh();
-        await trySync(user); // 저장 후 백그라운드 전송
-        await refresh();
-      } catch (err) {
-        status.textContent = `저장 실패: ${err instanceof Error ? err.message : String(err)}`;
-      } finally {
-        submit.disabled = false;
-      }
-    })();
+  const form = buildTripForm(async (title) => {
+    try {
+      await createTripLocalFirst({ title });
+      await refresh();
+      await trySync(user); // 저장 후 백그라운드 전송
+      await refresh();
+    } catch (err) {
+      status.textContent = `저장 실패: ${err instanceof Error ? err.message : String(err)}`;
+      throw err; // 폼이 입력값을 지우지 않게(실패한 제목을 다시 치게 하지 않는다)
+    }
   });
 
   function renderAuth(): void {
@@ -376,23 +519,22 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
     form.hidden = view === 'archived'; // 보관함에선 새 여행 폼 숨김
 
     const items = view === 'archived' ? archived : trips;
+    // 기간 필터: 트리는 현재 뷰(홈/보관함)의 여행에서 파생되고, 목록도 같은 선택으로 걸러진다(§7 대칭).
+    const shown = periodUi.apply(items, () => void refresh());
     list.innerHTML = '';
     if (items.length === 0) {
-      const empty = el('div', 'empty-state');
-      if (view === 'archived') {
-        empty.appendChild(el('p', 'empty-emoji', '📦'));
-        empty.appendChild(el('h2', undefined, '보관함이 비어 있어요'));
-        empty.appendChild(el('p', 'muted', '여행 편집에서 상태를 “보관”으로 바꾸면 여기로 들어와요.'));
-      } else {
-        empty.appendChild(el('p', 'empty-emoji', '✈️'));
-        empty.appendChild(el('h2', undefined, '첫 여행을 기록해보세요'));
-        empty.appendChild(el('p', 'muted', '제목 하나면 충분해요. 이 기기에 안전하게 저장됩니다.'));
-      }
-      list.appendChild(empty);
+      list.appendChild(emptyListState(view));
+    } else if (shown.length === 0) {
+      list.appendChild(
+        filteredEmptyState(() => {
+          periodUi.clear();
+          void refresh();
+        }),
+      );
     } else if (view === 'archived') {
-      items.forEach((t, i) => list.appendChild(archivedCard(t, i, navigate, restoreTrip)));
+      shown.forEach((t, i) => list.appendChild(archivedCard(t, i, navigate, restoreTrip)));
     } else {
-      items.forEach((t, i) => list.appendChild(tripCard(t, i, navigate, deleteTrip)));
+      shown.forEach((t, i) => list.appendChild(tripCard(t, i, navigate, deleteTrip)));
     }
     // 정상(동기화됨)은 조용하게, 알아둘 것·문제는 눈에 띄게(setNote 위계).
     //
@@ -417,7 +559,13 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
     }
   }
 
-  section.append(form, viewBar, list, status);
+  // 2단 몸통: 왼쪽 기간 트리 | 오른쪽 목록. DOM 순서 = 논리 순서(입력 → 필터 → 목록)라
+  // 화면읽기·키보드 탐색이 흔들리지 않고, 시각 배치는 CSS(≥1100px grid)만 바꾼다.
+  const body = el('div', 'home-body');
+  const main = el('div', 'home-main');
+  main.append(viewBar, periodUi.filterNow, list);
+  body.append(periodUi.fold, main);
+  section.append(form, body, status);
   wrap.appendChild(section);
   mount.appendChild(wrap);
 

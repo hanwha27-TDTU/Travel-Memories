@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.65<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->165<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->70<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.66<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->166<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->71<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
@@ -404,6 +404,12 @@ npm run dev                            # 홈 화면 확인 (선택)
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
 
 ---
+
+## HANDOFF-0059 · v1.66 · **홈 2단 — 연도▸월 기간 트리(사용자 제안)** (2026-08-03)
+
+- **무엇**: 홈 여행 목록을 ≥1100px에서 [기간 트리(고정 260px) | 목록] 2단으로. 트리는 여행 데이터에서 파생(연·월·개수, 빈 달 침묵, 시작일 없으면 「기간 미정」), 선택은 필터(기본 전체, 현재선택 줄 + ✕ 해제, 거른 결과 0이면 [전체 보기]). 좁은 화면은 접힌 `<details>` 필터(폰 세로 보호). DOM 순서 입력→필터→목록 유지, 시각 배치는 CSS만.
+- **파일**: `src/domain/trip/timeTree.ts`(순수: 파생·필터·문장) + `tests/unit/timeTree.test.ts`(11건) · `home.ts`(트리 UI + 래칫 대응으로 빈상태 2종·새여행 폼 최상위 추출, renderHome 235→224 기록 하향) · `app.css`(트리 스타일 + ≥1100px grid) · `verify-editor-live.mjs`(회귀 7건: 1480 2단·1099/412 1단·접힘·넘침 0·버튼 실동작·✕ 원복, §2-J 대상 확보 선판정) · `brief.mjs` 라우팅(timeTree→ui-responsive-dev).
+- **검증**: 유닛 11건 PASS, grid 규칙 제거 주입 → 해당 라이브 검사만 RED(비공허) → 원복 GREEN. 스크린샷 4장(1480 전체/필터, 412 접힘/펼침) 실제 열람. 전체 harness PASS·SKIP 0. DB·R2·서버 무변경.
 
 ## HANDOFF-0058 · v1.65 · **BACKLOG.md 신설 — 미완료 과제 단일 정본(사용자 제안)** (2026-08-03)
 
