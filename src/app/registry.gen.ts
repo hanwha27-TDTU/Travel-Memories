@@ -8,6 +8,7 @@ export const REGISTRY = {
   'typecheck',
   'check-secret-leak',
   'check-hooks-wired',
+  'check-ci-policy',
   'check-domain-wiring',
   'check-csp',
   'check-base-consistency',
@@ -50,7 +51,7 @@ export const REGISTRY = {
   'verify-editor-live',
   'verify-diagnostics-live',
   ] as const,
-  gateCount: 44,
+  gateCount: 45,
   /** 최신 앱 버전(정본: src/app/changelog.ts의 첫 항목). 첫 로드 화면은 이걸 읽는다. */
   appVersion: '1.67',
   agentCount: 28,
