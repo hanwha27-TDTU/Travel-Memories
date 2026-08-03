@@ -2,9 +2,17 @@
 
 설계지시서 §27·§28. 각 Phase는 명시적 완료조건을 갖는다. 완료조건 미달은 다음 Phase로 넘어가지 않는다.
 
-## 현재 상태
+## 현재 상태 (2026-08-03 현행화)
 
-**Gate 0A(읽기중심 audit·docs·agents) 사실상 완료 → Phase 0B(scaffold) 대기 (S-10).** 문서(`docs/`)와 에이전트 팀(`.claude/agents/`) 구성 완료. 아직 제품 기능·앱 골격 코드는 없다.
+**Phase 0B~6 출고 완료 — 실사용 가능한 PWA가 운영 중이다**(버전·기능의 정본은 `src/app/changelog.ts`, 최신 상태는 `docs/HANDOFF.md`·`docs/HANDOFF_CODEX.md`). 다기기 동기화(Google OAuth·초대제·journey 스키마)·사진 R2 저장·지도·비용·백업·안드로이드 셸(APK)까지 라이브다. 운영 DB migration은 0028까지 적용.
+
+> 🔴 이 문서는 2026-08-03까지 스캐폴딩 시절("아직 코드 없음")에 멈춰 있었다 — 문서·코드
+> 교차검증에서 발견해 현행화했다. 아래 Phase 절들은 **계획의 역사**로 남기되, 각 절 머리에
+> 현재 상태를 표시한다. 남은 것만 요약하면:
+>
+> - **미검증 경계**: 실제 2기기 canonical 게시/소비 왕복 · authenticated R2 왕복(실기기 필요)
+> - **미구현**: hook 기반 강제 규칙(S-09 — `.claude/settings.json` hooks 비어 있음, `check-supabase-sql-safe` 포함)
+> - **Phase 7(AI 확장)**: 미착수(계획대로 MVP 안정화 후)
 
 ---
 
@@ -42,32 +50,32 @@ v0.2 S-10에 따라 첫 실행에서 문서와 scaffold가 혼재하지 않도�
 - [x] `check-secret-leak`·`commit-msg` hook 실동작(`.githooks`, `core.hooksPath` 활성). `check-domain-wiring` 게이트 동작.
 - [x] `DOMAIN_REGISTRY`(`src/domain/registry.ts`) + 대칭 게이트 스텁(18 도메인 정합).
 - [x] `docs/records/coding-mistakes.md` 실수 원장 운영 시작.
-- [ ] SW 캐시 버저닝(현재 미구현) · OAuth PKCE 클라이언트 옵션은 설정됨(실 연동 Phase 1).
-- [ ] `TERMINALS` + 배선맵 생성기, camelCase↔snake_case 경계 게이트, empty-seed 게이트 (Phase 0B 잔여).
-- [ ] `check-supabase-sql-safe` hook (Supabase SQL 작업 시작 시 · Phase 1).
+- [x] SW 캐시 버저닝 — `public/sw.js`의 `CACHE='journey-shell-v2'`(판 올림 방식) · OAuth PKCE 실연동 라이브(2026-08-03 교차검증으로 [x] 확인 — 문서만 낡아 있었다).
+- [x] 배선맵·경계 게이트 — 원래 구상(`TERMINALS`·empty-seed 게이트)은 그 이름으로 만들지 않았고, 목적은 `src/app/blueprint.ts` SOURCES + `check-blueprint`·`check-schema-parity`(rowmap↔서버 컬럼)·`check-domain-wiring`이 다른 형태로 달성했다(이름이 아니라 행동 기준 — 게이트 헌장 §2-I).
+- [ ] `check-supabase-sql-safe` hook — **여전히 미구현.** S-09(강제 규칙은 hook으로) 전체가 미구현 상태다: `.claude/settings.json`의 hooks가 비어 있다. 별도 작업으로 남김.
 
-> Supabase 프로비저닝·migration·pgTAP·실제 사진/동기화/지도 로직은 Phase 1+. 이번 골격은 기능 없음.
+> (역사) Supabase 프로비저닝·migration·pgTAP·실제 사진/동기화/지도 로직은 Phase 1+로 계획했었다.
 
-## Phase 1 — 인증과 여행
-**소셜 로그인(Google OAuth)** ✅코드 · 세션 복구 · 여행 생성·목록 ✅ · **소유자 범위 RLS 공격검사 통과** ✅ · IndexedDB 로컬 저장 ✅ · 동기화 push/pull ✅코드(실연동 대기). 남은 것: 대시보드 스키마 노출·OAuth 설정 후 2기기 수동검증, 여행 수정·삭제(tombstone) push, 타임라인.
+## Phase 1 — 인증과 여행 ✅ 출고
+Google OAuth(PKCE)·세션 복구·여행 생성/수정/삭제(tombstone push)·타임라인·소유자 RLS+초대제 공격검사·실연동 다기기 동기화까지 라이브. **남은 것: 실제 2기기 canonical 게시/소비 왕복 검증**(실기기 필요 — HANDOFF_CODEX 「다음 시작점」이 정본).
 
-## Phase 2 — 순간과 타임라인
+## Phase 2 — 순간과 타임라인 ✅ 출고
 순간 생성 · 날짜별 타임라인 · 감정·중요기억 · 오프라인 작성 · 재접속 동기화.
 
-## Phase 3 — 사진
-다중 선택 · EXIF 추출 · 방향 보정 · WebP 압축 · 썸네일 · 대기열 업로드 · 실패 재시도 · 중복검사 · **EXIF GPS 개인정보 정책 확정(공유 시 GPS 제거 게이트 `check-exif-strip-on-share` 포함)**.
+## Phase 3 — 사진 ✅ 출고
+다중 선택 · EXIF 추출 · 방향 보정 · WebP 압축 · 썸네일 · 대기열 업로드 · 실패 재시도 · 중복검사 · EXIF GPS 개인정보 정책(`check-exif-strip-on-share` 게이트 포함). 저장소는 Cloudflare R2(ADR-0024). **남은 것: authenticated R2 왕복 실기기 검증.**
 
-## Phase 4 — 지도와 장소
-지도 표시 · 장소 마커 · 자동 위치 후보 · 수동 수정 · GeoJSON 내보내기.
+## Phase 4 — 지도와 장소 ✅ 출고
+지도 표시(MapLibre) · 장소 마커 · 장소 1급 도메인(0022~0023) · 수동 수정 · GeoJSON 내보내기.
 
-## Phase 5 — 비용과 회고
-비용 기록 · 통화별 합계 · 여행 회고 · 대표사진 · 여행 완료처리.
+## Phase 5 — 비용과 회고 ✅ 출고
+비용 기록 · 통화·환율 환산 · 통화별 합계 · 대표사진 · 회고.
 
-## Phase 6 — 백업과 안정화
-JSON 내보내기·복원 · CSV·GeoJSON · 고아파일 검사 · 대량사진 검사 · 저메모리 검사 · 전체 보안검사 · **설정 내 개발자 정보 화면**(ADR-0019: 개발자·버전·최초 개발일·최종 수정·업데이트 이력 — package.json·CHANGELOG에서 파생, 손편집 금지).
+## Phase 6 — 백업과 안정화 ✅ 출고
+JSON/ZIP 내보내기·복원(암호화 포함) · 고아파일 검사 · 진단 도구 일습 · 전체 보안검사 · 개발자 정보 화면(ADR-0019 — changelog.ts에서 파생) · 안드로이드 셸(APK)·자동 최신화.
 
-## Phase 7 — AI 확장 (MVP 완료 후, 별도 branch)
-AI 요약·태그·검색·OCR·비용추출·로컬 LLM. 핵심 기능이 안정된 뒤에만 활성화.
+## Phase 7 — AI 확장 (MVP 완료 후, 별도 branch) — 미착수
+AI 요약·태그·검색·OCR·비용추출·로컬 LLM. 핵심 기능이 안정된 뒤에만 활성화. AI 출력은 `ai_artifacts` 테이블에만 저장(비타협 원칙 #2).
 
 ## 에이전트 단계별 호출 순서 (§20)
 단계 0(조사·문서화) → 1(제품·데이터 설계) → 2(기반 구현) → 3(핵심 기능) → 4(사진) → 5(오프라인) → 6(보안·적대 검사) → 7(품질·배포). AI 에이전트는 MVP 안정화 후.
