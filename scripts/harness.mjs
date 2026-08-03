@@ -64,6 +64,9 @@ const gates = [
   { name: 'check-backup-coverage', cmd: 'node scripts/check-backup-coverage.mjs' },
   { name: 'check-blueprint', cmd: 'node scripts/check-blueprint.mjs' },
   { name: 'check-registry-gen', cmd: 'node scripts/check-registry-gen.mjs' },
+  // 가이드 화면이 헌법 조항(비타협 원칙·실행 규율·§0)을 **손으로 옮겨 적고** 있었다.
+  // 헌법을 고쳐도 화면은 옛 문장을 보여줬고, 자료구조는 옳으니 유닛은 전부 초록이었다(§10 ③).
+  { name: 'check-constitution-gen', cmd: 'node scripts/check-constitution-gen.mjs' },
   // 두 AI가 **다른 계약을 읽고 있지 않은지**. 2026-07-29에 실제로 네 군데가 갈라져 있었고,
   // 그중 「완료의 정의」는 서로를 포함하지 않았다 — Codex는 화면을 안 보고, Claude는 배포
   // 확인 없이 「완료」라 할 수 있었다(M-0046이 그 형태). 정본은 docs/CONSTITUTION.md 하나다.

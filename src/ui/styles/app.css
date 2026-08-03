@@ -1031,6 +1031,12 @@ select.zone-input { text-overflow: ellipsis; }
 }
 .guide-def-k { font-size: 0.78rem; font-weight: 800; color: var(--ink); }
 .guide-def-v { font-size: 0.8rem; color: var(--ink-soft); line-height: 1.5; }
+/* 좁은 폰에서는 위아래로 쌓는다. 라벨이 게이트 이름처럼 짧을 때는 2열이 읽기 좋지만,
+   헌법 조항 제목(「사용자의 기억을 잃지 않는다.」)이 들어오면서 34% 칸에서 두세 줄로
+   갈라졌다 — 제목이 갈라지면 그게 한 문장인지 아닌지가 안 보인다(실측 412px). */
+@media (max-width: 520px) {
+  .guide-def { grid-template-columns: 1fr; gap: 2px; }
+}
 /* ── 플랫폼 지도(무엇이 어디서 도나) ─────────────────────────────────────────
    서비스별로 묶어, "Supabase가 이만큼을 한다"가 한눈에 들어오게 한다.
    색은 시맨틱 토큰만 쓴다 — 계절 강조색(--a3)을 쓰면 테마에 따라 의미가 무너진다. */

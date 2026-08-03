@@ -470,8 +470,8 @@ npm run live                  # 라이브만 (build 다음에)
 
 
 - 기본값은 **단일 구현 에이전트가 조사→구현→검증→문서→보고까지 맥락을 유지**한다(맥락 보존 실행 루프).
-- `docs/AGENT_REGISTRY.md`의 139개 역할은 변경유형별로 선택하는 **조건부 품질 게이트**다. 광범위 탐색·감사만 병렬화하고 최종 구현은 하나로 수렴한다.
-- 물리 에이전트는 통합 10개(`orchestrator, product-ux, frontend, travel-domain, media-pipeline, supabase, offline-sync, security-privacy, qa, reviewer-release`) + 디자인 16개(124–139).
+- `docs/AGENT_REGISTRY.md`의 <!--reg:logicalRoleCount-->139<!--/reg-->개 역할은 변경유형별로 선택하는 **조건부 품질 게이트**다. 광범위 탐색·감사만 병렬화하고 최종 구현은 하나로 수렴한다.
+- 물리 에이전트는 **<!--reg:agentCount-->27<!--/reg-->개**(`.claude/agents/` — 통합·디자인·독립 감사). **이름을 여기 손으로 나열하지 않는다**: 목록은 `src/app/registry.gen.ts`(자동 집계), 한 줄 설명·분류는 `src/app/agents.ts`, 둘의 어긋남은 `check-registry-gen`이 **양방향**으로 RED. 예전에 여기 적힌 「통합 10 + 디자인 16」은 독립 감사 에이전트가 늘어난 뒤에도 그대로 남아 **한 개 모자란 채 화석**이 돼 있었다.
 - **뜨거운 공유 파일 직렬화.** 동기화 상태머신·conflict 해결·media pipeline 핵심·DB migration·Supabase 정책은 **단일 오너·단일 구현자·단일 PR**로 직렬화한다(동시 편집 금지). Phase 0에서 변경유형→역할→게이트 라우팅 테이블과 `CODEOWNERS`(경로 오너십)를 SSOT로 생성한다.
 
 ## 에이전트 공통 출력계약 (§18.1)
@@ -551,7 +551,7 @@ npm run live                  # 라이브만 (build 다음에)
 ## 에이전트 운영
 
 
-139개 논리 역할(`docs/AGENT_REGISTRY.md`)을 통합·디자인 세트로 `.claude/agents/`에 구현(개수는 손으로 세지 않고 `src/app/registry.gen.ts` 자동 집계·`check-registry-gen`이 드리프트 차단). 동시에 다 돌리지 않고 Orchestrator가 필요한 역할만 호출한다. 규칙은 `AGENTS.md`.
+<!--reg:logicalRoleCount-->139<!--/reg-->개 논리 역할(`docs/AGENT_REGISTRY.md`)을 통합·디자인 세트로 `.claude/agents/`에 구현(개수는 손으로 세지 않고 `src/app/registry.gen.ts` 자동 집계·`check-registry-gen`이 드리프트 차단). 동시에 다 돌리지 않고 Orchestrator가 필요한 역할만 호출한다. 규칙은 `AGENTS.md`.
 
 ## 지시·계약 문서를 바꿀 때 (§14 — 두 AI가 다르게 알지 않게)
 
