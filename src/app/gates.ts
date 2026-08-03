@@ -44,6 +44,7 @@ export const GATE_DESC: Record<string, string> = {
   'check-backup-coverage': '모든 사용자 테이블이 백업 export/import에 다 있는지',
   'check-blueprint': '설계 개요도(배선맵) 선언 ↔ 실제 구조 일치',
   'check-registry-gen': '자동 집계 카운트·목록이 SSOT와 일치(손 스냅샷 드리프트 차단)',
+  'check-constitution-gen': '화면이 보여주는 헌법 조항이 실제 헌법과 글자 단위로 일치',
   'check-adapter-parity':
     'Claude와 Codex가 **같은 계약**을 읽는지(두 지시문서가 갈라지면 두 AI가 다르게 판단한다)',
   'check-doc-governance':
@@ -106,6 +107,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-backup-coverage': 'static',
   'check-blueprint': 'generated',
   'check-registry-gen': 'generated',
+  'check-constitution-gen': 'generated',
   'check-adapter-parity': 'generated',
   'check-doc-governance': 'generated',
   'check-platform-map': 'generated',

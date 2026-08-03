@@ -14,6 +14,10 @@ import { readFile } from 'node:fs/promises';
 import { readdirSync, statSync } from 'node:fs';
 import { join, extname, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// 기대값을 여기 손으로 적지 않는다 — 생성기와 **같은 SSOT**에서 읽어 화면과 대조한다.
+// (숫자를 적어 두면 이 검사 자체가 다음 드리프트의 씨앗이 된다.)
+import { collect as collectRegistry } from './gen-registry.mjs';
+import { collect as collectConstitution } from './gen-constitution.mjs';
 
 let chromium;
 for (const spec of ['playwright', '/opt/node22/lib/node_modules/playwright/index.mjs']) {
@@ -3042,6 +3046,61 @@ check('플랫폼 지도: 사진 파일이 R2로 표시된다', plat.parts.includ
 check('플랫폼 지도: 옛 저장소(Storage)가 안 보인다', !plat.parts.includes('Storage'), plat.parts.join('|'));
 check('플랫폼 지도: 가로 넘침 0', plat.overflow <= 1, `overflow=${plat.overflow}`);
 check('플랫폼 지도: 화면에 마크다운 별표가 안 보인다', !plat.text.includes('**'), '');
+
+// ── v1.68: 가이드의 「손으로 적던 것」이 실제로 SSOT에서 그려지는가 ─────────────────
+// 정적 게이트(check-registry-gen·check-constitution-gen)는 **파일이 SSOT와 같은지**만 본다.
+// 그 파일이 실제로 화면에 닿는지는 렌더해야만 안다 — 생성은 맞는데 목록이 안 그려지면
+// 사용자에겐 없는 내용이고, 자료구조는 옳으니 유닛은 전부 초록이다(§10 ③이 정확히 그 부류).
+{
+  const reg = collectRegistry();
+  const con = collectConstitution();
+  const openGuideCard = async (label) => {
+    await page.goto(`http://localhost:4173${BASE}`);
+    await page.evaluate(() => document.querySelector('.data-open')?.click());
+    await page.waitForTimeout(200);
+    await page.evaluate(() => {
+      const cards = [...document.querySelectorAll('.guide-card')];
+      cards.find((c) => c.textContent?.includes('가이드'))?.click();
+    });
+    await page.waitForTimeout(300);
+    await page.evaluate((l) => {
+      const cards = [...document.querySelectorAll('.guide-card')];
+      cards.find((c) => c.textContent?.includes(l))?.click();
+    }, label);
+    await page.waitForTimeout(300);
+    return page.evaluate(() => {
+      const body = document.querySelector('.guide-detail-body');
+      return {
+        keys: [...document.querySelectorAll('.guide-def-k')].map((n) => n.textContent ?? ''),
+        vals: [...document.querySelectorAll('.guide-def-v')].map((n) => n.textContent ?? ''),
+        lis: [...document.querySelectorAll('.guide-ul li')].map((n) => n.textContent ?? ''),
+        heads: [...document.querySelectorAll('.guide-h')].map((n) => n.textContent ?? ''),
+        text: body?.textContent ?? '',
+        overflow: body ? body.scrollWidth - body.clientWidth : 0,
+      };
+    });
+  };
+
+  const ag = await openGuideCard('개발 에이전트 목록');
+  check('가이드 에이전트: 정의 파일 수만큼 행이 그려진다', ag.keys.length === reg.agentCount, `dom=${ag.keys.length} ssot=${reg.agentCount}`);
+  // 예전에 손으로 나열해 **빠져 있던** 형제가 화면에 실제로 나오는지(이게 이 기계화의 이유다).
+  check('가이드 에이전트: 독립 감사 에이전트가 목록에 있다', ag.keys.includes('disaster-recovery-guardian'), '');
+  check('가이드 에이전트: 설명이 빠진 항목 없음', !ag.vals.includes('(설명 미등록)'), '');
+  check('가이드 에이전트: 분류 묶음 머리글이 그려진다', ag.heads.filter((h) => h.includes('—')).length >= 3, ag.heads.join('|'));
+  check('가이드 에이전트: 논리 역할 수를 손으로 적지 않는다', ag.text.includes(`${reg.logicalRoleCount}개 논리 역할`), '');
+
+  const di = await openGuideCard('개발 규율 모음');
+  check('가이드 규율: 헌법의 실행 규율 수만큼 그려진다', di.keys.length === con.discipline.length, `dom=${di.keys.length} ssot=${con.discipline.length}`);
+  check('가이드 규율: 헌법 문장이 그대로 나온다', di.vals.some((v) => v.includes('손편집 중복 자체가 결함이다')), '');
+  check('가이드 규율: 마크다운 별표가 안 보인다', !di.text.includes('**'), '');
+
+  const gv = await openGuideCard('AI 개발 거버넌스');
+  check('가이드 거버넌스: 비타협 원칙이 전부 그려진다', gv.keys.length === con.principles.length, `dom=${gv.keys.length} ssot=${con.principles.length}`);
+  // 예전엔 §0 아홉 중 **넷만** 옮겨 적혀 있었다 — 발췌를 전부인 것처럼 보여주던 자리다.
+  check('가이드 거버넌스: §0 금지가 전부 그려진다(발췌 아님)', gv.lis.length === con.neverDo.length, `dom=${gv.lis.length} ssot=${con.neverDo.length}`);
+  check('가이드 거버넌스: 마크다운 별표가 안 보인다', !gv.text.includes('**'), '');
+  check('가이드 거버넌스: 가로 넘침 0', gv.overflow <= 1, `overflow=${gv.overflow}`);
+}
 
 // ── 제목 웹폰트 조각화(unicode-range) 계약 ────────────────────────────────────
 // 정적 게이트로는 원리적으로 못 잡는다: "브라우저가 어느 조각을 실제로 받는가"는

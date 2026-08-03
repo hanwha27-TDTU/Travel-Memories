@@ -195,6 +195,10 @@ export const NO_SKILL_REQUIRED = new Map([
   // 드리프트는 짝 게이트가 막는다(정독 대상은 생성기이지 산출물이 아니다).
   ['src/app/registry.gen.ts', '자동 생성 — gen-registry.mjs가 SSOT, check-registry-gen이 강제'],
   ['src/app/platformMap.gen.ts', '자동 생성 — gen-platform-map.mjs가 코드에서 실측, check-platform-map이 강제'],
+  ['src/app/constitution.gen.ts', '자동 생성 — docs/CONSTITUTION.md가 SSOT, check-constitution-gen이 강제'],
+  // 목록이 아니라 **사람이 붙이는 말**만 있는 편집 메타. gates.ts의 형제이고, 목록과의
+  // 어긋남은 check-registry-gen이 양방향으로 막는다(정독할 규율은 없고 설명만 채우면 된다).
+  ['src/app/agents.ts', '에이전트 한 줄 설명 데이터 — 목록 정본은 .claude/agents/, check-registry-gen이 강제'],
 ]);
 
 /** Windows의 `path.relative()`가 돌려주는 `\`를 라우팅 표의 `/` 표기로 맞춘다. */

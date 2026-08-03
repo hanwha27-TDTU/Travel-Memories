@@ -10,12 +10,23 @@ import { el } from '../dom';
 import { APK_LATEST_URL, APK_INSTALL_STEPS, APK_FACTS, APP_ICONS } from '../../app/apk';
 import { buildPlaybookHtml, buildPlaybookMarkdown, playbookFilename, PLAYBOOK_VERSION } from '../../app/playbook';
 import { iconSwitcher } from '../../services/capacitorShell';
-import { EVAL_ITEMS, summarize, gradeOf, CRITICAL_CAP } from '../../app/selfEval';
+import { EVAL_ITEMS, summarize, gradeOf, gradeClass, gradeLegend, CRITICAL_CAP } from '../../app/selfEval';
 import { openDiagnosticsHub } from './diagnosticsHub';
 import { REGISTRY } from '../../app/registry.gen';
+import {
+  AGENT_CATEGORY,
+  AGENT_CATEGORY_LABEL,
+  AGENT_DESC,
+  type AgentCategory,
+} from '../../app/agents';
+
 import { GATE_DESC } from '../../app/gates';
+import { DISPLAY_MAX, THUMB_MAX } from '../../media/compress';
+import { PRINCIPLES, DISCIPLINE, NEVER_DO } from '../../app/constitution.gen';
 import { openMechChecks } from './mechChecks';
 import { PLATFORM_MAP, type PlatformRow } from '../../app/platformMap.gen';
+/** 가이드에서 에이전트를 묶어 보여줄 순서(분류 자체는 agents.ts가 정본). */
+const AGENT_CATEGORY_ORDER: readonly AgentCategory[] = ['core', 'design', 'audit'];
 
 // ── 상세 패널 조립 헬퍼 ──────────────────────────────────────────────
 function h(text: string): HTMLElement {
@@ -102,7 +113,7 @@ function renderIconPicker(): HTMLElement {
   if (!sw) {
     return panel([
       h('앱에서만 바꿀 수 있어요'),
-      p('홈 화면 아이콘 바꾸기는 설치한 앱(APK)에서만 돼요. 웹/브라우저는 설치할 때 아이콘이 정해져서 나중에 못 바꿔요. 위 「안드로이드 앱 설치」로 앱을 설치하면 여기서 5가지 중 골라 바꿀 수 있어요.'),
+      p(`홈 화면 아이콘 바꾸기는 설치한 앱(APK)에서만 돼요. 웹/브라우저는 설치할 때 아이콘이 정해져서 나중에 못 바꿔요. 위 「안드로이드 앱 설치」로 앱을 설치하면 여기서 ${APP_ICONS.length}가지 중 골라 바꿀 수 있어요.`),
     ]);
   }
   const box = panel([h('홈 화면 아이콘'), p('원하는 아이콘을 누르면 홈 화면 아이콘이 바뀌어요.')]);
@@ -244,7 +255,7 @@ const CONNECT_GROUP: GuideGroup = {
     {
       icon: '🎨',
       label: '앱 아이콘 바꾸기',
-      hint: '홈 화면 아이콘을 5가지 중에 골라요 (앱 전용)',
+      hint: `홈 화면 아이콘을 ${APP_ICONS.length}가지 중에 골라요 (앱 전용)`,
       render: () => renderIconPicker(),
     },
     {
@@ -300,7 +311,8 @@ const CONNECT_GROUP: GuideGroup = {
           steps([
             ['EXIF 먼저', '압축 전에 촬영시각·GPS를 먼저 읽어 따로 저장합니다(§0 — 압축이 메타데이터를 잃지 않도록).'],
             ['원본 보존', '원본 Blob은 그대로 보관하고 절대 수정·삭제하지 않습니다.'],
-            ['파생 생성', '표시본(≤1600 WebP)·썸네일(≤320 WebP)만 별도로 만듭니다.'],
+            // 크기는 compress.ts(정본)에서 읽는다 — 여기 손으로 적으면 값이 바뀔 때 조용히 거짓이 된다.
+            ['파생 생성', `표시본(≤${DISPLAY_MAX} WebP)·썸네일(≤${THUMB_MAX} WebP)만 별도로 만듭니다.`],
           ]),
           h('프라이버시'),
           bullets([
@@ -395,17 +407,13 @@ const DEV_GROUP: GuideGroup = {
       hint: '검증된 작업 원칙',
       render: () =>
         panel([
-          h('작업 규율 (모델 이식 가능)'),
+          h(`작업 규율 (모델 이식 가능) — ${DISCIPLINE.length}가지`),
           p('품질은 모델이 아니라 규율에서 나옵니다.'),
-          bullets([
-            '행동 전 정독, 추측 금지 — SSOT 문서를 먼저 로드한다.',
-            '단일 진실원(SSOT) — 사실이 2곳 이상이면 레지스트리 하나에서 파생·재생성. 손편집 중복 자체가 결함.',
-            '의도가 아니라 현실로 검증 — 정적 게이트가 못 보는 것은 실제 DOM 이벤트로 확인.',
-            '게이트는 비공허하게 — 실패를 주입해 RED로 잡힌 뒤에만 신뢰.',
-            '정직한 완료 보고 — 통과/스킵/실패를 구분. 라이브 렌더 없이 “UI 확인함” 금지.',
-            '결함 → 결함군 승격 — 근본형을 한 문장으로 추상화해 형제 위치를 모두 쓸고 게이트 추가.',
-          ]),
-          note('상세: CLAUDE.md · docs/LESSONS.md'),
+          // 🔴 여기 문장을 손으로 옮겨 적지 않는다. 바로 이 목록의 2번이 *"손편집 중복 자체가
+          // 결함"*이라고 말하는데, 정작 이 화면이 헌법을 베껴 두고 있었다(2026-08-03 전수 감사).
+          // 이제 docs/CONSTITUTION.md에서 파생하고 `check-constitution-gen`이 드리프트를 RED로 잡는다.
+          defs(DISCIPLINE.map((d) => [d.title, d.body])),
+          note('정본: docs/CONSTITUTION.md(→ CLAUDE.md·AGENTS.md) · 상세: docs/LESSONS.md'),
         ]),
     },
     {
@@ -414,30 +422,20 @@ const DEV_GROUP: GuideGroup = {
       hint: '어떤 검토 역할이 언제 켜지나',
       render: () =>
         panel([
-          h(`139개 논리 역할 → .claude/agents/에 ${REGISTRY.agentCount}개 구현`),
-          p('동시에 다 돌리지 않고, Orchestrator가 변경 유형에 필요한 역할만 호출합니다. (개수는 자동 집계 — registry.gen.ts)'),
-          h('통합(구현·검증)'),
-          bullets([
-            'orchestrator — 분해·라우팅·게이트 선택',
-            'frontend — 화면·상태·Supabase 배선',
-            'offline-sync — Dexie·오프라인 대기열·LWW/tombstone',
-            'media-pipeline — EXIF·압축·썸네일·업로드',
-            'supabase — 스키마·RLS·마이그레이션',
-            'travel-domain — Trip/Moment/Place/통계 규칙',
-            'security-privacy — 시크릿·RLS 침투·EXIF/PII',
-            'qa — 유닛·통합·E2E·성능(읽기전용)',
-            'reviewer-release — 리뷰·릴리스·롤백 조율',
-            'product-ux — 범위·흐름·토큰·접근성',
-          ]),
-          h('디자인(감성·실용 균형)'),
-          bullets([
-            'travel-experience-director — 디자인 결과 통합·승인',
-            'memory-centered-ux · mobile-capture-ux · photo-storytelling-designer',
-            'timeline-interaction-designer · map-experience-designer · travel-design-system',
-            'emotional-visual-director · motion-interaction-designer · empty-state-designer',
-            '감사: accessibility · adversarial-visual · design-consistency · mobile-device',
-            '동기화: design-token-sync · figma-handoff',
-          ]),
+          h(`${REGISTRY.logicalRoleCount}개 논리 역할 → .claude/agents/에 ${REGISTRY.agentCount}개 구현`),
+          p('동시에 다 돌리지 않고, Orchestrator가 변경 유형에 필요한 역할만 호출합니다. (목록·개수는 자동 집계 — registry.gen.ts)'),
+          // 🔴 목록을 손으로 나열하지 않는다. 예전엔 여기에 이름을 적어 뒀는데, 새 에이전트가
+          // 생기거나 지워져도 화면은 옛 목록을 보여줬다(게이트에서 이미 겪은 결함군 · §7).
+          // 이름은 `.claude/agents/`에서 파생하고 설명만 사람이 쓴다 —
+          // `check-registry-gen`이 둘의 어긋남을 **양방향**으로 RED로 잡는다.
+          ...AGENT_CATEGORY_ORDER.flatMap((cat) => {
+            const names = REGISTRY.agents.filter((a) => AGENT_CATEGORY[a] === cat);
+            if (names.length === 0) return [];
+            return [
+              h(`${AGENT_CATEGORY_LABEL[cat]} — ${names.length}개`),
+              defs(names.map((a) => [a, AGENT_DESC[a] ?? '(설명 미등록)'])),
+            ];
+          }),
           note('정본: .claude/agents/ · docs/AGENT_REGISTRY.md'),
         ]),
     },
@@ -460,24 +458,16 @@ const DEV_GROUP: GuideGroup = {
       hint: '함께 지키는 규칙 문서 모음',
       render: () =>
         panel([
-          h('비타협 원칙 (목적의 일부)'),
-          bullets([
-            '① 사용자의 기억을 잃지 않는다 — 로컬 내구성 커밋 이후 앱 원인 유실 0.',
-            '② 사용자 기록과 AI 생성물을 섞지 않는다.',
-            '③ 개인자료는 기본 비공개 — 승인 없는 공유 없음.',
-            '④ 정직한 완료 — 자동 검증층이 통과한 것만 통과.',
-            '⑤ 복구 가능성 우선 — 위험 작업은 사전검증·되돌리기·결과확인을 갖춘다.',
-          ]),
-          h('절대 위반 금지 (§0)'),
-          bullets([
-            '사용자 원본 자료를 임의로 삭제·덮어쓰지 않는다.',
-            'service_role 키·DB 비밀번호·관리자 JWT를 프론트·번들·저장소·로그에 넣지 않는다.',
-            'RLS 검증 없이 테이블을 배포하지 않는다.',
-            '사진 압축 전에 EXIF(촬영시각·위치)를 먼저 읽어 저장한다.',
-          ]),
+          // 🔴 아래 두 목록도 헌법에서 파생한다(손으로 옮겨 적으면 조용히 낡는다).
+          // 특히 §0은 예전에 9개 중 **4개만** 옮겨 적혀 있었는데, 화면은 그게 전부인 것처럼
+          // 보였다 — 「발췌」라고 말하지 않은 발췌는 사용자에게 거짓이다(§8 확인 불가 규율).
+          h(`비타협 원칙 (목적의 일부) — ${PRINCIPLES.length}가지`),
+          defs(PRINCIPLES.map((it) => [it.title, it.body])),
+          h(`절대 위반 금지 (§0) — ${NEVER_DO.length}가지`),
+          bullets([...NEVER_DO]),
           h('문서 지도(SSOT)'),
           p('충돌하면 공유 문서(PROJECT_SPEC)가 이깁니다. 특정 AI 대화가 아니라 저장소 문서가 기준입니다.'),
-          note('정본: CLAUDE.md · AGENTS.md · docs/ (SPEC·SECURITY·SYNC_PROTOCOL·DECISIONS …)'),
+          note('정본: docs/CONSTITUTION.md → CLAUDE.md·AGENTS.md(자동 생성) · docs/ (SPEC·SECURITY·SYNC_PROTOCOL·DECISIONS …)'),
         ]),
     },
   ],
@@ -510,7 +500,8 @@ function selfEvalPanel(): HTMLElement {
   wrap.appendChild(head);
 
   wrap.appendChild(
-    el('p', 'se-legend', '등급 세계적 95+ · 우수 85+ · 양호 70+ · 보통 50+ · 취약 <50   |   증거 Lv0 미확인 · Lv2 코드 존재 · Lv3 작동 확인 · Lv4 자동검증+실패주입 · Lv5 반복·기록·복구 입증'),
+    // 등급 경계는 selfEval.ts의 GRADE_BANDS에서 조립한다 — 경계를 옮기면 이 문장이 따라온다.
+    el('p', 'se-legend', `등급 ${gradeLegend()}   |   증거 Lv0 미확인 · Lv2 코드 존재 · Lv3 작동 확인 · Lv4 자동검증+실패주입 · Lv5 반복·기록·복구 입증`),
   );
   if (sum.capped) {
     wrap.appendChild(el('p', 'se-cap', `⚠️ 미해결 치명결함이 있어 종합점수에 상한(${CRITICAL_CAP})이 걸렸습니다. 원점수 ${sum.raw}.`));
@@ -522,7 +513,7 @@ function selfEvalPanel(): HTMLElement {
     top.append(
       el('span', 'se-item-title', `${it.n}. ${it.title}`),
       el('span', 'se-item-score', `${it.score}`),
-      el('span', `se-badge se-${gradeOf(it.score) === '세계적' ? 'world' : gradeOf(it.score) === '우수' ? 'good' : gradeOf(it.score) === '양호' ? 'ok' : 'weak'}`, gradeOf(it.score)),
+      el('span', `se-badge se-${gradeClass(it.score)}`, gradeOf(it.score)),
     );
     const bar = el('div', 'se-bar');
     const fill = el('div', 'se-bar-fill');

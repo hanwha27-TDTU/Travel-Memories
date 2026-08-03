@@ -11,8 +11,15 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'src/app/registry.gen.ts');
 
-/** 문서 산문 카운트 마커를 심을 파일들(있는 것만). SSOT는 registry(collect()). */
-export const DOC_FILES = ['docs/HANDOFF.md', 'README.md', 'CLAUDE.md'];
+/**
+ * 문서 산문 카운트 마커를 심을 파일들(있는 것만). SSOT는 registry(collect()).
+ *
+ * 🔴 어댑터(`CLAUDE.md`·`AGENTS.md`)는 **여기 넣지 않는다.** 그 두 파일의 마커 사이는
+ * `docs/CONSTITUTION.md`에서 생성되므로, 마커를 심어야 할 자리는 **정본 하나**다.
+ * 어댑터에 직접 심으면 한쪽(DOC_FILES에 든 쪽)만 갱신돼 두 AI가 다른 숫자를 읽는다 — §14가
+ * 막으려는 바로 그 상태다. 어댑터의 값은 `check-adapter-parity`가 글자 단위로 보증한다.
+ */
+export const DOC_FILES = ['docs/HANDOFF.md', 'README.md', 'docs/CONSTITUTION.md', 'docs/AGENT_REGISTRY.md'];
 
 /** 마커: <!--reg:KEY-->값<!--/reg-->. KEY는 registry 카운트 키. */
 const MARKER_RE = /<!--reg:(\w+)-->(.*?)<!--\/reg-->/g;
@@ -57,11 +64,31 @@ export function collect() {
   const appVersion = changelog.match(/version:\s*'([^']+)'/)?.[1] ?? '';
   if (!appVersion) throw new Error('gen-registry: changelog.ts에서 최신 version을 찾지 못했습니다.');
 
+  // 에이전트 정의 목록 — 파일명이 아니라 **내용**으로 고른다(README·잡파일 제외).
+  const agentDir = join(ROOT, '.claude/agents');
+  const agents = readdirSync(agentDir)
+    .filter((f) => f.endsWith('.md'))
+    .filter((f) => {
+      const t = readFileSync(join(agentDir, f), 'utf8');
+      return /^---[\s\S]*?^name:\s*\S/m.test(t) && /^---[\s\S]*?^description:\s*\S/m.test(t);
+    })
+    .map((f) => f.replace(/\.md$/, ''))
+    .sort();
+
   return {
     gates,
     gateCount: gates.length,
     appVersion,
-    agentCount: countFiles('.claude/agents', '.md'),
+    // 🔴 **이름이 아니라 행동으로 판정한다**(gates 헌장 §2-I). 예전엔 `.md` 확장자만 세서
+    // `README.md`가 에이전트 1개로 잡혔고, 가이드 화면이 **28개**라고 말했다(실제 27개).
+    // 기계화됐다는 이유로 아무도 그 숫자를 의심하지 않았다 — 형제인 skillCount는 이미
+    // 「실제 SKILL.md만 센다」로 행동 판정을 하고 있었는데 여기만 빠져 있었다(§7 비대칭).
+    // 판정 기준: frontmatter에 `name:`과 `description:`이 둘 다 있는 파일 = 에이전트 정의.
+    agents,
+    agentCount: agents.length,
+    /** `docs/AGENT_REGISTRY.md`의 논리 역할 행 수(정본). 가이드가 「139개」를 손으로 적지 않게. */
+    logicalRoleCount: (readFileSync(join(ROOT, 'docs/AGENT_REGISTRY.md'), 'utf8')
+      .match(/^\| *\d+ *\|/gm) ?? []).length,
     // 디렉터리 수가 아니라 실제 SKILL.md 수를 센다(빈 폴더·잡파일에 흔들리지 않게).
     skillCount: readdirSync(join(ROOT, '.claude/skills'), { withFileTypes: true }).filter(
       (d) => d.isDirectory() && existsSync(join(ROOT, '.claude/skills', d.name, 'SKILL.md')),
@@ -76,6 +103,7 @@ export function collect() {
 /** 결정적 TS 파일 문자열(손편집 금지 헤더 포함). */
 export function render(reg) {
   const gateLines = reg.gates.map((g) => `  '${g}',`).join('\n');
+  const agentLines = reg.agents.map((a) => `  '${a}',`).join('\n');
   return `// GENERATED — 손으로 편집하지 마세요. 재생성: node scripts/gen-registry.mjs
 // SSOT: scripts/harness.mjs · .claude/{agents,skills}/ · src/ui/screens/ · supabase/migrations/ · src/app/{changelog,researchLog}.ts
 // check-registry-gen 게이트가 이 파일이 SSOT와 일치하는지(커밋본==재생성본) 검사합니다.
@@ -88,7 +116,13 @@ ${gateLines}
   gateCount: ${reg.gateCount},
   /** 최신 앱 버전(정본: src/app/changelog.ts의 첫 항목). 첫 로드 화면은 이걸 읽는다. */
   appVersion: '${reg.appVersion}',
+  /** 에이전트 정의 이름(정본: .claude/agents/ — frontmatter가 있는 파일만). */
+  agents: [
+${agentLines}
+  ] as const,
   agentCount: ${reg.agentCount},
+  /** docs/AGENT_REGISTRY.md의 논리 역할 수. 가이드가 손으로 「139개」를 적지 않게. */
+  logicalRoleCount: ${reg.logicalRoleCount},
   skillCount: ${reg.skillCount},
   screenCount: ${reg.screenCount},
   migrationCount: ${reg.migrationCount},

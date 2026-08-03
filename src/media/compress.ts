@@ -7,8 +7,11 @@ export interface CompressedImage {
   height: number;
 }
 
-const DISPLAY_MAX = 1600;
-const THUMB_MAX = 320;
+// 🔴 **export하는 이유는 화면이 이 숫자를 손으로 적지 않게 하기 위해서다**(§2 SSOT).
+// 가이드 화면이 「표시본(≤1600 WebP)·썸네일(≤320 WebP)」이라고 **손으로** 적어 뒀는데,
+// 여기 숫자를 바꾸면 그 문장은 조용히 거짓말이 된다(품질은 이미 0.82→0.90으로 바뀐 적이 있다).
+export const DISPLAY_MAX = 1600;
+export const THUMB_MAX = 320;
 // 표시본 품질 상향(0.82→0.90): 크기(1600px)는 유지해 용량 폭증을 피하면서 선명도만 올린다.
 // 측정 근거: 12MP급에서 표시본 장당 ~0.47MB→~0.66MB(+40%). 원본은 별도 보관이라 전체 증가는 ~10%대.
 const DISPLAY_QUALITY = 0.9;

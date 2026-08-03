@@ -262,13 +262,36 @@ export const EVAL_ITEMS: EvalItem[] = [
   },
 ];
 
-/** 등급 경계 — 화면과 문서가 같은 기준을 쓰도록 여기서만 정의한다. */
+/**
+ * 등급 경계 — 화면과 문서가 같은 기준을 쓰도록 **여기서만** 정의한다.
+ *
+ * 🔴 판정과 **범례**가 같은 표를 읽게 만든 이유: 예전엔 `gradeOf`가 if 사슬이고 가이드 화면의
+ * 범례는 「세계적 95+ · 우수 85+ …」를 **손으로 적어** 있었다. 경계를 하나 옮기면 화면이
+ * 조용히 거짓말을 한다 — 그리고 그건 게이트가 못 본다(자료구조는 옳고 문장만 틀리는 §10 ③).
+ * 등급 배지의 CSS 클래스도 여기 두어, 새 등급이 생기면 화면이 자동으로 따라온다.
+ */
+export const GRADE_BANDS: readonly { min: number; grade: Grade; cls: string }[] = [
+  { min: 95, grade: '세계적', cls: 'world' },
+  { min: 85, grade: '우수', cls: 'good' },
+  { min: 70, grade: '양호', cls: 'ok' },
+  { min: 50, grade: '보통', cls: 'weak' },
+  { min: -Infinity, grade: '취약', cls: 'weak' },
+];
+
 export function gradeOf(score: number): Grade {
-  if (score >= 95) return '세계적';
-  if (score >= 85) return '우수';
-  if (score >= 70) return '양호';
-  if (score >= 50) return '보통';
-  return '취약';
+  return (GRADE_BANDS.find((b) => score >= b.min) ?? GRADE_BANDS[GRADE_BANDS.length - 1]).grade;
+}
+
+/** 등급 배지 CSS 클래스(화면이 등급→클래스를 손으로 사슬 잇지 않게). */
+export function gradeClass(score: number): string {
+  return (GRADE_BANDS.find((b) => score >= b.min) ?? GRADE_BANDS[GRADE_BANDS.length - 1]).cls;
+}
+
+/** 범례 문장 — 「세계적 95+ · … · 취약 <50」을 표에서 조립한다(손으로 적지 않는다). */
+export function gradeLegend(): string {
+  return GRADE_BANDS.map((b, i) =>
+    Number.isFinite(b.min) ? `${b.grade} ${b.min}+` : `${b.grade} <${GRADE_BANDS[i - 1]?.min ?? 0}`,
+  ).join(' · ');
 }
 
 /** 미해결 치명결함 — 있으면 종합점수에 상한을 건다. 지금은 없음(있으면 여기 등록). */
