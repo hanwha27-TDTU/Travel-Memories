@@ -1,6 +1,6 @@
 ---
 name: sync-offline-dev
-description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·sync/merge.ts·offline/db.ts·domain/*/rowmap.ts(로컬 우선 저장/서버 동기화/병합/충돌)를 만들거나 수정하기 전에 반드시 로드한다. 이 저장소의 **최고 위험 표면**. 좀비 차단·빈-클라우드 가드·push 순서·cascade 전파 계약과 과거 결함 사례·검증 레시피를 담은 작업 헌장. 새 엔티티 동기화, 큐 op, rowmap 추가 시 사용.
+description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·canonicalSync.ts·purge.ts, sync/merge.ts, offline/db.ts, domain/*/rowmap.ts를 만들거나 수정하기 전에 반드시 로드한다. 이 저장소의 **최고 위험 표면**. canonical 최종본·tombstone 서버 감사·read-only 전이·복구/백필·좀비 차단·push/cascade 계약을 담은 작업 헌장. 새 엔티티·큐 op·rowmap, 삭제 동기화 진단/수리 변경 시 사용.
 ---
 
 # 동기화·오프라인 개발 프롬프트 (Sync & Offline Dev Charter)

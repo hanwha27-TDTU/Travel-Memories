@@ -1,6 +1,6 @@
 ---
 name: diagnostics-dev
-description: 진단 도구 개발 프롬프트 — src/ui/panels/verdict.ts·diagnostics.ts, src/ui/screens/diagnosticsHub.ts, src/services/diagnostics.ts·envReport.ts, src/domain/integrity.ts, src/app/errorLog.ts를 만들거나 수정하기 전에 반드시 로드한다. 판정(Verdict) 4단 계약·"침묵이 정상"·기대값 필수·단일 렌더러 구조 강제·check-verdict-symmetry 게이트를 담은 작업 헌장. 새 진단 도구 추가, 지표 추가, 허브 변경 시 사용.
+description: 진단 도구 개발 프롬프트 — src/ui/panels/verdict.ts·diagnostics.ts, src/ui/screens/diagnosticsHub.ts, src/services/diagnostics.ts·envReport.ts, src/domain/integrity.ts·syncTombstoneVerdict.ts, src/app/errorLog.ts를 만들거나 수정하기 전에 반드시 로드한다. 판정(Verdict) 4단 계약·"침묵이 정상"·기대값·서버 read-back·단일 렌더러 구조를 담은 작업 헌장. 삭제/tombstone 동기화 진단, 진단 복구 액션, 새 도구·지표·허브 변경 시 사용.
 ---
 
 # 진단 도구 개발 프롬프트 (Diagnostics Dev Charter)

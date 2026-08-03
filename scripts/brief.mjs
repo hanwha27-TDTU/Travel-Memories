@@ -38,6 +38,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
  * `check-skill-routing` 게이트가 "src의 모든 영역이 표에 걸리는가"를 검사한다.
  */
 export const SKILL_ROUTES = [
+  // 프롬프트·인계 정본을 고치는 작업도 코드와 같은 착수 규율을 받는다(M-0096).
+  // 개별 스킬 문서는 아래 skillsFor()가 자기 자신도 함께 라우팅한다.
+  { match: /^\.claude\/skills\//, skill: 'gates-mechanization-dev' },
+  { match: /^docs\/(CONSTITUTION|HANDOFF(?:_CODEX)?)\.md$/, skill: 'gates-mechanization-dev' },
   { match: /^src\/ui\/(styles|theme|toast|dom)/, skill: 'ui-responsive-dev' },
   { match: /^src\/ui\/screens\//, skill: 'ui-responsive-dev' },
   // 보조 화면 지연 로드의 단일 관문. 화면을 다루는 파일이므로 UI 헌장을 읽되,
@@ -198,13 +202,16 @@ export function routePath(path) {
 
 export function skillsFor(paths) {
   const out = new Map();
+  const add = (skill, path) => {
+    if (!out.has(skill)) out.set(skill, []);
+    if (!out.get(skill).includes(path)) out.get(skill).push(path);
+  };
   for (const rawPath of paths) {
     const p = routePath(rawPath);
+    const ownSkill = /^\.claude\/skills\/([^/]+)\/SKILL\.md$/.exec(p)?.[1];
+    if (ownSkill) add(ownSkill, p);
     for (const r of SKILL_ROUTES) {
-      if (r.match.test(p)) {
-        if (!out.has(r.skill)) out.set(r.skill, []);
-        out.get(r.skill).push(p);
-      }
+      if (r.match.test(p)) add(r.skill, p);
     }
   }
   return out;

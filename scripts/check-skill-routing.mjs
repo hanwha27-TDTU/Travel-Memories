@@ -17,7 +17,7 @@
 import { readdirSync, existsSync, statSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SKILL_ROUTES, NO_SKILL_REQUIRED, routePath } from './brief.mjs';
+import { SKILL_ROUTES, NO_SKILL_REQUIRED, routePath, skillsFor } from './brief.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -102,6 +102,35 @@ let selfTestCount = 0;
   // 늘려도 계속 7이라 말했을 것이고, 그건 이 저장소가 다른 게이트에서 이미 한 번 겪은
   // 결함이다("게이트 자신이 '숫자를 손으로 세지 않는다'를 어기고 있었다").
   selfTestCount = cases.length;
+}
+
+// 명시적으로 스킬·프롬프트 파일을 고칠 때도 브리핑이 비어 있지 않아야 한다(M-0096).
+{
+  const routingCases = [
+    {
+      name: '스킬 정본은 자기 자신과 거버넌스 헌장을 함께 라우팅',
+      actual: [...skillsFor(['.claude/skills/diagnostics-dev/SKILL.md']).keys()],
+      expected: ['diagnostics-dev', 'gates-mechanization-dev'],
+    },
+    {
+      name: '공통 프롬프트 정본은 거버넌스 헌장으로 라우팅',
+      actual: [...skillsFor(['docs/CONSTITUTION.md']).keys()],
+      expected: ['gates-mechanization-dev'],
+    },
+    {
+      name: 'Claude 인계서는 거버넌스 헌장으로 라우팅',
+      actual: [...skillsFor(['docs/HANDOFF_CODEX.md']).keys()],
+      expected: ['gates-mechanization-dev'],
+    },
+  ];
+  const broken = routingCases.filter(
+    ({ actual, expected }) => actual.length !== expected.length || expected.some((skill) => !actual.includes(skill)),
+  );
+  if (broken.length) {
+    console.error(`check-skill-routing: 명시 대상 라우팅 자체테스트 실패 — ${broken.map((c) => c.name).join(', ')}`);
+    process.exit(2);
+  }
+  selfTestCount += routingCases.length;
 }
 
 // ── 실제 검사 ──

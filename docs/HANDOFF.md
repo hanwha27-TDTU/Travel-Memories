@@ -397,6 +397,13 @@ npm run dev                            # 홈 화면 확인 (선택)
 
 ---
 
+## HANDOFF-0055 · v1.64 · **스킬·공통 프롬프트·Claude 인계 강화 (M-0096)** (2026-08-03)
+
+- **범위**: 제품 코드·앱 버전·Supabase DB·R2는 바꾸지 않았다. v1.64의 M-0095 교훈을 `docs/CONSTITUTION.md` 정본에 일반 규율로 올리고, `diagnostics-dev`·`sync-offline-dev`의 트리거가 tombstone 서버 감사·canonical/read-only·복구/백필 변경을 놓치지 않게 했다. `gates-mechanization-dev`는 스킬·헌법·생성 어댑터·인계서 변경도 자기 영역이라고 명시한다.
+- **발견/기계화**: 실제 대상 파일들로 `npm run brief`를 돌렸을 때 읽을 스킬이 0개였던 M-0096을 발견했다. `.claude/skills/<name>/SKILL.md`는 자기 자신과 프롬프트 거버넌스 헌장을 함께 읽고, 헌법·두 인계서도 거버넌스 헌장으로 라우팅한다. `check-skill-routing` 자체검사가 이 계약을 고정한다.
+- **Claude 다음 행동**: 상세 순서는 `docs/HANDOFF_CODEX.md`의 「Claude에게 넘길 다음 시작점」이 정본이다. 첫 미완료는 로그인된 태블릿에서 v1.64 진단 5건이 사라지는지 확인하는 일이며, 이상이 지속되면 서버 행·영구삭제 원장·canonical generation을 읽기 전용으로 대조한다. 사이트 데이터 삭제나 증거 없는 재큐잉은 금지한다.
+- **검증**: 스킬 3종 `quick_validate.py` PASS(Windows에서는 `PYTHONUTF8=1`), 자기 스킬 라우팅 제거 주입은 `check-skill-routing` 종료 2 RED·원복 GREEN. 빠른 게이트 39/39 PASS, build PASS(`dist/version.json=1.64`), 전체 harness 43/43 PASS·FAIL/SKIP 0이며 editor/diagnostics Chromium 라이브가 모두 실행됐다.
+
 ## HANDOFF-0054 · v1.64 · **정상 삭제 동기화 영구 경고 해소 (M-0095)** (2026-08-03)
 
 - **사용자 실측/서버 대조**: 태블릿 진단은 op 없는 tombstone 5건을 `unknown`으로 보였지만, 상세의 비용 `f9e7a210…`은 운영 서버에서 `deleted=true`, version 4, 로컬과 같은 `client_operation_id`로 이미 삭제 반영이 끝나 있었다. 데이터 유실·업로드 누락·삭제 실패가 아니라 진단 오탐이다.
