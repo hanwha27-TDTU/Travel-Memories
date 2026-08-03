@@ -8,14 +8,20 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.64<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->164<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->69<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.65<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->165<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->70<!--/reg-->개).
 
-> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0027까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->27<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다.
+> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
 
 ### 🕐 직전 세션에서 무슨 일이 있었나 (2026-07-30 · 새 AI는 이것부터)
 
 > **이 절은 "지금 이 순간"이다.** 아래 기능 지도가 *무엇이 있는가*를, 이 절이 *방금 무슨 일이 있었고 무엇이 아직 안 끝났는가*를 말한다.
+
+**한 줄(2026-08-03 · v1.65 · 교차검증 + migration 0028 + 문서 현행화)**: 미완료 과제를
+문서↔코드↔서버로 교차검증해 확정하고(남은 실기기 검증 2건·hook S-09·leaked-password·persist·Q6),
+운영에 FK 커버링 인덱스 10건(0028)을 사전검증→적용→read-back으로 넣었다(데이터 무변경, advisor
+unindexed FK 0). 스캐폴딩 시절에 멈춰 있던 ROADMAP과 이미 해결된 ASSUMPTIONS Q3·Q5·Q7을
+현행화했다. 상세는 HANDOFF-0057.
 
 **한 줄(2026-08-03 · v1.64 배포 완료 · 삭제 반영 진단 오탐 해소)**: 사용자 태블릿은
 「지웠지만 보낼 목록엔 없는 항목 5건」을 계속 경고했지만, 운영 서버에서 화면의 비용
@@ -398,6 +404,13 @@ npm run dev                            # 홈 화면 확인 (선택)
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
 
 ---
+
+## HANDOFF-0057 · v1.65 · **미완료 과제 교차검증 + migration 0028(FK 인덱스) + 문서 부채 정리** (2026-08-03)
+
+- **교차검증**: 문서(HANDOFF 2종·ROADMAP·ASSUMPTIONS·ACTIVE_TASKS) ↔ 코드(blueprint·sw.js·scripts·`.claude/settings.json`) ↔ 서버(운영 migration 목록·advisor, 전부 읽기 전용)를 대조해 미완료 과제를 확정했다. 실제 미완료: ①2기기 canonical 왕복 ②authenticated R2 왕복(둘 다 실기기 필요) ③hook 강제 규칙 S-09(settings.json hooks 비어 있음 — `check-supabase-sql-safe` 포함) ④Supabase leaked-password 보호(대시보드 설정, 사용자 몫) ⑤태블릿 persist(사용자 선택) ⑥ASSUMPTIONS Q6 개발자 정보 표기값(사용자 확정).
+- **migration 0028 적용**: `0028_journey_fk_covering_indexes.sql` — advisor `unindexed_foreign_keys` 10건(HANDOFF-0053의 보완 항목)을 해소하는 커버링 인덱스 10개. 데이터 변경 없음. 기존 자식 인덱스가 전부 `WHERE deleted_at IS NULL` 부분 인덱스라 FK 검사(tombstone 포함)를 못 덮는 것을 운영에서 읽어 확인한 뒤, 술어 없는 인덱스로 만들고 그 이유를 머리주석에 남겼다(§7). 순서: 사전 행수 스냅샷 → `BEGIN…ROLLBACK` 사전검증(10개 생성 확인 후 전량 롤백) → 영구 적용 → read-back(인덱스 10 존재 · 행수 전후 동일 5/5/18/45/4/0·원장 4·meta 1 · advisor에서 journey unindexed FK 0 · 보안 advisor 신규 이슈 0). 되돌리기: `drop index journey.<이름>` 10건.
+- **문서 현행화**: ROADMAP이 「아직 제품 코드 없음」(스캐폴딩 시절)에 멈춰 있었고, SW 캐시 버저닝(`journey-shell-v2`로 구현됨)·배선맵 게이트(`check-blueprint`·`check-schema-parity`·`check-domain-wiring`으로 달성됨)를 미구현으로 표기하고 있었다 — Phase 0B~6 출고 사실과 남은 경계만 남기고 고쳤다. ASSUMPTIONS 열린 질문 Q3(지도)·Q5(OAuth)·Q7(스키마 노출)은 라이브로 해결돼 있어 닫고 Q6만 남겼다.
+- **검증**: 전체 harness PASS(SKIP 0). 운영 DB 변경은 인덱스 10개뿐이며 R2·Edge Function·앱 동작 무변경.
 
 ## HANDOFF-0056 · v1.64 · **태블릿 실기기 확인 완료 — M-0095 진단 오탐 해소 검증** (2026-08-03)
 

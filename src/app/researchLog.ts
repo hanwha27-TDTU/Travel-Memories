@@ -560,4 +560,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '운영 서버를 읽기 전용으로 대조하니 해당 비용은 deleted=true, version 4이며 로컬 작업과 같은 client_operation_id로 이미 정상 반영돼 있었다. 성공한 tombstone push는 큐 op을 지우는 것이 계약인데, 기존 진단은 로컬 tombstone에 큐가 없다는 사실만으로 무조건 unknown을 만들었다. 그래서 다시 동기화해도 경고가 사라질 수 없었다. 더구나 [정리 실행]은 확인 없이 media/expense 삭제 op을 되살리고 오디오·GPS 보정까지 함께 수행해, 정상 삭제 재전송과 바이트 재업로드 가능성을 만들었다.',
     decision: '**삭제 반영 진단과 해소 경로 모두 서버 증거를 기준으로 한다.** 여섯 도메인의 op 없는 tombstone을 서버 deleted_at·version·operation id와 purged_ids 원장에 대조하고 canonical 세대를 전후 확인한다. 서버 tombstone은 정상, server active는 공용 mergeDecision, 행·원장 부재·부분 실패·세대 변경은 unknown이다. 사후 재해복구 감사에서 진단 밖의 같은 결함군도 발견했다: cascade 1회 복구와 audio/GPS 백필이 서버 확인 없이 새 op을 만들고, capability-unknown read-only pull도 로컬 큐를 바꿀 수 있었다. cascade blind repair와 무차별 [정리 실행]을 제거하고, audio/GPS 백필은 서버 행+원장 evidence가 있을 때만 실행하며 조회 실패면 완료 표식도 남기지 않는다. read-only 모드는 큐 불변이고, pull이 확인해 만든 delete op은 같은 run의 부모→자식 후행 push로 끝낸다. 정상 항목은 cap 전에 걷어 실제 문제가 가려지지 않게 한다.',
   },
+  {
+    seq: 70,
+    date: '2026-08-03',
+    topic: '미완료 과제를 문서·코드·서버로 교차검증하고 FK 인덱스와 문서 부채를 정리했다',
+    human: '태블릿 진단 실측으로 v1.64 확인이 끝난 뒤 — 현재 미완료 과제 리스트화 해주세요. 문서랑 코드가 다를 수 있으니 교차검증해서 정리.. (이어서) 일단 5번(FK 인덱스) 진행하고 잘못된 정보들은 이제 정리하자.',
+    ai: '문서 층(HANDOFF 2종·ROADMAP·ASSUMPTIONS·ACTIVE_TASKS) ↔ 코드 층(blueprint·sw.js·scripts·hooks) ↔ 서버 층(운영 migration·advisor, 읽기 전용)을 대조했다. 실제 미완료는 2기기 canonical 왕복·authenticated R2 왕복(실기기 필요)·hook 강제(S-09, settings.json hooks가 실제로 비어 있음)·leaked-password 보호·journey FK 인덱스 10건·태블릿 persist였다. 반면 ROADMAP은 「아직 코드 없음」에 멈춰 있었고 SW 캐시 버저닝(journey-shell-v2로 구현됨)·배선맵 게이트(check-blueprint 등으로 달성됨)를 미구현이라 말했다. ASSUMPTIONS의 열린 질문 Q3·Q5·Q7도 이미 라이브로 해결돼 있었다. FK 인덱스는 운영에서 FK 컬럼 순서·기존 인덱스를 먼저 읽어, 기존 자식 인덱스가 전부 deleted_at IS NULL 부분 인덱스라 FK 검사(tombstone 포함)를 못 덮는 것을 확인했다.',
+    decision: '**migration 0028로 journey FK 커버링 인덱스 10건을 적용하고, 낡은 계획·가정 문서를 현행화한다.** 적용 순서는 사전 행수 스냅샷 → BEGIN…ROLLBACK 사전검증(10개 생성 확인 후 전량 롤백) → 영구 적용 → read-back 3종(인덱스 10 존재·행수 전후 동일 5/5/18/45/4/0·원장 4·meta 1·advisor에서 journey unindexed FK 0). 부분 인덱스로 만들지 않은 이유(FK 검사는 tombstone 행도 본다)를 migration 머리주석에 남겨 다음 사람이 「중복 같은데?」로 지우지 않게 했다(§7 의도적 비대칭). ROADMAP은 Phase 0B~6 출고 사실과 남은 경계만 남기고 현행화, ASSUMPTIONS는 Q6(개발자 정보 표기값)만 열린 질문으로 남겼다. hook 강제(S-09)와 leaked-password 보호는 별도 미완료 과제로 유지한다.',
+  },
 ];

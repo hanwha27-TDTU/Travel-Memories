@@ -1,7 +1,7 @@
 # HANDOFF_CODEX · Bugeon Journey 인계서
 
 > **읽는 사람**: 이 앱 제작에 거의 참여하지 않은 AI(Codex 등) 또는 새 Claude 세션.
-> **작성**: 2026-07-27 · **갱신 2026-08-03**(v1.64 배포 완료 — 바로 아래 최신 절을 **가장 먼저** 읽어라. 작업 트리·운영 라이브 v1.64, DB 0027까지 적용 완료)
+> **작성**: 2026-07-27 · **갱신 2026-08-03**(v1.65 — 태블릿 확인 완료·migration 0028·문서 현행화. 바로 아래 최신 절을 **가장 먼저** 읽어라. DB 0028까지 적용 완료)
 >
 > 🔴 **헌법은 `docs/CONSTITUTION.md`가 정본이다.** `CLAUDE.md`·`AGENTS.md`는 거기서 자동으로
 > 심어 받는 어댑터라 **글자 단위로 같다**. 헌법을 고칠 때는 정본만 고치고 `npm run gen:adapters`
@@ -12,6 +12,12 @@
 **아무 맥락 없이 들어와도 이어서 일할 수 있게** 쓴다. 중복은 의도적이다.
 
 ---
+
+## 🆕 v1.65 — 미완료 과제 교차검증 · migration 0028(FK 인덱스) · 문서 현행화 (2026-08-03)
+
+- 문서↔코드↔서버(읽기 전용) 교차검증으로 미완료 과제를 확정했다. 남은 것: ①2기기 canonical 왕복 ②authenticated R2 왕복(실기기 필요) ③hook 강제 규칙 S-09 미구현(`.claude/settings.json` hooks 비어 있음) ④leaked-password 보호(대시보드, 사용자 몫) ⑤태블릿 persist(사용자 선택) ⑥ASSUMPTIONS Q6 개발자 정보 표기값(사용자 확정). 상세는 `docs/HANDOFF.md` HANDOFF-0057.
+- migration **0028** `journey_fk_covering_indexes`를 운영에 적용했다 — advisor unindexed FK 10건 해소, 데이터 무변경, `BEGIN…ROLLBACK` 사전검증과 read-back 3종(인덱스 존재·행수 동일·advisor 0) 통과. 기존 자식 인덱스는 `deleted_at IS NULL` 부분 인덱스라 FK 검사를 못 덮는다 — 이유는 migration 머리주석에 있다.
+- ROADMAP(스캐폴딩 시절에 멈춰 있었음)·ASSUMPTIONS(Q3·Q5·Q7은 이미 해결)를 현행화했다.
 
 ## 🆕 v1.64 배포 완료 — 정상 삭제 동기화 영구 경고 해소 (2026-08-03)
 
@@ -27,7 +33,7 @@
 1. `git pull --ff-only origin main` 뒤 작업 트리가 깨끗하고 앱 버전이 v1.64인지 확인한다. 이 문서와 `docs/CONSTITUTION.md`를 읽고, **실제로 고칠 파일들로** `npm run brief -- <paths...>`를 돌린다.
 2. 태블릿 확인은 완료됐다(위 실측 — 예전 5건 경고 해소). 남은 미검증 경계는 실제 2기기 canonical 게시/소비 왕복과 authenticated R2 PUT/GET/delete 왕복이며, 둘 다 사용자 로그인 세션과 실기기가 필요하다. 동기화 이상이 새로 보고되면 화면을 추측하지 말고 [진단 요약 복사] 텍스트와 문제 항목 id·도메인·로컬 상태를 먼저 받고, 서버 행·`purged_ids`·canonical generation을 **읽기 전용**으로 대조한다. `[정리 실행]` 같은 무차별 재큐잉을 되살리거나 사이트 데이터를 지우라고 권하지 않는다.
 3. 태블릿 총괄 판정에 남은 todo는 저장소 보호(persist=false) 미적용 하나다. 앱의 [저장소 보호 요청] 버튼으로 사용자가 켤 수 있고, 브라우저가 거절해도 결함이 아니다 — 강요하지 않는다.
-4. 운영 DB는 0027까지 적용돼 있고 이번 인계 갱신은 앱·DB·R2를 바꾸지 않는다.
+4. 운영 DB는 **0028까지** 적용돼 있다(0028 = FK 커버링 인덱스 10건, 데이터 무변경 — HANDOFF-0057). ROADMAP·ASSUMPTIONS는 2026-08-03에 현행화됐다(그 전엔 스캐폴딩 시절에 멈춰 있었다). hook 강제 규칙(S-09)·leaked-password 보호·ASSUMPTIONS Q6은 별도 미완료 과제다.
 
 ---
 
@@ -460,8 +466,9 @@ src/
     registry.gen.ts  ⚠️ 생성물. 손편집 금지 — node scripts/gen-registry.mjs
 scripts/             게이트들 + harness + brief + gen-registry (개수는 재라 — 위 경고)
 supabase/
-  migrations/        0001~**0027**. **추가 전용** — 과거 파일 수정 금지
-                     (운영도 0027까지 적용 완료. 2026-08-03 SQL 공격검사·행수/해시 read-back PASS)
+  migrations/        0001~**0028**. **추가 전용** — 과거 파일 수정 금지
+                     (운영도 0028까지 적용 완료. 0026·0027은 2026-08-03 SQL 공격검사·행수/해시
+                      read-back PASS, 0028은 FK 인덱스 10건·행수 무변경·advisor read-back PASS)
   functions/media-sign/   🔴 R2 자격증명이 존재하는 유일한 장소
 ```
 

@@ -21,11 +21,11 @@
 | A-014 | **저장소 조사(Gate 0A) 전 확정 금지 항목**(v0.2 §6): package manager·Node 버전, 기존 framework/router 유무, Supabase project·migration 상태, PWA SW 생성방식, HEIC 변환 lib+license, runtime validation lib, full archive streaming 구현, 단일 사용자 운영기간. → REPOSITORY_AUDIT/Phase 0B에서 확정. | v0.2 §6 | 미확정 |
 | A-015 | 설정 화면에 **개발자 정보** 필수 포함(개발자·버전·최초 개발일 2026-07-22·코드 최종 수정·업데이트 이력). 개발자 표기는 선행 앱과 동일 계정 기준 "김부건 (Kim Bugeon) · Tashkent State Medical University"를 잠정값으로 두고 구현 전 사용자 확인. 버전·이력은 `package.json`·`CHANGELOG.md`에서 **파생**(손편집 금지, M-0001). 상세 PROJECT_SPEC §4. | 사용자 지시(2026-07-22) | 기능 확정 · 표기값 잠정 |
 
-## 확인이 필요한 열린 질문 (사용자)
+## 확인이 필요한 열린 질문 (사용자) — 2026-08-03 교차검증으로 현행화
 - ~~Q1: 사진 저장 기본 모드~~ → 절약 모드 확정(A-007).
 - ~~Q2: 인증 방식~~ → 소셜 로그인(Google) 확정(A-008).
-- Q3: 지도 타일 제공자와 운영 예산 (A-006). GitHub Pages 정적 배포와 무료 티어 호환 제공자 선정 필요.
+- ~~Q3: 지도 타일 제공자~~ → **해결** — 지도 화면 출고(MapLibre). 타일 제공자 계약은 `.claude/skills/map-place-dev/SKILL.md`가 정본.
 - ~~Q4: Supabase 프로젝트~~ → **공유 프로젝트 Travel&Accounting + journey 스키마 분리로 확정(ADR-0020).** migration 적용·RLS 공격검사 통과 완료.
-- Q5: Google OAuth 클라이언트 설정 시점(Supabase Auth 연동, Phase 1).
-- Q7: 대시보드에서 Data API Exposed schemas에 `journey` 추가(수동 1단계) + GitHub Variables(VITE_SUPABASE_URL/PUBLISHABLE_KEY) 설정 — 클라이언트 REST 접근의 전제.
-- Q6: 개발자 정보 표기값 확인 — 이름·소속을 잠정값("김부건 · Tashkent State Medical University") 그대로 쓸지 (A-015, 구현은 Phase 5~6).
+- ~~Q5: Google OAuth 클라이언트 설정~~ → **해결** — PKCE 실연동 라이브(초대제 allowlist).
+- ~~Q7: Exposed schemas·GitHub Variables~~ → **해결** — journey 노출·Variables 설정 완료, 실제 작동 중.
+- **Q6(유일하게 남은 질문): 개발자 정보 표기값 확인** — 화면은 출고됐고(`changelog.ts` DEVELOPER), 잠정값("김부건 · Tashkent State Medical University")을 그대로 쓸지 사용자 확정만 남음(A-015).
