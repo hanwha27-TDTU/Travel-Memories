@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.67<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->167<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->72<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.67<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->167<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->73<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
@@ -404,6 +404,16 @@ npm run dev                            # 홈 화면 확인 (선택)
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
 
 ---
+
+## HANDOFF-0061 · v1.67 · **T-002 완료 — authenticated R2 PUT/GET/delete 실기기 왕복 검증** (2026-08-03)
+
+- **무엇을 했나**: 사용자가 실기기 2대(태블릿 SM-X906N · 폴드5 SM-F946N, 둘 다 v1.67)에서 「R2 검증 테스트」 여행 + 순간 1 + 사진 1을 만들어 동기화 → 다른 기기에서 확인 → 삭제 → 휴지통에서 **그 여행만** 영구삭제. 앱·DB·R2 코드는 바꾸지 않았고 이 세션의 서버 조사는 전부 읽기 전용이다.
+- **올리기(PUT) 확인**: 21:18 태블릿 「저장 상태」가 **살아 있는 기록 62건**(베이스라인 59 +3: 여행·순간·사진)과 **사진 파일 46개(14.0 MB) · 기록 46개 짝 일치**를 보였다. 파일 수는 앱이 사용자 JWT로 R2 목록을 실제 조회한 값이므로, 45→46 증가가 바이트 도착의 증거다.
+- **받기(GET) 확인**: 같은 사진이 **형태가 다른 두 기기 화면**(가로 2960×1848 · 세로 폴드)에서 자리표시자가 아니라 실제 이미지로 렌더됐다. 만든 기기는 하나이므로 **적어도 한 쪽은 R2에서 바이트를 받아 그린 것**이다.
+- **지우기(DELETE) 확인**: 서버 영구삭제 원장 **4→7**(여행·순간·사진 3개 id, 12:20:16~19 UTC 기록), 그 3개 id는 여섯 표 어디에도 행이 없고(하드 삭제), 최종 진단이 **「영구삭제 후 남은 사진 파일 0개」 + 「설명할 수 없는 사진 파일 0개」** — 남은 파일도, 기록 없는 고아 파일도 없다(같은 사실을 양방향으로 확인).
+- **안전 경계 지켜짐**: 휴지통 캡처(21:20 전/후)에서 **테스트 여행만** 사라지고 기존 개별 항목 5개는 그대로다. 전체 비우기·사이트 데이터 삭제는 하지 않았다.
+- **전파 확인**: 폰 진단(12:21:55 UTC)도 원장 7·살아 있는 기록 59·대기 0·오류 0으로 태블릿과 일치 — 영구삭제가 두 기기에 반영됐다.
+- **남은 것**: T-001(canonical 게시/소비 왕복). 서버는 여전히 `canonical_version = legacy`(게시 이력 0)이고 행 수는 5/5/18/45/4/0·원장 7이다.
 
 ## HANDOFF-0060 · v1.67 · **기간 트리 개수 열 정렬(사용자 지적)** (2026-08-03)
 
