@@ -2082,7 +2082,33 @@ check('상태 줄: 전폭 배너가 아님(내용 폭만)', !noteBox || noteBox.
 // 계약: ①≥1100px에서 [트리 | 목록] 2단, 트리는 펼침·summary 숨김 ②그 미만은 1단, 접힌
 // 필터(summary 보임) ③어느 폭에서도 가로 넘침 0 ④트리 버튼을 누르면 목록이 걸러지고
 // 현재선택 줄(✕ 포함)이 나타나며, ✕를 누르면 원복된다(§13 4항 — 버튼은 눌러 봐야 확인).
-// 지금 홈 화면(1480×920) 상태에서 시작하고, 끝나면 뷰포트·필터를 스스로 되돌린다(§3-C).
+// 지금 홈 화면(1480×920) 상태에서 시작하고, 끝나면 뷰포트·픽스처를 스스로 되돌린다(§3-C).
+//
+// 🔴 **픽스처를 먼저 만든다**(§2-J ①): 이 시점의 앱에는 시작일 있는 여행이 없어서 트리에
+// 연·월 줄이 아예 안 생긴다. 그 상태로 재면 「개수 정렬」 같은 검사가 **대상 0~2개로 조용히
+// 통과**한다. 실제로 처음 판이 그랬다 — 월 줄이 없으니 어긋날 것도 없었다.
+const TREE_FIXTURE_IDS = ['live-tree-2607', 'live-tree-2608'];
+await page.evaluate(async (ids) => {
+  const now = new Date().toISOString();
+  await new Promise((resolve, reject) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const tx = req.result.transaction('localTrips', 'readwrite');
+      const st = tx.objectStore('localTrips');
+      // 같은 해의 서로 다른 두 달 — 연도 줄 1 + 월 줄 2가 생겨 들여쓰기 정렬을 잴 수 있다.
+      st.put({ id: ids[0], title: '라이브 검사 7월', startDate: '2026-07-10', endDate: '2026-07-11',
+        status: 'completed', createdAt: now, updatedAt: now, deletedAt: null, version: 1 });
+      st.put({ id: ids[1], title: '라이브 검사 8월', startDate: '2026-08-10', endDate: '2026-08-11',
+        status: 'completed', createdAt: now, updatedAt: now, deletedAt: null, version: 1 });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}, TREE_FIXTURE_IDS);
+await page.reload();
+await page.waitForSelector('.home-tree button', { timeout: 15000 }).catch(() => {});
+
 async function homeTreeAt(w, h) {
   await page.setViewportSize({ width: w, height: h });
   await page.waitForTimeout(220);
@@ -2113,7 +2139,18 @@ if (!treeWide.exists) {
     treeWide.sideBySide && treeWide.overflow <= 0, `sbs=${treeWide.sideBySide} overflow=${treeWide.overflow}`);
   check('홈 트리: 넓은 화면에서 펼쳐져 있고 summary는 숨김',
     treeWide.open && !treeWide.summaryShown, `open=${treeWide.open} summary=${treeWide.summaryShown}`);
-  check('홈 트리: 항목이 그려짐(전체 + 연/월 또는 기간 미정)', treeWide.buttons >= 2, `buttons=${treeWide.buttons}`);
+  // 픽스처가 연 1 + 월 2를 만들었으므로 최소 4(전체 포함). 이보다 적으면 픽스처가 안 먹은 것이다.
+  check('홈 트리: 항목이 그려짐(전체 + 연 + 월 2)', treeWide.buttons >= 4, `buttons=${treeWide.buttons}`);
+  // 🔴 개수가 **한 열로** 선다(사용자 지적 2026-08-03). 들여쓴 월 항목을 margin으로 밀면
+  // 버튼 오른쪽 끝이 함께 밀려 숫자 열이 어긋난다 — 오른쪽 경계를 실측해서 잡는다.
+  const countCol = await page.evaluate(() => {
+    const rights = [...document.querySelectorAll('.home-tree .tree-count')].map((n) =>
+      Math.round(n.getBoundingClientRect().right),
+    );
+    return { n: rights.length, spread: rights.length ? Math.max(...rights) - Math.min(...rights) : -1 };
+  });
+  check('홈 트리: 개수가 한 열로 정렬됨(들여쓴 월도 오른쪽 끝이 같다)',
+    countCol.n >= 2 && countCol.spread <= 1, `n=${countCol.n} spread=${countCol.spread}px`);
   const treeEdge = await homeTreeAt(1099, 900);
   check('홈 트리: 경계 1099에서 1단 + 넘침 0', !treeEdge.sideBySide && treeEdge.overflow <= 0,
     `sbs=${treeEdge.sideBySide} overflow=${treeEdge.overflow}`);
@@ -2151,6 +2188,21 @@ if (!treeWide.exists) {
   check('홈 트리: ✕로 해제하면 현재선택 줄이 사라지고 목록이 원복됨(§13 4항 — 재판정까지)',
     cleared.nowHidden && cleared.cards === before, `hidden=${cleared.nowHidden} cards=${cleared.cards}/${before}`);
 }
+// 픽스처 되돌리기(§3-C) — 내가 넣은 것만 지운다. 뒤따르는 검사가 보는 화면을 바꾸지 않는다.
+await page.evaluate(async (ids) => {
+  await new Promise((resolve, reject) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const tx = req.result.transaction('localTrips', 'readwrite');
+      for (const id of ids) tx.objectStore('localTrips').delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}, TREE_FIXTURE_IDS);
+await page.reload();
+await page.waitForSelector('.sync-note', { timeout: 15000 }).catch(() => {});
 
 // ── v0.94: 상태 줄이 **갈 곳을 준다**(사용자 제안 2026-07-26) ──────────────
 // 계약: 조치할 것이 있는 상태(info/error)는 눌러서 조치할 화면으로 데려간다. 정상(ok)은
