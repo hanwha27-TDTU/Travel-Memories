@@ -20,13 +20,13 @@
 |---|---|---|---|---|---|
 | T-004 | Supabase leaked-password 보호 켜기 | 막힘-사용자 | 대시보드 Auth 설정 1회 (Google OAuth 전용·초대제라 위험 낮음) | 2026-08-03 | HANDOFF-0057 · advisor WARN |
 | T-005 | 태블릿 저장소 보호(persist) 적용 | 막힘-사용자 | 앱의 [저장소 보호 요청] 버튼 (선택 사항 — 결함 아님) | 2026-08-03 | HANDOFF-0056 진단 실측 |
-| T-006 | 개발자 정보 표기값 확정 — "김부건 · Tashkent State Medical University" 유지 여부 | 막힘-사용자 | 사용자 확정 한 마디 | 2026-07-23 | ASSUMPTIONS Q6 · A-015 |
 | T-007 | Phase 7 — AI 확장(요약·태그·검색·OCR, `ai_artifacts` 테이블) | 대기 | MVP 안정화 후 별도 branch (계획된 미착수) | 2026-07-22 | ROADMAP Phase 7 · 비타협 원칙 #2 |
 
 ## 완료 아카이브 (최신이 위 · 증거 필수)
 
 | ID | 과제 | 완료일 | 증거 |
 |---|---|---|---|
+| T-006 | 개발자 정보 표기값 확정 | 2026-08-03 | HANDOFF-0065 · **사용자 확정**("김부건 (Kim Bugeon) · Tashkent State Medical University" 채택). 화면의 값이 이미 같아 코드 변경 없음 · ASSUMPTIONS A-015/Q6 반영 |
 | T-003 | hook 기반 강제 규칙(S-09) 구현 | 2026-08-03 | HANDOFF-0064 · PreToolUse 2종(파괴적 SQL·자격증명 쓰기) + `check-hooks-wired` 게이트. 파이프 테스트 차단/통과 양방향 · 빈 hooks·죽은 참조 주입 각각 RED |
 | T-001 | 실제 2기기 canonical 게시/소비 왕복 검증 | 2026-08-03 | HANDOFF-0062 · 게시: `legacy`→`0fe9bb91…`·operation/device 기록·서버 행 정확히 64 · 소비: 폰이 휴지통 18→5로 정합·무결성 64건·**서버 무변경(0 upsert)** |
 | T-002 | authenticated R2 PUT/GET/delete 왕복 검증 | 2026-08-03 | HANDOFF-0061 · 실기기 2대 왕복(올리기: R2 파일 45→46이 기록 46과 짝 일치 · 받기: 다른 기기에서 사진 실제 렌더 · 지우기: 원장 4→7·서버 행 0·R2 잔재 0) |
