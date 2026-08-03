@@ -1,6 +1,6 @@
 ---
 name: gates-mechanization-dev
-description: 게이트·기계화 개발 프롬프트 — scripts/*.mjs(harness·check-*·gen-registry)와 app/registry.gen.ts·blueprint.ts·gates.ts를 만들거나 수정하기 전에 반드시 로드한다. 비공허 게이트 작성법·SSOT→생성→게이트 흐름·EXCLUDE 규율·오탐(산문 충돌) 사례를 담은 작업 헌장. 새 게이트 추가, 자동 집계, 손편집 중복 제거 작업 시 사용.
+description: 게이트·프롬프트 거버넌스 개발 헌장 — scripts/*.mjs(harness·check-*·gen-registry), app/registry.gen.ts·blueprint.ts·gates.ts, docs/CONSTITUTION.md·HANDOFF*.md, CLAUDE.md·AGENTS.md 어댑터, .claude/skills/*를 만들거나 수정하기 전에 반드시 로드한다. 비공허 게이트·SSOT→생성→게이트·스킬 라우팅·프롬프트 인계 규율을 담는다. 새 게이트, 자동 집계, 스킬/공통 프롬프트/인계서 변경 시 사용.
 ---
 
 # 게이트·기계화 개발 프롬프트 (Gates & Mechanization Dev Charter)
