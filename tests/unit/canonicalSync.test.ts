@@ -314,6 +314,7 @@ describe('runSync 오케스트레이션 이음매', () => {
     const mediaId = '99999999-9999-4999-8999-999999999999';
     const unpurgeId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
     const pulledTripId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const opLessDeleteId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
     const now = '2026-08-03T00:00:00.000Z';
     const media: MediaRow = {
       id:mediaId,user_id:USER,moment_id:MOMENT_ID,trip_id:purgedTripId,
@@ -323,6 +324,12 @@ describe('runSync 오케스트레이션 이음매', () => {
       deleted_at:null,client_operation_id:null,
     };
     await db().localTrips.put(localTrip(SERVER_ID,'기기에서 수정 중'));
+    await db().localTrips.put({
+      ...localTrip(opLessDeleteId, '서버 대조 전 로컬 삭제'),
+      version: 4,
+      updatedAt: now,
+      deletedAt: now,
+    });
     await db().purgedIds.put({ id:purgedTripId,entityType:'trip',purgedAt:now });
     await db().syncQueue.bulkAdd([
       {
@@ -341,7 +348,11 @@ describe('runSync 오케스트레이션 이음매', () => {
 
     const mutations = { upsert:0,delete:0,rpc:0,r2:0 };
     const rows: Record<string, unknown[]> = {
-      trips:[tripRow(),tripRow(pulledTripId,'서버에서 새로 받은 여행')],
+      trips:[
+        tripRow(),
+        tripRow(pulledTripId,'서버에서 새로 받은 여행'),
+        tripRow(opLessDeleteId,'서버에는 아직 활성'),
+      ],
       // read-only 분기에 ledgerAll/applyPurgedLedger가 다시 연결되면 SERVER_ID 로컬 행을
       // 지우게 만드는 적대값. 현재 경로는 이 표를 읽지도, 로컬에 적용하지도 않아야 한다.
       places:[],moments:[],media:[media],expenses:[],audio:[],purged_ids:[{ id:SERVER_ID }],
@@ -395,9 +406,62 @@ describe('runSync 오케스트레이션 이음매', () => {
     expect(result).toMatchObject({ canonicalApplied:false,pushed:0,failed:0,pulled:1 });
     expect(mutations).toEqual({ upsert:0,delete:0,rpc:0,r2:0 });
     expect(await db().syncQueue.count()).toBe(3);
+    expect((await db().syncQueue.where('entityId').equals(opLessDeleteId).count())).toBe(0);
+    expect((await db().localTrips.get(opLessDeleteId))?.deletedAt).toBe(now);
     expect((await db().localTrips.get(SERVER_ID))?.title).toBe('기기에서 수정 중');
     expect((await db().localTrips.get(pulledTripId))?.title).toBe('서버에서 새로 받은 여행');
     expect(await db().purgedIds.get(purgedTripId)).toBeDefined();
     expect(await db().localMedia.get(mediaId)).toBeUndefined();
+  });
+
+  it('pull에서 발견한 op 없는 삭제를 같은 runSync의 안전한 후행 push로 끝낸다', async () => {
+    const id = 'abababab-abab-4bab-8bab-abababababab';
+    const now = '2026-08-03T00:00:00.000Z';
+    await db().localTrips.put({
+      ...localTrip(id, '로컬에서 지운 여행'),
+      version: 4,
+      baseVersion: 3,
+      updatedAt: now,
+      deletedAt: now,
+    });
+    let serverTrip = tripRow(id, '서버에는 아직 활성');
+    const rowsOf = (table: string): unknown[] => table === 'trips' ? [serverTrip] : [];
+    const client = {
+      rpc: async () => ({
+        data: {
+          canonical_version: 'legacy',
+          canonical_operation_id: null,
+          canonical_device_id: null,
+          updated_at: now,
+        },
+        error: null,
+      }),
+      from(table: string) {
+        let selectedId: string | null = null;
+        const query: Record<string, unknown> = {
+          select: () => query,
+          order: () => query,
+          eq: (_column: string, value: string) => { selectedId = value; return query; },
+          range: async () => ({ data: rowsOf(table), error: null, status: 200 }),
+          maybeSingle: async () => ({
+            data: rowsOf(table).find((row) => (row as { id?: string }).id === selectedId) ?? null,
+            error: null,
+            status: 200,
+          }),
+          upsert: async (row: TripRow) => {
+            if (table === 'trips') serverTrip = { ...row, version: row.version, updated_at: row.updated_at };
+            return { data: null, error: null, status: 200 };
+          },
+        };
+        return query;
+      },
+      functions: { invoke: async () => ({ data: null, error: null }) },
+    };
+
+    const result = await runSync(client as never, USER);
+
+    expect(result).toMatchObject({ pushed: 1, failed: 0, canonicalApplied: false });
+    expect(serverTrip.deleted_at).toBe(now);
+    expect(await db().syncQueue.count()).toBe(0);
   });
 });

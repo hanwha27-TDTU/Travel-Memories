@@ -484,7 +484,7 @@ export async function pullTrips(remote: TripsRemote, mode: PullMode): Promise<{ 
     if (mergeDecision(local, server) === 'take-server') {
       if (await applyServerWinner(d.localTrips, 'trip', local, server, mode)) pulled++;
     } else {
-      await requeueIfServerStillActive('trip', local, server);
+      await requeueIfServerStillActive('trip', local, server, mode);
     }
   }
   return { pulled, skippedEmptyCloud: false };
@@ -572,7 +572,7 @@ export async function pullMoments(remote: MomentsRemote, mode: PullMode): Promis
     if (mergeDecision(local, server) === 'take-server') {
       if (await applyServerWinner(d.localMoments, 'moment', local, server, mode)) pulled++;
     } else {
-      await requeueIfServerStillActive('moment', local, server);
+      await requeueIfServerStillActive('moment', local, server, mode);
     }
   }
   return { pulled, skippedEmptyCloud: false };
@@ -660,7 +660,7 @@ export async function pullExpenses(remote: ExpensesRemote, mode: PullMode): Prom
     if (mergeDecision(local, server) === 'take-server') {
       if (await applyServerWinner(d.localExpenses, 'expense', local, server, mode)) pulled++;
     } else {
-      await requeueIfServerStillActive('expense', local, server);
+      await requeueIfServerStillActive('expense', local, server, mode);
     }
   }
   return { pulled, skippedEmptyCloud: false };
@@ -787,7 +787,7 @@ export async function pullMedia(remote: MediaRemote, mode: PullMode): Promise<{ 
     const server = fromMediaRow(r);
     const local = await d.localMedia.get(server.id);
     if (mergeDecision(local, server) !== 'take-server') {
-      await requeueIfServerStillActive('media', local, server);
+      await requeueIfServerStillActive('media', local, server, mode);
       continue;
     }
 
@@ -1009,7 +1009,7 @@ export async function pullPlaces(remote: PlacesRemote, mode: PullMode): Promise<
     if (mergeDecision(local, server) === 'take-server') {
       if (await applyServerWinner(d.localPlaces, 'place', local, server, mode)) pulled++;
     } else {
-      await requeueIfServerStillActive('place', local, server);
+      await requeueIfServerStillActive('place', local, server, mode);
     }
   }
   return { pulled, skippedEmptyCloud: false };
@@ -1133,7 +1133,7 @@ export async function pullAudio(remote: AudioRemote, mode: PullMode): Promise<{ 
     const server = fromAudioRow(r);
     const local = await d.localAudio.get(server.id);
     if (mergeDecision(local, server) !== 'take-server') {
-      await requeueIfServerStillActive('audio', local, server);
+      await requeueIfServerStillActive('audio', local, server, mode);
       continue;
     }
     if (server.deletedAt !== null) {
@@ -1186,54 +1186,6 @@ export async function pullAudio(remote: AudioRemote, mode: PullMode): Promise<{ 
  * push 순서: 여행 → 순간 → 사진·비용·소리(자식의 복합 FK가 서버의 부모 존재를 요구).
  */
 /**
- * 일회성 정합 복구 — cascade op 누락 결함(2026-07-25, `trips.ts`)의 **이미 발생한 피해**를 되돌린다.
- *
- * 그 결함으로 여행을 지운 사용자는 로컬에 tombstone이 있는데 **대기열 op가 없는** 사진·비용을
- * 갖게 됐다. op가 없으면 push가 영원히 일어나지 않으므로, 코드를 고치는 것만으로는 서버 행이
- * 활성으로 남고 R2 객체도 잔류한다 — 그래서 재큐잉이 필요하다.
- *
- * 안전성: 데이터를 지우지 않는다(대기열에 op를 넣을 뿐). push는 멱등이라 이미 반영된 항목을
- * 한 번 더 밀어도 결과가 같고, tombstone→tombstone은 좀비 트리거의 검사 대상이 아니다.
- * 정상 상태에서 재실행되면 대상이 0이지만, 완료된 tombstone까지 다시 밀지 않도록 호출부에서
- * 1회만 실행한다.
- */
-export async function requeueOrphanTombstones(): Promise<{ media: number; expenses: number }> {
-  const d = db();
-  const queued = new Set((await d.syncQueue.toArray()).map((q) => `${q.entityType}:${q.entityId}`));
-  const now = new Date().toISOString();
-  let media = 0;
-  let expenses = 0;
-
-  for (const m of await d.localMedia.toArray()) {
-    if (m.deletedAt === null || queued.has(`media:${m.id}`)) continue;
-    await d.syncQueue.add({
-      operationId: crypto.randomUUID(),
-      entityType: 'media',
-      entityId: m.id,
-      operationType: 'delete',
-      state: 'local_only',
-      attempts: 0,
-      createdAt: now,
-    });
-    media++;
-  }
-  for (const e of await d.localExpenses.toArray()) {
-    if (e.deletedAt === null || queued.has(`expense:${e.id}`)) continue;
-    await d.syncQueue.add({
-      operationId: crypto.randomUUID(),
-      entityType: 'expense',
-      entityId: e.id,
-      operationType: 'delete',
-      state: 'local_only',
-      attempts: 0,
-      createdAt: now,
-    });
-    expenses++;
-  }
-  return { media, expenses };
-}
-
-/**
  * **소리를 처음으로 서버에 올려보내기 위한 백필**(2026-07-27, 일회성).
  *
  * 왜 필요한가(§9 4단계 — *"옛 방식으로 만들어진 것을 누가 데려오는가?"*): v1.14~v1.19 동안
@@ -1241,17 +1193,23 @@ export async function requeueOrphanTombstones(): Promise<{ media: number; expens
  * 것만으로는 그 행들이 영원히 로컬에만 남는다 — 앱은 조용하고 사용자는 "소리도 이제 동기화된다"는
  * 말을 믿는다. M-0023이 정확히 그 형태였다(방식을 바꿨는데 옛것을 아무도 데려오지 않았다).
  *
- * 대상은 **큐에 audio op이 없는 모든 로컬 소리 행**이다. tombstone도 포함한다 — 지운 사실도
- * 서버가 알아야 한다(안 그러면 다른 기기에서 살아 있는 채로 내려온다).
+ * 대상은 큐에 audio op이 없고, 서버 대조 결과 **로컬 의사를 아직 보내야 하는 행**이다.
+ * 서버에 이미 같은/더 최신 행이 있거나 tombstone이 확인됐거나 영구삭제 원장에 있으면 건드리지
+ * 않는다. 서버 행이 없는 로컬 tombstone도 새 행·바이트를 만들 이유가 없으므로 건너뛴다.
  *
- * 안전성: 자료를 바꾸지 않고 큐에만 넣는다. push는 멱등이라 이미 반영된 것을 한 번 더 밀어도
- * 결과가 같다. 그래서 표식이 사라진 뒤 다시 돌아도 손해가 없다(재업로드 비용뿐이고, 소리는
- * 60초 상한이라 가볍다).
+ * 안전성: **서버 evidence 없이는 실행하지 않는다**(M-0095). 이미 반영된 tombstone을 새 작업번호로
+ * 다시 밀면 `storagePath`가 없는 옛 소리는 R2 바이트까지 재업로드한다. 비용 문제를 넘어 진단의
+ * read-back 판정을 일반 동기화가 곧바로 뒤집는 결함이므로, 메타+원장 조회가 실패하면 표식도
+ * 남기지 않고 다음 실행으로 미룬다.
  *
  * @returns 이번에 새로 큐에 넣은 수.
  */
-export async function backfillAudioOps(): Promise<number> {
+export async function backfillAudioOps(
+  serverRows: AudioRow[],
+  serverPurgedIds: ReadonlySet<string>,
+): Promise<number> {
   const d = db();
+  const serverById = new Map(serverRows.map((row) => [row.id, fromAudioRow(row)]));
   const queued = new Set(
     (await d.syncQueue.toArray()).filter((q) => q.entityType === 'audio').map((q) => q.entityId),
   );
@@ -1259,6 +1217,21 @@ export async function backfillAudioOps(): Promise<number> {
   let added = 0;
   for (const a of await d.localAudio.toArray()) {
     if (queued.has(a.id)) continue;
+    const server = serverById.get(a.id);
+    if (!server) {
+      // 서버에 없는 활성 옛 녹음만 최초 전송한다. tombstone은 보낼 대상 자체가 없고,
+      // 원장 id는 영구삭제 의도이므로 어느 경우에도 재삽입하지 않는다.
+      if (a.deletedAt !== null || serverPurgedIds.has(a.id)) continue;
+    } else {
+      // 서버 tombstone이면 삭제는 끝났다. 그 밖에는 서버가 이기거나 같은 snapshot이면 백필 0건.
+      if (a.deletedAt !== null && server.deletedAt !== null) continue;
+      if (mergeDecision(a, server) === 'take-server') continue;
+      const sameSnapshot =
+        a.deletedAt === server.deletedAt &&
+        a.version === server.version &&
+        a.updatedAt === server.updatedAt;
+      if (sameSnapshot) continue;
+    }
     await d.syncQueue.add({
       operationId: crypto.randomUUID(),
       entityType: 'audio',
@@ -1283,17 +1256,22 @@ export async function backfillAudioOps(): Promise<number> {
  * `syncQueue`에 op이 없다 — **아무도 데려오지 않으면 영원히 로컬에만 남는다.** 그러면
  * "다른 기기에서도 보이게 하자"는 이 변경이 **앞으로 찍는 사진에만** 적용된다.
  *
- * **바이트는 건드리지 않는다.** `storagePath`를 그대로 두므로 push는 재업로드를 하지 않고
- * (`mustUploadBytes` — 살아 있고 경로가 있으면 올리지 않는다) **행만** 다시 upsert한다.
- * 요금이 새지 않는 이유가 이것이다.
+ * 이 앱의 활성 사진 push는 편집된 표시본을 반영하려고 operation 전용 키에 바이트도 올린다.
+ * 따라서 백필은 **서버에 좌표가 이미 같은 사진·영구삭제 id·tombstone을 먼저 제외**해야 한다.
+ * 서버 evidence 없이 전부 큐에 넣으면 정상 사진 바이트까지 다시 올리고, 원장 id면 DB 거절 전에
+ * R2 고아를 만들 수 있다(M-0095).
  *
  * 대상은 **좌표가 있는 것만**이다. 없는 사진까지 큐에 넣으면 서버에 보낼 새 정보가 없는데
  * 왕복만 늘어난다(그리고 `0,0`은 애초에 좌표가 아니다 — M-0057).
  *
  * @returns 큐에 넣은 수.
  */
-export async function backfillMediaGpsOps(): Promise<number> {
+export async function backfillMediaGpsOps(
+  serverRows: MediaRow[],
+  serverPurgedIds: ReadonlySet<string>,
+): Promise<number> {
   const d = db();
+  const serverById = new Map(serverRows.map((row) => [row.id, fromMediaRow(row)]));
   const queued = new Set(
     (await d.syncQueue.toArray()).filter((q) => q.entityType === 'media').map((q) => q.entityId),
   );
@@ -1301,7 +1279,17 @@ export async function backfillMediaGpsOps(): Promise<number> {
   let added = 0;
   for (const m of await d.localMedia.toArray()) {
     if (queued.has(m.id)) continue;
+    if (m.deletedAt !== null || serverPurgedIds.has(m.id)) continue;
     if (!isRealCoord(m.gpsLat, m.gpsLng)) continue; // 진짜 좌표만 백필(H-3 · 단일 판정)
+    const server = serverById.get(m.id);
+    if (server) {
+      if (mergeDecision(m, server) === 'take-server') continue;
+      if (
+        server.deletedAt === null &&
+        server.gpsLat === m.gpsLat &&
+        server.gpsLng === m.gpsLng
+      ) continue;
+    }
     await d.syncQueue.add({
       operationId: crypto.randomUUID(),
       entityType: 'media',
@@ -1492,13 +1480,20 @@ const AUDIO_BACKFILL_KEY = 'bj.repair.audioSync.v1';
 /** 사진 GPS 백필 1회 실행 표식(마이그레이션 0024). 같은 규율 — 형제와 같은 자리에 둔다(§7). */
 const MEDIA_GPS_BACKFILL_KEY = 'bj.repair.mediaGps.v1';
 
-async function backfillAudioOnce(): Promise<void> {
+export async function backfillAudioOnce(
+  remote: AudioRemote,
+  ledgerRemote: Pick<PurgeRemote, 'ledgerAll'>,
+): Promise<void> {
   try {
     if (localStorage.getItem(AUDIO_BACKFILL_KEY)) return;
   } catch {
     return; // localStorage 불가 — 진단의 「서버에 없는 소리」가 대신 말한다.
   }
-  const n = await backfillAudioOps();
+  const server = await remote.listAll();
+  if (server.error) return; // 못 쟀으면 표식을 남기지 않는다(SKIP≠PASS).
+  const ledger = await ledgerRemote.ledgerAll();
+  if (ledger.error) return;
+  const n = await backfillAudioOps(server.data, new Set(ledger.ids));
   if (n) console.info(`소리 동기화 백필: ${n}건을 큐에 넣었어요(로컬에만 있던 녹음).`);
   try {
     localStorage.setItem(AUDIO_BACKFILL_KEY, new Date().toISOString());
@@ -1507,13 +1502,20 @@ async function backfillAudioOnce(): Promise<void> {
   }
 }
 
-async function backfillMediaGpsOnce(): Promise<void> {
+export async function backfillMediaGpsOnce(
+  remote: MediaRemote,
+  ledgerRemote: Pick<PurgeRemote, 'ledgerAll'>,
+): Promise<void> {
   try {
     if (localStorage.getItem(MEDIA_GPS_BACKFILL_KEY)) return;
   } catch {
     return; // localStorage 불가 — 다음 사진 저장이 자연스럽게 op을 만든다.
   }
-  const n = await backfillMediaGpsOps();
+  const server = await remote.listAll();
+  if (server.error) return;
+  const ledger = await ledgerRemote.ledgerAll();
+  if (ledger.error) return;
+  const n = await backfillMediaGpsOps(server.data, new Set(ledger.ids));
   if (n) console.info(`사진 위치 백필: ${n}건을 큐에 넣었어요(좌표가 로컬에만 있던 사진).`);
   try {
     localStorage.setItem(MEDIA_GPS_BACKFILL_KEY, new Date().toISOString());
@@ -1537,7 +1539,11 @@ async function requeueIfServerStillActive(
   entityType: 'trip' | 'moment' | 'media' | 'expense' | 'audio' | 'place',
   local: { id: string; deletedAt: string | null } | undefined,
   server: { deletedAt: string | null },
+  mode: PullMode,
 ): Promise<void> {
+  // capability 불명 전환 모드는 서버뿐 아니라 **로컬 큐도 read-only**다(M-0095).
+  // 서버 active를 봤다는 이유로 새 delete op을 만들면 "큐 보존" 계약이 거짓이 된다.
+  if (mode === 'server-read-only') return;
   if (!local || local.deletedAt === null || server.deletedAt !== null) return;
   const d = db();
   const already = (await d.syncQueue.where('entityId').equals(local.id).toArray()).some(
@@ -1556,8 +1562,6 @@ async function requeueIfServerStillActive(
 }
 
 
-/** 정합 복구 1회 실행 표식. 완료된 tombstone까지 매번 다시 밀지 않도록 잠근다. */
-const REPAIR_KEY = 'bj.repair.cascadeOps.v1';
 /** 시각 표기 1회 정리 표식(M-0034). 되돌려야 하면 `.v2`로 올려 전 기기가 한 번 더 돌게 한다. */
 const STAMP_KEY = 'bj.repair.stampFormat.v1';
 
@@ -1918,42 +1922,6 @@ export async function retryFailedOps(): Promise<number> {
 }
 
 /**
- * 정합 복구를 **강제로** 다시 실행한다(진단 화면의 [정리 실행] 버튼용).
- * 1회 표식을 지우고 재큐잉하므로, 표식이 이미 찍힌 뒤에 생긴 고아도 잡을 수 있다.
- */
-export async function forceRepairCascadeOps(): Promise<{ media: number; expenses: number }> {
-  try {
-    localStorage.removeItem(REPAIR_KEY);
-    // 시각 표기 정리도 **같은 버튼**이 다시 돌게 한다(M-0034). 따로 버튼을 만들면 사용자가
-    // "어느 정리를 눌러야 하나"를 알아야 하고, 그건 앱이 대신할 일이다(§12).
-    localStorage.removeItem(STAMP_KEY);
-  } catch {
-    /* 표식을 못 지워도 아래 재큐잉 자체는 동작한다. */
-  }
-  await normalizeStamps();
-  // 소리 백필도 **같은 버튼**이 다시 돌게 한다 — 사용자가 "어느 정리를 눌러야 하나"를
-  // 알아야 하는 상태를 만들지 않는다(§12).
-  try {
-    localStorage.removeItem(AUDIO_BACKFILL_KEY);
-  } catch {
-    /* 표식을 못 지워도 아래 백필 자체는 동작한다. */
-  }
-  const audio = await backfillAudioOps();
-  if (audio) console.info(`소리 동기화 백필: ${audio}건 재큐잉`);
-  // 🔴 사진 GPS 백필도 **같은 버튼**이 되살린다(M-13). 예전엔 이 하나만 빠져서, 마이그레이션
-  // 배포 전/로그아웃 상태로 한 번 돌면 마커가 찍혀 그 기기의 사진 좌표가 어떤 조작으로도 서버에
-  // 못 갔다(이유 없는 제외 — §7). 형제 셋(cascade·stamp·audio)과 같은 자리에 둔다.
-  try {
-    localStorage.removeItem(MEDIA_GPS_BACKFILL_KEY);
-  } catch {
-    /* 표식을 못 지워도 아래 백필 자체는 동작한다. */
-  }
-  const mediaGps = await backfillMediaGpsOps();
-  if (mediaGps) console.info(`사진 위치 동기화 백필: ${mediaGps}건 재큐잉`);
-  return requeueOrphanTombstones();
-}
-
-/**
  * **이미 저장된 행의 시각 표기를 정규형으로 맞춘다**(M-0034, 2026-07-27).
  *
  * 왜 코드 수정만으로 부족한가: `isoInstant()`는 *앞으로* 들어올 값을 막을 뿐이고, 서버 표기
@@ -2007,21 +1975,6 @@ async function normalizeStampsOnce(): Promise<void> {
     localStorage.setItem(STAMP_KEY, new Date().toISOString());
   } catch {
     /* 표식 저장 실패는 무해 — 다음 동기화에서 한 번 더 돌 뿐이고 이 변환은 멱등이다. */
-  }
-}
-
-async function repairCascadeOpsOnce(): Promise<void> {
-  try {
-    if (localStorage.getItem(REPAIR_KEY)) return;
-  } catch {
-    return; // localStorage 불가(프라이빗 모드 등) — 복구를 건너뛴다. 동기화 자체엔 영향 없음.
-  }
-  const r = await requeueOrphanTombstones();
-  if (r.media || r.expenses) console.info(`정합 복구: 사진 ${r.media}건 · 비용 ${r.expenses}건 재큐잉`);
-  try {
-    localStorage.setItem(REPAIR_KEY, new Date().toISOString());
-  } catch {
-    /* 표식 저장 실패는 무해 — 다음 동기화에서 한 번 더 돌 뿐이고 push는 멱등이다. */
   }
 }
 
@@ -2096,6 +2049,32 @@ export interface SyncOptions {
   deep?: boolean;
 }
 
+interface EntityRemotes {
+  trips: TripsRemote;
+  places: PlacesRemote;
+  moments: MomentsRemote;
+  media: MediaRemote;
+  expenses: ExpensesRemote;
+  audio: AudioRemote;
+}
+
+/** 부모→자식 순서를 한 곳에 둔다. pull이 만든 삭제 op의 안전한 후행 전송도 같은 문을 지난다. */
+async function pushEntityOps(
+  remotes: EntityRemotes,
+  userId: string,
+): Promise<{ pushed: number; failed: number }> {
+  const trip = await pushPending(remotes.trips, userId);
+  const place = await pushPendingPlaces(remotes.places, userId);
+  const moment = await pushPendingMoments(remotes.moments, userId);
+  const media = await pushPendingMedia(remotes.media, userId);
+  const expense = await pushPendingExpenses(remotes.expenses, userId);
+  const audio = await pushPendingAudio(remotes.audio, userId);
+  return {
+    pushed: trip.pushed + place.pushed + moment.pushed + media.pushed + expense.pushed + audio.pushed,
+    failed: trip.failed + place.failed + moment.failed + media.failed + expense.failed + audio.failed,
+  };
+}
+
 /**
  * canonical capability를 증명할 수 없는 짧은 배포 전환 구간의 안전 경로.
  * 서버에는 SELECT/R2 GET만 수행한다. 로컬 purge·unpurge·편집 큐는 그대로 두고, 서버 고아
@@ -2141,41 +2120,44 @@ export async function runSync(
     };
   }
   if (canonical.mode === 'legacy') return runServerReadOnlySync(client);
-  // push보다 **먼저** 돈다 — 재큐잉된 op가 이번 동기화에서 바로 처리되도록.
-  await repairCascadeOpsOnce();
-  // 표기 정리도 **병합보다 먼저**다(M-0034). 아래 pull이 `mergeDecision`으로 승부를 내는데,
-  // 로컬에 옛 표기가 남아 있으면 같은 순간을 두 표기로 재게 된다.
-  await normalizeStampsOnce();
-  // 소리는 v1.20 이전에 만들어진 것에 큐 op이 **아예 없다** — 코드만 고치면 그 행들은 영원히
-  // 안 올라간다. push보다 먼저 돌아 이번 동기화에서 바로 처리되게 한다.
-  await backfillAudioOnce();
-  // 사진 GPS도 같은 형태의 빚이다(마이그레이션 0024) — 컬럼은 생겼는데 **이미 있는 사진의
-  // 좌표는 아무도 데려오지 않는다.** 형제와 같은 자리에서 같은 규율로 돈다(§7).
-  await backfillMediaGpsOnce();
-  // 바이트 대조도 **push보다 먼저** — 다시 올릴 것을 찾으면 이번 동기화에서 바로 올라간다.
-  // 자동은 하루 한 번, 사용자가 직접 부른 동기화(`deep`)는 항상(사람이 의심할 때 누르는
-  // 버튼이 곧 확실한 경로여야 한다 — §12).
-  await reconcileBytesIfDue(client, opts.deep === true);
   const remote = tripsRemote(client);
   const mRemote = momentsRemote(client);
   const eRemote = expensesRemote(client);
   const dRemote = mediaRemote(client);
   const aRemote = audioRemote(client);
   const plRemote = placesRemote(client);
-  // **복원 되돌리기가 가장 먼저다.** 원장이 남아 있으면 아래 push가 트리거에 막힌다.
   const pRemote0 = purgeRemote(client);
+  const entityRemotes: EntityRemotes = {
+    trips: remote,
+    places: plRemote,
+    moments: mRemote,
+    media: dRemote,
+    expenses: eRemote,
+    audio: aRemote,
+  };
+  // 옛 cascade 복구는 로컬 tombstone만 보고 재큐잉하지 않는다(M-0095). 각 pull이 이미
+  // 서버 active를 직접 본 뒤에만 `requeueIfServerStillActive`로 삭제 op을 만든다.
+  // 표기 정리도 **병합보다 먼저**다(M-0034). 아래 pull이 `mergeDecision`으로 승부를 내는데,
+  // 로컬에 옛 표기가 남아 있으면 같은 순간을 두 표기로 재게 된다.
+  await normalizeStampsOnce();
+  // 소리는 v1.20 이전에 만들어진 것에 큐 op이 **아예 없다** — 코드만 고치면 그 행들은 영원히
+  // 안 올라간다. push보다 먼저 돌아 이번 동기화에서 바로 처리되게 한다.
+  await backfillAudioOnce(aRemote, pRemote0);
+  // 사진 GPS도 같은 형태의 빚이다(마이그레이션 0024) — 컬럼은 생겼는데 **이미 있는 사진의
+  // 좌표는 아무도 데려오지 않는다.** 형제와 같은 자리에서 같은 규율로 돈다(§7).
+  await backfillMediaGpsOnce(dRemote, pRemote0);
+  // 바이트 대조도 **push보다 먼저** — 다시 올릴 것을 찾으면 이번 동기화에서 바로 올라간다.
+  // 자동은 하루 한 번, 사용자가 직접 부른 동기화(`deep`)는 항상(사람이 의심할 때 누르는
+  // 버튼이 곧 확실한 경로여야 한다 — §12).
+  await reconcileBytesIfDue(client, opts.deep === true);
+  // **복원 되돌리기가 가장 먼저다.** 원장이 남아 있으면 아래 push가 트리거에 막힌다.
   const pu = await pushUnpurges(pRemote0);
-  const p = await pushPending(remote, userId);
   // 🔴 **장소는 순간보다 먼저다.** 0023의 `moments.place_id`가 복합 FK로 `journey.places`를
   // 참조하므로, 순간이 먼저 가면 아직 서버에 없는 장소를 가리켜 거부당한다(H-02와 같은 규율 —
   // 다만 여기서는 **장소가 부모 쪽**이다). 장소 자신은 부모가 없어 여행보다 앞에 둬도 되지만,
   // 「부모 먼저」 목록을 읽는 사람이 순서를 한 줄로 이해하도록 여행 다음에 놓는다.
-  const ppl = await pushPendingPlaces(plRemote, userId);
-  const pm = await pushPendingMoments(mRemote, userId);
-  const pd = await pushPendingMedia(dRemote, userId);
-  const pe = await pushPendingExpenses(eRemote, userId);
   // 소리는 **순간 뒤**여야 한다 — 복합 FK `(moment_id,user_id)`가 서버의 부모를 요구한다.
-  const pa = await pushPendingAudio(aRemote, userId);
+  const entities = await pushEntityOps(entityRemotes, userId);
   // 영구삭제 전파는 **pull보다 먼저** — 이번 동기화에서 다른 기기가 바로 알 수 있게.
   const pRemote = pRemote0;
   const pp = await pushPurges(pRemote, dRemote);
@@ -2195,9 +2177,18 @@ export async function runSync(
   const qe = await pullExpenses(eRemote, 'merge');
   const qa = await pullAudio(aRemote, 'merge');
   const qpl = await pullPlaces(plRemote, 'merge');
+  // pull이 "서버 active + 로컬 tombstone"을 직접 확인해 만든 delete op은 같은 버튼에서
+  // 끝낸다(M-0095). 첫 실행이 큐만 만들고 "동기화했어요"라고 말한 뒤 두 번째 클릭을 요구하면
+  // 해소 동작이 실제 판정을 해소하지 못한다. 새 delete가 있을 때만 한 번, 같은 부모→자식 문으로.
+  const followupNeeded = (await db().syncQueue.toArray()).some(
+    (op) => op.state === 'local_only' && op.operationType === 'delete',
+  );
+  const followup = followupNeeded
+    ? await pushEntityOps(entityRemotes, userId)
+    : { pushed: 0, failed: 0 };
   return {
-    pushed: pu.pushed + p.pushed + ppl.pushed + pm.pushed + pd.pushed + pe.pushed + pa.pushed + pp.pushed,
-    failed: pu.failed + p.failed + ppl.failed + pm.failed + pd.failed + pe.failed + pa.failed + pp.failed,
+    pushed: pu.pushed + entities.pushed + pp.pushed + followup.pushed,
+    failed: pu.failed + entities.failed + pp.failed + followup.failed,
     pulled: q.pulled + qm.pulled + qd.pulled + qe.pulled + qa.pulled + qpl.pulled,
     skippedEmptyCloud:
       q.skippedEmptyCloud ||

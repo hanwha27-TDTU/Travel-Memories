@@ -18,10 +18,23 @@
 // 옛 동기화 진단 5줄 중 최상위 자격이 있는 것은 사실상 하나뿐이었다.
 
 import { el } from '../dom';
-import { diagnoseSync, loadIntegritySnapshot } from '../../services/diagnostics';
-import { forceRepairCascadeOps, retryFailedOps, requeueMissingBytes } from '../../services/sync';
+import {
+  auditOpLessTombstones,
+  diagnoseSync,
+  ITEM_CAP,
+  loadIntegritySnapshot,
+  tombstoneAuditRemote,
+  type SyncDiagnosis,
+} from '../../services/diagnostics';
+import { retryFailedOps, requeueMissingBytes } from '../../services/sync';
 import { checkIntegrity, CHECK_COUNT } from '../../domain/integrity';
 import { autoSyncVerdict } from '../../domain/syncStatusVerdict';
+import {
+  isConfirmedTombstone,
+  tombstoneFindingText,
+  tombstoneSyncPresentation,
+  type TombstoneSyncFinding,
+} from '../../domain/syncTombstoneVerdict';
 import { collectEnv, evictionRisk, requestPersist } from '../../services/envReport';
 import { recentErrors, clearErrors } from '../../app/errorLog';
 import { CHANGELOG } from '../../app/changelog';
@@ -194,13 +207,55 @@ export async function storageProbe(): Promise<Verdict> {
  */
 export const STUCK_STATES = new Set(['permanent_failed', 'conflict', 'failed']);
 
+interface LoadedTombstoneAudit {
+  findings: TombstoneSyncFinding[];
+  unavailableReason: string | null;
+}
+
+/**
+ * 로컬 숫자를 서버 판정으로 바꾼다. 한 요청이라도 실패하면 일부 결과를 정상으로 쓰지 않는다.
+ * 데이터는 읽기만 하며, 로그인 전·오프라인에는 로컬 tombstone을 그대로 보존한다.
+ */
+async function loadTombstoneAudit(d: SyncDiagnosis): Promise<LoadedTombstoneAudit> {
+  if (!d.opLessItems.length) return { findings: [], unavailableReason: null };
+  const unknown = (reason: string): LoadedTombstoneAudit => ({
+    findings: d.opLessItems.map((local) => ({ local, server: null, state: 'unknown' })),
+    unavailableReason: reason,
+  });
+  const c = supabase();
+  if (!c) return unknown('서버 연결이 설정되지 않았습니다.');
+  const u = await currentUserSafe();
+  if (!u) return unknown('로그인 상태가 아닙니다.');
+  try {
+    return { findings: await auditOpLessTombstones(tombstoneAuditRemote(c), d.opLessItems), unavailableReason: null };
+  } catch (e) {
+    return unknown((e as Error).message);
+  }
+}
+
+function syncExplanationItems(d: SyncDiagnosis, findings: TombstoneSyncFinding[]) {
+  const byKey = new Map(findings.map((x) => [`${x.local.domain}:${x.local.id}`, x]));
+  const candidates = d.itemCandidates.filter((it) => {
+    if (it.queued || !it.deleted) return true;
+    const finding = byKey.get(`${it.type}:${it.id}`);
+    return !finding || !isConfirmedTombstone(finding.state);
+  });
+  return {
+    shown: candidates.slice(0, ITEM_CAP),
+    omitted: Math.max(0, candidates.length - ITEM_CAP),
+    byKey,
+  };
+}
+
 export async function syncProbe(): Promise<Verdict> {
   const d = await diagnoseSync();
+  const audit = await loadTombstoneAudit(d);
+  const tombstone = tombstoneSyncPresentation(audit.findings, audit.unavailableReason);
+  const explanation = syncExplanationItems(d, audit.findings);
   const stuck = Object.entries(d.queue.byState)
     .filter(([s]) => STUCK_STATES.has(s))
     .reduce((a, [, n]) => a + n, 0);
   const waiting = d.queue.total - stuck;
-  const opless = Object.values(d.opLessTombstones).reduce((a, b) => a + b, 0);
 
   const metrics: Metric[] = [
     {
@@ -220,15 +275,11 @@ export async function syncProbe(): Promise<Verdict> {
       ...(waiting > 0 ? { meaning: '아직 서버로 보내지 않은 변경이에요. 동기화를 누르면 올라갑니다 — 정상적인 대기 상태입니다.' } : {}),
     },
     {
-      label: '지웠지만 보낼 목록엔 없는 항목',
-      actual: opless === 0 ? '없음' : `${opless}건`,
-      expected: '로컬만으로는 판정 불가',
-      // 정직(비타협 원칙 #4): 이 숫자는 "이미 서버에 갔다"와 "못 갔다"를 구분하지 못한다.
-      // M-0008에서 이걸 "서버로 못 간 삭제"라 단정해 거짓 경보를 냈다. 모르는 건 모른다고 쓴다.
-      level: opless > 0 ? 'unknown' : 'ok',
-      ...(opless > 0
-        ? { meaning: '이미 서버에 반영됐을 수도(정상), 못 갔을 수도 있어요 — 이 기기 정보만으로는 구분되지 않습니다. 동기화를 누르면 서버와 대조해 자동으로 처리합니다.' }
-        : {}),
+      label: '삭제 반영 확인',
+      actual: tombstone.actual,
+      expected: tombstone.expected,
+      level: tombstone.level,
+      ...(tombstone.meaning ? { meaning: tombstone.meaning } : {}),
     },
   ];
 
@@ -250,11 +301,15 @@ export async function syncProbe(): Promise<Verdict> {
     headline:
       level === 'problem'
         ? `보내지 못하고 멈춘 작업이 ${stuck}건 있어요`
-        : level === 'todo'
+        : level === 'todo' && waiting > 0
           ? `서버로 보낼 변경이 ${waiting}건 남아 있어요`
-          : level === 'unknown'
-            ? '서버와 한 번 대조해 봐야 알 수 있어요'
-            : '이 기기에서 서버로 보낼 것이 남아 있지 않습니다',
+          : tombstone.headline && tombstone.level === level
+            ? tombstone.headline
+            : level === 'todo'
+              ? '동기화로 맞출 항목이 있어요'
+            : level === 'unknown'
+              ? '자동 동기화 상태를 아직 확인하는 중이에요'
+              : '이 기기에서 서버로 보낼 것이 남아 있지 않습니다',
     metrics,
     actions: [],
     evidence: [
@@ -270,16 +325,18 @@ export async function syncProbe(): Promise<Verdict> {
       },
       {
         // 잘랐으면 잘랐다고 라벨에 적는다 — 조용한 절단은 "전부 봤다"로 읽힌다.
-        label: `설명이 필요한 항목 ${d.items.length}개${d.itemsOmitted ? ` (외 ${d.itemsOmitted}건 생략)` : ''}`,
+        label: `설명이 필요한 항목 ${explanation.shown.length}개${explanation.omitted ? ` (외 ${explanation.omitted}건 생략)` : ''}`,
         build: () =>
           table([
-            ...d.items.map(
+            ...explanation.shown.map(
               (it): [string, string] => [
                 `${it.type} ${it.id.slice(0, 8)}`,
-                `${it.deleted ? '지움' : '활성'}${it.queued ? ' · 보낼 목록에 있음' : ' · 보낼 목록에 없음'}`,
+                it.queued
+                  ? `${it.deleted ? '지움' : '활성'} · 보낼 목록에 있음`
+                  : tombstoneFindingText(explanation.byKey.get(`${it.type}:${it.id}`)?.state ?? 'unknown'),
               ],
             ),
-            ...(d.itemsOmitted ? ([['…', `외 ${d.itemsOmitted}건은 화면에서 생략했어요(전체는 [진단 요약 복사]에 담깁니다)`]] as [string, string][]) : []),
+            ...(explanation.omitted ? ([['…', `외 ${explanation.omitted}건은 화면에서 생략했어요(전체는 [진단 요약 복사]에 담깁니다)`]] as [string, string][]) : []),
           ], '설명이 필요한 항목이 없어요 — 지운 것과 보낼 목록이 모두 맞습니다'),
       },
     ],
@@ -300,7 +357,7 @@ export async function syncProbe(): Promise<Verdict> {
   }
   v.actions.push({
     label: '지금 동기화',
-    primary: stuck === 0 && (waiting > 0 || opless > 0),
+    primary: stuck === 0 && (waiting > 0 || tombstone.actionable > 0 || tombstone.unknown > 0),
     hook: 'data-sync-now',
     run: async () => {
       // 수동 버튼도 **같은 경로**(§7). `deep`은 바이트 대조를 주기와 무관하게 돌린다.
@@ -313,18 +370,6 @@ export async function syncProbe(): Promise<Verdict> {
       return r ? `동기화했어요 — 올림 ${r.pushed}건 · 내림 ${r.pulled}건.` : '동기화했어요.';
     },
   });
-  if (opless > 0) {
-    // 강등: [정리 실행]은 옛 화면에서 최상위 버튼이었는데, 대부분의 경우 [지금 동기화]가 같은 일을
-    // 자동으로 한다. 사용자가 먼저 손댈 버튼이 아니다.
-    v.actions.push({
-      label: '정리 실행',
-      hook: 'data-repair-sync',
-      run: async () => {
-        const r = await forceRepairCascadeOps();
-        return `사진 ${r.media}건 · 비용 ${r.expenses}건을 다시 보낼 목록에 넣었어요. 이어서 [지금 동기화]를 눌러 주세요. (데이터는 지워지지 않습니다.)`;
-      },
-    });
-  }
   return v;
 }
 

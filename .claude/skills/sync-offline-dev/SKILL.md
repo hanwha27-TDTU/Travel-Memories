@@ -33,7 +33,7 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·s
 
 2-C. **영구삭제 표식은 있는데 서버엔 안 간 항목**을 앱이 볼 수 있어야 한다(2026-07-26 실기기에서 드러난 구멍). 로컬에 `purgedIds` 표식이 있으면 pull이 그 id를 건너뛰므로 **휴지통에도 안 보인다.** 그런데 서버엔 tombstone으로 남아 있으면 — 사용자는 "지웠다"고 믿고, 서버는 "안 지웠다"고 알고, **앱은 아무 말도 안 한다.** 실제로 ADR-0027 이전(전파 op 자체가 없던 시절)에 영구삭제한 여행 하나가 이 상태로 남아 있었다.
    - **판정 규칙**: `서버 tombstone id ∩ 로컬 purgedIds` = *내가 지웠다고 믿는데 서버엔 남은 것*. 0이 정상이고, 0이 아니면 **문제**다(사용자 의도가 반영되지 않은 상태다).
-   - **복구는 재큐잉**: 그 id로 purge op를 다시 만들면 다음 동기화가 서버에서 하드 삭제한다. M-0006의 `requeueOrphanTombstones`와 같은 형태 — **로컬이 못 보는 것을 서버 기준으로 잡는다.**
+   - **복구는 서버 증거 뒤 재큐잉**: 그 id로 purge op를 다시 만들면 다음 동기화가 서버에서 하드 삭제한다. 단, 로컬 tombstone만 보고 새 op을 만들면 이미 반영된 삭제까지 되살아난다(M-0095). 반드시 서버 tombstone과 원장 id를 함께 읽은 이 교집합에서만 만든다 — **로컬이 못 보는 것을 서버 기준으로 잡는다.**
 
 1-B. 🔴 **동기화는 사용자 작업 도중에 끼어든다 — 그렇게 가정하라**(2026-07-26 M-0033).
    `autoSync.ts`는 **`online`·`visibilitychange`·주기 타이머** 셋으로 스스로 돈다. 그래서
@@ -98,6 +98,7 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·s
 10. **일반 병합과 canonical 정확집합을 섞지 않는다**(v1.60 · M-0090): 일반 모드는 로컬 전용 항목을 보존·upsert하지만, `canonical_version` 변경을 소비한 실행은 서버 전체와 바이트를 먼저 받은 뒤 로컬 여섯 표·큐·영구삭제 원장을 한 transaction으로 정확 교체하고 **어떤 push도 하지 않는다**. 게시도 별도 사용자 액션+두 단계 확인+재개 가능한 pending+operation/meta read-back으로만 한다. 첫 `legacy` 기준선은 비파괴, 이미 non-legacy인 새 기기는 서버 기준 적용이다.
     - 🔴 **exact-set RPC가 최종 신뢰 경계다**(v1.62 · M-0092). 클라이언트가 operation id를 만들고 행/영구삭제 id 겹침을 검사해도 서버가 다시 검사한다. `operation_id IS NOT NULL`과 `(모든 snapshot 행 id) ∩ purged_ids = ∅`를 **기존 행 DELETE 전에** 강제한다. 전자는 응답 유실 재시도의 멱등 근거이고, 후자는 게시 직후 원장이 새 행을 다시 지우는 자기모순을 막는다. RPC 입력 검사는 정상 UI 픽스처만 보지 말고 직접 호출 공격검사를 `BEGIN…ROLLBACK`으로 실행한다.
 11. 🔴 **앱 선배포가 계약이면 새 서버 기능의 부재도 정상 전환 상태로 설계하되, capability 불명은 read-only다**(v1.63 · M-0093). v1.62는 0027보다 먼저 배포해야 했지만 `runSync` 첫 줄에서 아직 없는 `ensure_sync_meta()`를 필수 호출해, 로컬이 빈 기기의 pull까지 통째로 막았다. 그러나 PostgREST `PGRST202`는 migration 미적용의 증명이 아니라 함수 signature/schema cache 불일치일 수도 있다. 먼저 RLS가 적용된 `sync_meta`를 **직접 SELECT**해 non-legacy 세대를 되읽고, 그것도 확인할 수 없으며 로컬 canonical 상태가 absent/`legacy`이고 미완료 게시가 없을 때만 **서버 read-only pull**로 낮춘다. 이 모드는 repair/push, purge·unpurge 원장 변경, DB DELETE/upsert, R2 정리를 전부 금지하고 로컬 큐를 보존한다. 이미 non-legacy 세대를 소비했거나 pending 게시가 있으면 **fail-closed**다. 권한·네트워크·빈 응답 같은 다른 오류는 기능 부재로 반올림하지 않는다. 메시지 문구가 아니라 기계 오류 코드를 쓴다.
+12. 🔴 **성공하면 사라지는 큐는 성공 증거가 아니다**(v1.64 · M-0095). tombstone push가 operation read-back 뒤 큐를 지우면 `로컬 tombstone + 큐 없음`이 정상 완료의 흔적이 된다. 진단·복구·옛 자료 백필은 서버 행의 삭제 상태·version·operation id와 `purged_ids` 원장을 읽기 전용으로 대조하고 canonical 세대도 전후로 확인한다. 서버 tombstone은 재전송하지 않고, 서버 active는 반드시 공용 `mergeDecision`을 거쳐 오래된 삭제와 최신 복원을 가른다. 서버 행·원장 부재, 일부 조회 실패, 세대 변경은 자동 op으로 반올림하지 않는다. capability-unknown의 server-read-only는 서버 쓰기뿐 아니라 로컬 큐 생성도 금지한다. pull이 직접 확인해 만든 삭제 op은 같은 실행의 부모→자식 후행 push 한 번으로 끝내, 첫 버튼이 큐만 만들고 완료라고 말하지 않게 한다.
 
 ## 2. 새 엔티티를 동기화에 추가하는 순서 (빠뜨리기 쉬운 것 포함)
 
@@ -234,6 +235,7 @@ const w = momentWhen(m.occurredAt, m.tzOffsetMin, clock);
 
 | 버전 | 결함 | 근본형 | 재발 방지 |
 |---|---|---|---|
+| 1.64 | 서버에 정상 반영된 삭제 5건을 진단이 계속 경고했고, 로컬-only cascade/audio/GPS 복구가 확인된 행과 바이트를 다시 보낼 수 있었음(M-0095) | 성공한 push가 큐를 지우는데 큐 부재를 실패 판정 근거로 사용. 진단만 고쳐도 일반 sync의 옛 복구·백필이 같은 가정으로 판정을 뒤집음 | 여섯 도메인 서버 tombstone/version/operation+purged 원장+canonical 전후 감사, active는 `mergeDecision`, 부분 실패 fail-closed, cascade는 pull evidence, audio/GPS 백필도 서버 evidence, read-only 큐 불변, 동일 run 후행 push |
 | 1.63 | 앱 선배포 뒤 DB 0027 적용 전 `ensure_sync_meta` PGRST202가 runSync 전체를 막아 빈 기기에서 서버 5개 여행을 못 받음(M-0093) | “클라이언트 먼저”라는 배포 순서를 적었지만 새 서버 기능이 아직 없을 때의 실행 경로를 설계·검사하지 않음. 첫 수정도 PGRST202를 migration 미적용의 증명으로 오판해 purge/R2 파괴 경로를 열 뻔함 | RPC 실패 시 `sync_meta` read-only probe. capability 불명은 서버 read-only pull만 허용하고 큐·원장·DB·R2 변경 0. non-legacy/pending/다른 오류는 fail-closed. runSync 적대적 통합 유닛 |
 | 1.62 | canonical RPC가 NULL operation id와 행/영구삭제 원장 id 겹침을 받아들임(M-0092) | 정상 클라이언트가 먼저 검사한다는 이유로 SECURITY DEFINER 최종 경계의 독립 입력 검증을 생략 | 파괴적 DELETE 전 operation id 필수 + 여섯 snapshot 배열과 purged id 교집합 거부. SQL 공격검사 두 건과 guard 제거 RED, 운영 PostgreSQL rollback 사전검증 |
 | 1.60 | 한 기기를 최종본으로 삼아도 다른 기기의 로컬 전용 항목이 일반 merge에서 다시 살아날 수 있었음(M-0090) | 개별 행 LWW와 전체집합 기준선 선언을 같은 동기화로 취급. 사용자 의사를 나타낼 서버 generation이 없었음 | `sync_meta.canonical_version` + 여섯 표 세대 fence + 원자 exact-set RPC + Dexie pending/R2 staging + 수신 run의 0-upsert 조기 종료. 원장도 페이지 끝까지, 게시 뒤 로컬 바이트 경로도 서버 승인 키로 전진. 운영 0025, 0026·0027 적용 대기 |

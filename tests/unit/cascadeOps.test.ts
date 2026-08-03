@@ -20,7 +20,7 @@ import {
   purgeTripPermanently,
   PendingSyncError,
 } from '../../src/services/trips';
-import { requeueOrphanTombstones, pullTrips, pullMedia, retryFailedOps } from '../../src/services/sync';
+import { pullTrips, pullMedia, retryFailedOps } from '../../src/services/sync';
 import { importMergeRows } from '../../src/services/backup';
 
 /** 큐에서 (종류 → id 집합) 맵을 만든다. */
@@ -117,42 +117,6 @@ describe('여행 삭제 cascade — 자식 종류가 하나도 빠지지 않는�
     expect(q.get('media')?.has(mediaId)).toBe(true);
     expect(q.get('expense')?.has(expenseId)).toBe(true);
     // 복원 op가 빠지면 서버 tombstone이 남아 다음 pull에서 되살린 것이 도로 지워진다.
-  });
-});
-
-describe('정합 복구 — 이미 발생한 고아를 되돌린다', () => {
-  it('tombstone인데 op가 없는 사진·비용을 재큐잉한다', async () => {
-    const { mediaId, expenseId } = await seedTrip();
-    const d = db();
-    const now = new Date().toISOString();
-    // 옛 결함이 만들어낸 상태를 그대로 재현: 로컬은 tombstone인데 큐에는 op가 없다.
-    const m = (await d.localMedia.get(mediaId))!;
-    await d.localMedia.put({ ...m, deletedAt: now, version: m.version + 1 });
-    const e = (await d.localExpenses.get(expenseId))!;
-    await d.localExpenses.put({ ...e, deletedAt: now, version: e.version + 1 });
-    expect((await queued()).size).toBe(0);
-
-    const r = await requeueOrphanTombstones();
-    expect(r).toEqual({ media: 1, expenses: 1 });
-    const q = await queued();
-    expect(q.get('media')?.has(mediaId)).toBe(true);
-    expect(q.get('expense')?.has(expenseId)).toBe(true);
-  });
-
-  it('이미 op가 있으면 중복으로 넣지 않는다', async () => {
-    const { tripId } = await seedTrip();
-    await softDeleteTripLocalFirst(tripId); // 고친 코드는 op를 이미 만든다
-    const before = (await db().syncQueue.toArray()).length;
-
-    const r = await requeueOrphanTombstones();
-    expect(r).toEqual({ media: 0, expenses: 0 });
-    expect((await db().syncQueue.toArray()).length).toBe(before);
-  });
-
-  it('활성 항목은 건드리지 않는다 — 살아 있는 기억을 지우는 op를 만들지 않는다', async () => {
-    await seedTrip(); // 삭제하지 않음
-    expect(await requeueOrphanTombstones()).toEqual({ media: 0, expenses: 0 });
-    expect((await db().syncQueue.toArray()).length).toBe(0);
   });
 });
 

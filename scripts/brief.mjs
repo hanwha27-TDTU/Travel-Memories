@@ -100,6 +100,10 @@ export const SKILL_ROUTES = [
   // 자동 동기화 상태 → 사용자 문장. **판정 문장 자체가 결함일 수 있는** 부류라 진단 헌장이다
   // (§10 ③ · 7-D). 2026-07-27: 성공 72초 뒤인데 「판정 불가」로 총괄을 끌어내렸다.
   { match: /^src\/domain\/syncStatusVerdict/, skill: 'diagnostics-dev' },
+  // 큐 없는 tombstone의 서버 증거 판정 + 사용자 문장. 삭제/LWW 규율과 진단 전달 규율이
+  // 동시에 걸리는 이음매라 두 헌장을 모두 읽는다(M-0095).
+  { match: /^src\/domain\/syncTombstoneVerdict/, skill: 'diagnostics-dev' },
+  { match: /^src\/domain\/syncTombstoneVerdict/, skill: 'sync-offline-dev' },
   { match: /^src\/services\/(sync|canonicalSync|autoSync|purge|trips|moments|media|expenses|trash)\.ts/, skill: 'sync-offline-dev' },
   { match: /^src\/(sync|offline)\//, skill: 'sync-offline-dev' },
   { match: /^src\/domain\/\w+\/rowmap/, skill: 'sync-offline-dev' },
@@ -163,7 +167,7 @@ export const SKILL_ROUTES = [
  */
 export const POSTMORTEMS = [
   {
-    match: /^(src\/services\/(sync|autoSync|purge|trash|storeState|r2|media|backup)|src\/ui\/panels\/(diagnostics|verdict)|src\/offline\/|supabase\/)/,
+    match: /^(src\/services\/(sync|autoSync|purge|trash|storeState|r2|media|backup)|src\/domain\/syncTombstoneVerdict|src\/ui\/panels\/(diagnostics|verdict)|src\/offline\/|supabase\/)/,
     doc: 'docs/records/2026-07-26-STORAGE-DELETE-POSTMORTEM.md',
     // ⚠️ **개수를 여기 손으로 적지 않는다.** 처음엔 '결함 10건'이라고 박아 뒀는데 사고가 12건이
     // 될 때까지 아무도 못 고쳤다 — 브리핑이 "이 영역에서 뭐가 났는지"를 알려주는 자리에서

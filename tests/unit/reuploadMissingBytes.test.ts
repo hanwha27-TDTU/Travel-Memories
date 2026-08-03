@@ -26,7 +26,7 @@ import 'fake-indexeddb/auto';
 import { db } from '../../src/offline/db';
 import { mustUploadBytes } from '../../src/sync/merge';
 import { pushPendingMedia, requeueMissingBytes, backfillMediaGpsOps, type MediaRemote } from '../../src/services/sync';
-import type { MediaRow } from '../../src/domain/media/rowmap';
+import { toMediaRow, type MediaRow } from '../../src/domain/media/rowmap';
 
 const USER = 'c9ff5188-51a7-4c01-b653-b6e1d73d0790';
 const TRIP = 'd4e5f6a7-b8c9-4d0e-8f1a-2b3c4d5e6f70';
@@ -234,11 +234,49 @@ describe('사진 GPS — 모든 기기에서 보이게', () => {
     await seedPhoto({ gpsLat: 0, gpsLng: 0 }); // 0,0은 좌표가 아니다(M-0057)
     await db().syncQueue.clear();
 
-    const n = await backfillMediaGpsOps();
+    const n = await backfillMediaGpsOps([], new Set());
 
     expect(n).toBe(1);
     const ops = await db().syncQueue.toArray();
     expect(ops.map((o) => o.entityId)).toEqual([withGps]);
+  });
+
+  it('서버에 같은 좌표가 확인된 활성 사진은 queue와 R2 재업로드가 0이다', async () => {
+    const id = await seedPhoto({ gpsLat: 36.60916, gpsLng: 127.50248, storagePath: 'u/same.webp' });
+    await db().syncQueue.clear();
+    const local = (await db().localMedia.get(id))!;
+    const serverRow = toMediaRow(local, USER, 'u/same.webp');
+    expect(await backfillMediaGpsOps([serverRow], new Set())).toBe(0);
+    const remote = fakeRemote();
+    await pushPendingMedia(remote, USER);
+    expect(remote.uploads).toEqual([]);
+  });
+
+  it('영구삭제 원장의 활성 로컬 사진은 GPS 백필로 재삽입하거나 업로드하지 않는다', async () => {
+    const id = await seedPhoto({ gpsLat: 36.60916, gpsLng: 127.50248 });
+    await db().syncQueue.clear();
+    expect(await backfillMediaGpsOps([], new Set([id]))).toBe(0);
+    const remote = fakeRemote();
+    await pushPendingMedia(remote, USER);
+    expect(remote.uploads).toEqual([]);
+  });
+
+  it('로컬 tombstone 사진은 GPS 백필로 queue나 R2 업로드를 되살리지 않는다', async () => {
+    const deletedAt = new Date().toISOString();
+    await seedPhoto({
+      gpsLat: 36.60916,
+      gpsLng: 127.50248,
+      deletedAt,
+      updatedAt: deletedAt,
+      storagePath: 'u/deleted.webp',
+    });
+    await db().syncQueue.clear();
+
+    expect(await backfillMediaGpsOps([], new Set())).toBe(0);
+    expect(await db().syncQueue.count()).toBe(0);
+    const remote = fakeRemote();
+    await pushPendingMedia(remote, USER);
+    expect(remote.uploads).toEqual([]);
   });
 
   // 🔴 **내 가정이 여기서 반증됐다**(2026-08-01). 처음엔 *"백필은 바이트를 다시 올리지
@@ -256,7 +294,13 @@ describe('사진 GPS — 모든 기기에서 보이게', () => {
     await db().syncQueue.clear();
     const remote = fakeRemote();
 
-    await backfillMediaGpsOps();
+    const local = (await db().localMedia.get(id))!;
+    const serverWithoutGps = {
+      ...toMediaRow(local, USER, 'u/already.webp'),
+      gps_lat: null,
+      gps_lng: null,
+    };
+    await backfillMediaGpsOps([serverWithoutGps], new Set());
     await pushPendingMedia(remote, USER);
 
     expect(remote.uploads).toHaveLength(1);
