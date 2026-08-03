@@ -8,7 +8,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.67<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->167<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->73<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.67<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->167<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->74<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
@@ -404,6 +404,16 @@ npm run dev                            # 홈 화면 확인 (선택)
 **협업 규칙**(AGENTS.md): 별도 클론 · `claude/*`·`codex/*` 브랜치 · `main` 직접 push 금지 · 뜨거운 파일 단일 PR 직렬화 · task는 `docs/ACTIVE_TASKS.md`에 등록 · agent 보고서는 `schemas/agent-report.schema.json` 검증(`artifacts/agent-reports/`) · **완료 = 배포 그린 확인**.
 
 ---
+
+## HANDOFF-0062 · v1.67 · **T-001 완료 — 2기기 canonical 게시/소비 왕복 검증 (첫 실제 게시)** (2026-08-03)
+
+- **무엇을 했나**: 사용자가 태블릿(SM-X906N)에서 `데이터 관리 → 🔐 이 기기를 클라우드 최종본으로`를 2단계 확인으로 실행하고, 폰(SM-F946N)이 그 세대를 소비했다. 앱·DB·R2 코드는 바꾸지 않았고 이 세션의 서버 조사는 전부 읽기 전용이다. **운영 최초의 실제 canonical 게시**다(직전까지 `canonical_version = legacy`, 게시 이력 0).
+- **게시(publish) 확인**: 화면은 `✅ 최종본 교체 확인 · 기록 64건 · 영구삭제 표식 7건`. 서버는 `canonical_version` `legacy`→**`0fe9bb91-54ef-42fd-b62a-9413c482615a`**, `canonical_operation_id` `3990d29c-…`, `canonical_device_id` `태블릿 · Android · Chrome#dac1e0e0`, `updated_at` 12:36:51Z. **서버 행 합계가 정확히 64**(5+5+18+32+4+0)로 앱이 말한 숫자와 일치했다 — exact-set이 선언대로 동작했다.
+- 🔴 **정확집합의 실제 효과(기대된 동작)**: 사진 행이 45→32로 줄었다. 게시 기기의 로컬 휴지통은 5건(순간 4·비용 1)인데 클라우드 휴지통은 18건이었고, 차이인 **휴지통 사진 기록 13건이 「클라우드에만 있던 항목」**이라 최종본에서 빠졌다. UI 경고문이 예고한 바로 그 동작이며 살아 있는 32장·게시 기기 휴지통 5건은 보존됐다. **부작용: 그 4개 순간을 휴지통에서 되살려도 사진은 함께 돌아오지 않는다.**
+- **R2 정합 확인**: 걱정했던 고아 파일이 없었다 — 소비 후 진단이 「설명할 수 없는 사진 파일 0」과 「사진 파일이 사라진 기록 0」을 **양방향**으로 보고했다. 즉 R2 파일 = 기록 = 32로, 게시가 빠진 행의 바이트까지 정리했다.
+- **소비(consume) 확인 — 계약의 핵심**: 폰이 21:40:00에 동기화한 뒤 「휴지통 클라우드 **5** · 이 기기 5」(직전 18·5), 「무결성 **64건** 검사」, 대기 0·막힌 작업 0·오류 0. 그리고 **서버는 소비 전후로 전혀 바뀌지 않았다**: generation 동일(12:36:51Z 그대로), 행 합계 64 그대로, `media`·`moments`의 최신 `updated_at`이 **게시 시각보다 이르다**(08-02). → **0 upsert 계약이 실측으로 확인**됐다.
+- **양 기기 최종 상태**: 둘 다 v1.67 · 살아 있는 기록 59건 · 여섯 도메인 클라우드와 동일 · 원장 7 · 오류 0.
+- **남은 것**: BACKLOG의 열린 과제 5건(T-003 hook · T-004 leaked-password · T-005 persist · T-006 개발자 표기 · T-007 Phase 7). **v1.60에서 열린 두 미검증 경계가 모두 닫혔다.**
 
 ## HANDOFF-0061 · v1.67 · **T-002 완료 — authenticated R2 PUT/GET/delete 실기기 왕복 검증** (2026-08-03)
 

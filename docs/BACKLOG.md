@@ -18,7 +18,6 @@
 
 | ID | 과제 | 상태 | 무엇이 필요한가 | 추가일 | 근거 |
 |---|---|---|---|---|---|
-| T-001 | 실제 2기기 canonical 게시/소비 왕복 검증 | 막힘-실기기 | 로그인된 실기기 2대 (준비되면 사용자 주도) | 2026-08-02 | HANDOFF-0053 · v1.60/ADR-0044 |
 | T-003 | hook 기반 강제 규칙(S-09) 구현 — `.claude/settings.json` hooks가 비어 있음, `check-supabase-sql-safe` 포함 | 대기 | 개발 작업 | 2026-08-03 | HANDOFF-0057 · 헌법 S-09 · A-010 |
 | T-004 | Supabase leaked-password 보호 켜기 | 막힘-사용자 | 대시보드 Auth 설정 1회 (Google OAuth 전용·초대제라 위험 낮음) | 2026-08-03 | HANDOFF-0057 · advisor WARN |
 | T-005 | 태블릿 저장소 보호(persist) 적용 | 막힘-사용자 | 앱의 [저장소 보호 요청] 버튼 (선택 사항 — 결함 아님) | 2026-08-03 | HANDOFF-0056 진단 실측 |
@@ -29,6 +28,7 @@
 
 | ID | 과제 | 완료일 | 증거 |
 |---|---|---|---|
+| T-001 | 실제 2기기 canonical 게시/소비 왕복 검증 | 2026-08-03 | HANDOFF-0062 · 게시: `legacy`→`0fe9bb91…`·operation/device 기록·서버 행 정확히 64 · 소비: 폰이 휴지통 18→5로 정합·무결성 64건·**서버 무변경(0 upsert)** |
 | T-002 | authenticated R2 PUT/GET/delete 왕복 검증 | 2026-08-03 | HANDOFF-0061 · 실기기 2대 왕복(올리기: R2 파일 45→46이 기록 46과 짝 일치 · 받기: 다른 기기에서 사진 실제 렌더 · 지우기: 원장 4→7·서버 행 0·R2 잔재 0) |
 | T-A03 | journey FK 커버링 인덱스 10건 (migration 0028) | 2026-08-03 | PR #174 · HANDOFF-0057 · advisor read-back(unindexed FK 0 · 행수 무변경) |
 | T-A02 | ROADMAP·ASSUMPTIONS 문서 부채 정리(스캐폴딩 시절 표기·해결된 열린 질문) | 2026-08-03 | PR #174 · HANDOFF-0057 |
