@@ -349,5 +349,27 @@ console.log('\n⑥ 착수 전 자문(CLAUDE.md §0 5W1H · §7 · §8):');
 console.log('  · 왜   — 북극성("기억과 의미를 다시 찾아준다")을 더 잘 이루는가?');
 console.log('  · 어디서 — 이 사실의 SSOT는 어디인가? 손편집 중복을 만들고 있지 않은가?');
 console.log('  · 어떻게 — 검증 경로는? 알려진 실패를 주입해 RED를 확인할 수 있는가?');
+
+// ⑦ 열린 과제(백로그) — docs/BACKLOG.md가 미완료 상태의 단일 정본이다. 여기서 매 착수마다
+// 띄우는 것이 그 문서가 낡지 않게 하는 2층(구조)이다: 안 읽고는 일을 시작할 수 없다.
+// 조항만 있던 ROADMAP은 실제로 스캐폴딩 시절에 멈춘 채 낡았다(HANDOFF-0057).
+{
+  const backlogFile = join(ROOT, 'docs/BACKLOG.md');
+  if (existsSync(backlogFile)) {
+    const text = readFileSync(backlogFile, 'utf8');
+    const open = text.split('## 완료 아카이브')[0];
+    const rows = open.split('\n').filter((l) => /^\|\s*T-\d/.test(l));
+    console.log(`\n⑦ 열린 과제 ${rows.length}건 (정본 docs/BACKLOG.md — 상태 변경은 그 파일에서만):`);
+    for (const r of rows) {
+      const c = r.split('|').map((x) => x.trim());
+      // | ID | 과제 | 상태 | ... — 셀 수가 모자라면 지어내지 않고 원문 줄을 그대로 보여준다.
+      if (c.length >= 4) console.log(`  · ${c[1]} [${c[3]}] ${c[2]}`);
+      else console.log(`  · ${r}`);
+    }
+    console.log('  → 끝낸 과제는 **같은 커밋에서** 완료 아카이브로 옮긴다(증거 필수).');
+  } else {
+    console.log('\n⑦ ⚠️ docs/BACKLOG.md가 없습니다 — 미완료 과제 정본이 사라졌습니다(그 자체가 결함).');
+  }
+}
 console.log('');
 }

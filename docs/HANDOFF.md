@@ -405,6 +405,13 @@ npm run dev                            # 홈 화면 확인 (선택)
 
 ---
 
+## HANDOFF-0058 · v1.65 · **BACKLOG.md 신설 — 미완료 과제 단일 정본(사용자 제안)** (2026-08-03)
+
+- **왜(사용자 제안)**: 미완료 과제를 별도 문서로 통일해 완료·신규를 통합관리하면 문서 낡음을 막을 수 있지 않겠냐는 제안. 방향은 채택하되, ROADMAP이 낡은 원인이 "손편집 산문 + 읽는 장치 없음"이었으므로 문서 하나로 끝내지 않고 §7 3층으로 세웠다.
+- **무엇**: ① `docs/BACKLOG.md` 신설 — 열린 과제 T-001~T-007과 완료 아카이브(증거 필수), 상태는 이 파일에만 적고 다른 문서는 T-번호로 링크만 ② `scripts/brief.mjs`에 ⑦절 추가 — **모든 착수 브리핑이 열린 과제를 자동으로 띄운다**(파일이 없으면 그 자체를 결함으로 표시) ③ 헌법 문서 지도에 등록(`gen:adapters` 재생성, `check-doc-governance` 강제) ④ HANDOFF_CODEX 「다음 시작점」의 상태 나열을 BACKLOG 링크로 대체.
+- **규칙**: 끝낸 과제는 같은 커밋에서 아카이브로 이동(증거 필수) · 새 미완료도 같은 커밋에서 행 추가 · 상태 값은 대기/막힘-실기기/막힘-사용자 셋뿐.
+- **검증**: `npm run brief` 실행으로 ⑦절 출력 확인(열린 과제 7건). 전체 harness PASS(SKIP 0). 앱·DB·R2 무변경(버전 유지 v1.65 — 도구·문서만).
+
 ## HANDOFF-0057 · v1.65 · **미완료 과제 교차검증 + migration 0028(FK 인덱스) + 문서 부채 정리** (2026-08-03)
 
 - **교차검증**: 문서(HANDOFF 2종·ROADMAP·ASSUMPTIONS·ACTIVE_TASKS) ↔ 코드(blueprint·sw.js·scripts·`.claude/settings.json`) ↔ 서버(운영 migration 목록·advisor, 전부 읽기 전용)를 대조해 미완료 과제를 확정했다. 실제 미완료: ①2기기 canonical 왕복 ②authenticated R2 왕복(둘 다 실기기 필요) ③hook 강제 규칙 S-09(settings.json hooks 비어 있음 — `check-supabase-sql-safe` 포함) ④Supabase leaked-password 보호(대시보드 설정, 사용자 몫) ⑤태블릿 persist(사용자 선택) ⑥ASSUMPTIONS Q6 개발자 정보 표기값(사용자 확정).
