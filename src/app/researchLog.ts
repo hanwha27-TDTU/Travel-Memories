@@ -568,4 +568,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '문서 층(HANDOFF 2종·ROADMAP·ASSUMPTIONS·ACTIVE_TASKS) ↔ 코드 층(blueprint·sw.js·scripts·hooks) ↔ 서버 층(운영 migration·advisor, 읽기 전용)을 대조했다. 실제 미완료는 2기기 canonical 왕복·authenticated R2 왕복(실기기 필요)·hook 강제(S-09, settings.json hooks가 실제로 비어 있음)·leaked-password 보호·journey FK 인덱스 10건·태블릿 persist였다. 반면 ROADMAP은 「아직 코드 없음」에 멈춰 있었고 SW 캐시 버저닝(journey-shell-v2로 구현됨)·배선맵 게이트(check-blueprint 등으로 달성됨)를 미구현이라 말했다. ASSUMPTIONS의 열린 질문 Q3·Q5·Q7도 이미 라이브로 해결돼 있었다. FK 인덱스는 운영에서 FK 컬럼 순서·기존 인덱스를 먼저 읽어, 기존 자식 인덱스가 전부 deleted_at IS NULL 부분 인덱스라 FK 검사(tombstone 포함)를 못 덮는 것을 확인했다.',
     decision: '**migration 0028로 journey FK 커버링 인덱스 10건을 적용하고, 낡은 계획·가정 문서를 현행화한다.** 적용 순서는 사전 행수 스냅샷 → BEGIN…ROLLBACK 사전검증(10개 생성 확인 후 전량 롤백) → 영구 적용 → read-back 3종(인덱스 10 존재·행수 전후 동일 5/5/18/45/4/0·원장 4·meta 1·advisor에서 journey unindexed FK 0). 부분 인덱스로 만들지 않은 이유(FK 검사는 tombstone 행도 본다)를 migration 머리주석에 남겨 다음 사람이 「중복 같은데?」로 지우지 않게 했다(§7 의도적 비대칭). ROADMAP은 Phase 0B~6 출고 사실과 남은 경계만 남기고 현행화, ASSUMPTIONS는 Q6(개발자 정보 표기값)만 열린 질문으로 남겼다. hook 강제(S-09)와 leaked-password 보호는 별도 미완료 과제로 유지한다.',
   },
+  {
+    seq: 71,
+    date: '2026-08-03',
+    topic: '홈 목록을 연도▸월 기간 트리와 2단으로 나눴다(사용자 제안)',
+    human: '메인화면을 좀 나누려고 하는데 2단으로. 왼쪽은 연도와 월로 이뤄진 구조트리..오른쪽에는 목록...왼쪽과 오른쪽 비율은 2:8이나 3:7? 정도의 비율로 나누고.. (이어서) 네 그렇게 진행해주세요. 반응형이 좋은 곳은 반응형도 한 번 검토해보고',
+    ai: '방향에 찬성하되 네 가지를 다듬어 제안했고 사용자가 승인했다: %가 아니라 고정폭 260px(울트라와이드에서 트리 비대 방지, FHD 체감 2:8), 좁은 화면은 2단 포기하고 접힌 필터(주 사용처인 폰 세로 보호), 트리는 여행 데이터에서 파생(여행 있는 연·월만·개수 포함), 선택은 필터(기본 전체·현재 선택 줄 + ✕ 해제). 순수 로직(파생·필터·문장)은 domain/trip/timeTree.ts로 분리해 유닛 11건으로 재고, 라이브 회귀 7건을 verify-editor-live에 추가해 1480/1099/412에서 2단 전환·접힘·넘침 0·버튼 실동작(누름→현재선택 줄→✕ 원복)을 실측했다. grid 규칙 제거 주입으로 해당 검사만 RED임을 확인했고, 스크린샷 4장(넓은/필터/폰 접힘·펼침)을 실제로 열어 봤다.',
+    decision: '**시간축 탐색을 홈의 1급 구조로 승격한다.** 기억을 더듬는 첫 축은 시간이므로(북극성), 여행이 쌓일수록 트리가 장식이 아니라 회수 도구가 된다. DOM 순서는 입력→필터→목록을 유지하고 시각 배치만 CSS ≥1100px grid로 바꿔 접근성을 지켰다. renderHome이 래칫(235줄)에 걸려 빈 상태 2종·새 여행 폼을 최상위로 덜어내 224줄로 줄었고 기록도 함께 낮췄다 — 게이트가 설계를 밀어준 사례가 하나 더 늘었다. 전체 하네스 SKIP 0 통과.',
+  },
 ];

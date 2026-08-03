@@ -196,6 +196,42 @@
 
 /* 보관함 토글 + 복원 */
 .view-bar { display: flex; justify-content: flex-end; }
+
+/* ── 홈 기간 트리(연도▸월) — 여행 데이터에서 파생, 빈 달은 침묵 ──────────────
+   좁은 화면: 접힌 필터(<details>). 넓은 화면(≥1100px): 왼쪽 고정 칸에 늘 펼침(아래 미디어 분기).
+   주 사용처(폰 세로)를 해치지 않으면서 남는 폭을 구조로 쓴다(계약 #4). */
+.home-main { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.tree-fold {
+  border: 1px solid var(--line); border-radius: var(--radius-medium); background: var(--bg);
+}
+.tree-fold > summary {
+  list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px;
+  min-height: var(--touch-target-min); padding: 0 var(--space-3);
+  font-weight: 700; font-size: 0.9rem; color: var(--ink-soft);
+}
+.tree-fold > summary::-webkit-details-marker { display: none; }
+.tree-fold > summary::after { content: '▾'; margin-left: auto; }
+.tree-fold[open] > summary::after { content: '▴'; }
+.home-tree { display: flex; flex-direction: column; gap: 2px; padding: 0 var(--space-2) var(--space-2); }
+.home-tree button {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  border: none; background: transparent; color: var(--ink-soft); font: inherit; font-size: 0.9rem;
+  min-height: var(--touch-target-min); padding: 0 var(--space-2);
+  border-radius: var(--radius-small); cursor: pointer;
+}
+.home-tree button:hover { background: color-mix(in srgb, var(--accent-strong) 10%, transparent); }
+.home-tree button[aria-pressed='true'] { color: #fff; background: var(--accent-strong); font-weight: 700; }
+.home-tree .tree-month { margin-left: var(--space-4); }
+.home-tree .tree-count { margin-left: auto; font-size: 0.8rem; opacity: 0.75; }
+/* 현재 선택 줄 — 전체(정상)일 때는 아예 안 그린다(침묵이 정상). 해제는 늘 ✕(계약 #9). */
+.filter-now { display: flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: 0.9rem; }
+.filter-now[hidden] { display: none; }
+.filter-clear {
+  border: none; background: transparent; color: var(--ink-soft); font: inherit; cursor: pointer;
+  min-width: var(--touch-target-min); min-height: var(--touch-target-min);
+  display: grid; place-items: center; border-radius: var(--radius-small);
+}
+.filter-clear:hover { background: color-mix(in srgb, var(--accent-strong) 10%, transparent); }
 .archive-toggle[hidden] { display: none; }
 .trip-card[role="button"] { cursor: pointer; }
 .trip-card:focus-visible { outline: 3px solid var(--sem-sky); outline-offset: 2px; }
@@ -1569,6 +1605,20 @@ select.zone-input { text-overflow: ellipsis; }
 
   /* 홈: 카드 3열 — 620px 분기의 2열을 넓은 화면에서 덮어쓴다. */
   .trip-list { grid-template-columns: repeat(3, 1fr); }
+
+  /* 홈: [기간 트리 | 목록] 2단 — 왼쪽은 %가 아니라 고정폭(울트라와이드에서 트리가
+     쓸데없이 넓어지지 않게), 오른쪽 min-width 0(긴 제목이 그리드 칸을 못 넘게). FHD에서
+     체감 비율은 대략 2:8. 트리는 sticky로 목록을 내려봐도 손 닿는 곳에 남는다. */
+  .home-body {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    align-items: start;
+    gap: var(--space-4);
+  }
+  .home-body > .tree-fold { position: sticky; top: var(--space-3); }
+  /* 넓은 화면에서는 접을 필요가 없다 — JS가 open을 유지하고 summary는 숨긴다. */
+  .home-body > .tree-fold > summary { display: none; }
+  .home-body > .tree-fold .home-tree { padding-top: var(--space-2); }
 }
 
 /* 아주 넓은 화면(초대형 태블릿·모니터)에서도 한 줄이 지나치게 길어지지 않도록 상한. */
