@@ -21,10 +21,13 @@
    계정은 자주 쓰지 않는데 예전에는 컨트롤 행이 줄바꿈되며 한 줄을 통째로 먹었다.
    좁아지면 wrap으로 아래 줄에 **오른쪽 정렬**로 내려간다 — 숨기지 않는다(§5 정보를 감추지 않음). */
 .app-head-top {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: flex-start; justify-content: space-between;
   gap: var(--space-2); flex-wrap: wrap; width: 100%; min-width: 0;
 }
-.app-head-top .auth-area { margin-left: auto; }
+.app-head-tools {
+  display: flex; flex-direction: column; align-items: flex-end; justify-content: flex-start;
+  gap: var(--space-1); min-width: 0; margin-left: auto;
+}
 /* 이메일은 길다. 잘라서 버튼을 밀어내지 않게 하되 title 속성으로 전체를 확인할 수 있다. */
 .auth-who { max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app-title {
@@ -153,7 +156,7 @@
   font: inherit;
   cursor: pointer;
   padding: 0;
-  height: 156px;
+  height: 132px;
   border-radius: var(--radius-large);
   overflow: hidden;
   color: #fff;
@@ -421,9 +424,9 @@
   font-size: 0.95rem; font-family: inherit;
 }
 .moment-input::placeholder { color: var(--ink-soft); }
-.emo-row { display: flex; gap: var(--space-2); justify-content: space-between; }
+.emo-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-2); }
 .emo-row .emo {
-  flex: 1; min-height: 46px; border: 1px solid var(--line);
+  min-width: 0; min-height: 46px; border: 1px solid var(--line);
   background: var(--bg); border-radius: var(--radius-medium);
   font-size: 1.3rem; cursor: pointer;
 }

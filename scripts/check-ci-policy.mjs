@@ -8,7 +8,8 @@
 //  ① `ci.yml`이 **main에서 돌지 않는가**(④ 중복 제거) — push 트리거가 없어야 한다
 //  ② 전체 검사(`harness`·`live-render`)가 **draft에서 제외**되는가(①②)
 //  ③ 취소 정책이 켜져 있는가(③)
-//  ④ `deploy-pages.yml`이 **여전히 harness를 돌리는가** — main 쪽 초록의 근거(④의 전제)
+//  ④ Ready PR의 harness job이 **build → harness** 순서인가
+//  ⑤ `deploy-pages.yml`이 harness를 **다시 돌리지 않는가** — 하네스→머지→배포 한 묶음
 //
 // 🔴 정직한 한계: 이 게이트는 **파일이 그렇게 적혀 있다**까지만 안다. GitHub이 실제로 그
 // 일정대로 도는지는 정적으로 볼 수 없다(§2-J ②의 한계와 같다). 판정문도 그렇게만 말한다.
@@ -54,6 +55,14 @@ export function jobBody(yaml, job) {
   return body.join('\n');
 }
 
+/** 한 job 안에서 두 npm 명령이 실제 run 순서대로 놓였는지 판정한다. */
+export function commandsInOrder(body, first, second) {
+  if (body === null) return false;
+  const a = body.indexOf(`run: npm run ${first}`);
+  const b = body.indexOf(`run: npm run ${second}`);
+  return a >= 0 && b >= 0 && a < b;
+}
+
 /** §15 위반을 모두 찾아 문자열 배열로. 빈 배열이면 통과. */
 export function findPolicyViolations(ciYaml, deployYaml) {
   const bad = [];
@@ -83,6 +92,10 @@ export function findPolicyViolations(ciYaml, deployYaml) {
       bad.push(`§15① '${job}'에 draft 제외 조건이 없습니다 — 작업 중에도 전체가 돌아 ①이 무너집니다.`);
     }
   }
+  const harnessBody = jobBody(ci, 'harness');
+  if (harnessBody !== null && !commandsInOrder(harnessBody, 'build', 'harness')) {
+    bad.push('§15④ Ready PR의 harness job은 앱을 먼저 build한 뒤 harness를 실행해야 합니다.');
+  }
 
   // ①의 좁은 검사가 존재하는가 — 없으면 draft에서 아무것도 안 재게 된다
   if (!/^\s{2}fast-gates:/m.test(ci)) {
@@ -94,9 +107,13 @@ export function findPolicyViolations(ciYaml, deployYaml) {
     bad.push('§15③ ci.yml에 cancel-in-progress: true가 없습니다 — 낡은 실행이 계속 돕니다.');
   }
 
-  // ④ main 쪽 초록의 근거 — deploy가 harness를 돌려야 ④가 「중복 제거」이지 「검사 면제」가 아니다
-  if (!/npm run harness/.test(stripComments(deployYaml))) {
-    bad.push('§15④ deploy-pages.yml이 harness를 돌리지 않습니다 — main에서 재는 층이 통째로 사라집니다.');
+  // ⑤ main 배포는 앞선 릴리스 후보의 하네스를 신뢰한다 — 여기서 재실행하면 사용자 결정과 어긋난다.
+  const deploy = stripComments(deployYaml);
+  if (/npm run harness/.test(deploy)) {
+    bad.push('§15⑤ deploy-pages.yml이 harness를 다시 돌립니다 — 하네스→머지→배포 릴리스 묶음이 중복됩니다.');
+  }
+  if (!/npm run build/.test(deploy)) {
+    bad.push('§15⑤ deploy-pages.yml에 배포 산출물 build가 없습니다.');
   }
   return bad;
 }
@@ -108,9 +125,10 @@ export function findPolicyViolations(ciYaml, deployYaml) {
     'concurrency:', '  cancel-in-progress: true', '',
     'jobs:', '  fast-gates:', '    runs-on: x',
     '  harness:', '    if: ${{ github.event.pull_request.draft == false }}', '    runs-on: x',
+    '    steps:', '      - run: npm run build', '      - run: npm run harness',
     '  live-render:', '    if: ${{ github.event.pull_request.draft == false }}', '    runs-on: x',
   ].join('\n');
-  const goodDeploy = 'jobs:\n  build:\n    steps:\n      - run: npm run harness\n';
+  const goodDeploy = 'jobs:\n  build:\n    steps:\n      - run: npm run build\n';
   if (findPolicyViolations(goodCi, goodDeploy).length !== 0) {
     throw new Error('SELF-TEST 실패: 정상 설정을 위반으로 판정(오탐).');
   }
@@ -126,9 +144,17 @@ export function findPolicyViolations(ciYaml, deployYaml) {
   if (findPolicyViolations(goodCi.replace('cancel-in-progress: true', 'cancel-in-progress: false'), goodDeploy).length === 0) {
     throw new Error('SELF-TEST 실패: 취소 정책 해제를 통과시킨다.');
   }
-  // 주입 ④: deploy에서 harness 제거 → main에서 재는 층이 사라진다
-  if (findPolicyViolations(goodCi, 'jobs:\n  build:\n    steps:\n      - run: npm run build\n').length === 0) {
-    throw new Error('SELF-TEST 실패: deploy의 harness 제거를 통과시킨다.');
+  // 주입 ④: Ready PR에서 옛 순서(harness → build)로 회귀
+  const reversed = goodCi.replace(
+    '      - run: npm run build\n      - run: npm run harness',
+    '      - run: npm run harness\n      - run: npm run build',
+  );
+  if (findPolicyViolations(reversed, goodDeploy).length === 0) {
+    throw new Error('SELF-TEST 실패: harness → build 역순을 통과시킨다.');
+  }
+  // 주입 ⑤: deploy에서 harness 재실행
+  if (findPolicyViolations(goodCi, goodDeploy.replace('npm run build', 'npm run build\n      - run: npm run harness')).length === 0) {
+    throw new Error('SELF-TEST 실패: deploy의 중복 harness를 통과시킨다.');
   }
   // 주석 안의 낱말은 판정을 흔들면 안 된다(오탐 방지)
   if (findPolicyViolations(`# push: 를 쓰지 않는 이유를 설명한다\n${goodCi}`, goodDeploy).length !== 0) {
@@ -154,6 +180,6 @@ if (violations.length > 0) {
   process.exit(1);
 }
 console.log(
-  'check-ci-policy: OK (셀프테스트 통과 · ci.yml은 PR 전용·draft 제외·취소 켜짐 · deploy가 main harness를 담당)\n' +
+  'check-ci-policy: OK (셀프테스트 통과 · Ready PR은 build→harness · deploy는 harness 중복 없음)\n' +
     '  ↳ 정직한 한계: 파일이 그렇게 **적혀 있다**까지만 봅니다 — 실제 실행 일정은 정적으로 볼 수 없습니다.',
 );

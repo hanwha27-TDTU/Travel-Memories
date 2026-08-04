@@ -26,8 +26,6 @@ jobs:
           node-version-file: '.nvmrc'
           cache: 'npm'
       - run: npm ci
-      - name: Harness (Required gates)
-        run: npm run harness
       # 클라이언트 설정 주입: publishable 키는 비밀이 아니므로 Repository Variables 사용
       # (Settings → Secrets and variables → Actions → Variables). 미설정이면 빈 값으로
       # 빌드되고 앱은 로컬 전용 모드로 동작한다(services/supabase/client.ts null 폴백).
@@ -40,6 +38,8 @@ jobs:
           VITE_MAP_STYLE_URL: ${{ vars.VITE_MAP_STYLE_URL }}
           # 사진 바이트는 **R2 한 곳**이다(v0.86, 이관 완료). 저장소 선택 변수는 제거했다 —
           # 바이트가 R2에만 남는 순간 그 되돌리기는 이미 죽은 탈출구였다.
+      # 전체 하네스는 Ready PR의 `build → harness/live → merge`에서 이미 끝냈다.
+      # main에서는 다시 돌리지 않는다 — 이 job은 배포 산출물 생성·검사·배포만 담당한다(헌법 §15).
       # SPA 딥링크 폴백: 404.html = index.html (history 라우팅, DEPLOYMENT.md)
       - run: cp dist/index.html dist/404.html
       - name: Secret leak scan on build artifact

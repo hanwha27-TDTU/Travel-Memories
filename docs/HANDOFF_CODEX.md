@@ -13,6 +13,15 @@
 
 ---
 
+## 🆕 v1.69 릴리스 후보 — 홈 밀도·감정 10종·기간 요일·릴리스 묶음 규칙 (2026-08-04)
+
+- 작업 브랜치 `codex/compact-trip-cards-release-policy`: 홈 카드 높이 축약, `동기화됨`을 헤더 우측 도구 묶음으로 이동.
+- 같은 릴리스 대기 묶음에 순간 감정 선택지 10종(5×2·접근 가능한 이름·재클릭 해제 유지)과 홈/상세 여행 기간 양쪽 요일 표시를 추가했다. 날짜 표시는 `domain/time.ts` 공용 포매터가 정본이다.
+- 사용자 결정으로 문서 단독 변경과 비긴급 기능은 모아서 릴리스한다. 전체 하네스는 릴리스 후보를 build한 뒤에만 실행하고, 그 초록을 확인한 커밋을 merge한 뒤 바로 deploy한다. main 배포에서 하네스를 반복하지 않는다.
+- 사용자가 현재 저장소 변경 전부를 배포하도록 결정해 **v1.69 릴리스 후보**로 닫았다. 최종 판정 순서는 build→전체 harness/live→Ready PR 초록→merge→Pages deploy→`version.json` v1.69 read-back이다. 최신 범위는 `docs/HANDOFF.md` HANDOFF-0070.
+
+---
+
 ## 🆕 v1.65 — 미완료 과제 교차검증 · migration 0028(FK 인덱스) · 문서 현행화 (2026-08-03)
 
 - 문서↔코드↔서버(읽기 전용) 교차검증으로 미완료 과제를 확정했다. 🔴 **미완료 상태의 정본은 이제 `docs/BACKLOG.md` 한 곳이다**(T-001~T-007 · `npm run brief`가 매 착수마다 띄운다) — 여기에도 다른 어디에도 상태를 다시 적지 않는다. 발견 경위는 `docs/HANDOFF.md` HANDOFF-0057.
@@ -198,15 +207,15 @@ GPS 사실 + **경로**(브라우저/셸·원본 승격 여부·실패 사유)�
 
 > 이 절은 **읽는 순서상 첫 번째**다. 나머지는 참조용이고, 이 열 줄은 **행동 지침**이다.
 
-### 첫 여섯 명령 (이 순서를 바꾸지 마라)
+### 첫 다섯 명령 (이 순서를 바꾸지 마라)
 
 ```bash
 npm ci                                  # ⚠️ .env는 만들지 않는다 (§1 「환경 준비」 표를 먼저 읽어라)
 git config core.hooksPath .githooks     # commit-msg 훅 활성 — 안 하면 커밋 타입 규칙이 안 걸린다
 npm run known <증상 낱말...>             # 🔴🔴 **파일을 정하기 전에.** 이 증상을 저장소가 이미 아는가
 npm run brief <고칠 파일들>               # 🔴 코드 한 줄 쓰기 전에. 읽을 문서·형제 목록·그 자리의 과거 실수
-npm run build && npm run harness        # 기준선을 **먼저** 확보한다(내가 깬 것과 원래 빨간 것을 구분하려고)
-npm run gates                           # 편집 루프용(6초). 커밋 전에는 반드시 위의 전체를 다시 돈다
+npm run gates                           # 편집 루프용(6초). 전체가 아니라는 판정문을 그대로 읽는다
+# 릴리스할 때만: 버전 확정 → npm run build → npm run harness/live → merge → deploy
 ```
 
 ### 이 저장소에서 당신이 가장 틀리기 쉬운 일곱 가지
@@ -333,9 +342,9 @@ npm run brief <고칠 파일들>      # ← 이것부터. 어느 문서를 읽�
 
 ```bash
 npm run gates        # 편집 루프 (약 6초 · 정적 + typecheck)
-                     #   🔴 "통과"가 아니다 — 안 잰 것을 스스로 말한다. 커밋 전엔 전체를.
-npm run harness      # 게이트 전부 + 유닛 (Required 전부 통과해야 함)
-npm run build        # tsc --noEmit + vite build
+                     #   🔴 "통과"가 아니다 — 안 잰 것을 스스로 말한다.
+npm run build        # 기능 화면 실측 또는 릴리스 후보 앱 재빌드
+npm run harness      # 🔴 머지·배포할 때만, build 다음 전체 검사
 npm run live         # 헤드리스 브라우저 검사 **2종** (build 먼저!)
                      #   verify-editor-live      — 상호작용(슬라이더·브러시·픽셀 read-back)
                      #   verify-diagnostics-live — 전달(사용자에게 가는 문장·자리·버튼)
@@ -772,7 +781,7 @@ npm run brief <파일들>                        # 착수 브리핑
 | `ui/toast.ts` `readMs()` | 토스트 체류시간이 **문장 길이를 따라간다**(5~12초). 길든 짧든 5초라 긴 안내가 다 읽히기 전에 사라졌다(M-0055) |
 | `momentHasPlace()` (tripDetail) | 🔴 **이미 저장된 `0,0`은 화면에서 장소로 치지 않는다**(M-0057). **지우지는 않는다**(§0) — 일반형: *자료계층이 못 막은 쓰레기는 화면계층이 한 번 더 막는다* |
 | `scripts/gen-adapters.mjs` + `check-adapter-parity` + `check-doc-governance` | §14의 2·3층. 공통 계약은 `docs/CONSTITUTION.md` **정본 하나** |
-| `npm run gates`(빠른 차선 6초) | 판정문이 *"재본 N개 통과 · **M개는 아예 안 쟀습니다**"*라고 **안 잰 것의 이름을 나열한다.** 커밋 전에는 반드시 전체 |
+| `npm run gates`(빠른 차선 6초) | 판정문이 *"재본 N개 통과 · **M개는 아예 안 쟀습니다**"*라고 **안 잰 것의 이름을 나열한다. 전체는 릴리스 후보에서만** |
 | `services/sync.ts` **`reconcileMissingBytes`** | read-back 규율이 **행에만** 있고 **바이트(R2)에는 없었다**(§7 비대칭). 하루 한 번 + 수동 동기화 때 항상. **올리기만 하고 지우지 않는다** |
 | `verify-diagnostics-live`(22건) · `check-live-coverage` | §10 ③(전달 결함)의 기계 층 + 「이 화면은 누가 눈으로 보나」 |
 
@@ -786,7 +795,7 @@ npm run brief <파일들>                        # 착수 브리핑
 # "커밋된 것"과 "작업트리"의 차이가 드러난다(그게 CI가 잡는 부류다).
 git clone --branch <브랜치> <작업폴더> /tmp/ciclone && cd /tmp/ciclone
 # ⚠️ .env를 만들지 않는다 — CI와 같은 상태여야 한다(위 「환경 준비」의 표 참조)
-npm ci && npm run harness && npm run build
+npm ci && npm run build && npm run harness
 node scripts/verify-editor-live.mjs
 # 커밋 누락 확인 — 출력이 비어야 한다
 diff -rq --exclude=.git --exclude=node_modules --exclude=dist --exclude=.env <작업폴더> .
@@ -1017,7 +1026,7 @@ rollback;                          -- 프로덕션 무변경
 
 ### 변경 후 의무 (빠뜨리면 게이트가 잡는다)
 
-- `src/app/changelog.ts`에 **+0.01** 버전 추가(사용자가 읽는 문장으로)
+- `src/app/changelog.ts` **+0.01은 릴리스로 자를 때 한 번만** 추가(사용자가 읽는 문장으로)
 - `node scripts/gen-registry.mjs` — 카운트 마커 재생성(손편집 금지)
 - `docs/HANDOFF.md`에 인계 기록 · 새 교훈은 **해당 스킬 문서에 행 추가**
 - 중요한 결정은 `docs/DECISIONS.md`(ADR) — **일어나지 않은 승인을 기록하지 않는다**
@@ -1160,9 +1169,9 @@ git merge-base --is-ancestor origin/main HEAD || {
 ### 세션 마무리 체크리스트 (내가 매번 지나간 순서 — 그대로 쓰면 된다)
 
 ```
-□ npm run build && npm run harness      → 「건너뛴 것 없음」 문장을 눈으로 확인
+□ [릴리스할 때만] npm run build && npm run harness → 「건너뛴 것 없음」을 확인하고 바로 merge·deploy
 □ 화면을 바꿨으면 열어서 보고, 버튼을 만들었으면 눌러 봄(§13). 못 했으면 그렇게 적는다
-□ src/app/changelog.ts +0.01 (사용자가 읽는 문장으로)
+□ [릴리스할 때만] src/app/changelog.ts +0.01 (모아 둔 변경을 사용자 언어로)
 □ node scripts/gen-registry.mjs         → 카운트 마커 재생성
 □ docs/HANDOFF.md에 HANDOFF-#### 추가 · 새 교훈은 해당 스킬 문서에 행 추가
 □ 재발·체크포인트 통과 실수는 docs/records/coding-mistakes.md에 같은 커밋으로

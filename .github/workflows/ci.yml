@@ -6,10 +6,11 @@ name: CI
 # `check-ci-policy`가 둘의 드리프트를 RED로 잡는다.
 #
 #  ① 작업 중(Draft PR) → **빠른 차선만**(`fast-gates`). 전체가 아니므로 **병합 근거가 아니다.**
-#  ② Ready 전환 → 그 커밋에서 **전체 Required 1회**(`harness` + `live-render`).
+#  ② Ready 전환(=머지·배포할 릴리스 후보) → **build 뒤** 전체 Required 1회
+#     (`harness` + `live-render`). 문서·기능을 모으는 동안에는 Ready로 바꾸지 않는다.
 #  ③ 새 커밋 → 낡은 실행 자동 취소(아래 concurrency). 옛 커밋의 결과는 의미가 없다.
-#  ④ 병합 후 main → **이 워크플로는 돌지 않는다.** `deploy-pages.yml`의 build job이
-#     같은 harness를 돌리므로 중복이었다(변경 1건당 harness 3회 → 1.5회).
+#  ④ 병합 후 main → **이 워크플로와 harness는 다시 돌지 않는다.** deploy-pages는
+#     배포 산출물 생성·시크릿 검사·배포만 한다. 하네스→머지→배포를 한 릴리스 묶음으로 본다.
 #  ⑤ 실패 후 코드가 바뀌면 → `synchronize`가 새 커밋으로 다시 돈다(③의 따름정리).
 #
 # 🔴 왜 `push`가 아니라 `pull_request`인가: **draft 여부는 PR의 성질이라 push 이벤트가 모른다.**
@@ -63,10 +64,11 @@ jobs:
           node-version-file: '.nvmrc'
           cache: 'npm'
       - run: npm ci
-      - name: Harness (Required gates)
-        run: npm run harness
       - name: Build
         run: npm run build
+      # 사용자 결정 2026-08-04: 릴리스 후보 앱을 먼저 재빌드하고 그 산출물 기준으로 하네스.
+      - name: Harness (Required gates)
+        run: npm run harness
 
   # 라이브 렌더 — **이 앱에서 유일하게 도는 런타임 검출층**(CLAUDE.md §10).
   #
@@ -79,10 +81,9 @@ jobs:
   # 정의"에 적혀 있었지만 구조(2층)가 없었고, 직전 세션의 M-0037이 정확히 이 검사에서 났다.
   # 여기서 도는 순간 "다음 사람이 이 규칙을 몰라도 지켜지는가?"의 답이 예가 된다(§7).
   #
-  # 🔴 배포(deploy-pages)에는 걸지 않는다 — 그리고 ④ 이후 **라이브 층은 main에서 안 돈다.**
-  # 정직하게 적어 둔다: 병합 결과 트리는 `deploy-pages`의 harness(정적+유닛)로 재검되지만
-  # **라이브 층은 PR 머리에서 잰 것을 신뢰한다.** base가 움직여 squash 트리가 PR 머리와
-  # 달라지는 좁은 창이 있고, 그 창에서 라이브 회귀는 배포 후 실기기가 첫 검출자다.
+  # 🔴 배포(deploy-pages)에는 걸지 않는다 — 그리고 ④ 이후 **전체 검사는 main에서 안 돈다.**
+  # 정직하게 적어 둔다: harness·라이브 모두 PR 머리에서 잰 것을 신뢰한다. base가 움직여
+  # squash 트리가 PR 머리와 달라지는 좁은 창의 회귀는 배포 후 실기기가 첫 검출자다.
   # (배포 경로에 브라우저 설치를 끼우면 배포 지연·실패 표면이 넓어져 그쪽이 더 비싸다.)
   live-render:
     if: ${{ github.event.pull_request.draft == false }}

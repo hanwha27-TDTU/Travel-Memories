@@ -270,7 +270,9 @@ WebSocket `close` · `AbortController`로 취소한 fetch(**`AbortError`를 네�
 
 ## 4. 검증 레시피
 
-자동층: `npm run typecheck` · `npm run harness`(**`check-csp`** 포함 — 새 외부 호스트를 쓰면 `index.html`과 게이트의 `REQUIRED`를 **같은 커밋**에 갱신) · `npm run build`
+작업층: 관련 유닛·`npm run typecheck`·개별 게이트(`check-csp` 포함 — 새 외부 호스트를 쓰면
+`index.html`과 게이트의 `REQUIRED`를 같은 커밋에 갱신)·아래 화면 실측. **전체 harness는
+머지·배포할 릴리스 후보에서만**, `npm run build` 다음에 실행한다(헌법 §15).
 
 라이브 측정(`node scripts/verify-editor-live.mjs` 확장):
 ```js
@@ -302,7 +304,8 @@ const m = await page.evaluate(() => ({
 
 ## 5. 변경 후 의무
 
-- `changelog.ts` +0.01(사용자 언어) · `researchLog.ts` · `docs/HANDOFF.md` · 새 교훈은 **이 문서 §3에 행 추가**
+- 작업 중에는 `researchLog.ts`·`docs/HANDOFF.md`를 기록하고, `changelog.ts` +0.01은 모아 둔
+  기능을 릴리스로 자를 때 한 번만 한다. 새 교훈은 **이 문서 §3에 행 추가**.
 - 새 화면을 추가하면 `app/blueprint.ts` SCREENS에 등록(`check-blueprint`가 파일 실재를 대조)
 - 🔴 **새 화면은 「누가 눈으로 보나」에 답해야 한다** — 라이브 스크립트의 `@live-covers:` 줄에
   추가하거나, `scripts/check-live-coverage.mjs`의 `NO_LIVE_REQUIRED`에 **이유와 함께** 등록한다.

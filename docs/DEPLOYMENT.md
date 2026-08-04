@@ -19,13 +19,21 @@ GitHub Pages는 서버 없이 정적 파일만 제공한다. Bugeon Journey는 �
 6. **CORS.** Supabase 프로젝트에 Pages 도메인(`https://<user>.github.io`)을 허용 오리진으로 등록.
 7. **지도 타일.** 정적 사이트에서 CDN 타일을 부르므로 제공자 약관·사용량 준수, HTTPS 필수. 제공자는 환경변수로 교체 가능(A-006).
 
-## 배포 파이프라인 (GitHub Actions)
+## 변경 축적과 배포 파이프라인 (GitHub Actions)
 
 ```
-push → GitHub Actions:
-  install → typecheck → harness(Required 게이트) → vite build(base 적용)
-  → 아티팩트 업로드 → Pages 배포
+작업·축적(Draft): 관련 유닛·개별 게이트·typecheck·필요한 화면 실측
+  → 문서 단독 변경과 비긴급 기능은 여기서 기다린다
+
+릴리스 결정(Ready): 버전·CHANGELOG 확정 → 앱 build → harness + live-render
+  → 같은 커밋 머지 → main 배포 산출물 build(base·운영 변수 적용)
+  → 시크릿 검사 → 아티팩트 업로드 → Pages 배포
 ```
+- **전체 하네스는 릴리스할 때만** 실행한다. 하네스·머지·배포는 한 묶음이며, main 배포에서
+  하네스를 다시 반복하지 않는다(`check-ci-policy`가 순서와 중복을 검사).
+- **문서 개정만으로 앱 버전·build·harness·merge·deploy를 일으키지 않는다.** 다음 기능 릴리스에
+  묶는다. 기능도 기본은 모아서 배포하고, 데이터 유실·보안 노출·핵심 흐름 차단·호환성 파손처럼
+  기다리는 비용이 더 큰 경우만 단독 긴급 릴리스한다(헌법 §15).
 - **완료 = 병합이 아니라 배포 그린 확인**(AGENTS.md). Actions가 배포 성공을 보고한 뒤에만 완료 처리.
 - `check-secret-leak`가 빌드 아티팩트를 스캔해 시크릿 유출 없음을 확인한 뒤 배포.
 - 클라이언트 설정(`VITE_SUPABASE_URL`·`VITE_SUPABASE_PUBLISHABLE_KEY`·`VITE_MAP_STYLE_URL`)은
@@ -38,7 +46,7 @@ push → GitHub Actions:
 
 1. **Settings → Pages → Build and deployment → Source = "GitHub Actions"** 로 설정한다. 이 설정 없이는 `deploy-pages.yml`이 실패한다.
 2. (Supabase 프로비저닝 후) **Settings → Secrets and variables → Actions → Variables**에 `VITE_SUPABASE_URL`·`VITE_SUPABASE_PUBLISHABLE_KEY` 등록. 그 전까지는 로컬 전용 모드로 배포된다.
-3. `deploy-pages.yml`은 **`main` push에만 발동**한다 — 작업 브랜치가 main에 병합되기 전에는 어떤 배포도 일어나지 않으며, "배포 그린"은 병합 후에만 확인할 수 있다.
+3. `deploy-pages.yml`은 **`main` push에만 발동**한다 — 작업 브랜치가 main에 병합되기 전에는 어떤 배포도 일어나지 않으며, "배포 그린"은 병합 후에만 확인할 수 있다. 이 워크플로는 배포 산출물 build·시크릿 검사·업로드만 하고 전체 하네스는 Ready PR에서 이미 끝낸다.
 
 ## 보안 헤더 · 롤백 (S-05 결정)
 
