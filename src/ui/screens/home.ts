@@ -45,6 +45,7 @@ import {
   matchesPeriod,
   monthLabel,
   periodLabel,
+  sortTripsNewestFirst,
   type PeriodSel,
   type TimeTree,
 } from '../../domain/trip/timeTree';
@@ -347,7 +348,8 @@ function buildPeriodUi(): PeriodUi {
         onChange();
       });
       summary.textContent = `🗓️ 기간: ${periodLabel(sel)}`;
-      const shown = items.filter((t) => matchesPeriod(t, sel));
+      // 전체·기간 필터 모두 같은 탐색 규칙을 쓴다: 시작일 최신순, 기간 미정은 맨 뒤.
+      const shown = sortTripsNewestFirst(items.filter((t) => matchesPeriod(t, sel)));
       const isAll = !sel.year && !sel.undated;
       filterNow.hidden = isAll; // 전체(정상)는 침묵 — 필터가 걸렸을 때만 말한다.
       if (!isAll) {

@@ -2285,6 +2285,15 @@ if (!treeWide.exists) {
     datedCardPeriods.some((t) => t === '2026-07-10 (금) ~ 2026-07-11 (토)') &&
       datedCardPeriods.some((t) => t === '2026-08-10 (월) ~ 2026-08-11 (화)'),
     datedCardPeriods.filter((t) => t.includes('2026-')).join(' | '));
+  const treeFixtureOrder = await page.$$eval('.trip-title', (nodes) => nodes.map((n) => n.textContent ?? ''));
+  const julyIndex = treeFixtureOrder.indexOf('라이브 검사 7월');
+  const augustIndex = treeFixtureOrder.indexOf('라이브 검사 8월');
+  check('홈 전체기간: 입력 순서와 무관하게 여행 시작일 최신순',
+    julyIndex >= 0 && augustIndex >= 0 && augustIndex < julyIndex,
+    `8월=${augustIndex} 7월=${julyIndex}`);
+  if (process.env.HOME_CARD_SCREENSHOT) {
+    await page.screenshot({ path: resolve(process.env.HOME_CARD_SCREENSHOT), fullPage: false });
+  }
   // 🔴 개수가 **한 열로** 선다(사용자 지적 2026-08-03). 들여쓴 월 항목을 margin으로 밀면
   // 버튼 오른쪽 끝이 함께 밀려 숫자 열이 어긋난다 — 오른쪽 경계를 실측해서 잡는다.
   const countCol = await page.evaluate(() => {

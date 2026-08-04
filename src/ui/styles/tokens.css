@@ -36,6 +36,11 @@
 
   /* ===== 계절 강조색 (기본 = 여름) ===== */
   --a1: #f0836c; --a1d: #d96650; --a2: #37b0a6; --a3: #f2c25c;
+  /* 홈 여행 카드는 계절색을 한꺼번에 경쟁시키지 않고, 공통 저채도 바탕에 한 색만 섞는다. */
+  --trip-cover-base: #475052;
+  --trip-cover-1: color-mix(in srgb, var(--a1) 32%, var(--trip-cover-base));
+  --trip-cover-2: color-mix(in srgb, var(--a2) 28%, var(--trip-cover-base));
+  --trip-cover-3: color-mix(in srgb, var(--a3) 24%, var(--trip-cover-base));
 
   /* ===== 스케일 ===== */
   --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px;
@@ -73,6 +78,7 @@
     --shadow-float: 0 18px 44px -24px rgba(0, 0, 0, .6);
     --color-on-accent: #0d1120;
     --sem-teal-ink: #6fd8cb; --sem-sky-ink: #86bdf0; --sem-pink-ink: #f39ab8;
+    --trip-cover-base: #282e3b;
   }
 }
 :root[data-theme="light"] {
@@ -81,6 +87,7 @@
   --shadow-card: 0 14px 30px -24px rgba(35, 37, 56, .45);
   --shadow-float: 0 18px 44px -24px rgba(60, 50, 70, .40);
   --color-on-accent: #ffffff;
+  --trip-cover-base: #475052;
 }
 :root[data-theme="dark"] {
   --bg: #111220; --bg-2: #181a2b; --surface: #1a1c2d; --ink: #eef0ff; --ink-soft: #a9adc6; --line: #2b2940;
@@ -88,6 +95,7 @@
   --shadow-card: 0 14px 30px -24px rgba(0, 0, 0, .55);
   --shadow-float: 0 18px 44px -24px rgba(0, 0, 0, .6);
   --color-on-accent: #0d1120;
+  --trip-cover-base: #282e3b;
 }
 
 * { box-sizing: border-box; }

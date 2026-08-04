@@ -4,6 +4,20 @@
 
 ---
 
+## HANDOFF-0080 · v1.74 · **릴리스 후보 — 홈 최신순·저채도 카드·UI 스킬 승격** (2026-08-04)
+
+- **릴리스 범위**: HANDOFF-0079의 여행 시작일 최신순 정렬과 저채도 카드 팔레트, 정렬 유닛·실제 Chromium 회귀, 연구기록과 UI 스킬 업데이트를 하나의 사용자 경험 릴리스로 묶는다.
+- **스킬 승격**: 저장소/입력 순서를 화면 계약으로 쓰지 않기, 필터 형제의 공용 정렬, 입력순서와 기대순서를 반대로 만든 픽스처, 반복 카드의 공통 저채도 토큰과 전체 변형 캡처를 `.claude/skills/ui-responsive-dev/SKILL.md`에 추가했다.
+- **완료 계약**: v1.74 최종 파일 상태에서 `build → 전체 harness/live → 명시적 stage·commit → push → Ready PR required checks → merge → Pages deploy → 공개 version.json 1.74 read-back` 순서를 모두 만족해야 배포 완료다.
+
+## HANDOFF-0079 · **릴리스 대기 — 홈 최신 여행 우선·저채도 카드 팔레트** (2026-08-04)
+
+- **사용자 지적**: 전체기간 목록이 입력순서로 보여 오래된 여행과 새 여행이 뒤섞이고, 카드마다 강한 주황·청록·노랑 그라데이션이 반복되어 제목보다 배경이 먼저 보였다.
+- **정렬 계약**: `sortTripsNewestFirst`가 여행 시작일 내림차순으로 새 배열을 만들며 기간 미정·잘못된 날짜는 맨 뒤, 같은 날짜는 기존 순서를 유지한다. 전체뿐 아니라 연·월 필터와 보관 목록도 같은 탐색 규칙을 공유한다.
+- **색상 결정**: 카드 세 변형은 두 계절색을 교차하지 않는다. `--trip-cover-base` 공통 중성 바탕에 계절색 하나만 24~32% 섞고 라이트·다크 바탕을 토큰으로 분리해, 계절감은 남기되 카드끼리 경쟁하지 않게 했다.
+- **회귀·현실 확인**: 정렬 유닛은 구현 전 `sortTripsNewestFirst is not a function` RED를 재현했고 구현 후 12/12 PASS. 실제 Chromium에서 전체기간의 8월 카드가 7월 카드보다 앞서는지 검사하는 라이브 계약을 추가해 editor live **319/319 PASS**. 1480×920 홈 캡처에서 세 카드의 색상 편차와 제목 대비를 직접 확인했다. build PASS.
+- **릴리스 상태**: 공개·작업 버전은 v1.73 그대로다. 전체 harness·commit·push·merge·deploy는 실행하지 않았으며 다음 명시적 기능 릴리스 묶음을 기다린다.
+
 ## HANDOFF-0078 · v1.73 · **릴리스 후보 — 한 장 사진 새 순간·폼 버튼 체계화** (2026-08-04)
 
 - **릴리스 범위**: HANDOFF-0076의 Windows 빈 타임라인 단일 사진 새 순간 작성과 HANDOFF-0077의 폼 보조 버튼 밀도·배열 체계화, 그리고 공용 드롭 판정·라이브 회귀·기록을 하나의 사진 입력 경험 릴리스로 묶는다. 무관한 작업 트리 변경은 없다.
@@ -87,7 +101,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.73<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->173<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->87<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.74<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->174<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->89<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

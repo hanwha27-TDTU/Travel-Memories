@@ -75,6 +75,22 @@ export function matchesPeriod(t: { startDate?: string | null }, sel: PeriodSel):
   return !sel.month || ym.month === sel.month;
 }
 
+/**
+ * 여행 목록을 시작일 최신순으로 복사해 돌려준다.
+ * 날짜가 없거나 형식이 잘못된 항목은 뒤로 보내고, 같은 날짜끼리는 입력 순서를 보존한다.
+ */
+export function sortTripsNewestFirst<T extends { startDate?: string | null }>(trips: ReadonlyArray<T>): T[] {
+  return trips
+    .map((trip, index) => ({ trip, index, dated: tripYearMonth(trip.startDate) !== null }))
+    .sort((a, b) => {
+      if (a.dated !== b.dated) return a.dated ? -1 : 1;
+      if (!a.dated || !b.dated) return a.index - b.index;
+      const byDate = (b.trip.startDate ?? '').localeCompare(a.trip.startDate ?? '');
+      return byDate || a.index - b.index;
+    })
+    .map(({ trip }) => trip);
+}
+
 /** 현재 선택을 사용자 문장으로. '전체'는 화면이 침묵하는 근거로 쓴다(그릴지 말지는 화면 몫). */
 export function periodLabel(sel: PeriodSel): string {
   if (sel.undated) return '기간 미정';
