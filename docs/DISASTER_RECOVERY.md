@@ -55,6 +55,7 @@
 - **merge 유닛(version 기반 tombstone 우위)** — 오래된 ③ 백업을 복원해도 삭제한 데이터가 되살아나지 않음(좀비 차단). 서버측도 `prevent_zombie_resurrection` 트리거로 동일 규칙.
 - **복원 왕복 드릴(`tests/unit/backupRoundtrip`)** — "백업이 쓴 것 == 복원이 읽는 것"을 매 빌드에서 검증한다. JSON·ZIP 두 형식 모두 export→import 후 전 행·사진 바이트·tombstone·고아·좌표가 그대로인지 대조(비공허 포함). 복원이 "가정"이 아니라 "검증"이 됨(DR 기준 #7).
 - **백업 암호화(`services/backupCrypto`)** — 선택적 암호구절로 백업 전체를 AES-GCM-256 봉투(PBKDF2 210k)로 감쌀 수 있다. 키는 저장하지 않으며(사용자만 보유·분실 시 복원 불가), 파일이 새어도 암호 없이는 평문을 얻지 못한다(DR 기준 #5).
+- **복원 입력 경계** — 브라우저 메모리 고갈을 막기 위해 선택 단계와 서비스 API 양쪽에서 1GiB 초과 파일을 쓰기 전에 거절한다. JSON·ZIP manifest의 `backupVersion`이 현재 판보다 새로우면 앱 업데이트를 요구하고, 여섯 사용자 도메인의 각 행은 `id·createdAt·updatedAt·version·deletedAt` 공통 메타를 검증한 뒤에만 Dexie 병합으로 간다. 옛 v1 백업의 `audio·places` 누락은 빈 배열로 하위호환한다.
 - **DR 감사관(`.claude/agents/disaster-recovery-guardian`)** — 백업/복원/스키마 변경 전·정기 감사를 읽기전용으로 수행(문서만 보고 PASS 금지). 우리의 "정직한 완료" 규율과 동일 결. **최근 실행 결과: HOLD** — 커버리지·독립성·외부바이너리·정직한 경계는 통과, 남은 HOLD 근거는 "실제 사용자 백업의 존재·신선도는 저장소 밖 사실이라 소유자 확인 필요"(설계상 경계). 교정 반영: 아래 신선도 관측화·평문 경고·실기기 복원 드릴.
 - **실기기 복원 드릴(`tests/unit/restoreDrill`)** — `importMergeRows`를 실제 Dexie(fake-indexeddb)로 구워 db 접근층까지 검증(저장·되읽기·blob 바이트 왕복·빈가드·LWW·tombstone 우위). 순수 직렬화 드릴에 더해 "실 DB에도 그대로 되살아남"을 증명.
 - **백업 신선도 관측화(`services/backupMeta`)** — 데이터 관리에 "마지막 백업: N일 전"을 표시하고 오래됨/없음을 부드럽게 권고. 신선도가 "가정"이 아니라 "관측 가능"이 됨(감사관 #3 근거 완화).

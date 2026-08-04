@@ -8,11 +8,8 @@
 
 > 🔴 이 문서는 2026-08-03까지 스캐폴딩 시절("아직 코드 없음")에 멈춰 있었다 — 문서·코드
 > 교차검증에서 발견해 현행화했다. 아래 Phase 절들은 **계획의 역사**로 남기되, 각 절 머리에
-> 현재 상태를 표시한다. 남은 것만 요약하면:
->
-> - **미검증 경계**: 실제 2기기 canonical 게시/소비 왕복 · authenticated R2 왕복(실기기 필요)
-> - **미구현**: hook 기반 강제 규칙(S-09 — `.claude/settings.json` hooks 비어 있음, `check-supabase-sql-safe` 포함)
-> - **Phase 7(AI 확장)**: 미착수(계획대로 MVP 안정화 후)
+> 현재 상태를 표시한다. **미완료 과제와 상태는 `docs/BACKLOG.md`만 정본**이며 이 문서에는
+> 복제하지 않는다. 완료된 검증·구현의 증거도 BACKLOG 완료 아카이브에서 T-번호로 찾는다.
 
 ---
 
@@ -57,13 +54,13 @@ v0.2 S-10에 따라 첫 실행에서 문서와 scaffold가 혼재하지 않도�
 > (역사) Supabase 프로비저닝·migration·pgTAP·실제 사진/동기화/지도 로직은 Phase 1+로 계획했었다.
 
 ## Phase 1 — 인증과 여행 ✅ 출고
-Google OAuth(PKCE)·세션 복구·여행 생성/수정/삭제(tombstone push)·타임라인·소유자 RLS+초대제 공격검사·실연동 다기기 동기화까지 라이브. **남은 것: 실제 2기기 canonical 게시/소비 왕복 검증**(실기기 필요 — HANDOFF_CODEX 「다음 시작점」이 정본).
+Google OAuth(PKCE)·세션 복구·여행 생성/수정/삭제(tombstone push)·타임라인·소유자 RLS+초대제 공격검사·실연동 다기기 동기화까지 라이브. 과제 상태와 실기기 검증 증거의 정본은 `docs/BACKLOG.md`다.
 
 ## Phase 2 — 순간과 타임라인 ✅ 출고
 순간 생성 · 날짜별 타임라인 · 감정·중요기억 · 오프라인 작성 · 재접속 동기화.
 
 ## Phase 3 — 사진 ✅ 출고
-다중 선택 · EXIF 추출 · 방향 보정 · WebP 압축 · 썸네일 · 대기열 업로드 · 실패 재시도 · 중복검사 · EXIF GPS 개인정보 정책(`check-exif-strip-on-share` 게이트 포함). 저장소는 Cloudflare R2(ADR-0024). **남은 것: authenticated R2 왕복 실기기 검증.**
+다중 선택 · EXIF 추출 · 방향 보정 · WebP 압축 · 썸네일 · 대기열 업로드 · 실패 재시도 · 중복검사 · EXIF GPS 개인정보 정책(`check-exif-strip-on-share` 게이트 포함). 저장소는 Cloudflare R2(ADR-0024). 과제 상태와 실기기 검증 증거의 정본은 `docs/BACKLOG.md`다.
 
 ## Phase 4 — 지도와 장소 ✅ 출고
 지도 표시(MapLibre) · 장소 마커 · 장소 1급 도메인(0022~0023) · 수동 수정 · GeoJSON 내보내기.

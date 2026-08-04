@@ -43,8 +43,10 @@ const gates = [
   { name: 'check-secret-leak', cmd: 'node scripts/check-secret-leak.mjs' },
   { name: 'check-hooks-wired', cmd: 'node scripts/check-hooks-wired.mjs' },
   { name: 'check-ci-policy', cmd: 'node scripts/check-ci-policy.mjs' },
+  { name: 'check-workflow-pins', cmd: 'node scripts/check-workflow-pins.mjs' },
   { name: 'check-domain-wiring', cmd: 'node scripts/check-domain-wiring.mjs' },
   { name: 'check-csp', cmd: 'node scripts/check-csp.mjs' },
+  { name: 'check-production-artifacts', cmd: 'node scripts/check-production-artifacts.mjs' },
   { name: 'check-base-consistency', cmd: 'node scripts/check-base-consistency.mjs' },
   { name: 'check-env-wiring', cmd: 'node scripts/check-env-wiring.mjs' },
   { name: 'check-domain-symmetry', cmd: 'node scripts/check-domain-symmetry.mjs' },
@@ -75,6 +77,7 @@ const gates = [
   // 새 `docs/*.md`가 지도에 없거나(실측 25개 중 4개가 그랬다), 새 AI 지시문이 어댑터로
   // 등록되지 않으면 그 도구만 다른 계약을 읽는다(CONSTITUTION 「지시·계약 문서를 바꿀 때」).
   { name: 'check-doc-governance', cmd: 'node scripts/check-doc-governance.mjs' },
+  { name: 'check-current-doc-facts', cmd: 'node scripts/check-current-doc-facts.mjs' },
   { name: 'check-platform-map', cmd: 'node scripts/check-platform-map.mjs' },
   { name: 'check-lazy-screens', cmd: 'node scripts/check-lazy-screens.mjs' },
   { name: 'check-font-subsets', cmd: 'node scripts/check-font-subsets.mjs' },

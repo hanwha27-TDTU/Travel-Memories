@@ -27,11 +27,11 @@ jobs:
   apk:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: '.nvmrc'
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
         with:
           distribution: temurin
           java-version: '21'
@@ -48,7 +48,7 @@ jobs:
           # 🔴 versionCode = run_number(단조증가) — 앱이 새 셸을 감지해 업데이트 배너를 띄우는 근거.
           ./gradlew assembleDebug --no-daemon -PAPP_VERSION_CODE=${{ github.run_number }}
       - name: APK 산출물 업로드
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: bugeon-journey-apk
           path: android-shell/android/app/build/outputs/apk/debug/app-debug.apk

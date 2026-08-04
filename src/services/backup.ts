@@ -32,6 +32,93 @@ export { photoFileBase, stampFromISO } from '../domain/media/naming';
 
 export const BACKUP_APP_TAG = 'bugeon-journey';
 export const BACKUP_VERSION = 1;
+/**
+ * Browser restore reads the selected file into memory and may create a second
+ * buffer while decrypting. Refuse inputs that cannot be handled predictably
+ * before allocating or touching IndexedDB.
+ */
+export const MAX_BACKUP_IMPORT_BYTES = 1024 ** 3; // 1 GiB
+
+function assertSupportedBackupVersion(value: unknown): asserts value is number {
+  if (!Number.isInteger(value) || (value as number) < 1) {
+    throw new Error('백업 버전 정보가 올바르지 않습니다.');
+  }
+  if ((value as number) > BACKUP_VERSION) {
+    throw new Error(`이 백업은 더 새로운 앱 형식(v${String(value)})입니다. 앱을 업데이트한 뒤 다시 시도해 주세요.`);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function assertSyncRow(value: unknown, domain: string, index: number): asserts value is SyncMeta & { id: string } {
+  if (!isRecord(value)) throw new Error(`${domain} ${index + 1}번째 항목이 올바른 객체가 아닙니다.`);
+  const label = `${domain} ${index + 1}번째 항목`;
+  if (typeof value.id !== 'string' || value.id.trim() === '') throw new Error(`${label}의 id가 올바르지 않습니다.`);
+  for (const field of ['createdAt', 'updatedAt'] as const) {
+    if (typeof value[field] !== 'string' || !Number.isFinite(Date.parse(value[field] as string))) {
+      throw new Error(`${label}의 ${field} 시각이 올바르지 않습니다.`);
+    }
+  }
+  if (!Number.isInteger(value.version) || (value.version as number) < 1) throw new Error(`${label}의 version이 올바르지 않습니다.`);
+  if (value.deletedAt !== null && (typeof value.deletedAt !== 'string' || !Number.isFinite(Date.parse(value.deletedAt)))) {
+    throw new Error(`${label}의 deletedAt 시각이 올바르지 않습니다.`);
+  }
+}
+
+function assertRows(rows: CollectedRows): void {
+  const domains: [string, unknown][] = [
+    ['여행', rows.trips], ['순간', rows.moments], ['사진', rows.media],
+    ['비용', rows.expenses], ['소리', rows.audio], ['장소', rows.places],
+  ];
+  for (const [domain, value] of domains) {
+    if (!Array.isArray(value)) throw new Error(`${domain} 목록이 올바르지 않습니다.`);
+    value.forEach((row, index) => {
+      assertSyncRow(row, domain, index);
+      const record = row as unknown as Record<string, unknown>;
+      const label = `${domain} ${index + 1}번째 항목`;
+      const requireString = (field: string) => {
+        if (typeof record[field] !== 'string') throw new Error(`${label}의 ${field} 값이 올바르지 않습니다.`);
+      };
+      const requireFinite = (field: string) => {
+        if (typeof record[field] !== 'number' || !Number.isFinite(record[field])) throw new Error(`${label}의 ${field} 값이 올바르지 않습니다.`);
+      };
+      if (domain === '여행') {
+        ['title', 'startDate', 'endDate', 'status'].forEach(requireString);
+      } else if (domain === '순간') {
+        ['tripId', 'occurredAt', 'title', 'note', 'emotion', 'placeName'].forEach(requireString);
+      } else if (domain === '사진') {
+        ['momentId', 'tripId', 'mime', 'takenAt'].forEach(requireString);
+        ['width', 'height', 'bytesOriginal', 'bytesDisplay'].forEach(requireFinite);
+        for (const field of ['originalBlob', 'displayBlob', 'thumbBlob']) {
+          if (!(record[field] instanceof Blob)) throw new Error(`${label}의 ${field} 값이 올바르지 않습니다.`);
+        }
+      } else if (domain === '비용') {
+        ['momentId', 'tripId', 'originalCurrency', 'category', 'note'].forEach(requireString);
+        requireFinite('originalAmount');
+        if ((record.originalAmount as number) <= 0) throw new Error(`${label}의 originalAmount 값이 올바르지 않습니다.`);
+      } else if (domain === '소리') {
+        ['momentId', 'tripId', 'mime', 'recordedAt'].forEach(requireString);
+        requireFinite('durationSec');
+        if (!(record.blob instanceof Blob)) throw new Error(`${label}의 blob 값이 올바르지 않습니다.`);
+      } else if (domain === '장소') {
+        requireString('name');
+        requireFinite('latitude');
+        requireFinite('longitude');
+        const lat = record.latitude as number;
+        const lng = record.longitude as number;
+        if (lat < -90 || lat > 90 || lng < -180 || lng > 180) throw new Error(`${label}의 좌표가 올바르지 않습니다.`);
+      }
+    });
+  }
+}
+
+export function assertBackupImportSize(bytes: number): void {
+  if (!Number.isFinite(bytes) || bytes < 0 || bytes > MAX_BACKUP_IMPORT_BYTES) {
+    throw new Error('백업 파일이 너무 큽니다. 복원은 1GB 이하 파일만 지원합니다.');
+  }
+}
 
 /** 백업에 담기는 로컬 전 테이블(사용자 데이터). 두 형식이 이 한 곳에서만 읽는다. */
 export interface CollectedRows {
@@ -309,6 +396,7 @@ export async function serializeJson(rows: CollectedRows): Promise<string> {
 
 /** 순수: JSON 문자열 → CollectedRows(미디어 blob 복원). db 접근 없음. */
 export function deserializeJson(text: string): CollectedRows {
+  assertBackupImportSize(text.length);
   let parsed: BackupFile;
   try {
     parsed = JSON.parse(text) as BackupFile;
@@ -318,6 +406,7 @@ export function deserializeJson(text: string): CollectedRows {
   if (!parsed || parsed.app !== BACKUP_APP_TAG || !Array.isArray(parsed.trips)) {
     throw new Error('이 앱의 백업 파일이 아닙니다.');
   }
+  assertSupportedBackupVersion(parsed.backupVersion);
   const mediaExport = Array.isArray(parsed.media) ? parsed.media : [];
   const media: LocalMedia[] = mediaExport.map((me) => {
     const { originalB64, displayB64, thumbB64, ...rest } = me;
@@ -328,7 +417,7 @@ export function deserializeJson(text: string): CollectedRows {
     const { blobB64, ...rest } = a;
     return { ...rest, blob: b64ToBlob(blobB64) };
   });
-  return {
+  const rows: CollectedRows = {
     trips: parsed.trips,
     moments: Array.isArray(parsed.moments) ? parsed.moments : [],
     media,
@@ -337,6 +426,8 @@ export function deserializeJson(text: string): CollectedRows {
     // 옛 백업 파일에는 places가 없다 — 없으면 빈 배열(형식 하위호환).
     places: Array.isArray(parsed.places) ? parsed.places : [],
   };
+  assertRows(rows);
+  return rows;
 }
 
 // ═══════════════════════ 형식 2: 여행별 폴더 ZIP (순수 직렬화) ═══════════════════════
@@ -353,6 +444,8 @@ type MediaMetaEntry = Omit<LocalMedia, 'originalBlob' | 'displayBlob' | 'thumbBl
 };
 
 interface TripBundle {
+  app?: string;
+  backupVersion?: number;
   trip: LocalTrip | null;
   moments: LocalMoment[];
   media: MediaMetaEntry[];
@@ -481,6 +574,7 @@ export async function serializeZip(rows: CollectedRows, includeOriginals = true)
 
 /** 순수: ZIP → CollectedRows(사진 파일에서 blob 재구성). db 접근 없음. */
 export function deserializeZip(buf: ArrayBuffer): CollectedRows {
+  assertBackupImportSize(buf.byteLength);
   const files = unzip(buf);
   const byName = new Map<string, Uint8Array<ArrayBuffer>>(files.map((f) => [f.name, f.data]));
 
@@ -492,7 +586,8 @@ export function deserializeZip(buf: ArrayBuffer): CollectedRows {
   } catch {
     throw new Error('manifest.json을 읽을 수 없습니다.');
   }
-  if (manifest.app !== BACKUP_APP_TAG) throw new Error('이 앱의 백업이 아닙니다.');
+  if (manifest.app !== BACKUP_APP_TAG || manifest.format !== ZIP_FORMAT) throw new Error('이 앱의 백업이 아닙니다.');
+  assertSupportedBackupVersion(manifest.backupVersion);
 
   const dec = new TextDecoder();
   const trips: LocalTrip[] = [];
@@ -505,12 +600,14 @@ export function deserializeZip(buf: ArrayBuffer): CollectedRows {
   const places: LocalPlace[] = (() => {
     const raw = byName.get(PLACES_JSON);
     if (!raw) return [];
+    let parsed: { app?: unknown; places?: unknown };
     try {
-      const parsed = JSON.parse(dec.decode(raw)) as { places?: LocalPlace[] };
-      return Array.isArray(parsed.places) ? parsed.places : [];
+      parsed = JSON.parse(dec.decode(raw)) as { app?: unknown; places?: unknown };
     } catch {
-      return []; // 깨진 조각 하나가 나머지 복원을 막지 않는다
+      throw new Error(`${PLACES_JSON}을 읽을 수 없습니다(손상).`);
     }
+    if (parsed.app !== BACKUP_APP_TAG || !Array.isArray(parsed.places)) throw new Error(`${PLACES_JSON} 형식이 올바르지 않습니다.`);
+    return parsed.places as LocalPlace[];
   })();
 
   for (const f of files) {
@@ -524,6 +621,11 @@ export function deserializeZip(buf: ArrayBuffer): CollectedRows {
       bundle = JSON.parse(dec.decode(f.data)) as TripBundle;
     } catch {
       throw new Error(`${f.name}을 읽을 수 없습니다(손상).`);
+    }
+    if (bundle.app !== BACKUP_APP_TAG) throw new Error(`${f.name}은 이 앱의 백업 조각이 아닙니다.`);
+    assertSupportedBackupVersion(bundle.backupVersion);
+    if (!Array.isArray(bundle.moments) || !Array.isArray(bundle.media) || !Array.isArray(bundle.expenses)) {
+      throw new Error(`${f.name}의 목록 형식이 올바르지 않습니다.`);
     }
 
     if (bundle.trip) trips.push(bundle.trip);
@@ -549,7 +651,9 @@ export function deserializeZip(buf: ArrayBuffer): CollectedRows {
       media.push({ ...rest, originalBlob, displayBlob, thumbBlob });
     }
   }
-  return { trips, moments, media, expenses, audio, places };
+  const rows = { trips, moments, media, expenses, audio, places };
+  assertRows(rows);
+  return rows;
 }
 
 // ═══════════════════════ 공개 API: db + 직렬화 + (선택)암호화 결합 ═══════════════════════
@@ -596,10 +700,12 @@ export async function importBackupAuto(
   buf: ArrayBuffer,
   passphrase?: string,
 ): Promise<ImportResult & { needsPassphrase?: boolean }> {
+  assertBackupImportSize(buf.byteLength);
   let bytes = new Uint8Array(buf);
   if (isEncryptedEnvelope(bytes)) {
     if (!passphrase) return { trips: 0, moments: 0, media: 0, expenses: 0, audio: 0, places: 0, skippedEmptyGuard: false, unpurged: 0, needsPassphrase: true };
     const plain = await decryptBytes(bytes, passphrase); // 실패 시 throw(암호 틀림)
+    assertBackupImportSize(plain.byteLength);
     bytes = plain;
   }
   const view = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);

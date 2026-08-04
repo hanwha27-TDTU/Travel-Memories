@@ -37,33 +37,35 @@ jobs:
     name: fast-gates (빠른 차선 — 병합 근거 아님)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'
       - run: npm ci
+      - name: Dependency vulnerability audit (high+)
+        run: npm audit --audit-level=high
       - name: Fast gates (typecheck + 정적)
         run: npm run gates
 
   harness:
     # ② Draft에서는 돌지 않는다. Ready 전환(ready_for_review)과 그 뒤의 새 커밋에서만.
     #
-    # 🔴 이 저장소의 `main`에는 **브랜치 보호가 없다**(실측 2026-08-03 `protected:false`).
-    # 그래서 "Required가 pending이라 병합이 막힌다"는 기계적 보장이 **없다** — draft인 채로도
-    # 병합이 가능하다. 그 자리를 막는 것은 헌법 §15의 병합 규칙과 사람/AI의 확인뿐이다.
-    # 보호 규칙을 켜게 되면 skipped를 성공으로 세지 않도록 Required 이름을 함께 점검할 것.
+    # main 보호 규칙이 이 job과 live-render를 Required로 묶는다. Draft에서는 둘 다 skipped이므로
+    # merge 근거가 생기지 않고, Ready 전환 뒤 실제 초록만 병합을 연다.
     if: ${{ github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           # Node 판은 `.nvmrc` 한 곳이 정한다(SSOT). 워크플로에 숫자를 박으면 로컬과 어긋나고,
           # 그 어긋남이 2026-07-26에 게이트를 CI에서만 죽여 배포를 두 번 막았다.
           node-version-file: '.nvmrc'
           cache: 'npm'
       - run: npm ci
+      - name: Dependency vulnerability audit (high+)
+        run: npm audit --audit-level=high
       - name: Build
         run: npm run build
       # 사용자 결정 2026-08-04: 릴리스 후보 앱을 먼저 재빌드하고 그 산출물 기준으로 하네스.
@@ -89,8 +91,8 @@ jobs:
     if: ${{ github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'

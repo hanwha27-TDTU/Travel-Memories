@@ -12,7 +12,7 @@ import {
   CHILD_LABEL,
   type TrashedChild,
 } from '../../services/trash';
-import { exportBackup, exportBackupZip, importBackupAuto, type BackupStats } from '../../services/backup';
+import { assertBackupImportSize, exportBackup, exportBackupZip, importBackupAuto, type BackupStats } from '../../services/backup';
 import { recordBackupNow, getLastBackupAt, backupFreshness } from '../../services/backupMeta';
 import { listDeletedTrips, restoreTripFromTrash, purgeTripPermanently } from '../../services/trips';
 import { requestSync } from '../../services/autoSync';
@@ -241,6 +241,7 @@ function restorePanel(onChanged: () => void): HTMLElement {
     status.textContent = '복원 중…';
     void (async () => {
       try {
+        assertBackupImportSize(file.size);
         const buf = await file.arrayBuffer();
         const r = await importBackupAuto(buf, passInput.value.trim() || undefined);
         if (r.needsPassphrase) {
