@@ -2022,6 +2022,68 @@ check(
 await page.locator('.map-close').click();
 await page.waitForTimeout(200);
 
+// ── v1.68 이후: 감정 선택 확장 + 여행 기간 요일 ─────────────────────────────
+// 계약: 생성·편집이 공유하는 감정 줄은 10종을 모두 제공하고, 폰에서도 5×2로 넘침 없이 선다.
+// 여행 기간은 시간대 없는 달력 날짜이므로 시작·종료일 각각의 요일을 같은 문장으로 보여 준다.
+// 현재 라이브 여행에 날짜를 직접 넣어 **조건을 스스로 만든다**(§2-J). 이 브라우저 컨텍스트는
+// 검사 전용이고 뒤 흐름도 날짜가 있는 여행에서 그대로 성립하므로 별도 원복은 필요 없다.
+await page.evaluate(async () => {
+  await new Promise((resolve, reject) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const tx = req.result.transaction('localTrips', 'readwrite');
+      const st = tx.objectStore('localTrips');
+      const cursorReq = st.openCursor();
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result;
+        if (!cursor) return;
+        if (cursor.value.title === '편집기 검증 여행') {
+          cursor.update({ ...cursor.value, startDate: '2026-07-20', endDate: '2026-07-31' });
+          return;
+        }
+        cursor.continue();
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+});
+await page.reload();
+await page.waitForSelector('.moment-form .emo-row', { timeout: 15000 }).catch(() => {});
+await page.setViewportSize({ width: 412, height: 915 });
+await page.waitForTimeout(220);
+const memoryFields = await page.evaluate(() => {
+  const row = document.querySelector('.moment-form .emo-row');
+  const buttons = row ? [...row.querySelectorAll('.emo')] : [];
+  const rowRect = row?.getBoundingClientRect();
+  const tops = [...new Set(buttons.map((b) => Math.round(b.getBoundingClientRect().top)))];
+  const lefts = [...new Set(buttons.map((b) => Math.round(b.getBoundingClientRect().left)))];
+  return {
+    count: buttons.length,
+    rows: tops.length,
+    cols: lefts.length,
+    labeled: buttons.filter((b) => Boolean(b.getAttribute('aria-label'))).length,
+    overflow: row && rowRect ? Math.max(0, row.scrollWidth - Math.round(rowRect.width)) : -1,
+    period: document.querySelector('.detail-period')?.textContent ?? '',
+  };
+});
+check('감정 선택: 10종을 접근 가능한 이름과 함께 제공',
+  memoryFields.count === 10 && memoryFields.labeled === 10,
+  `count=${memoryFields.count} labeled=${memoryFields.labeled}`);
+check('감정 선택: 폰에서 5×2 배치 + 가로 넘침 0',
+  memoryFields.rows === 2 && memoryFields.cols === 5 && memoryFields.overflow <= 0,
+  `rows=${memoryFields.rows} cols=${memoryFields.cols} overflow=${memoryFields.overflow}`);
+check('상세 기간: 시작·종료일 각각 요일 표시',
+  memoryFields.period === '2026-07-20 (월) ~ 2026-07-31 (금)', memoryFields.period);
+const emotionButton = page.locator('.moment-form .emo').nth(5);
+await emotionButton.click();
+const emotionOn = await emotionButton.getAttribute('aria-pressed');
+await emotionButton.click();
+const emotionOff = await emotionButton.getAttribute('aria-pressed');
+check('감정 선택: 같은 버튼을 다시 누르면 해제됨', emotionOn === 'true' && emotionOff === 'false',
+  `${emotionOn}→${emotionOff}`);
+
 // ── v0.53: 넓은 화면(태블릿 가로·데스크톱) 레이아웃 ──
 // 문제였던 것: 본문이 780px 고정이라 2000px대 태블릿에서 가운데만 쓰고 양옆이 비었다.
 // 계약: ①어느 폭에서도 가로 넘침 0 ②1100px 이상에서 [기록 폼 | 타임라인] 2단 ③그 미만은 세로.
@@ -2065,8 +2127,9 @@ const noOverlap = await page.evaluate(() => {
 });
 check('히어로: 상태 배지가 뒤로가기 버튼과 안 겹침', noOverlap);
 
-// ── v0.54: 상태 줄이 화면을 과하게 쓰지 않는지 ──
-// 계약: 정상 상태(동기화됨)는 내용 폭만 차지한다 — 전폭 배너 금지.
+// ── v0.54 후속: 상태 줄 위계 + 홈 카드 밀도 ──
+// 계약: 정상 상태(동기화됨)는 내용 폭만 차지하고 헤더 우측 도구 묶음에 선다.
+// 여행 카드는 기억 제목·기간을 잃지 않는 범위에서 높이를 줄여 한 화면에 더 많이 보인다.
 await page.setViewportSize({ width: 1480, height: 920 });
 await page.waitForTimeout(200);
 // `.sync-note`는 홈과 여행 상세 **양쪽에** 있다 — 어디를 보고 있는지 명시하지 않으면
@@ -2077,10 +2140,23 @@ const noteBox = await page.evaluate(() => {
   const n = document.querySelector('.sync-note');
   if (!n) return null;
   const r = n.getBoundingClientRect();
-  return { w: Math.round(r.width), vw: window.innerWidth, cls: n.className };
+  const header = document.querySelector('.app-head-top')?.getBoundingClientRect();
+  const card = document.querySelector('.trip-card')?.getBoundingClientRect();
+  return {
+    w: Math.round(r.width), vw: window.innerWidth, cls: n.className,
+    inHeadTools: Boolean(n.closest('.app-head-tools')),
+    inHeaderRightHalf: Boolean(header && r.left >= header.left + header.width * 0.45),
+    cardH: card ? Math.round(card.height) : null,
+  };
 });
-check('상태 줄: 전폭 배너가 아님(내용 폭만)', !noteBox || noteBox.w < noteBox.vw * 0.5,
+check('홈 밀도: 상태·여행 카드 측정 대상 확보', Boolean(noteBox && noteBox.cardH !== null),
+  noteBox ? `cardH=${noteBox.cardH}` : 'status 없음');
+check('상태 줄: 전폭 배너가 아님(내용 폭만)', Boolean(noteBox && noteBox.w < noteBox.vw * 0.5),
   noteBox ? `${noteBox.w}px / ${noteBox.vw}px` : 'none');
+check('상태 줄: 헤더 우측 도구 묶음에 배치', Boolean(noteBox?.inHeadTools && noteBox.inHeaderRightHalf),
+  noteBox ? `tools=${noteBox.inHeadTools} right=${noteBox.inHeaderRightHalf}` : 'none');
+check('홈 카드: 높이 136px 이하로 축약', Boolean(noteBox?.cardH && noteBox.cardH <= 136),
+  noteBox ? `height=${noteBox.cardH}px` : 'none');
 
 // ── v1.66: 홈 기간 트리(연도▸월) — 2단 레이아웃 + 필터가 실제로 도는가 ──────────
 // 계약: ①≥1100px에서 [트리 | 목록] 2단, 트리는 펼침·summary 숨김 ②그 미만은 1단, 접힌
@@ -2145,6 +2221,11 @@ if (!treeWide.exists) {
     treeWide.open && !treeWide.summaryShown, `open=${treeWide.open} summary=${treeWide.summaryShown}`);
   // 픽스처가 연 1 + 월 2를 만들었으므로 최소 4(전체 포함). 이보다 적으면 픽스처가 안 먹은 것이다.
   check('홈 트리: 항목이 그려짐(전체 + 연 + 월 2)', treeWide.buttons >= 4, `buttons=${treeWide.buttons}`);
+  const datedCardPeriods = await page.$$eval('.trip-meta', (nodes) => nodes.map((n) => n.textContent ?? ''));
+  check('홈 카드 기간: 날짜가 있는 카드에 시작·종료 요일 표시',
+    datedCardPeriods.some((t) => t === '2026-07-10 (금) ~ 2026-07-11 (토)') &&
+      datedCardPeriods.some((t) => t === '2026-08-10 (월) ~ 2026-08-11 (화)'),
+    datedCardPeriods.filter((t) => t.includes('2026-')).join(' | '));
   // 🔴 개수가 **한 열로** 선다(사용자 지적 2026-08-03). 들여쓴 월 항목을 margin으로 밀면
   // 버튼 오른쪽 끝이 함께 밀려 숫자 열이 어긋난다 — 오른쪽 경계를 실측해서 잡는다.
   const countCol = await page.evaluate(() => {

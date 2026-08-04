@@ -1068,6 +1068,7 @@ import {
   zonesForCountry,
   deviceZone,
   zoneMatches,
+  formatTripPeriod,
   type TripClock,
 } from '../../domain/time';
 import { homeZone, setHomeZone } from '../../services/homeZone';
@@ -1118,7 +1119,18 @@ async function trySync(): Promise<void> {
   await requestSync('저장/변경');
 }
 
-const EMOTIONS = ['😍', '😌', '🥹', '😆', '🤔'] as const;
+const EMOTIONS = [
+  ['😍', '사랑스러워요'],
+  ['🥰', '설레요'],
+  ['😌', '평온해요'],
+  ['🥹', '뭉클해요'],
+  ['😆', '즐거워요'],
+  ['😂', '많이 웃었어요'],
+  ['😮', '놀라워요'],
+  ['🤔', '생각이 많아요'],
+  ['😢', '슬퍼요'],
+  ['😴', '피곤해요'],
+] as const;
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
 /** id → 안정적 커버 인덱스(0..2). */
@@ -1251,9 +1263,11 @@ function buildEmotionRow(initial: string): { el: HTMLElement; value(): string; r
   const sync = (): void => {
     for (const [key, btn] of buttons) btn.setAttribute('aria-pressed', String(key === picked));
   };
-  for (const e of EMOTIONS) {
+  for (const [e, label] of EMOTIONS) {
     const b = el('button', 'emo', e) as HTMLButtonElement;
     b.type = 'button';
+    b.setAttribute('aria-label', label);
+    b.title = label;
     b.addEventListener('click', () => {
       picked = picked === e ? '' : e;
       sync();
@@ -1452,9 +1466,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     mapBtn.addEventListener('click', () => void openMapView(trip!.title, locatedPoints));
 
     const heroInfo = el('div', 'detail-hero-info');
-    const period = trip.startDate
-      ? `${trip.startDate}${trip.endDate ? ` ~ ${trip.endDate}` : ''}`
-      : '기간 미정';
+    const period = formatTripPeriod(trip.startDate, trip.endDate);
     const badge = el('span', 'detail-badge', STATUS_LABELS[trip.status]);
     heroInfo.appendChild(badge);
     heroInfo.appendChild(el('h1', 'detail-title', trip.title));

@@ -4,11 +4,33 @@
 
 ---
 
+## HANDOFF-0070 · v1.69 · **릴리스 후보 — 축적 변경 전체를 한 묶음으로 배포** (2026-08-04)
+
+- **범위 확정**: 사용자가 저장소의 현재 변경을 모두 배포하도록 결정했다. 홈 카드 축약·동기화 상태 상단 이동·감정 10종·여행 기간 요일과 릴리스 정책/게이트/CI/문서 변경을 v1.69 하나로 묶었다. 별도 소유자의 무관한 변경은 없다.
+- **사용자 변화**: 홈에서 더 많은 여행을 보고, 동기화 상태를 동기화 버튼 가까이에서 확인한다. 순간 감정은 접근 가능한 10종 5×2 선택판이며, 홈·상세 기간 양쪽에 요일이 표시된다.
+- **릴리스 계약**: 이 커밋의 최종 파일 상태에서 `build → 전체 harness/live → Ready PR 초록 → merge → Pages deploy → version.json v1.69 read-back` 순서로 완료를 판정한다. 실행 결과와 PR·배포 주소는 저장소 밖의 GitHub 실행 기록과 최종 사용자 보고가 증거다.
+
+## HANDOFF-0069 · **릴리스 대기 — 감정 10종·여행 기간 요일 표시** (2026-08-04)
+
+- **사용자 제안**: 순간 감정 이모지를 더 다양하게 고르고, 여행 기간의 시작일·종료일에 요일도 함께 보이게 한다.
+- **UI 구현**: 감정을 5종에서 10종으로 늘리고 5열×2행으로 배치했다. 각 버튼에 한국어 `aria-label`·`title`을 붙였으며, 기존 단일 선택과 같은 감정 재클릭 해제 동작은 유지했다. 여행 기간은 홈 활성·보관 카드와 상세 헤더 모두 `YYYY-MM-DD (요일) ~ YYYY-MM-DD (요일)` 형식을 공유한다.
+- **시간 계약**: `domain/time.ts`의 공용 `formatCalendarDate`·`formatTripPeriod`가 날짜 전용 값을 UTC 기준으로 계산해 서쪽 시간대에서도 요일이 전날로 밀리지 않는다. 잘못된 날짜에는 요일을 추측해 붙이지 않는다.
+- **검증**: 관련 유닛 **11/11 PASS**, build PASS, editor live **307/307 PASS**. 옛 날짜 출력과 한 줄 감정 배치를 주입하면 새 검사 3건이 정확히 RED(**304/307**)였고 원복 후 초록이었다. 실제 Chromium에서 `2026-07-20 (월) ~ 2026-07-31 (금)`과 감정 10개의 5×2 렌더를 눈으로 확인했으며 검증용 여행은 삭제했다.
+- **릴리스 상태**: **v1.68 유지·릴리스 대기**. 새 묶음 규칙에 따라 전체 harness·merge·deploy는 실행하지 않았다.
+
+## HANDOFF-0068 · **릴리스 대기 — 홈 카드 축약·동기화 상태 상단 이동·릴리스 묶음 규칙** (2026-08-04)
+
+- **사용자 결정**: 홈 여행 카드 높이를 줄이고 `동기화됨` 상태를 우측 상단(헤더의 동기화 컨트롤 근처)으로 옮긴다. 문서 단독 변경은 앱 버전·재빌드·하네스·머지·배포로 보내지 않고, 기능도 긴급하지 않으면 모아서 배포한다. 전체 하네스는 `앱 build → harness/live → merge → deploy` 릴리스 묶음에서만 실행한다.
+- **UI 구현**: 활성·보관 카드가 공유하는 `.trip-card`를 156px→132px로 축약했다. `sync-note`는 본문 맨 아래에서 `.app-head-tools`로 이동해 계정·동기화 버튼 줄 바로 아래 우측에 선다. 상태 판정·문장·`role=status`·actionable 동작은 바꾸지 않았다. 처음에는 상태와 계정을 가로로 놓아 900px에서 계정 줄이 밀렸고 기존 라이브가 RED를 냈다. 세로 묶음(계정 먼저·상태 아래)으로 고쳐 같은 줄 계약도 보존했다.
+- **계약/CI 구현**: 헌법 §15와 `DEPLOYMENT.md`, 두 작업 스킬·Codex 인계서를 새 정책으로 맞췄다. Ready PR의 harness job을 **build→harness** 순서로 바꾸고, main 배포에서는 중복 harness를 제거했다. `check-ci-policy`는 역순과 deploy 중복을 각각 주입해 RED가 되어야 한다.
+- **비공허·검증**: 옛 UI(본문 하단 상태+156px 카드)를 주입하자 editor live가 정확히 새 2건 RED(300/302), 원복 후 **302/302 PASS**. 실측은 카드 132px·상태 192px/1480px·헤더 우측 묶음 true·기존 900px 계정 같은 줄/오른쪽 끝/가로 넘침 0이다. 실제 Chromium 카드 3열·2행 캡처를 열어 긴 제목·배지·삭제·기간 겹침 없음을 봤다. CI는 역순+deploy 중복 주입에 정확히 2 RED, 원복 GREEN. build 성공, 빠른 차선 **42 PASS / 4 미측정**(timezone·unit·editor live·diagnostics live)이며 editor live는 별도로 실실행했다.
+- **릴리스 상태**: 현재 앱 버전은 **v1.68 그대로**다. 새 규칙에 따라 이 변경만으로 버전 증가·전체 하네스·머지·배포를 하지 않고 다음 기능 릴리스에 묶는다. 전체 harness와 diagnostics live는 의도적으로 미실행이다.
+
 ## 🔰 인계 요약 (다음 세션/AI 시작점)
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.68<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->168<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->76<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.69<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->169<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->79<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

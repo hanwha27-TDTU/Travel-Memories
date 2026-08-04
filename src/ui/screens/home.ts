@@ -39,6 +39,7 @@ import {
 } from '../theme';
 import type { Route } from '../../app/router';
 import type { LocalTrip } from '../../offline/db';
+import { formatTripPeriod } from '../../domain/time';
 import {
   buildTimeTree,
   matchesPeriod,
@@ -92,8 +93,7 @@ function tripCard(
   const info = el('div', 'cover-info');
   info.appendChild(el('span', 'trip-badge', STATUS_LABEL[t.status]));
   info.appendChild(el('h3', 'trip-title', t.title));
-  const period = t.startDate ? `${t.startDate}${t.endDate ? ` ~ ${t.endDate}` : ''}` : '기간 미정';
-  info.appendChild(el('p', 'trip-meta', period));
+  info.appendChild(el('p', 'trip-meta', formatTripPeriod(t.startDate, t.endDate)));
   card.appendChild(info);
   return card;
 }
@@ -129,8 +129,7 @@ function archivedCard(
   const info = el('div', 'cover-info');
   info.appendChild(el('span', 'trip-badge', STATUS_LABEL[t.status]));
   info.appendChild(el('h3', 'trip-title', t.title));
-  const period = t.startDate ? `${t.startDate}${t.endDate ? ` ~ ${t.endDate}` : ''}` : '기간 미정';
-  info.appendChild(el('p', 'trip-meta', period));
+  info.appendChild(el('p', 'trip-meta', formatTripPeriod(t.startDate, t.endDate)));
   card.appendChild(info);
   return card;
 }
@@ -179,7 +178,7 @@ function buildControls(): HTMLElement {
  * `authArea`를 **인자로 받는** 이유: 내용은 로그인 상태에 따라 계속 다시 그려지므로
  * 그 껍데기의 소유권은 호출부(`renderAuth`)에 있어야 한다.
  */
-function buildHeader(authArea: HTMLElement, onData: () => void): HTMLElement {
+function buildHeader(authArea: HTMLElement, syncStatus: HTMLElement, onData: () => void): HTMLElement {
   const header = el('header', 'app-header');
 
   // 제목 + 버전 배지(누르면 개발자 정보). 버전은 changelog SSOT의 생성물에서 읽는다.
@@ -196,8 +195,12 @@ function buildHeader(authArea: HTMLElement, onData: () => void): HTMLElement {
   // 계정 줄이 화면 위쪽을 한 줄 더 먹었다. 계정 정보는 **자주 쓰지 않는 것**이라 세로 공간을
   // 그만큼 쓸 이유가 없다 — 제목 옆 빈 자리가 그 자리다.
   // 좁아지면 자연스럽게 줄바꿈되어 오른쪽 정렬로 내려간다(숨기지 않는다).
+  const headTools = el('div', 'app-head-tools');
+  // 계정 줄은 제목과 같은 높이를 지키고, 상태는 바로 아래 우측에 둔다. 둘을 가로로 놓으면
+  // 900px에서도 합산 폭 때문에 계정 전체가 다음 줄로 밀렸다(기존 헤더 라이브 계약 RED).
+  headTools.append(authArea, syncStatus);
   const headTop = el('div', 'app-head-top');
-  headTop.append(titleRow, authArea);
+  headTop.append(titleRow, headTools);
   header.appendChild(headTop);
 
   const controls = buildControls();
@@ -378,13 +381,13 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
 
   const wrap = el('main', 'screen screen-home');
   const authArea = el('div', 'auth-area');
+  const status = el('p', 'sync-note muted');
+  status.setAttribute('role', 'status');
   // onChanged: 복원·휴지통 조작 후 홈 목록·통계를 즉시 갱신(refresh는 아래에서 선언·호이스팅).
-  wrap.appendChild(buildHeader(authArea, () => void openDataManager({ onChanged: () => void refresh() })));
+  wrap.appendChild(buildHeader(authArea, status, () => void openDataManager({ onChanged: () => void refresh() })));
 
   const section = el('section', 'trip-section');
   const list = el('div', 'trip-list');
-  const status = el('p', 'sync-note muted');
-  status.setAttribute('role', 'status');
   // 기간 트리(연도▸월): 넓은 화면에선 왼쪽 고정 칸, 좁은 화면에선 접힌 필터.
   const periodUi = buildPeriodUi();
 
@@ -565,7 +568,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   const main = el('div', 'home-main');
   main.append(viewBar, periodUi.filterNow, list);
   body.append(periodUi.fold, main);
-  section.append(form, body, status);
+  section.append(form, body);
   wrap.appendChild(section);
   mount.appendChild(wrap);
 

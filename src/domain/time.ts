@@ -11,6 +11,37 @@
 //   `scripts/check-local-date.mjs` 게이트가 이 규칙을 기계적으로 강제한다.
 
 const p2 = (n: number): string => String(n).padStart(2, '0');
+const CALENDAR_WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'] as const;
+
+/**
+ * 시간대 없는 달력 날짜(`YYYY-MM-DD`)에 요일을 붙인다.
+ *
+ * `new Date(date).getDay()`는 date-only 문자열을 UTC 자정으로 해석한 뒤 기기 시간대로
+ * 옮기므로, 호놀룰루 같은 서쪽 시간대에서는 전날 요일이 된다. 여행 시작·종료일은
+ * 절대시각이 아니라 달력 날짜이므로 UTC 달력 성분으로만 검증하고 요일을 구한다.
+ * 깨진 옛 값은 지어내지 않고 원문만 돌려준다(사용자 자료 보존·정직한 표시).
+ */
+export function formatCalendarDate(date: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) return date;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) return date;
+  return `${date} (${CALENDAR_WEEKDAYS[parsed.getUTCDay()]})`;
+}
+
+/** 여행 기간을 보여주는 모든 화면의 단일 문장. */
+export function formatTripPeriod(startDate: string | null | undefined, endDate: string | null | undefined): string {
+  if (!startDate) return '기간 미정';
+  const start = formatCalendarDate(startDate);
+  return endDate ? `${start} ~ ${formatCalendarDate(endDate)}` : start;
+}
 
 // ───────────────────────────────────────────────────────────────────────────
 // 시각 **표기**의 SSOT — 결함군 M-0034(2026-07-27 사용자 실기기)

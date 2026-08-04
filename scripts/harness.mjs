@@ -167,7 +167,7 @@ if (FAST) {
   // 「통과」라고 쓰지 않는다 — 이 실행은 무거운 층을 **아예 안 돌렸다.**
   console.log(`\nharness(빠른 차선): 재본 ${gates.length - notMeasured.length}개 통과 · **${notMeasured.length}개는 아예 안 쟀습니다**`);
   console.log(`  · 안 잰 것: ${notMeasured.join(', ')}`);
-  console.log('  → 커밋 전에는 반드시 전체를 돌리세요: npm run build && npm run harness');
+  console.log('  → 릴리스(머지·배포)할 때만 앱 build 뒤 전체를 재세요: npm run build && npm run harness');
 } else if (skipped.length > 0) {
   console.log(`\nharness: Required 게이트 통과 · 선택 ${skipped.length}개 **건너뜀**`);
   for (const s of skipped) console.log(`  · ${s.name} — 재지 못했습니다: ${s.why}`);
