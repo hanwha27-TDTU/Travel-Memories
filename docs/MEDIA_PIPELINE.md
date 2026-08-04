@@ -1,16 +1,17 @@
 # MEDIA PIPELINE · Bugeon Journey
 
-설계지시서 §9 + LESSONS §2·§5. **원본 불변**, **압축 전 EXIF 먼저**, **기계 파생값은 needs_review**가 핵심.
+설계지시서 §9 + LESSONS §2·§5. **압축 전 EXIF 먼저**, **클라우드 바이트 read-back 뒤 로컬 원본 정리**, **기계 파생값은 needs_review**가 핵심.
 
-## 저장 정책 (기본: 절약 모드)
+## 저장 정책 (기본: 태블릿 감상 모드)
 
-| 모드 | 앱용 사진 | 썸네일 | 원본 |
-|------|-----------|--------|------|
-| 절약 (기본) | 저장 | 저장 | 저장 안 함 |
-| 균형 | 저장 | 저장 | 선택한 사진만 |
-| 원본보관 | 저장 | 저장 | 전체 저장 |
+| 계층 | 저장 내용 | 수명 |
+|------|-----------|------|
+| R2 비공개 클라우드 | 1600px·q0.90 WebP | 사진의 유일한 앱 정본(영구삭제 전까지) |
+| IndexedDB | 표시본·썸네일 | 오프라인·빠른 표시용 캐시 |
+| IndexedDB 임시 스테이징 | 입력 원본 복사본 | R2 GET read-back으로 동일 표시본 확인 전까지만 |
 
-원본 사진을 기본적으로 Supabase에 저장하지 않는다. 기기 원본은 변경하지 않는다.
+입력 파일 바이트 그대로는 서버에 저장하지 않는다. EXIF를 제거한 WebP가 앱 안의 정본이며,
+앱은 사용자가 고른 외부 사진 파일 자체를 변경하거나 삭제하지 않는다.
 
 ## 앱용 사진 기준
 
@@ -47,7 +48,8 @@ selected_non_durable
 → EXIF·orientation·decode → derived_ready
 → pending server row
 → immutable upload
-→ remote verify
+→ remote GET 바이트 verify
+→ IndexedDB 입력 원본 복사본 정리
 → synced
 실패/제어: quota_blocked · decode_failed · unsupported · retryable_failed · permanent_failed · cancelled · conflict
 ```
@@ -59,7 +61,7 @@ selected_non_durable
 
 ## 처리 순서 (C-02 정련)
 
-1. 파일 선택 → 2. 기본 검증(개수·크기·형식, 빈 파일 차단) → 3. **저장공간 사전점검** → 4. **원본 EXIF·규격 읽기(압축 전)** → 5. 원시시각·GPS·방향 whitelist 임시저장 → 6. 1차 fingerprint → 7. 중복 후보 확인 → 8. **내구성 스테이징(staged, OPFS/IndexedDB)** → 9. worker 디코딩 → 10. 방향 정규화 → 11. 긴 변 2560px 축소 → 12. WebP 인코딩 요청 → 13. **결과 Blob MIME·magic bytes 검사 → 불일치 시 JPEG(불투명)/PNG(알파) fallback** → 14. 640px 썸네일 + 동일 검증 → 15. **전체 콘텐츠 강한 해시** → 16. 파생본+메타데이터 로컬 저장(derived_ready) → 17. `media_assets` pending 행 → 18. 불변 경로 immutable upload → 19. 원격 존재·크기·MIME verify(read-back) → 20. `verified`/동기화 완료 → 21. Bitmap/Canvas/Blob 참조 해제.
+1. 파일 선택 → 2. 저장공간 사전점검 → 3. **입력 파일 EXIF·규격 읽기(압축 전)** → 4. 표시본·썸네일 WebP 생성 → 5. 입력 원본 복사본+파생본+메타+큐 op을 IndexedDB에 원자 커밋 → 6. 작업별 불변 경로로 R2 PUT → 7. 서버 메타 operation read-back → 8. **R2 GET 바이트를 로컬 표시본과 정확 비교** → 9. 같은 트랜잭션에서 큐 op·입력 원본 복사본·원본 좌표계 편집상태 정리 → 10. `synced`. 실패하면 원본과 op을 남겨 재시도한다.
 
 > **EXIF는 압축 전에 읽어 별도 저장한다** — Canvas 재인코딩 후 원본 EXIF가 유지된다고 가정하지 않는다. whitelist 필드만 저장: `captured_local, OffsetTimeOriginal(오프셋), latitude, longitude, orientation, original_width, original_height, camera_make, camera_model, original_filename`. (H-09 상세는 §EXIF whitelist)
 
@@ -67,7 +69,7 @@ selected_non_durable
 
 - OffscreenCanvas 지원 → Web Worker 처리. 미지원 → 메인 스레드 Canvas, 1장씩, 처리 사이 UI 제어권 반환. (모바일 디코딩 동시성 기본 1 — H-06)
 - **WebP 인코딩 성공을 가정하지 않는다(H-07)**. Canvas 인코더는 요청 형식을 지원하지 않으면 PNG를 반환할 수 있으므로 결과 `blob.type`(MIME)과 **magic bytes(바이트 서명)**를 확인한다. WebP 성공 → `image/webp` / WebP 미지원·불투명 → `image/jpeg` 0.82 / WebP 미지원·알파 필요 → `image/png`.
-- HEIC 직접 디코딩 불가 → 지연 로딩 HEIC 변환 모듈, 실패 시 원본 보존 상태로 사용자 안내.
+- HEIC 직접 디코딩 불가 → 지연 로딩 HEIC 변환 모듈, 실패 시 스테이징 원본 유지 상태로 사용자 안내.
 - 사진이 이미 기준보다 작음 → 확대 금지.
 - 침묵 기본값 금지 — 인식 못 하는 입력은 명시적 거부(LESSONS §3).
 

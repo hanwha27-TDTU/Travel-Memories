@@ -4,6 +4,47 @@
 
 ---
 
+## HANDOFF-0081 · **릴리스 대기 — 태블릿용 클라우드 사진 정본·로컬 원본 안전 회수** (2026-08-04)
+
+- **사용자 현실**: 앱에 사진을 넣은 직후 갤러리 파일을 삭제하므로 앱 클라우드가 유일본이다. 인화·TV용 동일 원본은 필요 없고 최대 태블릿 감상 품질이면 충분하다.
+- **정본 계약**: 1600px·q0.90 WebP를 비공개 R2의 앱 정본으로 둔다. 입력 원본 복사본은 EXIF 선취와 파생본 생성 후 IndexedDB에 스테이징하지만, operation 행 read-back 뒤 R2 GET 바이트가 로컬 표시본과 정확히 같은 경우에만 op·원본·원본 좌표계 editState를 원자적으로 정리한다.
+- **기존 자료·실패 안전**: 기존 원본도 같은 정확 비교를 통과한 것만 점진 정리한다. 오프라인·다운로드 오류·동일 크기 다른 바이트는 정리하지 않으며 새 push는 실패로 남겨 재시도한다. 데이터 관리에는 아직 검증 전인 원본 건수·용량을 별도 표시한다.
+- **검증 상태**: build·전체 정적 게이트·전체 유닛 PASS, 실제 Chromium editor **319/319**·diagnostics **22/22** PASS. 비교를 크기만 보는 옛 결함으로 주입하자 불일치 보호 2건이 RED가 되었고 원복했다. 실제 로그인 계정의 R2 왕복과 배포는 아직 실행하지 않았다.
+- **이 인계를 쓴 시점의 작업트리**: `main`의 `d0ea2b5` 위에 v1.75 변경이 미커밋 상태였다. `.codex-remote-attachments/`는 기존 사용자 파일이므로 포함·수정·삭제하지 않는다. DB migration·Edge Function 변경은 없다.
+- **릴리스 실행 순서**: 먼저 `git diff`로 v1.75 범위를 재확인한다. 가능하면 로그인된 실제 계정에서 사진 1장 저장 → R2 read-back → 데이터 관리의 「전송 확인 전 원본」 감소를 확인한다. 배포 지시가 있으면 작업 브랜치 생성 → 명시적 파일만 커밋 → push → Ready PR required checks → merge → Pages v1.75 read-back 순서로 진행한다.
+
+### Claude에게 전달할 시작 메시지
+
+```text
+You are taking over Bugeon Journey at C:\AppDevelopment\Bugeon_Journey.
+
+Read CLAUDE.md, then docs/HANDOFF_CODEX.md, and HANDOFF-0081 at the top of docs/HANDOFF.md.
+Run: npm run brief -- src/services/sync.ts src/offline/db.ts src/services/backup.ts .claude/skills/photo-storage-dev/SKILL.md
+
+Current state:
+- Branch: main, base commit d0ea2b5.
+- v1.75 cloud-photo-canonical changes are implemented but NOT committed or deployed.
+- The user's external gallery original is never modified by the app.
+- Inside the app, R2 1600px q0.90 WebP is the sole photo canonical.
+- IndexedDB originalBlob is durable staging only until operation row read-back AND exact R2 GET byte equality.
+- Never weaken this to HTTP 200, storagePath existence, or size-only comparison.
+- On any failure/mismatch/race, retain originalBlob and the sync op.
+- Pull/canonical restore must not synthesize originalBlob from displayBlob.
+- Existing rows are pruned only through pruneVerifiedMediaOriginals with the same exact comparison.
+
+Verified before handoff:
+- build PASS, full required/static/unit harness PASS.
+- Chromium editor live 319/319 PASS; diagnostics live 22/22 PASS.
+- Deliberate size-only comparator injection produced the expected 2 RED tests, then was reverted.
+- No authenticated production R2 roundtrip was executed; do not claim it was.
+
+First actions:
+1. Inspect git status/diff and preserve .codex-remote-attachments/ untouched.
+2. Read ADR-0046, M-0099, photo-storage-dev §1-A, and sync-offline-dev §2-C.
+3. Re-run checks after any edit; if deploying, use a branch/PR and verify public version.json is 1.75.
+4. Do not add a migration or change R2/Edge Function unless new evidence requires it.
+```
+
 ## HANDOFF-0080 · v1.74 · **릴리스 후보 — 홈 최신순·저채도 카드·UI 스킬 승격** (2026-08-04)
 
 - **릴리스 범위**: HANDOFF-0079의 여행 시작일 최신순 정렬과 저채도 카드 팔레트, 정렬 유닛·실제 Chromium 회귀, 연구기록과 UI 스킬 업데이트를 하나의 사용자 경험 릴리스로 묶는다.
@@ -101,7 +142,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.74<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->174<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->89<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.75<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->175<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->91<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

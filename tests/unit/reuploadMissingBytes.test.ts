@@ -25,7 +25,13 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import 'fake-indexeddb/auto';
 import { db } from '../../src/offline/db';
 import { mustUploadBytes } from '../../src/sync/merge';
-import { pushPendingMedia, requeueMissingBytes, backfillMediaGpsOps, type MediaRemote } from '../../src/services/sync';
+import {
+  pushPendingMedia,
+  pruneVerifiedMediaOriginals,
+  requeueMissingBytes,
+  backfillMediaGpsOps,
+  type MediaRemote,
+} from '../../src/services/sync';
 import { toMediaRow, type MediaRow } from '../../src/domain/media/rowmap';
 
 const USER = 'c9ff5188-51a7-4c01-b653-b6e1d73d0790';
@@ -173,6 +179,53 @@ describe('pushPendingMedia — 휴지통 사진의 바이트', () => {
     const remote = fakeRemote();
     await pushPendingMedia(remote, USER);
     expect(remote.uploads).toHaveLength(0);
+  });
+
+  it('R2에서 같은 바이트를 되읽은 뒤에만 로컬 원본 임시본을 정리한다', async () => {
+    const id = await seedPhoto({ editState: { rotation: 90 } });
+    await enqueue(id);
+    const remote = fakeRemote();
+
+    expect(await pushPendingMedia(remote, USER)).toEqual({ pushed: 1, failed: 0 });
+
+    const back = await db().localMedia.get(id);
+    expect(back!.originalBlob).toBeUndefined();
+    expect(back!.editState).toBeUndefined();
+    expect(back!.displayBlob.size).toBeGreaterThan(0);
+    expect(await db().syncQueue.count()).toBe(0);
+  });
+
+  it('R2 read-back 바이트가 다르면 성공으로 반올림하지 않고 원본과 op을 남긴다', async () => {
+    const id = await seedPhoto();
+    await enqueue(id);
+    const remote = fakeRemote();
+    remote.download = () => Promise.resolve({ data: new Blob(['x']) }); // 크기는 같고 내용만 다름
+
+    expect(await pushPendingMedia(remote, USER)).toEqual({ pushed: 0, failed: 1 });
+
+    expect((await db().localMedia.get(id))!.originalBlob?.size).toBeGreaterThan(0);
+    expect(await db().syncQueue.count()).toBe(1);
+  });
+});
+
+describe('pruneVerifiedMediaOriginals — 옛 정책 사진 백필', () => {
+  it('기존 storagePath를 가진 사진도 R2 동일 바이트 확인 뒤 한 번만 정리한다', async () => {
+    const id = await seedPhoto({ storagePath: `${USER}/legacy.webp`, editState: { rotation: 90 } });
+    const remote = fakeRemote();
+    remote.download = () => Promise.resolve({ data: new Blob(['d']) });
+
+    expect(await pruneVerifiedMediaOriginals(remote)).toEqual({ pruned: 1, kept: 0 });
+    expect((await db().localMedia.get(id))!.originalBlob).toBeUndefined();
+    expect(await pruneVerifiedMediaOriginals(remote)).toEqual({ pruned: 0, kept: 0 });
+  });
+
+  it('서버 바이트가 다르거나 확인할 수 없으면 옛 원본을 보존한다', async () => {
+    const id = await seedPhoto({ storagePath: `${USER}/legacy.webp` });
+    const remote = fakeRemote();
+    remote.download = () => Promise.resolve({ data: new Blob(['x']) });
+
+    expect(await pruneVerifiedMediaOriginals(remote)).toEqual({ pruned: 0, kept: 1 });
+    expect((await db().localMedia.get(id))!.originalBlob?.size).toBeGreaterThan(0);
   });
 });
 

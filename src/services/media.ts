@@ -1,7 +1,7 @@
 // services/media.ts — 사진 추가(로컬우선, 3a). §0 규율을 코드로:
 //  1) 압축 "전에" EXIF(촬영시각·GPS)를 먼저 읽어 별도 저장한다.
-//  2) 원본 Blob은 그대로 보관하고 절대 수정/삭제하지 않는다.
-// 클라우드 업로드(압축본·썸네일)는 후속(3b).
+//  2) 사용자가 고른 외부 파일은 건드리지 않는다. 앱 내부 원본 복사본은 R2 표시본의
+//     GET read-back이 정확히 일치할 때까지만 내구성 스테이징한다(ADR-0046).
 
 import { db, type LocalMedia, type SyncQueueItem } from '../offline/db';
 import { quotaVerdict, estimateLocalBytes, type StorageEstimateLike } from '../domain/media/quota';
@@ -31,7 +31,7 @@ export interface AddPhotoTarget {
 
 /**
  * 사진 1장을 순간에 추가. EXIF 우선 추출 → 압축본·썸네일 생성 → 로컬 내구성 커밋 + read-back.
- * 원본(file)은 그대로 originalBlob으로 보관한다.
+ * 원본(file)은 클라우드 표시본 검증 전까지 originalBlob으로 스테이징한다.
  * editedBlob이 있으면(비파괴 편집 결과) 압축본·썸네일은 그것에서 파생하되,
  * EXIF(촬영시각·GPS)는 항상 "원본"에서 읽는다(§0 — 편집은 메타데이터를 잃지 않는다).
  */
@@ -235,10 +235,8 @@ export async function addPhotoToMoment(
 }
 
 /**
- * 사진 1장 삭제 — 하드 삭제 금지(§0): deletedAt tombstone만 세팅한다. 원본 Blob은
- * 그대로 보존되므로(삭제해도 파괴 아님) 되살리기가 완전 복원한다. version+1로 LWW 기준.
- * 미디어는 로컬 전용(3a)이라 sync 큐 op를 만들지 않는다 — 처리 주체가 없어 대기열에
- * 영구 잔류하고 pendingSyncCount만 부풀린다. 클라우드 동기화는 후속(3b)에서 추가.
+ * 사진 1장 삭제 — 하드 삭제 금지(§0): deletedAt tombstone만 세팅한다. 표시본·썸네일과
+ * 아직 남은 스테이징 원본은 그대로 두므로 되살리기가 완전 복원한다. version+1로 LWW 기준.
  */
 export async function softDeleteMediaLocalFirst(id: string): Promise<void> {
   const d = db();
@@ -270,9 +268,9 @@ export async function restoreMediaLocalFirst(id: string): Promise<void> {
 }
 
 /**
- * 저장된 사진 재편집 — 비파괴. 원본 Blob·EXIF(촬영시각·GPS)는 그대로 두고, 편집 결과에서
- * 표시본·썸네일만 다시 만든다(§0 — 원본 불변). editState를 저장해 다음 재편집 때 이어서 조정.
- * 미디어는 로컬 전용이라 sync 큐 op 없음(동기화 후속). version+1(LWW).
+ * 저장된 사진 재편집 — 사용자 파일과 저장된 EXIF(촬영시각·GPS)는 건드리지 않고, 현재
+ * 클라우드 정본(표시본) 또는 아직 남은 스테이징 원본에서 새 표시본·썸네일을 만든다.
+ * 스테이징 원본이 정리된 뒤에는 현재 표시본 기준 재편집이므로 이전 editState는 이어 쓰지 않는다.
  */
 export async function reeditMediaLocalFirst(
   id: string,
@@ -352,7 +350,7 @@ async function rotate90Blob(source: Blob): Promise<Blob> {
 
 /**
  * 저장된 사진을 90°(시계방향) 회전 — 비파괴. 보이는 표시본을 그대로 돌려 눕힌 사진을 세운다.
- * 원본 Blob·EXIF는 그대로(§0). 표시본·썸네일만 다시 만들고 version+1(LWW). 로컬 전용(sync 후속).
+ * 사용자 파일·EXIF는 그대로(§0). 현재 표시본·썸네일만 다시 만들고 version+1(LWW).
  */
 export async function rotateMediaLocalFirst(id: string): Promise<LocalMedia> {
   const d = db();

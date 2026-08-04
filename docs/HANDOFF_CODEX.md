@@ -13,6 +13,13 @@
 
 ---
 
+## 🆕 v1.75 릴리스 대기 — 클라우드 사진 정본·로컬 원본 안전 회수 (2026-08-04)
+
+- 사용자는 앱 추가 직후 외부 원본을 삭제하고 최대 태블릿 감상만 필요로 한다. 따라서 R2의 1600px·q0.90 WebP가 앱의 유일한 사진 정본이다.
+- IndexedDB `originalBlob`은 영구 원본이 아니라 검증 전 스테이징이다. operation 행 read-back과 R2 GET 전체 바이트 일치를 모두 확인한 경우에만 op·원본·editState를 원자적으로 정리한다. HTTP 200·경로·크기만으로는 정리 금지다.
+- 기존 사진은 `pruneVerifiedMediaOriginals`가 같은 조건으로 점진 회수하며 실패·불일치는 보존한다. pull/canonical 복원은 표시본을 `originalBlob`으로 복제하지 않고 재편집도 현재 표시본에서 시작한다. 상세는 HANDOFF-0081·ADR-0046.
+- Claude/Codex가 이어서 실행할 **복사용 시작 메시지의 정본은 `docs/HANDOFF.md` HANDOFF-0081 마지막 코드 블록**이다. 이 문서에 복제하지 않는다.
+
 ## 🆕 v1.71 — Dependabot 보안 업데이트 전용 (2026-08-04)
 
 - Dependabot 일반 버전 PR이 Ready로 열려 릴리스 의도 없이 전체 하네스를 돌린 회귀를 바로 교정했다.

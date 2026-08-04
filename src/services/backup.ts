@@ -14,7 +14,7 @@
 // 규율(SYNC_PROTOCOL 재사용, 손 병합 금지):
 //  - 복원은 "교체"가 아니라 "병합". 각 행은 mergeDecision(LWW+tombstone)으로만 반영한다.
 //  - 빈-데이터 가드: 백업이 비었는데 로컬에 활성 데이터가 있으면 로컬을 지우지 않는다.
-//  - 사진 원본은 읽기만 하고 수정하지 않는다(§0). 고아 행(부모 없는 순간/사진/비용)도 유실 없이 담는다.
+//  - 동기화 전 임시 원본이 있으면 함께 담고, 없으면 클라우드 정본과 같은 표시본만 담는다.
 
 import type { Table } from 'dexie';
 import { db, type LocalTrip, type LocalMoment, type LocalMedia, type LocalExpense, type LocalAudio, type LocalPlace, type SyncMeta } from '../offline/db';
@@ -91,8 +91,11 @@ function assertRows(rows: CollectedRows): void {
       } else if (domain === '사진') {
         ['momentId', 'tripId', 'mime', 'takenAt'].forEach(requireString);
         ['width', 'height', 'bytesOriginal', 'bytesDisplay'].forEach(requireFinite);
-        for (const field of ['originalBlob', 'displayBlob', 'thumbBlob']) {
+        for (const field of ['displayBlob', 'thumbBlob']) {
           if (!(record[field] instanceof Blob)) throw new Error(`${label}의 ${field} 값이 올바르지 않습니다.`);
+        }
+        if (record.originalBlob !== undefined && !(record.originalBlob instanceof Blob)) {
+          throw new Error(`${label}의 originalBlob 값이 올바르지 않습니다.`);
         }
       } else if (domain === '비용') {
         ['momentId', 'tripId', 'originalCurrency', 'category', 'note'].forEach(requireString);
@@ -343,7 +346,8 @@ async function blobBytes(blob: Blob): Promise<Uint8Array<ArrayBuffer>> {
 type AudioExport = Omit<LocalAudio, 'blob'> & { blobB64: string };
 
 type MediaExport = Omit<LocalMedia, 'originalBlob' | 'displayBlob' | 'thumbBlob'> & {
-  originalB64: string;
+  /** 동기화 전 임시 원본이 남아 있을 때만. v1 옛 백업과 하위호환한다. */
+  originalB64?: string;
   displayB64: string;
   thumbB64: string;
 };
@@ -367,9 +371,13 @@ export interface BackupFile {
 export async function serializeJson(rows: CollectedRows): Promise<string> {
   const mediaOut: MediaExport[] = [];
   for (const m of rows.media) {
-    const [o, di, t] = await Promise.all([blobToDataUrl(m.originalBlob), blobToDataUrl(m.displayBlob), blobToDataUrl(m.thumbBlob)]);
+    const [o, di, t] = await Promise.all([
+      m.originalBlob?.size ? blobToDataUrl(m.originalBlob) : Promise.resolve(undefined),
+      blobToDataUrl(m.displayBlob),
+      blobToDataUrl(m.thumbBlob),
+    ]);
     const { originalBlob: _o, displayBlob: _d, thumbBlob: _t, ...rest } = m;
-    mediaOut.push({ ...rest, originalB64: o, displayB64: di, thumbB64: t });
+    mediaOut.push({ ...rest, ...(o ? { originalB64: o } : {}), displayB64: di, thumbB64: t });
   }
   // 오디오도 같은 규율로 담는다 — **빠지면 계층이 ①밖에 안 남는다**(서버에 안 가므로).
   const audioOut: AudioExport[] = [];
@@ -410,7 +418,12 @@ export function deserializeJson(text: string): CollectedRows {
   const mediaExport = Array.isArray(parsed.media) ? parsed.media : [];
   const media: LocalMedia[] = mediaExport.map((me) => {
     const { originalB64, displayB64, thumbB64, ...rest } = me;
-    return { ...rest, originalBlob: b64ToBlob(originalB64), displayBlob: b64ToBlob(displayB64), thumbBlob: b64ToBlob(thumbB64) };
+    return {
+      ...rest,
+      ...(originalB64 ? { originalBlob: b64ToBlob(originalB64) } : {}),
+      displayBlob: b64ToBlob(displayB64),
+      thumbBlob: b64ToBlob(thumbB64),
+    };
   });
   // 옛 백업 파일에는 audio가 없다 — 없으면 빈 배열(형식 하위호환).
   const audio: LocalAudio[] = (Array.isArray(parsed.audio) ? parsed.audio : []).map((a) => {
@@ -514,11 +527,13 @@ export async function serializeZip(rows: CollectedRows, includeOriginals = true)
     const base = photoFileBase(me.takenAt, title, me.id);
     const displayFile = `photos/${base}_${PURPOSE.display}.webp`;
     const thumbFile = `photos/${base}_${PURPOSE.thumb}.webp`;
-    const originalFile = includeOriginals ? `photos/${base}_${PURPOSE.original}.${extForMime(me.mime)}` : null;
+    const originalFile = includeOriginals && me.originalBlob?.size
+      ? `photos/${base}_${PURPOSE.original}.${extForMime(me.mime)}`
+      : null;
 
     entries.push({ name: `${folder}/${displayFile}`, data: await blobBytes(me.displayBlob) });
     entries.push({ name: `${folder}/${thumbFile}`, data: await blobBytes(me.thumbBlob) });
-    if (originalFile) entries.push({ name: `${folder}/${originalFile}`, data: await blobBytes(me.originalBlob) });
+    if (originalFile && me.originalBlob) entries.push({ name: `${folder}/${originalFile}`, data: await blobBytes(me.originalBlob) });
 
     const { originalBlob: _o, displayBlob: _d, thumbBlob: _t, ...rest } = me;
     bundle.media.push({ ...rest, displayFile, thumbFile, originalFile });
@@ -647,8 +662,12 @@ export function deserializeZip(buf: ArrayBuffer): CollectedRows {
       const displayBlob = new Blob([displayData], { type: 'image/webp' });
       const thumbBlob = new Blob([thumbData], { type: 'image/webp' });
       const origData = originalFile ? byName.get(`${folder}/${originalFile}`) : undefined;
-      const originalBlob = origData ? new Blob([origData], { type: rest.mime }) : displayBlob;
-      media.push({ ...rest, originalBlob, displayBlob, thumbBlob });
+      media.push({
+        ...rest,
+        ...(origData ? { originalBlob: new Blob([origData], { type: rest.mime }) } : {}),
+        displayBlob,
+        thumbBlob,
+      });
     }
   }
   const rows = { trips, moments, media, expenses, audio, places };

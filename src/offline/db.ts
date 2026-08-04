@@ -100,13 +100,17 @@ export interface LocalMoment extends SyncMeta {
   placeId?: string | null;
 }
 
-// 사진(Media) — 로컬 전용(3a). 원본 Blob은 절대 수정하지 않는다(§0).
-// 클라우드 업로드(압축본·썸네일)는 후속(3b)에서 syncQueue로 추가.
+// 사진(Media) — 클라우드 확인 전에는 원본을 내구성 스테이징하고, 확인 뒤에는 표시본이 정본이다.
 export interface LocalMedia extends SyncMeta {
   momentId: string;
   tripId: string;
   mime: string;
-  originalBlob: Blob; // 원본 보존(로컬)
+  /**
+   * 클라우드 표시본이 검증되기 전까지의 임시 원본 사본.
+   * R2 GET read-back으로 `displayBlob`과 같은 바이트임을 확인한 뒤 제거한다.
+   * 사진 입력 파일 자체는 앱이 수정·삭제하지 않는다.
+   */
+  originalBlob?: Blob;
   displayBlob: Blob; // 표시본(≤1600 WebP)
   thumbBlob: Blob; // 썸네일(≤320 WebP)
   width: number;

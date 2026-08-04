@@ -137,7 +137,7 @@ export function expensesRemote(client: JourneyClient): ExpensesRemote {
   };
 }
 
-/** 사진 원격 포트 — 메타(테이블) + 표시본(Storage). 원본은 서버에 올리지 않는다(절약 모드·§0). */
+/** 사진 원격 포트 — 메타(테이블) + 태블릿 감상용 클라우드 정본(WebP). */
 export interface MediaRemote {
   upsert(row: MediaRow): Promise<{ error?: string | undefined; status?: number | undefined }>;
   getById(id: string): Promise<{ data: MediaRow | null; error?: string | undefined; status?: number | undefined }>;
@@ -180,8 +180,8 @@ export function mediaRemote(client: JourneyClient): MediaRemote {
 /**
  * 소리 원격 포트 — 메타(journey.audio) + **원본 바이트**(R2).
  *
- * 사진과 하나만 다르다: 사진은 표시본만 올리고 원본은 로컬에 남기지만(절약 모드),
- * 소리는 **원본이 곧 유일본**이라 그것을 올린다. 그래서 `uploadDisplay`가 아니라 `upload`다 —
+ * 사진과 하나만 다르다: 사진은 재인코딩한 WebP를 클라우드 정본으로 삼고,
+ * 소리는 **녹음 바이트 자체가 정본**이라 그대로 올린다. 그래서 `uploadDisplay`가 아니라 `upload`다 —
  * 이름이 다른 것 자체가 그 차이를 말한다.
  */
 export interface AudioRemote {
@@ -393,6 +393,51 @@ async function removeUnreferencedBytes(
   } catch (e) {
     console.warn(`동기화 고아 바이트 정리 보류: ${(e as Error).message}`);
   }
+}
+
+/** R2에서 되읽은 바이트가 로컬 표시본과 정확히 같은지 확인한다. 크기만 같다고 통과시키지 않는다. */
+async function sameBlobBytes(left: Blob, right: Blob): Promise<boolean> {
+  if (left.size !== right.size || left.size === 0) return false;
+  const [a, b] = await Promise.all([left.arrayBuffer(), right.arrayBuffer()]);
+  const av = new Uint8Array(a);
+  const bv = new Uint8Array(b);
+  for (let i = 0; i < av.length; i += 1) if (av[i] !== bv[i]) return false;
+  return true;
+}
+
+/**
+ * 서버에서 검증된 표시본이 유일한 정본이 된 뒤 로컬의 큰 입력 원본 복사본을 비운다.
+ * `editState`도 원본 좌표계에 묶인 값이라 함께 걷는다. 이후 재편집은 현재 표시본에서 새로 시작한다.
+ */
+async function discardVerifiedLocalOriginal(expected: LocalMedia, verified: Blob): Promise<boolean> {
+  if (!expected.originalBlob || expected.originalBlob.size === 0) return false;
+  if (!(await sameBlobBytes(expected.displayBlob, verified))) return false;
+  const d = db();
+  return d.transaction('rw', d.localMedia, async () => {
+    const cur = await d.localMedia.get(expected.id);
+    if (!cur || !isSameSnapshot(cur, expected) || cur.storagePath !== expected.storagePath) return false;
+    const { originalBlob: _staged, editState: _sourceState, ...keep } = cur;
+    await d.localMedia.put(keep);
+    return true;
+  });
+}
+
+/**
+ * 옛 정책으로 이미 저장된 사진을 데려오는 1회성·멱등 정리다.
+ * 경로 기억만 믿지 않고 R2에서 바이트를 되읽어 같은 표시본임을 확인한 사진만 정리한다.
+ */
+export async function pruneVerifiedMediaOriginals(
+  remote: Pick<MediaRemote, 'download'>,
+): Promise<{ pruned: number; kept: number }> {
+  const rows = (await db().localMedia.toArray()).filter((m) => (m.originalBlob?.size ?? 0) > 0 && !!m.storagePath);
+  let pruned = 0;
+  let kept = 0;
+  for (const media of rows) {
+    const dl = await remote.download(media.storagePath!);
+    if (dl.error || !dl.data || !(await discardVerifiedLocalOriginal(media, dl.data))) kept += 1;
+    else pruned += 1;
+  }
+  return { pruned, kept };
 }
 
 /**
@@ -667,8 +712,8 @@ export async function pullExpenses(remote: ExpensesRemote, mode: PullMode): Prom
 }
 
 /**
- * 사진 push(추가전용): 활성이면 표시본을 Storage에 올리고(원본은 안 올림), 메타 행을 upsert →
- * read-back → 서버시각 반영 → 작업 제거. tombstone이면 업로드 없이 메타만(Storage는 고아 스윕으로 정리).
+ * 사진 push: 표시본을 R2에 올리고 메타 행을 upsert → 행 read-back → R2 바이트 read-back →
+ * 로컬 원본 임시본 정리 → 작업 제거. 어느 확인이든 실패하면 원본과 op을 남겨 재시도한다.
  */
 export async function pushPendingMedia(remote: MediaRemote, userId: string): Promise<{ pushed: number; failed: number }> {
   const d = db();
@@ -727,12 +772,25 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
       failed++;
       continue;
     }
+    // HTTP 200과 DB 경로만으로는 바이트 존재를 증명하지 못한다(M-0048). 실제 R2 GET 바이트가
+    // 방금 보낸 표시본과 같아야만 아래 트랜잭션에서 원본 임시본을 버릴 수 있다.
+    const verified = await remote.download(path);
+    if (verified.error || !verified.data || !(await sameBlobBytes(media.displayBlob, verified.data))) {
+      await markFail(op, verified.status);
+      failed++;
+      continue;
+    }
     await d.transaction('rw', d.localMedia, d.syncQueue, async () => {
       const cur = await d.localMedia.get(media.id);
       // 경로도 **같은 커밋에** 기억한다(M-0033의 교훈 — "곧 이어서 쓸 것"은 없는 것과 같다).
       // 「서버에 없다」 표시도 **같은 커밋에** 걷는다 — 방금 올렸으므로 더는 참이 아니다.
       if (isSameSnapshot(cur, media)) {
-        const { bytesMissing: _done, ...keep } = cur!;
+        const {
+          bytesMissing: _done,
+          originalBlob: _staged,
+          editState: _sourceState,
+          ...keep
+        } = cur!;
         await d.localMedia.put({
           ...keep,
           storagePath: path,
@@ -764,7 +822,7 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
 /**
  * 사진 pull(비파괴): 서버가 더 최신일 때만 반영. tombstone은 로컬 blob을 지우지 않고 deletedAt만 세팅
  * (로컬에 없으면 skip). 활성은 표시본을 다운로드해 재구성하되 다운로드 실패 시 로컬을 그대로 둔다.
- * 원본은 소비 기기에 없으므로 표시본을 원본 폴백으로 둔다(절약 모드). GPS는 서버에 없어 로컬 값 유지.
+ * 표시본이 클라우드 정본이므로 소비 기기는 별도 원본 복사본을 만들지 않는다.
  */
 export async function pullMedia(remote: MediaRemote, mode: PullMode): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
   const d = db();
@@ -846,7 +904,6 @@ export async function pullMedia(remote: MediaRemote, mode: PullMode): Promise<{ 
       momentId: server.momentId,
       tripId: server.tripId,
       mime: 'image/webp',
-      originalBlob: local?.originalBlob ?? display, // 소비 기기엔 원본 없음 → 표시본 폴백
       displayBlob: display,
       thumbBlob,
       width: server.width,
@@ -871,7 +928,7 @@ export async function pullMedia(remote: MediaRemote, mode: PullMode): Promise<{ 
       createdAt: server.createdAt,
       updatedAt: server.updatedAt,
       deletedAt: null,
-      ...(local?.editState ? { editState: local.editState } : {}),
+      // 서버 표시본을 받은 뒤에는 그 표시본에서 새 편집을 시작한다. 옛 원본 좌표계 editState는 버린다.
     };
     if (await applyServerWinner(d.localMedia, 'media', local, next, mode)) pulled++;
   }
@@ -2177,6 +2234,9 @@ export async function runSync(
   const qe = await pullExpenses(eRemote, 'merge');
   const qa = await pullAudio(aRemote, 'merge');
   const qpl = await pullPlaces(plRemote, 'merge');
+  // 옛 정책의 로컬 원본은 서버 표시본을 정확히 되읽은 뒤에만 정리한다. 실패한 사진은 다음
+  // 동기화에서 다시 확인하며, 사용자 기록이나 큐에는 손대지 않는다.
+  await pruneVerifiedMediaOriginals(dRemote);
   // pull이 "서버 active + 로컬 tombstone"을 직접 확인해 만든 delete op은 같은 버튼에서
   // 끝낸다(M-0095). 첫 실행이 큐만 만들고 "동기화했어요"라고 말한 뒤 두 번째 클릭을 요구하면
   // 해소 동작이 실제 판정을 해소하지 못한다. 새 delete가 있을 때만 한 번, 같은 부모→자식 문으로.
