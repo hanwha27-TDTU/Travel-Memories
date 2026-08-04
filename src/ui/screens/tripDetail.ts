@@ -47,6 +47,7 @@ import { CURRENCIES, DEFAULT_CURRENCY, currencyLabel, formatMoney, sumByCurrency
 import { convertAmount, formatRate, fxDateFor, fxKey, unitRate, type FxRateTable } from '../../domain/expense/fx';
 import { ensureTable, fxBase, todayDate } from '../../services/fx';
 import { momentCoord } from '../../domain/place/geojson';
+import { isWindowsPlatform, partitionDroppedPhotos } from '../../domain/media/windowsDrop';
 // 보조 화면은 반드시 lazyScreens를 거친다(정적 import 금지 — check-lazy-screens).
 import { openMapView, openMapPicker, openDiagnosticsHub } from '../lazyScreens';
 import type { MapPoint } from './mapView';
@@ -719,19 +720,178 @@ function wireAddPhoto(
     if (!files.length) return;
     void (async () => {
       try {
-        const metas = await Promise.all(files.map((f) => readPhotoMeta(f, o.fallbackZone)));
-        await processPhotosIntoMoment(files, o.momentId, o.tripId, (msg) => {
+        const saved = await addPhotosToExistingMoment(files, (msg) => {
           progress.textContent = msg;
-        });
+        }, o);
         input.value = '';
-        progress.textContent = '✅ 추가됨';
-        await placeFromPhotos(o.momentId, o.hasPlace, metas, o.refresh);
-        await o.refresh();
+        progress.textContent = saved === files.length ? '✅ 추가됨' : `사진 ${saved}/${files.length}장 추가`;
       } catch (err) {
         progress.textContent = `추가 실패: ${err instanceof Error ? err.message : String(err)}`;
       }
     })();
   });
+}
+
+interface ExistingMomentPhotoOptions {
+  momentId: string;
+  tripId: string;
+  fallbackZone: string;
+  hasPlace: boolean;
+  refresh: () => Promise<void>;
+}
+
+/** 버튼 선택과 Windows 드롭이 함께 쓰는 기존 순간 사진 추가의 단일 경로. */
+async function addPhotosToExistingMoment(
+  files: File[],
+  onProgress: (msg: string) => void,
+  o: ExistingMomentPhotoOptions,
+): Promise<number> {
+  // 원본 EXIF는 편집·압축보다 먼저 읽는다(비타협 원칙 §0).
+  const metas = await Promise.all(files.map((file) => readPhotoMeta(file, o.fallbackZone)));
+  const saved = await processPhotosIntoMoment(files, o.momentId, o.tripId, onProgress);
+  await placeFromPhotos(o.momentId, o.hasPlace, metas, o.refresh);
+  await o.refresh();
+  return saved;
+}
+
+type DropNavigator = Navigator & { userAgentData?: { platform?: string } };
+
+function isFileDrag(event: DragEvent): boolean {
+  return Array.from(event.dataTransfer?.types ?? []).includes('Files');
+}
+
+function closestMomentCard(zone: HTMLElement, clientY: number): HTMLElement | null {
+  const cards = Array.from(zone.querySelectorAll<HTMLElement>('.moment-card[data-moment-id]'));
+  let closest: HTMLElement | null = null;
+  let distance = Number.POSITIVE_INFINITY;
+  for (const card of cards) {
+    const rect = card.getBoundingClientRect();
+    const nextDistance = Math.abs(clientY - (rect.top + rect.height / 2));
+    if (nextDistance < distance) {
+      closest = card;
+      distance = nextDistance;
+    }
+  }
+  return closest;
+}
+
+function setupWindowsTimelinePhotoDrop(
+  zone: HTMLElement,
+  onDrop: (files: File[], target: { momentId: string; hasPlace: boolean }, report: (msg: string) => void) => Promise<void>,
+): { mount: () => void } {
+  const nav = navigator as DropNavigator;
+  const platform = nav.userAgentData?.platform ?? nav.platform;
+  if (!isWindowsPlatform(platform, nav.userAgent)) return { mount: () => undefined };
+
+  zone.classList.add('windows-photo-drop');
+  const help = el('p', 'timeline-drop-help', '🖼️ 사진을 이 영역으로 끌어놓아 추가 · 여러 장 가능');
+  const overlay = el('div', 'timeline-drop-overlay');
+  overlay.hidden = true;
+  overlay.setAttribute('role', 'status');
+  const overlayLabel = el('span', 'timeline-drop-label', '가장 가까운 순간에 사진을 추가해요');
+  overlay.appendChild(overlayLabel);
+  let target: HTMLElement | null = null;
+  let busy = false;
+
+  const clearDragState = (): void => {
+    target?.classList.remove('is-drop-target');
+    target = null;
+    overlay.hidden = true;
+  };
+  const selectTarget = (clientY: number): void => {
+    target?.classList.remove('is-drop-target');
+    target = closestMomentCard(zone, clientY);
+    target?.classList.add('is-drop-target');
+    overlayLabel.textContent = target
+      ? '가장 가까운 순간에 사진을 추가해요'
+      : '먼저 순간을 저장해 주세요';
+    overlay.hidden = false;
+  };
+
+  zone.addEventListener('dragenter', (event) => {
+    if (busy || !isFileDrag(event)) return;
+    event.preventDefault();
+    selectTarget(event.clientY);
+  });
+  zone.addEventListener('dragover', (event) => {
+    if (busy || !isFileDrag(event)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    selectTarget(event.clientY);
+  });
+  zone.addEventListener('dragleave', (event) => {
+    if (event.relatedTarget instanceof Node && zone.contains(event.relatedTarget)) return;
+    clearDragState();
+  });
+  zone.addEventListener('drop', (event) => {
+    if (busy || !isFileDrag(event)) return;
+    event.preventDefault();
+    const droppedOn = target ?? closestMomentCard(zone, event.clientY);
+    const { photos, rejected } = partitionDroppedPhotos(Array.from(event.dataTransfer?.files ?? []));
+    clearDragState();
+    if (!droppedOn) {
+      showNoticeToast('먼저 순간을 저장해 주세요');
+      return;
+    }
+    if (!photos.length) {
+      showNoticeToast('추가할 수 있는 사진 파일을 찾지 못했어요');
+      return;
+    }
+    if (rejected.length) showNoticeToast(`사진이 아닌 파일 ${rejected.length}개는 제외했어요`);
+    const momentId = droppedOn.dataset['momentId'];
+    if (!momentId) return;
+    busy = true;
+    zone.setAttribute('aria-busy', 'true');
+    void onDrop(photos, {
+      momentId,
+      hasPlace: droppedOn.dataset['momentHasPlace'] === 'true',
+    }, (msg) => {
+      help.textContent = msg;
+    }).finally(() => {
+      busy = false;
+      zone.removeAttribute('aria-busy');
+      help.textContent = '🖼️ 사진을 이 영역으로 끌어놓아 추가 · 여러 장 가능';
+    });
+  });
+
+  return {
+    mount: () => {
+      zone.append(help, overlay);
+    },
+  };
+}
+
+function setupTripTimelinePhotoDrop(
+  zone: HTMLElement,
+  trip: { id: string; timeZone?: string },
+  refresh: () => Promise<void>,
+): { mount: () => void } {
+  return setupWindowsTimelinePhotoDrop(zone, async (files, target, report) => {
+    try {
+      const saved = await addPhotosToExistingMoment(files, report, {
+        momentId: target.momentId,
+        tripId: trip.id,
+        fallbackZone: trip.timeZone ?? '',
+        hasPlace: target.hasPlace,
+        refresh,
+      });
+      showNoticeToast(saved === files.length
+        ? `사진 ${saved}장을 추가했어요`
+        : `사진 ${saved}/${files.length}장을 추가했어요`);
+    } catch (err) {
+      showNoticeToast(`사진 추가 실패: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  });
+}
+
+function asMomentPhotoDropTarget(
+  card: HTMLElement,
+  moment: { id: string; placeName: string; placeLat?: number | null; placeLng?: number | null },
+): [HTMLElement, boolean] {
+  const hasPlace = momentHasPlace(moment);
+  card.dataset['momentId'] = moment.id;
+  card.dataset['momentHasPlace'] = String(hasPlace);
+  return [card, hasPlace];
 }
 
 /**
@@ -1574,6 +1734,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
 
     const timeline = el('div', 'timeline-wrap');
     body.appendChild(timeline);
+    const timelinePhotoDrop = setupTripTimelinePhotoDrop(timeline, trip, refresh);
 
     // 썸네일 objectURL 관리(재렌더 시 이전 URL 회수).
     let objectUrls: string[] = [];
@@ -1683,7 +1844,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       audioByMoment: Map<string, LocalAudio[]>,
     ): void {
       resetUrls();
-      timeline.innerHTML = '';
+      timeline.innerHTML = ''; timelinePhotoDrop.mount();
       // 🕒 미지정 고지 — **순간이 하나라도 있을 때만.** 빈 화면에서는 「첫 순간을 남겨보세요」가
       // 할 일이고, 그 위에 시간대 경고를 얹으면 시작하기 전에 숙제를 주는 셈이 된다.
       const notice = moments.length
@@ -1721,7 +1882,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       // 🕒 **그 자리의 시각**이 크게, 집 시간 환산이 그 아래 작게. 같은 값을 두 번 말하지
       // 않는다 — 환산은 시각이 **다를 때만** 나온다(`home`이 빈 문자열이면 침묵. §8).
       item.append(...timeGutter(momentWhen(m.occurredAt, m.tzOffsetMin, clock)));
-      const card = el('article', 'moment-card');
+      const [card, hasPlace] = asMomentPhotoDropTarget(el('article', 'moment-card'), m);
       const head = el('div', 'moment-head');
       head.appendChild(el('p', 'moment-say', m.title));
       const headRight = el('div', 'moment-head-right');
@@ -1788,7 +1949,6 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       );
       editForm.hidden = true;
       // `hasPlace`: 이름이든 좌표든 하나라도 있으면 사진이 장소를 **손대지 않는다.**
-      const hasPlace = momentHasPlace(m);
       wireAddPhoto(addPhotoInput, addProgress, { momentId: m.id, tripId: trip!.id, fallbackZone: trip?.timeZone ?? '', hasPlace, refresh });
       editBtn.addEventListener('click', () => {
         const show = editForm.hidden; // 열기로 전환
@@ -2450,8 +2610,8 @@ async function processPhotosIntoMoment(
   momentId: string,
   tripId: string,
   onProgress: (msg: string) => void,
-): Promise<void> {
-  if (!files.length) return;
+): Promise<number> {
+  if (!files.length) return 0;
   const states: (EditorResult['state'] | undefined)[] = new Array(files.length);
   const blobs: (Blob | null)[] = new Array(files.length).fill(null);
   let i = 0;
@@ -2472,6 +2632,7 @@ async function processPhotosIntoMoment(
     blobs[i] = r.blob; // apply→편집본(무편집 null), skip→null(원본)
     i += 1;
   }
+  let saved = 0;
   for (let k = 0; k < files.length; k += 1) {
     onProgress(`사진 저장… (${k + 1}/${files.length})`);
     try {
@@ -2481,10 +2642,12 @@ async function processPhotosIntoMoment(
         blobs[k] ?? undefined,
         blobs[k] ? states[k] : undefined, // 편집한 경우만 편집상태 저장(재편집 이어서용)
       );
+      saved += 1;
     } catch {
       /* 개별 사진 실패는 건너뜀(순간 자체는 유지) */
     }
   }
+  return saved;
 }
 
 function buildMomentEditForm(

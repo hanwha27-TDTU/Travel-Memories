@@ -133,7 +133,12 @@ try {
   server.close();
   process.exit(2);
 }
-const page = await browser.newPage({ viewport: { width: 412, height: 915 } });
+// Windows 전용 파일 드롭 경로를 CI(Linux)에서도 실제 렌더로 재기 위해
+// 이 페이지의 UA를 명시적으로 Windows로 고정한다. 재는 대상은 OS가 아니라 앱 배선이다.
+const page = await browser.newPage({
+  viewport: { width: 412, height: 915 },
+  userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36',
+});
 // 📍 「내 위치」를 **실제로 눌러** 재려면 브라우저가 위치를 줘야 한다(§13 4항 — 라벨만 읽는
 // 것과 눌러 보는 것은 다른 층이다). 실제 GPS는 이 환경에 없으므로 **결정적인 가짜 위치**를
 // 넣는다. 재는 대상은 위성이 아니라 **배선**이다: 눌렀을 때 좌표가 필드에 들어가는가,
@@ -1309,8 +1314,31 @@ await page.fill('input[placeholder^="이 순간을"]', '편집 폼 장소 검증
 await page.getByRole('button', { name: '순간 저장' }).click();
 await page.waitForTimeout(1200);
 const editCard = page.locator('.moment-card', { hasText: '편집 폼 장소 검증' }).first();
+await page.setViewportSize({ width: 1600, height: 900 });
 await editCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
 await page.waitForTimeout(400);
+const addRowAlignment = await editCard.evaluate((c) => {
+  const controls = [
+    c.querySelector('.moment-addphoto-btn'),
+    c.querySelector('.moment-addphoto .pick-original'),
+    c.querySelector('.moment-addphoto .audio-rec'),
+  ];
+  if (controls.some((control) => !(control instanceof HTMLElement))) return null;
+  const rects = controls.map((control) => control.getBoundingClientRect());
+  const spread = (values) => Math.max(...values) - Math.min(...values);
+  return {
+    topSpread: spread(rects.map((rect) => rect.top)),
+    bottomSpread: spread(rects.map((rect) => rect.bottom)),
+    heights: rects.map((rect) => rect.height),
+  };
+});
+check(
+  '🔴 순간 추가 버튼 3종: 같은 행의 상단·하단이 맞는다',
+  addRowAlignment !== null && addRowAlignment.topSpread <= 1 && addRowAlignment.bottomSpread <= 1,
+  JSON.stringify(addRowAlignment),
+);
+await page.setViewportSize({ width: 390, height: 844 });
+await page.waitForTimeout(150);
 const beforeEdit = await editCard.evaluate((c) => {
   const p = c.querySelector('.place-input');
   const badge = c.querySelector('.place-picked');
@@ -3091,6 +3119,75 @@ check(
 // ── v0.89: 플랫폼 지도(무엇이 어디서 도나) — **생성물이 실제로 그려지는가** ──────────
 // 정적 게이트는 platformMap.gen.ts가 코드와 맞는지만 본다. 그게 **화면에 실제로 나오는지**는
 // 렌더해야만 안다 — 생성은 됐는데 카드가 안 열리면 사용자에겐 없는 기능이다.
+// 🔴 Windows 타임라인 다중 사진 드롭. input을 직접 채우지 않고
+// File Explorer와 같은 DataTransfer/DragEvent를 실제 드롭존에 보낸다.
+const dropCard = page.locator('.moment-card', { hasText: 'GPS 없는 사진 검증' }).first();
+const dropBefore = await dropCard.locator('.photo-thumb').count();
+const dropUi = await page.evaluate(({ b64 }) => {
+  const zone = document.querySelector('.timeline-wrap');
+  const card = [...document.querySelectorAll('.moment-card')]
+    .find((node) => node.textContent?.includes('GPS 없는 사진 검증'));
+  if (!(zone instanceof HTMLElement) || !(card instanceof HTMLElement)) return { wired: false };
+  const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+  const transfer = new DataTransfer();
+  transfer.items.add(new File([bytes], 'windows-drop-1.png', { type: 'image/png' }));
+  transfer.items.add(new File([bytes], 'windows-drop-2.png', { type: 'image/png' }));
+  window.__windowsDropTransfer = transfer;
+  const rect = card.getBoundingClientRect();
+  const clientY = rect.top + rect.height / 2;
+  zone.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, clientY, dataTransfer: transfer }));
+  zone.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientY, dataTransfer: transfer }));
+  return {
+    wired: zone.classList.contains('windows-photo-drop'),
+    help: zone.querySelector('.timeline-drop-help')?.textContent ?? '',
+    overlay: !(zone.querySelector('.timeline-drop-overlay')?.hidden ?? true),
+    targeted: card.classList.contains('is-drop-target'),
+  };
+}, { b64: Buffer.from(imgBuf).toString('base64') });
+if (process.env.WINDOWS_DROP_SCREENSHOT && dropUi.wired === true) {
+  const previousViewport = page.viewportSize();
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await dropCard.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: resolve(process.env.WINDOWS_DROP_SCREENSHOT), fullPage: false });
+  if (previousViewport) await page.setViewportSize(previousViewport);
+}
+check(
+  'Windows 드롭: 다중 사진 안내와 드롭존이 **Windows에서만 활성화**된다',
+  dropUi.wired === true && dropUi.help.includes('여러 장'),
+  JSON.stringify(dropUi),
+);
+check(
+  'Windows 드롭: 놓기 전에 **가장 가까운 순간**을 보여 준다',
+  dropUi.overlay === true && dropUi.targeted === true,
+  JSON.stringify(dropUi),
+);
+if (dropUi.wired === true) {
+  await page.evaluate(() => {
+    const zone = document.querySelector('.timeline-wrap');
+    const card = [...document.querySelectorAll('.moment-card')]
+      .find((node) => node.textContent?.includes('GPS 없는 사진 검증'));
+    const transfer = window.__windowsDropTransfer;
+    if (!(zone instanceof HTMLElement) || !(card instanceof HTMLElement) || !(transfer instanceof DataTransfer)) return;
+    const rect = card.getBoundingClientRect();
+    zone.dispatchEvent(new DragEvent('drop', {
+      bubbles: true, cancelable: true, clientY: rect.top + rect.height / 2, dataTransfer: transfer,
+    }));
+  });
+  await page.waitForSelector('.pe-overlay', { timeout: 20000 });
+  await page.getByRole('button', { name: /남은 2장 모두 원본/ }).click();
+  await page.waitForFunction(({ title, count }) => {
+    const card = [...document.querySelectorAll('.moment-card')].find((node) => node.textContent?.includes(title));
+    return (card?.querySelectorAll('.photo-thumb').length ?? 0) === count + 2;
+  }, { title: 'GPS 없는 사진 검증', count: dropBefore }, { timeout: 30000 });
+}
+const dropAfter = await page.locator('.moment-card', { hasText: 'GPS 없는 사진 검증' })
+  .first().locator('.photo-thumb').count();
+check(
+  'Windows 드롭: 두 장이 공용 편집·저장 경로를 거쳐 **같은 순간에 모두 추가**된다',
+  dropAfter === dropBefore + 2,
+  `${dropBefore}→${dropAfter}`,
+);
+
 await page.evaluate(() => {
   document.querySelectorAll('.overlay-base').forEach((o) => o.remove());
 });

@@ -438,7 +438,31 @@
 }
 
 /* 타임라인 */
-.timeline-wrap { display: flex; flex-direction: column; gap: var(--space-3); }
+.timeline-wrap { position: relative; display: flex; flex-direction: column; gap: var(--space-3); }
+.timeline-drop-help {
+  margin: 0; padding: 9px 12px;
+  border: 1px dashed color-mix(in srgb, var(--a1) 48%, var(--line));
+  border-radius: var(--radius-medium);
+  background: color-mix(in srgb, var(--a1) 7%, var(--surface));
+  color: var(--ink-soft); font-size: 0.78rem; font-weight: 700;
+}
+.timeline-drop-overlay {
+  position: absolute; inset: 0; z-index: 6;
+  display: grid; place-items: center; pointer-events: none;
+  border: 3px dashed var(--a1); border-radius: var(--radius-large);
+  background: color-mix(in srgb, var(--a1) 13%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--surface) 72%, transparent);
+}
+.timeline-drop-label {
+  max-width: calc(100% - 32px); padding: 12px 18px;
+  border: 1px solid var(--line); border-radius: var(--radius-pill);
+  background: var(--surface); color: var(--ink); font-weight: 800;
+  box-shadow: var(--shadow-soft);
+}
+.moment-card.is-drop-target {
+  outline: 3px solid var(--a1); outline-offset: 3px;
+  background: color-mix(in srgb, var(--a1) 6%, var(--surface));
+}
 .day-head {
   margin: var(--space-2) 0 2px;
   font-family: var(--font-disp); font-size: 1.05rem; font-weight: 800;
@@ -714,6 +738,9 @@ select.zone-input { text-overflow: ellipsis; }
 .moment-photo-count { color: var(--a1d); }
 /* 편집 모드: 저장된 순간에 사진 추가 */
 .moment-addphoto { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+/* `.pick-original`의 위쪽 여백은 생성 폼에서 라벨 아래로 내리는 맥락용이다.
+   이 행에서는 사진·갤러리·소리가 형제로 나란히 서므로 재사용 맥락의 여백을 상쇄한다. */
+.moment-addphoto .pick-original { margin-top: 0; }
 .moment-addphoto-note { line-height: 1.5; }
 
 /* 장소 검색(지오코딩) */
@@ -1618,7 +1645,7 @@ select.zone-input { text-overflow: ellipsis; }
   }
   /* 타임라인이 길어도 기록 폼은 화면에 남는다(여행 중 빠른 기록 흐름 유지). */
   .detail-compose { position: sticky; top: var(--space-3); }
-  .timeline-wrap { min-width: 0; } /* 그리드 칸에서 사진·긴 제목이 넘치지 않게 */
+  .timeline-wrap { min-width: 0; min-height: 100%; align-self: stretch; } /* 그리드 칸 전체가 Windows 사진 드롭 영역 */
 
   /* 홈: 카드 3열 — 620px 분기의 2열을 넓은 화면에서 덮어쓴다. */
   .trip-list { grid-template-columns: repeat(3, 1fr); }
