@@ -13,6 +13,13 @@
 
 ---
 
+## 🆕 v1.71 — Dependabot 보안 업데이트 전용 (2026-08-04)
+
+- Dependabot 일반 버전 PR이 Ready로 열려 릴리스 의도 없이 전체 하네스를 돌린 회귀를 바로 교정했다.
+- npm·github-actions의 일반 version update는 끄고 security update만 유지한다. 상세는 HANDOFF-0072.
+
+---
+
 ## 🆕 v1.70 릴리스 후보 — 전수감사 교정·저장소 로컬 이전 (2026-08-04)
 
 - Windows 주 개발 clone을 `C:\AppDevelopment\Bugeon_Journey`로 옮겼다. OneDrive 옛 clone은 새 위치의 최종 배포 read-back 뒤 제거한다.

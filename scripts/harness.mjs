@@ -44,6 +44,7 @@ const gates = [
   { name: 'check-hooks-wired', cmd: 'node scripts/check-hooks-wired.mjs' },
   { name: 'check-ci-policy', cmd: 'node scripts/check-ci-policy.mjs' },
   { name: 'check-workflow-pins', cmd: 'node scripts/check-workflow-pins.mjs' },
+  { name: 'check-dependabot-policy', cmd: 'node scripts/check-dependabot-policy.mjs' },
   { name: 'check-domain-wiring', cmd: 'node scripts/check-domain-wiring.mjs' },
   { name: 'check-csp', cmd: 'node scripts/check-csp.mjs' },
   { name: 'check-production-artifacts', cmd: 'node scripts/check-production-artifacts.mjs' },
