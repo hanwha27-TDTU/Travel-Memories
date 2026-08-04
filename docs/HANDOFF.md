@@ -4,6 +4,52 @@
 
 ---
 
+## HANDOFF-0082 · v1.75 · **배포 완료 — 클라우드 사진 정본·깨끗한 Claude 인계** (2026-08-04)
+
+- **배포 증거**: PR [#200](https://github.com/hanwha27-TDTU/Travel-Memories/pull/200)의 Required CI가 성공한 뒤 squash 병합됐다. `main`·`origin/main`은 `df6fafe80d7471b3851f1bd941d10fafa87aad38`로 일치하고, 공개 Pages `version.json`에서 `1.75`를 되읽었다.
+- **검증 증거**: 최종 릴리스 후보에서 build와 전체 harness를 실행해 Required·선택 게이트 전부 PASS, SKIP 0을 확인했다. editor live 319/319, diagnostics live 22/22이며 동일 크기 다른 바이트를 통과시키는 결함 주입 2건은 RED 후 원복했다.
+- **깨끗한 상태**: 로컬·원격 작업 브랜치를 제거하고 `main`으로 복귀했다. `git status --porcelain`은 비어 있다. `.codex-remote-attachments/`는 사용자 파일이라 삭제하지 않고 로컬 `.git/info/exclude`에만 넣었다.
+- **정직한 미검사**: 로그인된 실제 운영 계정에서 새 사진을 올려 R2 GET 검증 뒤 `originalBlob`이 사라지는 왕복은 아직 실행하지 않았다. 코드·적대적 유닛·브라우저 UI는 검증했지만 운영 데이터 왕복을 확인했다고 말하면 안 된다.
+
+### Claude에게 전달할 최신 시작 메시지
+
+```text
+You are taking over Bugeon Journey at C:\AppDevelopment\Bugeon_Journey.
+
+Read CLAUDE.md, docs/HANDOFF_CODEX.md, then HANDOFF-0082 and HANDOFF-0081 at the top of docs/HANDOFF.md.
+Run: npm run brief
+
+Current repository state:
+- Branch: main
+- HEAD = origin/main = df6fafe80d7471b3851f1bd941d10fafa87aad38
+- Public app version: v1.75
+- PR #200 merged; Pages version.json read-back returned 1.75.
+- git status is clean.
+- .codex-remote-attachments/ is preserved and locally ignored; never delete or commit it.
+- No DB migration or Edge Function change was required.
+
+The v1.75 invariant:
+- R2 1600px q0.90 WebP is the sole app photo canonical.
+- IndexedDB originalBlob is durable staging only.
+- Remove originalBlob/editState and the sync op atomically only after operation row read-back, exact R2 GET byte equality, and same-snapshot recheck.
+- Never weaken this to HTTP 200, storagePath existence, or size-only comparison.
+- On failure, mismatch, empty bytes, or race, retain originalBlob and the op.
+- Pull/canonical restore must not synthesize originalBlob from displayBlob.
+- Existing rows use pruneVerifiedMediaOriginals through the same exact verification gate.
+
+Verified:
+- Final build and full harness PASS with zero SKIP.
+- Editor live 319/319; diagnostics live 22/22.
+- Size-only comparator fault injection produced the expected 2 RED tests and was reverted.
+- Photo/sync skills were updated and validated.
+
+Still unverified:
+- Authenticated production R2 upload → GET equality → IndexedDB originalBlob removal.
+Do not report that operational roundtrip as complete until you actually observe it.
+
+Start new work from clean main. Read ADR-0046, M-0099, photo-storage-dev §1-A, and sync-offline-dev §2-C before touching photo bytes or sync.
+```
+
 ## HANDOFF-0081 · **릴리스 대기 — 태블릿용 클라우드 사진 정본·로컬 원본 안전 회수** (2026-08-04)
 
 - **사용자 현실**: 앱에 사진을 넣은 직후 갤러리 파일을 삭제하므로 앱 클라우드가 유일본이다. 인화·TV용 동일 원본은 필요 없고 최대 태블릿 감상 품질이면 충분하다.
