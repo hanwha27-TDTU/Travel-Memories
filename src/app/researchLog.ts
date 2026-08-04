@@ -648,4 +648,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '원격 main을 새 일반 로컬 경로에 다시 clone해 동일 commit을 확인하고 그곳에서만 수정을 이어갔다. 감사에서 main 무보호, 공개 운영 소스맵, 백업 무제한 전체 읽기와 버전·행 검증 부재, 문서 현재상태 드리프트, Vite/Vitest 취약 버전, Dependabot·코드 스캔 부재, 이동 가능한 Action 태그를 확인했다. Vite/Vitest를 안전 판으로 올린 뒤 npm audit 0을 되읽었고, 백업은 UI와 서비스 양쪽 크기 경계·미래 버전 거절·여섯 도메인 SyncMeta 검증을 거치게 했다. GitHub Advanced Security는 비공개 저장소에서 미구매 422로 거절되는 외부 제약도 실제 API로 확인했다.',
     decision: '**소스 저장소는 동기화 폴더 밖에 두고, 릴리스 안전은 문서가 아니라 구조로 강제한다.** main 보호 규칙에 strict·admin 포함·PR·linear history·conversation resolution과 Required `harness`/`live-render`를 적용했다. 운영 소스맵·현재 문서 사실·Action SHA 고정을 각각 비공허 게이트로 만들고, Dependabot과 CI npm audit을 추가했다. GitHub Pages 보안 헤더와 유료 GHAS는 가짜 완료로 만들지 않고 BACKLOG T-008·T-009에 외부 조건을 명시한다. 옛 OneDrive clone은 새 경로의 최종 배포 read-back 뒤에만 제거한다.',
   },
+  {
+    seq: 81,
+    date: '2026-08-04',
+    topic: 'Dependabot 일반 업데이트가 Ready PR로 하네스를 자동 실행한 회귀',
+    human: '하네스는 머지와 배포하는 경우를 제외하곤 절대 돌리지 않고, 하네스-머지-배포를 한 묶음으로 한다.',
+    ai: 'v1.70에서 dependabot.yml을 weekly로 켜자 즉시 TypeScript 7·MapLibre 6·Actions 7 등 일반 버전 PR 8개와 과거 보안 PR 3개가 Ready로 열렸다. CI는 Ready를 릴리스 후보로 해석하므로 merge 의도 없는 PR들이 전체 harness/live를 동시에 실행했다. 설정 자체가 헌법의 원자 릴리스 규칙을 깨뜨린 회귀였다. GitHub 공식 문서에서 open-pull-requests-limit: 0이 일반 version update만 끄고 security update는 유지함을 확인했다.',
+    decision: '**Dependabot은 보안 업데이트 전용으로 둔다.** npm과 github-actions 모두 open-pull-requests-limit을 0으로 설정하고 자동 생성된 11개 PR을 근거 댓글과 함께 닫았다. 비긴급 버전 업그레이드는 전수감사나 명시적 기능 릴리스에서 사람이 묶어 진행한다. 설정 교정도 v1.71로 build→harness/live→Ready PR→merge→deploy 순서를 다시 지킨다.',
+  },
 ];

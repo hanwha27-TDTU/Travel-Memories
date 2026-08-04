@@ -31,6 +31,14 @@ export const DEVELOPER = {
 /** 최신이 맨 앞. 각 항목 = 실제 병합된 릴리스. */
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: '1.71',
+    date: '2026-08-04',
+    title: '**의존성 알림도 릴리스 규칙을 따릅니다**',
+    notes: [
+      'Dependabot은 보안 취약점 수정만 자동 제안하고, 비긴급 일반 버전 올림은 릴리스 후보처럼 전체 검사를 자동 실행하지 않게 정리했습니다.',
+    ],
+  },
+  {
     version: '1.70',
     date: '2026-08-04',
     title: '**저장소와 배포 경계를 전수 점검해 더 단단하게 만들었습니다**',

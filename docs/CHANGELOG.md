@@ -6,6 +6,9 @@
 
 ## [Unreleased]
 
+### Dependabot 보안 업데이트 전용 (2026-08-04)
+- 일반 버전 PR이 Ready 상태로 전체 하네스를 자동 실행하지 않도록 version update를 끄고 security update만 유지한다.
+
 ### 전수감사 교정·저장소 로컬 이전 (2026-08-04)
 - Windows 개발 clone을 OneDrive 밖 `C:\AppDevelopment\Bugeon_Journey`로 이전했다.
 - Vite/Vitest 취약점을 해소해 npm audit 0, 운영 sourcemap 제거, Action SHA pinning·Dependabot·CI high+ audit를 적용했다.
