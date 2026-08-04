@@ -3,6 +3,7 @@ import {
   isDroppedPhoto,
   isWindowsPlatform,
   partitionDroppedPhotos,
+  photoDropIntent,
 } from '../../src/domain/media/windowsDrop';
 
 describe('Windows 사진 드롭 경계', () => {
@@ -29,5 +30,12 @@ describe('Windows 사진 드롭 경계', () => {
     const result = partitionDroppedPhotos(files);
     expect(result.photos.map((file) => file.name)).toEqual(['1.jpg', '2.webp']);
     expect(result.rejected.map((file) => file.name)).toEqual(['readme.txt']);
+  });
+
+  it('한 장을 빈 영역에 놓을 때만 새 순간 작성으로 분기한다', () => {
+    expect(photoDropIntent(0, false)).toBe('none');
+    expect(photoDropIntent(1, false)).toBe('new-moment');
+    expect(photoDropIntent(1, true)).toBe('existing-moment');
+    expect(photoDropIntent(3, false)).toBe('existing-moment');
   });
 });

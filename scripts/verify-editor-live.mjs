@@ -2081,10 +2081,20 @@ await page.reload();
 await page.waitForSelector('.moment-form .emo-row', { timeout: 15000 }).catch(() => {});
 await page.setViewportSize({ width: 412, height: 915 });
 await page.waitForTimeout(220);
+if (process.env.FORM_DENSITY_SCREENSHOT) {
+  await page.screenshot({ path: resolve(process.env.FORM_DENSITY_SCREENSHOT), fullPage: true });
+}
 const memoryFields = await page.evaluate(() => {
   const row = document.querySelector('.moment-form .emo-row');
   const buttons = row ? [...row.querySelectorAll('.emo')] : [];
   const rowRect = row?.getBoundingClientRect();
+  const placeInput = document.querySelector('.moment-form .place-input');
+  const placeActions = [...document.querySelectorAll('.moment-form .place-actions .btn-ghost')];
+  const photoActions = [...document.querySelectorAll('.moment-form .photo-pick-actions > :is(label, button)')];
+  const rects = (nodes) => nodes.map((node) => node.getBoundingClientRect());
+  const placeRects = rects(placeActions);
+  const photoRects = rects(photoActions);
+  const inputRect = placeInput?.getBoundingClientRect();
   const tops = [...new Set(buttons.map((b) => Math.round(b.getBoundingClientRect().top)))];
   const lefts = [...new Set(buttons.map((b) => Math.round(b.getBoundingClientRect().left)))];
   return {
@@ -2093,6 +2103,16 @@ const memoryFields = await page.evaluate(() => {
     cols: lefts.length,
     labeled: buttons.filter((b) => Boolean(b.getAttribute('aria-label'))).length,
     overflow: row && rowRect ? Math.max(0, row.scrollWidth - Math.round(rowRect.width)) : -1,
+    emotionHeights: buttons.map((b) => b.getBoundingClientRect().height),
+    placeCount: placeRects.length,
+    placeOneRow: placeRects.length === 3 && new Set(placeRects.map((r) => Math.round(r.top))).size === 1,
+    placeWidthSpread: placeRects.length ? Math.max(...placeRects.map((r) => r.width)) - Math.min(...placeRects.map((r) => r.width)) : -1,
+    placeBelowInput: Boolean(inputRect && placeRects.every((r) => r.top >= inputRect.bottom)),
+    placeHeights: placeRects.map((r) => r.height),
+    photoCount: photoRects.length,
+    photoOneRow: photoRects.length === 2 && new Set(photoRects.map((r) => Math.round(r.top))).size === 1,
+    photoWidthSpread: photoRects.length ? Math.max(...photoRects.map((r) => r.width)) - Math.min(...photoRects.map((r) => r.width)) : -1,
+    photoHeights: photoRects.map((r) => r.height),
     period: document.querySelector('.detail-period')?.textContent ?? '',
   };
 });
@@ -2102,6 +2122,17 @@ check('감정 선택: 10종을 접근 가능한 이름과 함께 제공',
 check('감정 선택: 폰에서 5×2 배치 + 가로 넘침 0',
   memoryFields.rows === 2 && memoryFields.cols === 5 && memoryFields.overflow <= 0,
   `rows=${memoryFields.rows} cols=${memoryFields.cols} overflow=${memoryFields.overflow}`);
+check('순간 폼 장소: 입력 아래 **검색·지도·내 위치가 같은 폭 한 줄**',
+  memoryFields.placeCount === 3 && memoryFields.placeOneRow && memoryFields.placeBelowInput
+    && memoryFields.placeWidthSpread <= 1,
+  JSON.stringify(memoryFields));
+check('순간 폼 사진: **사진 추가·갤러리에서가 같은 폭 한 줄**',
+  memoryFields.photoCount === 2 && memoryFields.photoOneRow && memoryFields.photoWidthSpread <= 1,
+  JSON.stringify(memoryFields));
+check('순간 폼 보조 버튼: 터치 44px을 지키며 **46px 이하 공용 밀도**',
+  [...memoryFields.emotionHeights, ...memoryFields.placeHeights, ...memoryFields.photoHeights]
+    .every((height) => height >= 44 && height <= 46),
+  JSON.stringify(memoryFields));
 check('상세 기간: 시작·종료일 각각 요일 표시',
   memoryFields.period === '2026-07-20 (월) ~ 2026-07-31 (금)', memoryFields.period);
 const emotionButton = page.locator('.moment-form .emo').nth(5);
@@ -3186,6 +3217,95 @@ check(
   'Windows 드롭: 두 장이 공용 편집·저장 경로를 거쳐 **같은 순간에 모두 추가**된다',
   dropAfter === dropBefore + 2,
   `${dropBefore}→${dropAfter}`,
+);
+
+// 한 장을 카드가 아닌 빈 타임라인에 놓으면 기존 순간을 임의로 고르지 않고
+// 사진의 EXIF를 먼저 읽은 새 순간 작성 창을 연다.
+const singleDropMomentBefore = await page.locator('.moment-card').count();
+await page.evaluate(({ b64 }) => {
+  const zone = document.querySelector('.timeline-wrap');
+  if (!(zone instanceof HTMLElement)) return;
+  const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+  const transfer = new DataTransfer();
+  transfer.items.add(new File([bytes], 'single-new-moment.jpg', { type: 'image/jpeg' }));
+  const rect = zone.getBoundingClientRect();
+  const clientX = rect.right - 8;
+  const clientY = rect.top + 8;
+  zone.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, clientX, clientY, dataTransfer: transfer }));
+  zone.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientX, clientY, dataTransfer: transfer }));
+  zone.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX, clientY, dataTransfer: transfer }));
+}, { b64: withExifGps(imgBuf, '2026:07:16 09:30:00', 16.0544, 108.2022).toString('base64') });
+await page.waitForTimeout(500);
+const singleComposerOpened = await page.locator('.single-photo-moment-overlay').count() === 1;
+check(
+  'Windows 한 장 드롭: 빈 타임라인이면 **사진으로 새 순간 작성 창**을 연다',
+  singleComposerOpened,
+);
+if (singleComposerOpened) {
+  await page.waitForSelector('.single-photo-moment-form', { timeout: 20000 });
+  const singleHints = await page.locator('.single-photo-moment-form').evaluate((form) => ({
+    when: form.querySelector('.when-note')?.textContent ?? '',
+    place: form.querySelector('.place-picked-text')?.textContent ?? '',
+    placeSource: form.querySelector('.place-photo-note')?.textContent ?? '',
+    preview: form.querySelectorAll('.single-photo-preview').length,
+  }));
+  if (process.env.SINGLE_PHOTO_MOMENT_SCREENSHOT) {
+    const previousViewport = page.viewportSize();
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await page.screenshot({ path: resolve(process.env.SINGLE_PHOTO_MOMENT_SCREENSHOT), fullPage: false });
+    if (previousViewport) await page.setViewportSize(previousViewport);
+  }
+  check(
+    'Windows 한 장 드롭: EXIF 시각·위치를 **저장 전에 자동 입력**한다',
+    singleHints.when.includes('사진에서')
+      && singleHints.place.includes('위치 지정됨')
+      && singleHints.placeSource.includes('16.0544')
+      && singleHints.preview === 1,
+    JSON.stringify(singleHints),
+  );
+  const previousViewport = page.viewportSize();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const singleComposerGeometry = await page.locator('.single-photo-moment-overlay').evaluate((overlay) => {
+    const modal = overlay.querySelector('.single-photo-moment-modal');
+    const body = overlay.querySelector('.single-photo-moment-body');
+    const save = overlay.querySelector('button[type="submit"]');
+    if (!(modal instanceof HTMLElement) || !(body instanceof HTMLElement) || !(save instanceof HTMLElement)) return null;
+    body.scrollTop = body.scrollHeight;
+    const modalRect = modal.getBoundingClientRect();
+    const bodyRect = body.getBoundingClientRect();
+    const saveRect = save.getBoundingClientRect();
+    return {
+      top: modalRect.top,
+      bottom: modalRect.bottom,
+      saveReachable: saveRect.bottom <= bodyRect.bottom + 1,
+      overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+  check(
+    'Windows 한 장 드롭: 좁은 화면에서도 **잘리지 않고 저장 버튼까지 도달**한다',
+    singleComposerGeometry !== null
+      && singleComposerGeometry.top >= 12
+      && singleComposerGeometry.bottom <= 832
+      && singleComposerGeometry.saveReachable
+      && singleComposerGeometry.overflowX === 0,
+    JSON.stringify(singleComposerGeometry),
+  );
+  if (previousViewport) await page.setViewportSize(previousViewport);
+  await page.fill('.single-photo-moment-title', '한 장 드롭 새 순간');
+  await page.getByRole('button', { name: '사진 편집' }).click();
+  await page.waitForSelector('.pe-overlay', { timeout: 20000 });
+  await page.getByRole('button', { name: '원본 사용', exact: true }).click();
+  await page.getByRole('button', { name: '새 순간 저장' }).click();
+  await page.waitForFunction(({ title, count }) => (
+    [...document.querySelectorAll('.moment-card')].some((card) => card.textContent?.includes(title))
+    && document.querySelectorAll('.moment-card').length === count + 1
+  ), { title: '한 장 드롭 새 순간', count: singleDropMomentBefore }, { timeout: 30000 });
+}
+const singleDropSaved = await page.locator('.moment-card', { hasText: '한 장 드롭 새 순간' }).count();
+check(
+  'Windows 한 장 드롭: 검토·편집 뒤 **사진과 새 순간을 함께 저장**한다',
+  singleDropSaved === 1,
+  `saved=${singleDropSaved}`,
 );
 
 await page.evaluate(() => {
