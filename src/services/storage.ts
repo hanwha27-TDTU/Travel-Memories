@@ -1,6 +1,6 @@
 // services/storage.ts — 저장 용량 집계(사진 blob vs 기록 텍스트). 데이터 관리 표시용.
 //
-// 정직성(§4): 사진은 실제 Blob 크기 합(원본+표시본+썸네일, tombstone 포함 — 실제 점유),
+// 정직성(§4): 사진은 실제 Blob 크기 합(동기화 전 임시 원본+표시본+썸네일, tombstone 포함),
 // 텍스트는 blob을 뺀 기록(여행·순간·비용·미디어 메타·동기화 큐)의 UTF-8 JSON 바이트.
 // Blob.size는 데이터를 메모리에 올리지 않고 읽는 메타값이라 저렴하다.
 //
@@ -11,8 +11,11 @@
 import { db } from '../offline/db';
 
 export interface StorageUsage {
-  /** 사진 blob 합(원본+표시본+썸네일). */
+  /** 사진 blob 합(동기화 전 임시 원본+표시본+썸네일). */
   photoBytes: number;
+  /** 아직 R2 read-back 전이라 로컬에 남아 있는 입력 원본 임시본. */
+  stagedOriginalBytes: number;
+  stagedOriginalCount: number;
   /** 소리 blob 합(녹음 원본). 사진과 같은 규율 — tombstone 포함(실제 점유). */
   audioBytes: number;
   /** 기록(텍스트) 바이트 — blob 제외 JSON. */
@@ -45,8 +48,13 @@ export async function computeStorageUsage(): Promise<StorageUsage> {
   ]);
 
   let photoBytes = 0;
+  let stagedOriginalBytes = 0;
+  let stagedOriginalCount = 0;
   const mediaMeta = media.map((m) => {
-    photoBytes += (m.originalBlob?.size ?? 0) + (m.displayBlob?.size ?? 0) + (m.thumbBlob?.size ?? 0);
+    const staged = m.originalBlob?.size ?? 0;
+    photoBytes += staged + (m.displayBlob?.size ?? 0) + (m.thumbBlob?.size ?? 0);
+    stagedOriginalBytes += staged;
+    if (staged > 0) stagedOriginalCount += 1;
     // blob을 뺀 메타만 텍스트로 계산(editState·좌표·시각 등).
     const { originalBlob: _o, displayBlob: _dsp, thumbBlob: _t, ...meta } = m;
     return meta;
@@ -72,5 +80,14 @@ export async function computeStorageUsage(): Promise<StorageUsage> {
     /* 미지원·차단 시 생략 */
   }
 
-  return { photoBytes, audioBytes, textBytes, photoCount: media.length, audioCount: audio.length, estimate };
+  return {
+    photoBytes,
+    stagedOriginalBytes,
+    stagedOriginalCount,
+    audioBytes,
+    textBytes,
+    photoCount: media.length,
+    audioCount: audio.length,
+    estimate,
+  };
 }

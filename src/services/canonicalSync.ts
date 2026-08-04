@@ -269,7 +269,6 @@ async function materializeMedia(rows: MediaRow[], remote: CanonicalRemote, versi
       momentId: server.momentId,
       tripId: server.tripId,
       mime: 'image/webp',
-      originalBlob: sameObject && old ? old.originalBlob : display,
       displayBlob: display,
       thumbBlob: thumb,
       width: server.width,
@@ -286,7 +285,7 @@ async function materializeMedia(rows: MediaRow[], remote: CanonicalRemote, versi
       createdAt: server.createdAt,
       updatedAt: server.updatedAt,
       deletedAt: server.deletedAt,
-      ...(sameObject && old.editState ? { editState: old.editState } : {}),
+      // canonical 소비 뒤 표시본이 편집 기준이다. 옛 원본 좌표계의 editState는 승계하지 않는다.
       ...(server.clientOperationId ? { clientOperationId: server.clientOperationId } : {}),
     });
   }

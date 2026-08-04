@@ -54,7 +54,7 @@ describe('실기기 복원 드릴(importMergeRows over Dexie)', () => {
     expect(back.moments[0]!.placeLat).toBe(35.7);
     expect(back.expenses[0]!.category).toBe('식비');
     const bm = back.media.find((m) => m.id === 'md1')!;
-    expect(await bytesOf(bm.originalBlob)).toEqual([10, 20, 30]); // blob이 실 DB 왕복에서 보존
+    expect(await bytesOf(bm.originalBlob!)).toEqual([10, 20, 30]); // 동기화 전 임시 원본은 실 DB 왕복에서 보존
     expect(await bytesOf(bm.displayBlob)).toEqual([1, 2, 3]);
   });
 

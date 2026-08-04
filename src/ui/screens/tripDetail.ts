@@ -726,7 +726,9 @@ function wireAddPhoto(
           progress.textContent = msg;
         }, o);
         input.value = '';
-        progress.textContent = saved === files.length ? '✅ 추가됨' : `사진 ${saved}/${files.length}장 추가`;
+        progress.textContent = savedPhotoStatus(
+          saved === files.length ? '✅ 기기에 추가됨' : `사진 ${saved}/${files.length}장 기기에 추가`,
+        );
       } catch (err) {
         progress.textContent = `추가 실패: ${err instanceof Error ? err.message : String(err)}`;
       }
@@ -753,6 +755,7 @@ async function addPhotosToExistingMoment(
   const saved = await processPhotosIntoMoment(files, o.momentId, o.tripId, onProgress);
   await placeFromPhotos(o.momentId, o.hasPlace, metas, o.refresh);
   await o.refresh();
+  await trySync();
   return saved;
 }
 
@@ -1263,7 +1266,7 @@ import {
 } from '../../domain/time';
 import { homeZone, setHomeZone } from '../../services/homeZone';
 import { groupMomentsByDay, type DayGroup } from '../../domain/moment/timeline';
-import { requestSync } from '../../services/autoSync';
+import { requestSync, syncStatus } from '../../services/autoSync';
 import type { Route } from '../../app/router';
 import type { LocalMoment, LocalTrip, LocalMedia, LocalExpense, LocalPlace } from '../../offline/db';
 
@@ -1307,6 +1310,16 @@ const STATUS_ORDER: LocalTrip['status'][] = ['planned', 'active', 'completed', '
  */
 async function trySync(): Promise<void> {
   await requestSync('저장/변경');
+}
+
+/** 로컬 커밋과 클라우드 정본 확인을 같은 말로 뭉개지 않는다. */
+function savedPhotoStatus(localText: string): string {
+  const phase = syncStatus().phase;
+  if (phase === 'ok') return `${localText} · ☁️ 클라우드 저장 확인`;
+  if (phase === 'signed-out') return `${localText} · 로그인 후 클라우드 전송`;
+  if (phase === 'offline') return `${localText} · 온라인 복귀 시 클라우드 전송`;
+  if (phase === 'failed') return `${localText} · 클라우드 전송 재시도 예정`;
+  return `${localText} · 클라우드 확인 중`;
 }
 
 const EMOTIONS = [
@@ -2286,9 +2299,9 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           money.reset();
           // 미리보기 URL 회수 + 개수 문구까지 한 번에(초기화 경로를 두 개 만들지 않는다).
           picks.setFiles([]);
-          setNote(note, '✅ 저장됨', 'ok', null); // 정상 — 조용하게(침묵이 정상이므로 갈 곳도 안 만든다)
+          setNote(note, '✅ 기기에 저장됨 · 클라우드 확인 중', 'info', null);
           await refresh();
-          await trySync(); // 로그인 시 서버로 전송(순간). 사진은 후속(3b).
+          await trySync(); setNote(note, savedPhotoStatus('✅ 기기에 저장됨'), syncStatus().phase === 'ok' ? 'ok' : 'info', null);
           await refresh();
         } catch (err) {
           // 저장 실패야말로 갈 곳이 필요하다 — 무엇이 막혔는지는 「동기화 상태」가 말한다.

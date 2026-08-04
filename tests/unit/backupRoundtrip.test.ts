@@ -109,7 +109,7 @@ async function expectParity(back: CollectedRows, src: CollectedRows) {
   // 미디어 blob 바이트 동일(원본·표시본·썸네일)
   const bm = back.media.find((m) => m.id === 'md-1')!;
   const sm = src.media[0]!;
-  expect([...(await bytesOf(bm.originalBlob))]).toEqual([...(await bytesOf(sm.originalBlob))]);
+  expect([...(await bytesOf(bm.originalBlob!))]).toEqual([...(await bytesOf(sm.originalBlob!))]);
   expect([...(await bytesOf(bm.displayBlob))]).toEqual([...(await bytesOf(sm.displayBlob))]);
   expect([...(await bytesOf(bm.thumbBlob))]).toEqual([...(await bytesOf(sm.thumbBlob))]);
   expect(bm.version).toBe(2);
@@ -136,7 +136,7 @@ describe('백업 복원 왕복 드릴(순수)', () => {
     await expectParity(deserializeZip(buf), src);
   });
 
-  it('ZIP 가벼운 백업(원본 제외): 원본 파일 없음·더 작음·표시본 폴백(유실 아님)', async () => {
+  it('ZIP 가벼운 백업(원본 제외): 원본 파일 없음·더 작음·표시본이 정본', async () => {
     const src = sampleRows();
     const full = await serializeZip(src, true);
     const light = await serializeZip(src, false);
@@ -146,10 +146,11 @@ describe('백업 복원 왕복 드릴(순수)', () => {
     const names = unzip(await light.arrayBuffer()).map((e) => e.name);
     expect(names.some((n) => n.includes('_원본.'))).toBe(false);
     expect(names.some((n) => n.includes('_표시본.'))).toBe(true);
-    // 복원 시 원본 파일이 없으니 표시본으로 폴백(기억 유실 아님)
+    // 복원 시 별도 원본 복사본을 만들지 않고 표시본을 정본으로 둔다.
     const back = deserializeZip(await light.arrayBuffer());
     const bm = back.media.find((m) => m.id === 'md-1')!;
-    expect([...(await bytesOf(bm.originalBlob))]).toEqual([...(await bytesOf(src.media[0]!.displayBlob))]);
+    expect(bm.originalBlob).toBeUndefined();
+    expect([...(await bytesOf(bm.displayBlob))]).toEqual([...(await bytesOf(src.media[0]!.displayBlob))]);
   });
 
   it('비공허: 직렬화 후 한 행을 지우면 파리티가 깨진다(드릴이 살아있음)', async () => {

@@ -156,6 +156,20 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·c
 > **자문 한 줄**: 이 동기화가 서버에 **남긴 것**(행·바이트·표식) 중, 되읽어 확인하지 않는 것이
 > 있는가? 있다면 그 자리는 **사람이 대신 발견해야 하는 자리**다.
 
+## 2-C. 사진의 클라우드 정본 확정은 큐 제거와 같은 원자 경계다 (2026-08-04 · M-0099)
+
+사용자는 앱 추가 직후 외부 사진을 지우므로 R2의 1600px WebP가 유일한 앱 정본이다. 따라서
+사진 op의 완료 조건은 행 read-back에서 끝나지 않는다.
+
+1. operation/version/path 행 read-back을 통과한다.
+2. 승인된 path를 R2 GET하고 현재 `displayBlob`과 전체 바이트를 정확 비교한다.
+3. 로컬 snapshot이 그 사이 바뀌지 않았음을 transaction 안에서 다시 확인한다.
+4. `originalBlob`·원본 좌표계 `editState` 제거와 op 삭제를 **같은 transaction**에서 끝낸다.
+
+어느 단계든 실패하면 op과 스테이징 원본을 남겨 재시도한다. pull·canonical 소비는 서버 표시본을
+`originalBlob`으로 위장하지 않으며, 옛 사진 정리도 `pruneVerifiedMediaOriginals`가 같은 문을 쓴다.
+상세 인테이크 계약과 동일크기 변조 RED는 `photo-storage-dev` §1-A가 정본이다.
+
 ## 2-D. 🔴 **바이트를 올릴지 말지는 한 곳에서만 판정한다** (2026-08-01 · M-0060)
 
 `mustUploadBytes(entity, unknownPathMeansNeverUploaded)` — `src/sync/merge.ts`. 사진·소리가
@@ -255,7 +269,7 @@ const w = momentWhen(m.occurredAt, m.tzOffsetMin, clock);
 | 0.29 | 좀비데이터(삭제한 것이 되살아남) | 병합이 **벽시계(updatedAt) 우선**이라 시계 스큐로 오래된 활성 사본이 tombstone을 덮음 | version 기반 tombstone 우위 + 적대적 유닛(옛 로직 주입 시 부활 4건 RED 재현) + 서버 `prevent_zombie_resurrection` 트리거 |
 | 0.32 | 클라가 서버에 없는 컬럼을 밀어 조용히 깨짐 | rowmap↔서버 스키마 드리프트 | `check-schema-parity` 게이트(신규 엔티티는 `ROW_TO_TABLE` 등록 강제). 실제로 0009 누락을 RED로 잡음 |
 | 0.33 | (예방) 순간 삭제 시 딸린 비용이 다른 기기에서 부활 위험 | cascade가 로컬만 바꾸고 큐 op 미전파 | moments cascade에서 비용·사진에 각각 큐 op enqueue |
-| 0.34 | (예방) 사진 pull이 로컬 원본을 덮을 위험 | pull을 "서버가 진실"로 취급 | 다운로드 성공 시만 교체·tombstone은 `deletedAt`만·실패 시 로컬 유지 |
+| 0.34 | (역사·ADR-0046 이전) 사진 pull이 로컬 입력 원본을 덮을 위험 | pull을 "서버가 진실"로 취급 | 당시에는 다운로드 성공 시만 교체·원본 유지. 현재는 R2 WebP가 앱 정본이며 GET 바이트 검증 뒤 로컬 입력 원본 스테이징을 정리 |
 | 0.77 | 영구삭제가 로컬에 보이는 자식만 치움(사진만 표식 없이 남음) | "로컬이 못 보는 것은 없는 것으로 친다" — 비파괴 pull 규율과 맞물린 구멍 | `markFamily`로 **서버 기준** 자식 쓸기 + `unmarkedInFamily` read-back |
 | 0.92 | 휴지통은 「비어 있어요」인데 진단은 「1개 있다」 — **두 화면이 다른 이야기** | **같은 근본형이 또**: `listTrashedChildren`이 로컬 Dexie만 봤고, 그 행은 이 기기에 아예 없었다(불변식 #8이 안 만든다) | `purgeServerOnly()` — 로컬 행 없이도 **서버 기준**으로 의도를 만든다. 사용자가 명시적으로 누를 때만 |
 | 0.96 | 서버 행은 전부 지워졌는데 R2 파일만 남음 | `pushPurges` ⑤의 바이트 삭제가 **최선노력** — 실패해도 `console.error`만 찍고 op을 지운다 → **재시도 기회가 영영 없다** | 진단 지표 「영구삭제 후 남은 사진 파일」 + 정리 액션. 함수의 `deleteMany`가 **되읽어** `stillThere`를 준다 |

@@ -85,8 +85,9 @@ export function quotaVerdict(needBytes: number, est: StorageEstimateLike): Quota
 /**
  * 사진 한 장이 로컬에서 차지할 바이트의 **보수적 추정**.
  *
- * `LocalMedia`는 blob을 셋 들고 있다(원본·표시본·썸네일). 표시본·썸네일은 원본보다 훨씬
- * 작지만(실측: 12MP에서 표시본 약 0.66MB), 사전점검은 **넉넉히 잡는 쪽이 안전**하다 —
+ * 새 사진은 클라우드 검증 전까지 blob 셋(스테이징 원본·표시본·썸네일)을 들고 있다.
+ * 검증 뒤 원본은 회수되지만 인테이크의 순간 최대치를 견뎌야 하므로 사전점검은 **넉넉히
+ * 잡는 쪽이 안전**하다 —
  * 적게 잡아 통과시켰다가 커밋에서 터지면 그게 바로 막으려던 실패다.
  */
 export function estimateLocalBytes(fileSize: number): number {

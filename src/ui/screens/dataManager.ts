@@ -62,7 +62,14 @@ function buildUsageCard(): HTMLElement {
       rows.innerHTML = '';
       const known = u.photoBytes + u.audioBytes + u.textBytes;
       rows.append(
-        line('🖼', '사진', formatBytes(u.photoBytes), u.photoCount > 0 ? `${u.photoCount}장 · 원본+표시본+썸네일` : '아직 없음'),
+        line(
+          '🖼',
+          '사진',
+          formatBytes(u.photoBytes),
+          u.photoCount > 0
+            ? `${u.photoCount}장 · 클라우드 정본용 표시본+썸네일${u.stagedOriginalCount ? ` · 전송 확인 전 원본 ${u.stagedOriginalCount}장(${formatBytes(u.stagedOriginalBytes)})` : ''}`
+            : '아직 없음',
+        ),
         // 소리는 **사진과 같은 자리에 같은 어휘**로 선다(§7 사용자 대면 대칭). 0이어도 줄을
         // 없애지 않는다 — 줄이 사라지면 "이 앱이 소리를 세고 있다"는 사실 자체가 안 보인다.
         line('🔊', '소리', formatBytes(u.audioBytes), u.audioCount > 0 ? `${u.audioCount}개 · 녹음 원본` : '아직 없음'),
@@ -117,7 +124,7 @@ function backupPanel(): HTMLElement {
   const box = el('div', 'guide-detail-body');
   box.append(
     el('h3', 'guide-h', '완전 백업 파일 만들기'),
-    el('p', 'guide-p', '여행·순간·장소·감정과 사진(원본·표시본)을 하나의 JSON 파일로 내려받습니다. 다른 기기로 옮기거나, 브라우저 데이터가 지워져도 이 파일로 되살릴 수 있어요.'),
+    el('p', 'guide-p', '여행·순간·장소·감정과 클라우드 정본용 사진 표시본을 하나의 JSON 파일로 내려받습니다. 다른 기기로 옮기거나, 브라우저 데이터가 지워져도 이 파일로 되살릴 수 있어요.'),
   );
   const status = el('p', 'dm-status');
   status.setAttribute('role', 'status');
@@ -173,15 +180,14 @@ function backupPanel(): HTMLElement {
       '이 백업 파일은 암호화되지 않습니다.\n사진·위치(GPS)·메모·비용이 그대로 담기므로, 파일이 유출되면 누구나 열 수 있어요.\n\n위 칸에 암호를 입력하면 암호화할 수 있습니다.\n암호 없이 이대로 내보낼까요?',
     );
 
-  // 원본 포함 토글(여행별 폴더 ZIP에만 적용). 해제하면 표시본+썸네일만 담아 파일이 훨씬 작다
-  // (클라우드에 올라간 것과 사실상 동일 — 원본은 로컬·JSON 완전백업에 보관). 기본 포함.
+  // 동기화 전 임시 원본 포함 토글. 클라우드 확인이 끝난 사진에는 별도 원본이 없고 표시본이 정본이다.
   const incOrig = el('input') as HTMLInputElement;
   incOrig.type = 'checkbox';
-  incOrig.checked = true;
+  incOrig.checked = false;
   incOrig.id = 'dm-inc-orig';
   const incOrigLabel = el('label', 'dm-check');
   incOrigLabel.htmlFor = 'dm-inc-orig';
-  incOrigLabel.append(incOrig, document.createTextNode(' 원본 사진 포함 (해제하면 표시본만 — 파일이 훨씬 작아요)'));
+  incOrigLabel.append(incOrig, document.createTextNode(' 아직 전송 확인 전인 사진의 임시 원본도 포함'));
 
   const btnZip = el('button', 'btn-primary dm-wide', '🗂️ 여행별 폴더 백업 (ZIP)') as HTMLButtonElement;
   btnZip.type = 'button';
@@ -205,14 +211,14 @@ function backupPanel(): HTMLElement {
   });
 
   box.append(
-    el('p', 'guide-p', 'ZIP은 여행마다 폴더로 나뉘고 사진이 실제 이미지 파일로 들어가 탐색기에서 바로 볼 수 있어요. 원본 포함을 해제하면 표시본만 담아 파일이 훨씬 작아집니다(가벼운 백업·다른 기기로 옮기기 좋아요). JSON은 전 여행을 파일 하나에 담는 가장 단순한 완전백업(원본 포함)입니다. 둘 다 되살릴 수 있어요.'),
+    el('p', 'guide-p', 'ZIP은 여행마다 폴더로 나뉘고 클라우드 정본과 같은 표시본이 실제 이미지 파일로 들어갑니다. 아직 전송 확인 전인 사진만 임시 원본을 선택적으로 함께 담을 수 있어요. JSON은 전 여행을 파일 하나에 담는 가장 단순한 백업입니다. 둘 다 되살릴 수 있어요.'),
     fresh,
     passInput,
     incOrigLabel,
     btnZip,
     btnJson,
     status,
-    el('p', 'guide-note', '완전백업(원본 포함)은 파일이 커요(수십 MB~). 원본은 각 기기와 완전백업에만 보관되니, 원본 보존이 중요하면 완전백업을 하나 남겨두세요. 암호를 입력하면 파일을 열 때 그 암호가 필요합니다 — 분실하면 복원할 수 없으니 암호도 안전하게 보관하세요.'),
+    el('p', 'guide-note', '클라우드 저장이 확인된 사진은 태블릿 감상용 표시본이 정본이며, 큰 입력 원본 복사본은 기기에서 자동 정리됩니다. 암호를 입력하면 백업 파일을 열 때 그 암호가 필요합니다 — 분실하면 복원할 수 없으니 암호도 안전하게 보관하세요.'),
   );
   return box;
 }

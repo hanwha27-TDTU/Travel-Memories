@@ -234,7 +234,8 @@ describe('canonical 소비 기기', () => {
 
     await ensureCanonicalBeforeSync(fakeRemote({ version:VERSION,media:[row] }),USER);
     const local = await db().localMedia.get(mediaId);
-    expect(await local?.originalBlob.text()).toBe('server-bytes');
+    expect(local?.originalBlob).toBeUndefined();
+    expect(await local?.displayBlob.text()).toBe('server-bytes');
     expect(local?.storagePath).toBe(`${USER}/new.webp`);
   });
 });

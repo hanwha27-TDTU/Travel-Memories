@@ -6,7 +6,7 @@
 // 뷰어가 바깥에서 필요로 하는 것은 `onChanged` 하나뿐이라 이음매가 깨끗했다.
 //
 // 규칙 정본: .claude/skills/photo-editor-dev/SKILL.md (편집기·뷰어 전용 규칙).
-// 원본 불변(§0): 회전·재편집은 표시본만 갱신하고 originalBlob은 건드리지 않는다.
+// 클라우드 확인 전에는 입력 원본, 확인 뒤에는 표시본을 재편집 기준으로 쓴다.
 
 import { el } from './dom';
 import { momentWhen, type TripClock } from '../domain/time';
@@ -252,12 +252,12 @@ export function openPhotoViewer(
     void (async () => {
       try {
         const r = await openPhotoEditor(
-          current.originalBlob,
+          current.originalBlob?.size ? current.originalBlob : current.displayBlob,
           momentWhen(current.takenAt, null, clock).time || '사진 편집',
           current.editState ? { initialState: current.editState } : {},
         );
         if (r.action === 'apply') {
-          await reeditMediaLocalFirst(current.id, r.blob ?? current.originalBlob, r.state);
+          await reeditMediaLocalFirst(current.id, r.blob ?? current.originalBlob ?? current.displayBlob, r.state);
           await onChanged();
           await requestSync('저장/변경');
           close();
