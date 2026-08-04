@@ -7,6 +7,8 @@ import {
   deserializeJson,
   serializeZip,
   deserializeZip,
+  assertBackupImportSize,
+  MAX_BACKUP_IMPORT_BYTES,
   type CollectedRows,
 } from '../../src/services/backup';
 import { encryptBytes, decryptBytes, isEncryptedEnvelope } from '../../src/services/backupCrypto';
@@ -155,6 +157,29 @@ describe('백업 복원 왕복 드릴(순수)', () => {
     const back = deserializeJson(await serializeJson(src));
     back.trips.pop(); // 한 행 제거 → 개수 불일치여야 함
     await expect(expectParity(back, src)).rejects.toBeTruthy();
+  });
+
+  it('현재 앱보다 새로운 백업 버전은 쓰기 전에 거절한다', async () => {
+    const parsed = JSON.parse(await serializeJson(sampleRows())) as Record<string, unknown>;
+    parsed.backupVersion = 999;
+    expect(() => deserializeJson(JSON.stringify(parsed))).toThrow(/더 새로운 앱 형식/);
+  });
+
+  it('공통 동기화 메타가 깨진 행은 복원하지 않는다', async () => {
+    const parsed = JSON.parse(await serializeJson(sampleRows())) as { trips: Record<string, unknown>[] };
+    delete parsed.trips[0]!.updatedAt;
+    expect(() => deserializeJson(JSON.stringify(parsed))).toThrow(/updatedAt/);
+  });
+
+  it('도메인 필수 필드가 빠진 행은 공통 메타가 맞아도 거절한다', async () => {
+    const parsed = JSON.parse(await serializeJson(sampleRows())) as { expenses: Record<string, unknown>[] };
+    delete parsed.expenses[0]!.originalCurrency;
+    expect(() => deserializeJson(JSON.stringify(parsed))).toThrow(/originalCurrency/);
+  });
+
+  it('메모리 상한을 넘는 파일은 arrayBuffer 읽기 전에 거절할 수 있다', () => {
+    expect(() => assertBackupImportSize(MAX_BACKUP_IMPORT_BYTES)).not.toThrow();
+    expect(() => assertBackupImportSize(MAX_BACKUP_IMPORT_BYTES + 1)).toThrow(/1GB 이하/);
   });
 });
 

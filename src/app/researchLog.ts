@@ -640,4 +640,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '작업 트리의 변경을 다시 분류했다. 홈 카드·동기화 상태·기간 요일·감정 선택과 이를 지키는 게이트·CI·헌법·스킬·인계 문서는 같은 릴리스 목적에 속했고, 별도 소유자의 무관한 변경은 없었다. 따라서 부분 선별 대신 전체 작업 트리를 v1.69 한 릴리스 후보로 확정했다.',
     decision: '**v1.69에서 축적을 닫고 원자 릴리스 절차를 실제로 적용한다.** 사용자에게 보이는 변경을 CHANGELOG 한 항목으로 묶고, 최종 파일 상태에서 build→전체 harness/live→커밋·push→Ready PR 초록→merge→Pages 배포와 version.json read-back 순서로 판정한다. 이 순서 중 하나라도 실패하면 완료라고 하지 않는다.',
   },
+  {
+    seq: 80,
+    date: '2026-08-04',
+    topic: '전수감사 지적을 고치고 저장소를 OneDrive 밖으로 이전한다',
+    human: '이쯤에서 전수감사하고, 모두 수정한 뒤 로컬 저장소를 C:\\AppDevelopment\\Bugeon_Journey로 옮겨 OneDrive 제약에서 탈출하자.',
+    ai: '원격 main을 새 일반 로컬 경로에 다시 clone해 동일 commit을 확인하고 그곳에서만 수정을 이어갔다. 감사에서 main 무보호, 공개 운영 소스맵, 백업 무제한 전체 읽기와 버전·행 검증 부재, 문서 현재상태 드리프트, Vite/Vitest 취약 버전, Dependabot·코드 스캔 부재, 이동 가능한 Action 태그를 확인했다. Vite/Vitest를 안전 판으로 올린 뒤 npm audit 0을 되읽었고, 백업은 UI와 서비스 양쪽 크기 경계·미래 버전 거절·여섯 도메인 SyncMeta 검증을 거치게 했다. GitHub Advanced Security는 비공개 저장소에서 미구매 422로 거절되는 외부 제약도 실제 API로 확인했다.',
+    decision: '**소스 저장소는 동기화 폴더 밖에 두고, 릴리스 안전은 문서가 아니라 구조로 강제한다.** main 보호 규칙에 strict·admin 포함·PR·linear history·conversation resolution과 Required `harness`/`live-render`를 적용했다. 운영 소스맵·현재 문서 사실·Action SHA 고정을 각각 비공허 게이트로 만들고, Dependabot과 CI npm audit을 추가했다. GitHub Pages 보안 헤더와 유료 GHAS는 가짜 완료로 만들지 않고 BACKLOG T-008·T-009에 외부 조건을 명시한다. 옛 OneDrive clone은 새 경로의 최종 배포 read-back 뒤에만 제거한다.',
+  },
 ];

@@ -1,7 +1,7 @@
 # HANDOFF_CODEX · Bugeon Journey 인계서
 
 > **읽는 사람**: 이 앱 제작에 거의 참여하지 않은 AI(Codex 등) 또는 새 Claude 세션.
-> **작성**: 2026-07-27 · **갱신 2026-08-03**(v1.65 — 태블릿 확인 완료·migration 0028·문서 현행화. 바로 아래 최신 절을 **가장 먼저** 읽어라. DB 0028까지 적용 완료)
+> **작성**: 2026-07-27 · **갱신 2026-08-04**(현재 버전은 `src/app/changelog.ts`가 정본. 바로 아래 최신 절을 **가장 먼저** 읽어라. DB 0028까지 적용 완료)
 >
 > 🔴 **헌법은 `docs/CONSTITUTION.md`가 정본이다.** `CLAUDE.md`·`AGENTS.md`는 거기서 자동으로
 > 심어 받는 어댑터라 **글자 단위로 같다**. 헌법을 고칠 때는 정본만 고치고 `npm run gen:adapters`
@@ -13,12 +13,22 @@
 
 ---
 
+## 🆕 v1.70 릴리스 후보 — 전수감사 교정·저장소 로컬 이전 (2026-08-04)
+
+- Windows 주 개발 clone을 `C:\AppDevelopment\Bugeon_Journey`로 옮겼다. OneDrive 옛 clone은 새 위치의 최종 배포 read-back 뒤 제거한다.
+- main 보호(Required harness/live), 의존성 취약점 0, 운영 sourcemap 차단, Dependabot·npm audit·Action SHA pin, 백업 1GiB/버전/행 메타 검증, 현재 문서 사실 게이트를 한 릴리스로 묶었다.
+- GitHub Pages 응답 헤더와 비공개 저장소 GHAS는 플랫폼·유료 제약이라 각각 BACKLOG T-008·T-009에 남겼다. 미검사를 완료로 반올림하지 않는다.
+- 최신 상세는 `docs/HANDOFF.md` HANDOFF-0071, 사용자 변화의 정본은 `src/app/changelog.ts` v1.70이다.
+
+---
+
 ## 🆕 v1.69 릴리스 후보 — 홈 밀도·감정 10종·기간 요일·릴리스 묶음 규칙 (2026-08-04)
 
 - 작업 브랜치 `codex/compact-trip-cards-release-policy`: 홈 카드 높이 축약, `동기화됨`을 헤더 우측 도구 묶음으로 이동.
 - 같은 릴리스 대기 묶음에 순간 감정 선택지 10종(5×2·접근 가능한 이름·재클릭 해제 유지)과 홈/상세 여행 기간 양쪽 요일 표시를 추가했다. 날짜 표시는 `domain/time.ts` 공용 포매터가 정본이다.
 - 사용자 결정으로 문서 단독 변경과 비긴급 기능은 모아서 릴리스한다. 전체 하네스는 릴리스 후보를 build한 뒤에만 실행하고, 그 초록을 확인한 커밋을 merge한 뒤 바로 deploy한다. main 배포에서 하네스를 반복하지 않는다.
 - 사용자가 현재 저장소 변경 전부를 배포하도록 결정해 **v1.69 릴리스 후보**로 닫았다. 최종 판정 순서는 build→전체 harness/live→Ready PR 초록→merge→Pages deploy→`version.json` v1.69 read-back이다. 최신 범위는 `docs/HANDOFF.md` HANDOFF-0070.
+- 2026-08-04부터 Windows 주 개발 clone은 `C:\AppDevelopment\Bugeon_Journey`다. OneDrive 아래 옛 clone은 새 위치의 build·검증·배포·read-back을 마친 뒤 제거한다. 다른 기기에서도 동기화 폴더가 아닌 일반 로컬 디렉터리를 쓴다.
 
 ---
 
@@ -39,7 +49,7 @@
 
 ### Claude에게 넘길 다음 시작점
 
-1. `git pull --ff-only origin main` 뒤 작업 트리가 깨끗하고 앱 버전이 v1.64인지 확인한다. 이 문서와 `docs/CONSTITUTION.md`를 읽고, **실제로 고칠 파일들로** `npm run brief -- <paths...>`를 돌린다.
+1. `git pull --ff-only origin main` 뒤 작업 트리가 깨끗하고 앱 버전이 `src/app/changelog.ts` 최신 항목과 같은지 확인한다. 이 문서와 `docs/CONSTITUTION.md`를 읽고, **실제로 고칠 파일들로** `npm run brief -- <paths...>`를 돌린다.
 2. 🔴 **다음 할 일은 `docs/BACKLOG.md`가 정본이다**(열린 과제 T-번호·상태·막힌 조건 전부 그쪽에만). `npm run brief`가 매 착수마다 띄우므로 따로 외울 것 없다. 끝낸 과제는 **같은 커밋에서** 완료 아카이브로 옮긴다(증거 필수).
 3. 동기화 이상이 새로 보고되면 화면을 추측하지 말고 [진단 요약 복사] 텍스트와 문제 항목 id·도메인·로컬 상태를 먼저 받고, 서버 행·`purged_ids`·canonical generation을 **읽기 전용**으로 대조한다. `[정리 실행]` 같은 무차별 재큐잉을 되살리거나 사이트 데이터를 지우라고 권하지 않는다.
 4. 운영 DB는 **0028까지** 적용돼 있다(0028 = FK 커버링 인덱스 10건, 데이터 무변경 — HANDOFF-0057). ROADMAP·ASSUMPTIONS는 2026-08-03에 현행화됐다(그 전엔 스캐폴딩 시절에 멈춰 있었다).
@@ -714,8 +724,9 @@ npx supabase secrets set R2_BUCKET=... --project-ref ihxiywffzmvrwmqvatzt
 `main`에 push되면 `.github/workflows/deploy-pages.yml`이 돌아 GitHub Pages에 올린다
 (`workflow_dispatch`로 수동 실행도 가능). **직접 배포하는 명령은 없다** — 병합이 곧 배포다.
 
-> 그래서 **배포를 미루려면 병합을 미루는 게 아니라, 병합해두고 Actions가 못 돌게 두면 된다**
-> (지금이 그 상태 — 사용량 한도). 코드는 안전하게 쌓이고 실기기만 옛 판에 머문다.
+> 🔴 **병합과 배포를 떼지 않는다.** 문서 단독·비긴급 기능은 브랜치에 축적하고,
+> `version/CHANGELOG → build → harness/live → Ready PR → merge → deploy → read-back`을 한 묶음으로 실행한다.
+> 배포할 수 없는 상태라면 main 병합도 미룬다.
 
 ### ④ 게이트가 실패하면
 

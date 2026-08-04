@@ -32,4 +32,4 @@ JPEG/PNG/WebP/HEIC 각 1장 · EXIF 없음 · GPS 없음 · 세로방향 · 50MB
 `tests/unit` (Vitest, 순수함수) · `tests/integration` (모듈·서버) · `tests/e2e` (Playwright, 브라우저 왕복) · `tests/security` (RLS 침투·시크릿) · `tests/performance` (대량·저메모리) · `tests/fixtures`.
 
 ## 완료의 정의
-전체 하네스(일부 아님) 통과 → 버전/CHANGELOG 갱신 → 브랜치(기본에 커밋 안 함) → PR 그린 → 병합 → **배포 성공 확인** → 정직한 보고. 자동검사 미통과 변경을 완료로 표시하지 않는다.
+버전/CHANGELOG 갱신 → 앱 build → 전체 하네스+live(일부 아님) 통과 → 브랜치 커밋·Ready PR 그린 → 병합 → **즉시 배포 성공·version.json read-back 확인** → 정직한 보고. 문서 단독·비긴급 기능은 이 묶음 전까지 축적하며, 하네스는 merge·deploy가 이어지는 릴리스 후보에서만 돌린다.

@@ -18,6 +18,8 @@
 
 | ID | 과제 | 상태 | 무엇이 필요한가 | 추가일 | 근거 |
 |---|---|---|---|---|---|
+| T-009 | 비공개 저장소 GitHub CodeQL·Secret Scanning 활성화 | 막힘-사용자 | GitHub Advanced Security 구매 또는 공개 저장소 전환 결정 필요. API 활성화는 `Advanced security has not been purchased`(422)로 거절됨 | 2026-08-04 | 저장소 전수감사 · 현재는 custom secret gate+Dependabot+npm audit+SHA pinning으로 완화 |
+| T-008 | 운영 응답에 `frame-ancestors 'none'` 등 보안 헤더 적용 | 대기 | GitHub Pages는 사용자 지정 응답 헤더를 지원하지 않음. 헤더 지원 정적 호스트로 이전할 때 CSP 헤더·HSTS·X-Content-Type-Options를 함께 적용 | 2026-08-04 | 저장소 전수감사 · 현재는 meta CSP + no-referrer로 가능한 범위 적용 |
 | T-004 | Supabase leaked-password 보호 켜기 | 막힘-사용자 | 대시보드 Auth 설정 1회 (Google OAuth 전용·초대제라 위험 낮음) | 2026-08-03 | HANDOFF-0057 · advisor WARN |
 | T-005 | 태블릿 저장소 보호(persist) 적용 | 막힘-사용자 | 앱의 [저장소 보호 요청] 버튼 (선택 사항 — 결함 아님) | 2026-08-03 | HANDOFF-0056 진단 실측 |
 | T-007 | Phase 7 — AI 확장(요약·태그·검색·OCR, `ai_artifacts` 테이블) | 대기 | MVP 안정화 후 별도 branch (계획된 미착수) | 2026-07-22 | ROADMAP Phase 7 · 비타협 원칙 #2 |

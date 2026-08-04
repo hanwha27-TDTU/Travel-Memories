@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+### 전수감사 교정·저장소 로컬 이전 (2026-08-04)
+- Windows 개발 clone을 OneDrive 밖 `C:\AppDevelopment\Bugeon_Journey`로 이전했다.
+- Vite/Vitest 취약점을 해소해 npm audit 0, 운영 sourcemap 제거, Action SHA pinning·Dependabot·CI high+ audit를 적용했다.
+- main 보호가 Ready PR의 `harness`·`live-render`를 Required로 강제한다.
+- 백업 복원은 1GiB 상한·지원 버전·여섯 도메인 행 메타를 쓰기 전에 검증한다.
+- 현재 상태 문서가 migration 0028·BACKLOG·릴리스 순서와 갈라지면 새 게이트가 RED다.
+
 ### 운영 동기화 복구 + 앱 선배포 호환성 (2026-08-03)
 - v1.62가 운영 0025보다 먼저 배포된 구간에서 `ensure_sync_meta()` PGRST202가 `runSync` 전체를 막아, 서버에는 여행 5개가 있는데 PC·태블릿은 0개로 보인 M-0093을 복구했다.
 - 자동 물리 백업이 최신 쓰기보다 오래된 것을 확인하고 별도 DPAPI 암호화 행 스냅샷을 복호화·해시 검증한 뒤, 0026→stale SQL 검사→0027→canonical SQL 검사→stale 재검사를 운영에 적용했다. `CANONICAL_SYNC_META_PASS`, 테스트 픽스처 0, 전후 행수·내용 해시 동일이다.

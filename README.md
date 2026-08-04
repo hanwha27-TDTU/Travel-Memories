@@ -6,9 +6,13 @@
 
 ## 상태
 
-🚧 **Phase 0 — 설계·스캐폴딩 단계.** 아직 제품 기능은 구현하지 않았습니다.
-현재 저장소에는 설계 문서(`docs/`)와 개발 에이전트 팀(`.claude/agents/`)이 구성되어 있습니다.
-전체 기준 문서는 [`docs/PROJECT_SPEC.md`](docs/PROJECT_SPEC.md)입니다.
+✅ **Phase 0B~6 출고 완료 — 실사용 중인 비공개 개인 PWA입니다.** 여행·순간·사진·장소·비용·소리,
+오프라인 우선 저장, Supabase 다기기 동기화, R2 사진 바이트, JSON/ZIP 백업·복원과 Android 셸까지
+운영 중입니다. 현재 버전은 `src/app/changelog.ts`, 미완료 과제는 `docs/BACKLOG.md`가 정본입니다.
+
+Windows 주 개발 저장소는 OneDrive 동기화·재분석 잠금의 영향을 받지 않는
+`C:\AppDevelopment\Bugeon_Journey`에 둡니다. 다른 환경에서도 클라우드 동기화 폴더가 아닌
+일반 로컬 디렉터리를 권장합니다. 이 경로는 사용자 데이터 위치가 아니라 **소스 저장소 위치**입니다.
 
 ## 핵심 원칙
 
@@ -31,7 +35,7 @@
 | 지도 | MapLibre GL JS / 위치 GeoJSON |
 | 사진 | Web Worker + OffscreenCanvas, WebP |
 | 오프라인 | Service Worker + IndexedDB 동기화 대기열 |
-| 배포 | PWA 우선 · 정적 호스팅 · 단일 HTML 보조 빌드 |
+| 배포 | GitHub Pages PWA · Android Capacitor 셸(APK) |
 
 ## 문서
 

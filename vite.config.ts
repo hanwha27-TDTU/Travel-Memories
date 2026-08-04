@@ -10,9 +10,9 @@ export default defineConfig({
   base: BASE,
   build: {
     target: 'es2022',
-    // 소스맵 공개는 의도된 선택: 공개 저장소라 감출 소스가 없고, 실기기
-    // 오류 제보의 스택 해석(디버깅 가능성)을 우선한다.
-    sourcemap: true,
+    // 저장소는 비공개이고 GitHub Pages 산출물은 공개다. 운영 소스맵은 원본 TS와
+    // 내부 주석을 그대로 공개하므로 만들지 않는다. check-production-artifacts가 회귀를 막는다.
+    sourcemap: false,
   },
   server: {
     port: 5173,
