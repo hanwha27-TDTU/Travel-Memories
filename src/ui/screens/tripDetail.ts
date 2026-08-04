@@ -47,7 +47,7 @@ import { CURRENCIES, DEFAULT_CURRENCY, currencyLabel, formatMoney, sumByCurrency
 import { convertAmount, formatRate, fxDateFor, fxKey, unitRate, type FxRateTable } from '../../domain/expense/fx';
 import { ensureTable, fxBase, todayDate } from '../../services/fx';
 import { momentCoord } from '../../domain/place/geojson';
-import { isWindowsPlatform, partitionDroppedPhotos } from '../../domain/media/windowsDrop';
+import { isWindowsPlatform, partitionDroppedPhotos, photoDropIntent } from '../../domain/media/windowsDrop';
 // 보조 화면은 반드시 lazyScreens를 거친다(정적 import 금지 — check-lazy-screens).
 import { openMapView, openMapPicker, openDiagnosticsHub } from '../lazyScreens';
 import type { MapPoint } from './mapView';
@@ -335,7 +335,7 @@ function buildAddPhotoRow(): { wrap: HTMLElement; input: HTMLInputElement; progr
   const wrap = el('div', 'moment-addphoto');
   wrap.hidden = true;
   const input = photoFileInput();
-  const label = el('label', 'moment-photo-label moment-addphoto-btn');
+  const label = el('label', 'moment-photo-label moment-addphoto-btn form-utility');
   label.append(document.createTextNode('📷 사진 추가 '), input);
   const progress = el('span', 'moment-addphoto-note muted small');
   progress.setAttribute('role', 'status');
@@ -351,7 +351,7 @@ function buildAddPhotoRow(): { wrap: HTMLElement; input: HTMLInputElement; progr
  * 두 벌 만들면 한쪽만 고쳐지는 날이 오고, 이 저장소는 그 사고를 이미 세 번 겪었다.
  */
 function galleryPickButton(input: HTMLInputElement): HTMLButtonElement {
-  const btn = el('button', 'btn-ghost pick-original', '🖼️ 갤러리에서') as HTMLButtonElement;
+  const btn = el('button', 'btn-ghost pick-original form-utility', '🖼️ 갤러리에서') as HTMLButtonElement;
   btn.type = 'button';
   btn.setAttribute('aria-label', '갤러리에서 고르기 — 고르기는 편하지만 위치 정보가 빠질 수 있어요');
   btn.title = '고르기는 편하지만 위치 정보가 빠질 수 있어요';
@@ -456,21 +456,23 @@ function buildPlaceFieldShell(initialName: string): PlaceFieldShell {
   input.maxLength = 80;
   input.placeholder = '📍 장소 · 좌표 · 지도 링크';
   input.setAttribute('aria-label', '장소(선택) — 이름·좌표·지도 링크를 붙여넣을 수 있어요');
-  const searchBtn = el('button', 'btn-ghost place-search', '🔍 검색') as HTMLButtonElement;
+  const searchBtn = el('button', 'btn-ghost form-utility place-search', '🔍 검색') as HTMLButtonElement;
   searchBtn.type = 'button';
   searchBtn.setAttribute('aria-label', '장소 검색(지도)');
   // 지도에서 직접 위치 지정 — Nominatim에 없는 곳(등록되지 않은 장소)도 좌표로 남길 수 있다.
-  const mapBtn = el('button', 'btn-ghost place-map', '🗺 지도') as HTMLButtonElement;
+  const mapBtn = el('button', 'btn-ghost form-utility place-map', '🗺 지도') as HTMLButtonElement;
   mapBtn.type = 'button';
   mapBtn.setAttribute('aria-label', '지도에서 위치 지정');
   // 🔴 **지금 내 위치**(v1.33 · 사용자 2026-07-31: *"장소가 바로 입력되게 하고 싶은거야"*).
   // 사진 EXIF의 GPS는 안드로이드가 지워서 넘긴다(M-0054, 실기기 확정) — 파서로는 못 뚫는다.
   // 기기는 자기 위치를 알고 있고 그건 안드로이드가 막는 대상이 아니다. **한 번 눌러 끝**이
   // 되는 길을 항상 열어 둔다. 부품이 하나라 생성 폼·편집 폼이 **동시에** 받는다(§7 2층).
-  const hereBtn = el('button', 'btn-ghost place-here', '📍 내 위치') as HTMLButtonElement;
+  const hereBtn = el('button', 'btn-ghost form-utility place-here', '📍 내 위치') as HTMLButtonElement;
   hereBtn.type = 'button';
   hereBtn.setAttribute('aria-label', '지금 내 위치로 장소 지정');
-  row.append(input, searchBtn, mapBtn, hereBtn);
+  const actions = el('div', 'place-actions');
+  actions.append(searchBtn, mapBtn, hereBtn);
+  row.append(input, actions);
   const results = el('div', 'place-results');
   results.hidden = true;
   return { wrap, row, input, searchBtn, mapBtn, hereBtn, results };
@@ -775,16 +777,29 @@ function closestMomentCard(zone: HTMLElement, clientY: number): HTMLElement | nu
   return closest;
 }
 
+function directMomentCard(zone: HTMLElement, eventTarget: EventTarget | null): HTMLElement | null {
+  const card = eventTarget instanceof Element
+    ? eventTarget.closest<HTMLElement>('.moment-card[data-moment-id]')
+    : null;
+  return card && zone.contains(card) ? card : null;
+}
+
+function draggedFileCount(event: DragEvent): number {
+  const items = Array.from(event.dataTransfer?.items ?? []).filter((item) => item.kind === 'file');
+  return items.length || event.dataTransfer?.files.length || 0;
+}
+
 function setupWindowsTimelinePhotoDrop(
   zone: HTMLElement,
   onDrop: (files: File[], target: { momentId: string; hasPlace: boolean }, report: (msg: string) => void) => Promise<void>,
+  onNewMoment: (file: File, report: (msg: string) => void) => Promise<void>,
 ): { mount: () => void } {
   const nav = navigator as DropNavigator;
   const platform = nav.userAgentData?.platform ?? nav.platform;
   if (!isWindowsPlatform(platform, nav.userAgent)) return { mount: () => undefined };
 
   zone.classList.add('windows-photo-drop');
-  const help = el('p', 'timeline-drop-help', '🖼️ 사진을 이 영역으로 끌어놓아 추가 · 여러 장 가능');
+  const help = el('p', 'timeline-drop-help', '🖼️ 빈 곳에 한 장: 새 순간 · 카드 위/여러 장: 사진 추가');
   const overlay = el('div', 'timeline-drop-overlay');
   overlay.hidden = true;
   overlay.setAttribute('role', 'status');
@@ -798,26 +813,28 @@ function setupWindowsTimelinePhotoDrop(
     target = null;
     overlay.hidden = true;
   };
-  const selectTarget = (clientY: number): void => {
+  const selectTarget = (event: DragEvent): void => {
     target?.classList.remove('is-drop-target');
-    target = closestMomentCard(zone, clientY);
+    const direct = directMomentCard(zone, event.target);
+    const intent = photoDropIntent(draggedFileCount(event), direct !== null);
+    target = intent === 'new-moment' ? null : direct ?? closestMomentCard(zone, event.clientY);
     target?.classList.add('is-drop-target');
-    overlayLabel.textContent = target
-      ? '가장 가까운 순간에 사진을 추가해요'
-      : '먼저 순간을 저장해 주세요';
+    overlayLabel.textContent = intent === 'new-moment'
+      ? '사진으로 새 순간을 만들어요'
+      : target ? '이 순간에 사진을 추가해요' : '먼저 순간을 저장해 주세요';
     overlay.hidden = false;
   };
 
   zone.addEventListener('dragenter', (event) => {
     if (busy || !isFileDrag(event)) return;
     event.preventDefault();
-    selectTarget(event.clientY);
+    selectTarget(event);
   });
   zone.addEventListener('dragover', (event) => {
     if (busy || !isFileDrag(event)) return;
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-    selectTarget(event.clientY);
+    selectTarget(event);
   });
   zone.addEventListener('dragleave', (event) => {
     if (event.relatedTarget instanceof Node && zone.contains(event.relatedTarget)) return;
@@ -826,9 +843,23 @@ function setupWindowsTimelinePhotoDrop(
   zone.addEventListener('drop', (event) => {
     if (busy || !isFileDrag(event)) return;
     event.preventDefault();
-    const droppedOn = target ?? closestMomentCard(zone, event.clientY);
+    const direct = directMomentCard(zone, event.target);
     const { photos, rejected } = partitionDroppedPhotos(Array.from(event.dataTransfer?.files ?? []));
+    const intent = photoDropIntent(photos.length, direct !== null);
+    const droppedOn = direct ?? target ?? closestMomentCard(zone, event.clientY);
     clearDragState();
+    if (intent === 'new-moment') {
+      busy = true;
+      zone.setAttribute('aria-busy', 'true');
+      void onNewMoment(photos[0]!, (msg) => {
+        help.textContent = msg;
+      }).finally(() => {
+        busy = false;
+        zone.removeAttribute('aria-busy');
+        help.textContent = '🖼️ 빈 곳에 한 장: 새 순간 · 카드 위/여러 장: 사진 추가';
+      });
+      return;
+    }
     if (!droppedOn) {
       showNoticeToast('먼저 순간을 저장해 주세요');
       return;
@@ -850,7 +881,7 @@ function setupWindowsTimelinePhotoDrop(
     }).finally(() => {
       busy = false;
       zone.removeAttribute('aria-busy');
-      help.textContent = '🖼️ 사진을 이 영역으로 끌어놓아 추가 · 여러 장 가능';
+      help.textContent = '🖼️ 빈 곳에 한 장: 새 순간 · 카드 위/여러 장: 사진 추가';
     });
   });
 
@@ -863,17 +894,16 @@ function setupWindowsTimelinePhotoDrop(
 
 function setupTripTimelinePhotoDrop(
   zone: HTMLElement,
-  trip: { id: string; timeZone?: string },
-  refresh: () => Promise<void>,
+  context: SinglePhotoMomentContext,
 ): { mount: () => void } {
   return setupWindowsTimelinePhotoDrop(zone, async (files, target, report) => {
     try {
       const saved = await addPhotosToExistingMoment(files, report, {
         momentId: target.momentId,
-        tripId: trip.id,
-        fallbackZone: trip.timeZone ?? '',
+        tripId: context.trip.id,
+        fallbackZone: context.trip.timeZone ?? '',
         hasPlace: target.hasPlace,
-        refresh,
+        refresh: context.refresh,
       });
       showNoticeToast(saved === files.length
         ? `사진 ${saved}장을 추가했어요`
@@ -881,7 +911,7 @@ function setupTripTimelinePhotoDrop(
     } catch (err) {
       showNoticeToast(`사진 추가 실패: ${err instanceof Error ? err.message : String(err)}`);
     }
-  });
+  }, (file, report) => openSinglePhotoMomentComposer(file, context, report));
 }
 
 function asMomentPhotoDropTarget(
@@ -1439,6 +1469,159 @@ function buildEmotionRow(initial: string): { el: HTMLElement; value(): string; r
   return { el: row, value: () => picked, reset: () => { picked = initial; sync(); } };
 }
 
+interface SinglePhotoMomentContext {
+  trip: LocalTrip;
+  clock: TripClock;
+  latestMomentAt: () => string | null;
+  refresh: () => Promise<void>;
+}
+
+function mountSinglePhotoMomentShell(onFinish: () => void): {
+  body: HTMLElement;
+  loading: HTMLElement;
+  finish: () => void;
+  isClosed: () => boolean;
+} {
+  const overlay = el('div', 'overlay-base single-photo-moment-overlay');
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', '사진으로 새 순간 만들기');
+  const modal = el('section', 'modal-base single-photo-moment-modal');
+  const head = el('header', 'single-photo-moment-head');
+  head.appendChild(el('div', undefined, '📷 사진으로 새 순간 만들기'));
+  const close = el('button', 'single-photo-moment-close', '✕') as HTMLButtonElement;
+  close.type = 'button';
+  close.setAttribute('aria-label', '새 순간 작성 취소');
+  head.appendChild(close);
+  const body = el('div', 'single-photo-moment-body');
+  const loading = el('p', 'single-photo-moment-loading', '사진의 촬영 시각과 위치를 읽고 있어요…');
+  loading.setAttribute('role', 'status');
+  body.appendChild(loading);
+  modal.append(head, body);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  let closed = false;
+  const finish = (): void => {
+    if (closed) return;
+    closed = true;
+    onFinish();
+    document.removeEventListener('keydown', onKey);
+    overlay.remove();
+  };
+  const onKey = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape' && !document.querySelector('.pe-overlay')) finish();
+  };
+  close.addEventListener('click', finish);
+  document.addEventListener('keydown', onKey);
+  return { body, loading, finish, isClosed: () => closed };
+}
+
+/** 빈 타임라인에 놓은 한 장을 EXIF 기반 새 순간으로 검토·편집한 뒤 저장한다. */
+async function openSinglePhotoMomentComposer(
+  file: File,
+  context: SinglePhotoMomentContext,
+  report: (msg: string) => void,
+): Promise<void> {
+  let previewUrl = '';
+  let editedBlob: Blob | null = null;
+  let editState: EditorResult['state'] | undefined;
+  const disposePreview = (): void => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = '';
+  };
+  const shell = mountSinglePhotoMomentShell(disposePreview);
+  const { body, loading, finish } = shell;
+  report('사진 정보를 읽고 있어요…');
+
+  try {
+    const meta = await readPhotoMeta(file, context.trip.timeZone ?? '');
+    if (shell.isClosed()) return;
+    const form = el('form', 'single-photo-moment-form');
+    const previewWrap = el('div', 'single-photo-preview-wrap');
+    const preview = el('img', 'single-photo-preview') as HTMLImageElement;
+    preview.alt = '새 순간에 추가할 사진 미리보기';
+    const showPreview = (blob: Blob): void => {
+      disposePreview();
+      previewUrl = URL.createObjectURL(blob);
+      preview.src = previewUrl;
+    };
+    showPreview(file);
+    const editPhoto = el('button', 'btn-ghost form-utility single-photo-edit', '✨ 사진 편집') as HTMLButtonElement;
+    editPhoto.type = 'button';
+    previewWrap.append(preview, editPhoto);
+
+    const title = el('input', 'moment-input single-photo-moment-title') as HTMLInputElement;
+    title.type = 'text';
+    title.maxLength = 140;
+    title.required = true;
+    title.placeholder = '이 순간을 한 줄로…';
+    title.setAttribute('aria-label', '새 순간 한 줄 기록');
+    const emotion = buildEmotionRow('');
+    const whenField = buildWhenField(context.trip, context.clock, context.latestMomentAt);
+    const placeField = buildPlaceField({ name: '', lat: null, lng: null });
+    const actions = el('div', 'single-photo-moment-actions');
+    const cancel = el('button', 'btn-ghost', '취소') as HTMLButtonElement;
+    cancel.type = 'button';
+    const save = el('button', 'btn-primary', '새 순간 저장') as HTMLButtonElement;
+    save.type = 'submit';
+    const status = el('p', 'sync-note single-photo-moment-status', '');
+    status.setAttribute('role', 'status');
+    actions.append(cancel, save);
+    form.append(previewWrap, title, emotion.el, whenField.el, placeField.el, actions, status);
+    body.replaceChildren(form);
+    whenField.suggestFrom([meta]);
+    placeField.suggestFrom([meta]);
+    report('새 순간의 내용을 확인해 주세요');
+    title.focus();
+
+    cancel.addEventListener('click', finish);
+    editPhoto.addEventListener('click', () => {
+      editPhoto.disabled = true;
+      void openPhotoEditor(file, file.name, { ...(editState ? { initialState: editState } : {}) })
+        .then((result) => {
+          editedBlob = result.blob;
+          editState = result.blob ? result.state : undefined;
+          showPreview(editedBlob ?? file);
+        })
+        .finally(() => { editPhoto.disabled = false; });
+    });
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      save.disabled = true;
+      cancel.disabled = true;
+      void (async () => {
+        try {
+          const hint = photoHintOf([meta]);
+          const moment = await createMomentLocalFirst({
+            tripId: context.trip.id,
+            title: title.value,
+            emotion: emotion.value(),
+            note: '',
+            ...placeInputOf(placeField),
+            ...(whenField.value() ? { occurredAt: whenField.value()! } : {}),
+            ...(hint.exifOffsetMin !== null ? { tzOffsetMin: hint.exifOffsetMin } : {}),
+          });
+          await addPhotoToMoment(file, { momentId: moment.id, tripId: context.trip.id },
+            editedBlob ?? undefined, editedBlob && editState ? editState : undefined);
+          await context.refresh();
+          await trySync();
+          await context.refresh();
+          finish();
+          showNoticeToast('사진과 새 순간을 저장했어요');
+        } catch (error) {
+          setNote(status, `저장 실패: ${error instanceof Error ? error.message : String(error)}`, 'error', null);
+          save.disabled = false;
+          cancel.disabled = false;
+        }
+      })();
+    });
+  } catch (error) {
+    setNote(loading, `사진 정보를 읽지 못했어요: ${error instanceof Error ? error.message : String(error)}`, 'error', null);
+    report('사진 정보를 읽지 못했어요');
+  }
+}
+
 /** ISO(UTC) → datetime-local 입력값('YYYY-MM-DDTHH:mm', 로컬시각). */
 function toLocalInputValue(iso: string, offsetMin: number): string {
   const { date, time } = atOffset(iso, offsetMin);
@@ -1542,7 +1725,7 @@ function buildRecordButton(
   status: HTMLElement,
   refresh: () => void,
 ): HTMLButtonElement {
-  return recordButton((r) => {
+  const button = recordButton((r) => {
     void (async () => {
       try {
         await addAudioToMoment({ momentId, tripId }, r.blob, r.seconds, r.mime);
@@ -1553,6 +1736,8 @@ function buildRecordButton(
       }
     })();
   });
+  button.classList.add('form-utility');
+  return button;
 }
 
 /**
@@ -1688,7 +1873,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     /** 이 여행에서 가장 늦은 순간의 발생 시각. `refresh()`가 채운다. */
     let latestMomentAt: string | null = null;
     const photoInput = photoFileInput();
-    const photoLabel = el('label', 'moment-photo-label');
+    const photoLabel = el('label', 'moment-photo-label form-utility');
     photoLabel.append(document.createTextNode('📷 사진 추가 '));
     // 🔴 사진이 EXIF로 직접 말한 시간대 오프셋(환승·국경일 때 여행 시간대와 다르다 — M-1).
     // 저장 시 순간에 실어 준다. 예전엔 이 값이 photoHintOf에서 계산만 되고 버려졌다.
@@ -1704,9 +1889,8 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     photoLabel.append(picks.count, photoInput);
   // 📁 안드로이드 사진 선택기가 GPS를 지우므로(M-0054), **원본 파일로 가는 길**을 함께 둔다.
   const origBtn = galleryPickButton(photoInput);
-
-
-
+  const photoActions = el('div', 'photo-pick-actions');
+  photoActions.append(photoLabel, origBtn);
     // 비용(선택) — 금액 + 통화. "10초 기록"을 방해하지 않도록 한 줄, 비우면 저장 안 함.
     const money = buildMoneyRow(undefined);
 
@@ -1725,7 +1909,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const whenField = buildWhenField(trip, clock, () => latestMomentAt);
     whenField.suggestFrom([]); // 사진 전에도 근거를 보여준다(직전 순간 / 여행 시작일)
 
-    form.append(input, emotion.el, whenField.el, placeField.el, money.el, photoLabel, origBtn, picks.el, save);
+    form.append(input, emotion.el, whenField.el, placeField.el, money.el, photoActions, picks.el, save);
     compose.appendChild(form);
 
     const note = el('p', 'sync-note', '');
@@ -1734,7 +1918,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
 
     const timeline = el('div', 'timeline-wrap');
     body.appendChild(timeline);
-    const timelinePhotoDrop = setupTripTimelinePhotoDrop(timeline, trip, refresh);
+    const timelinePhotoDrop = setupTripTimelinePhotoDrop(timeline, { trip, clock, latestMomentAt: () => latestMomentAt, refresh });
 
     // 썸네일 objectURL 관리(재렌더 시 이전 URL 회수).
     let objectUrls: string[] = [];

@@ -31,3 +31,12 @@ export function partitionDroppedPhotos<T extends DroppedFileLike>(files: readonl
   for (const file of files) (isDroppedPhoto(file) ? photos : rejected).push(file);
   return { photos, rejected };
 }
+
+export type PhotoDropIntent = 'new-moment' | 'existing-moment' | 'none';
+
+/** 한 장을 빈 영역에 놓는 경우만 새 순간 작성으로 분기한다. */
+export function photoDropIntent(photoCount: number, directlyOnMoment: boolean): PhotoDropIntent {
+  if (photoCount < 1) return 'none';
+  if (photoCount === 1 && !directlyOnMoment) return 'new-moment';
+  return 'existing-moment';
+}
