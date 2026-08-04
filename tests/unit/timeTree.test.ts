@@ -6,6 +6,7 @@ import {
   matchesPeriod,
   monthLabel,
   periodLabel,
+  sortTripsNewestFirst,
   tripYearMonth,
 } from '../../src/domain/trip/timeTree';
 
@@ -72,6 +73,33 @@ describe('matchesPeriod', () => {
   it('기간 미정 선택은 시작일 없는 여행만', () => {
     expect(matchesPeriod(none, { undated: true })).toBe(true);
     expect(matchesPeriod(jul, { undated: true })).toBe(false);
+  });
+});
+
+describe('sortTripsNewestFirst', () => {
+  it('입력 순서와 무관하게 여행 시작일 최신순이며 기간 미정은 맨 뒤다', () => {
+    const trips = [
+      { id: 'old', startDate: '2013-02-14' },
+      { id: 'undated-a', startDate: null },
+      { id: 'newest', startDate: '2026-08-01' },
+      { id: 'middle', startDate: '2023-09-23' },
+      { id: 'undated-b', startDate: null },
+    ];
+
+    expect(sortTripsNewestFirst(trips).map((trip) => trip.id)).toEqual([
+      'newest',
+      'middle',
+      'old',
+      'undated-a',
+      'undated-b',
+    ]);
+    expect(trips.map((trip) => trip.id)).toEqual([
+      'old',
+      'undated-a',
+      'newest',
+      'middle',
+      'undated-b',
+    ]);
   });
 });
 

@@ -170,9 +170,9 @@
   box-shadow: var(--shadow-card);
   isolation: isolate;
 }
-.cover--0 { background: linear-gradient(135deg, var(--a1), var(--a3)); }
-.cover--1 { background: linear-gradient(135deg, var(--a2), var(--a1)); }
-.cover--2 { background: linear-gradient(135deg, var(--a3), var(--a2)); }
+.cover--0 { background: linear-gradient(145deg, var(--trip-cover-1), var(--trip-cover-base)); }
+.cover--1 { background: linear-gradient(145deg, var(--trip-cover-2), var(--trip-cover-base)); }
+.cover--2 { background: linear-gradient(145deg, var(--trip-cover-3), var(--trip-cover-base)); }
 .cover-veil {
   position: absolute; inset: 0; z-index: 1;
   background: linear-gradient(180deg, rgba(0, 0, 0, .06) 0%, rgba(0, 0, 0, 0) 42%, rgba(10, 8, 20, .62) 100%);
