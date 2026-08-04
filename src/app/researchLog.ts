@@ -656,4 +656,28 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: 'v1.70에서 dependabot.yml을 weekly로 켜자 즉시 TypeScript 7·MapLibre 6·Actions 7 등 일반 버전 PR 8개와 과거 보안 PR 3개가 Ready로 열렸다. CI는 Ready를 릴리스 후보로 해석하므로 merge 의도 없는 PR들이 전체 harness/live를 동시에 실행했다. 설정 자체가 헌법의 원자 릴리스 규칙을 깨뜨린 회귀였다. GitHub 공식 문서에서 open-pull-requests-limit: 0이 일반 version update만 끄고 security update는 유지함을 확인했다.',
     decision: '**Dependabot은 보안 업데이트 전용으로 둔다.** npm과 github-actions 모두 open-pull-requests-limit을 0으로 설정하고 자동 생성된 11개 PR을 근거 댓글과 함께 닫았다. 비긴급 버전 업그레이드는 전수감사나 명시적 기능 릴리스에서 사람이 묶어 진행한다. 설정 교정도 v1.71로 build→harness/live→Ready PR→merge→deploy 순서를 다시 지킨다.',
   },
+  {
+    seq: 82,
+    date: '2026-08-04',
+    topic: '순간 편집의 사진·갤러리·소리 버튼 정렬',
+    human: '빨간색 표시 부분 정렬이 어긋나 있어요.',
+    ai: '`갤러리에서` 버튼만 생성 폼의 배치용 `margin-top` 8px을 그대로 가져와, 같은 행에서 나머지 두 버튼보다 아래로 밀린 것을 CSS와 실제 DOM 좌표로 확인했다. 공용 클래스를 바꾸면 생성 폼의 의도한 간격까지 사라지므로, `.moment-addphoto` 맥락에서만 여백을 상쇄했다.',
+    decision: '**재사용한 부품의 맥락용 여백은 새 형제 행에서 명시적으로 상쇄한다.** 회귀 검사는 사진 추가·갤러리에서·소리 남기기의 상단·하단 좌표 편차를 재고, 옛 CSS에서 실제로 1건 RED(307/308)를 낸 뒤 수정 후 0px·0px·높이 44px 일치와 308/308 PASS를 확인했다. 이번 변경은 비긴급 UI 교정으로 v1.71을 유지하고 다음 기능 릴리스에 묶는다.',
+  },
+  {
+    seq: 83,
+    date: '2026-08-04',
+    topic: 'Windows 타임라인 영역에 여러 사진을 끌어놓아 추가한다',
+    human: '윈도우 환경에 한해서 빨간색 박스 영역에 사진을 드래그하면 자동으로 추가되고, 여러 장도 지원했으면 한다.',
+    ai: '사진은 순간의 자식이므로 넓은 타임라인 전체를 드롭 영역으로 쓰되 포인터에서 세로로 가장 가까운 순간 카드를 목표로 정하고, 드롭 전에 그 카드를 별도 테두리로 보여 주었다. 순간이 하나도 없을 때는 임의 생성·추측하지 않고 먼저 순간을 저장하라고 안내한다. Windows Explorer가 MIME을 비워 보내는 경우를 고려해 image MIME과 알려진 사진 확장자를 함께 판정하되, 최종 해석·EXIF·편집·저장은 기존 사진 경로만 통과시켰다.',
+    decision: '**Windows에서만 타임라인 전체를 다중 사진 드롭존으로 열고, 목표 순간을 놓기 전에 명시한다.** 버튼 선택과 드롭은 `addPhotosToExistingMoment` 하나를 공유해 EXIF 선읽기→공용 편집기→로컬 우선 저장→사진 장소 제안 순서를 유지한다. 비공허 라이브는 구현 전 새 3건이 308/311 RED였고, 구현 후 두 파일의 실제 DragEvent/DataTransfer가 같은 순간의 사진 수를 2→4로 늘리며 311/311 PASS했다. Windows 판정·파일 분류 유닛 3/3, build와 데스크톱 캡처도 확인했다. 비긴급 기능이므로 v1.71을 유지하고 다음 기능 릴리스에 묶는다.',
+  },
+  {
+    seq: 84,
+    date: '2026-08-04',
+    topic: '버튼 정렬과 Windows 다중 사진 드롭을 v1.72로 배포한다',
+    human: '배포하자.',
+    ai: '현재 작업 트리를 다시 분류해 순간 편집 버튼 정렬, Windows 타임라인 다중 사진 드롭, 두 기능의 라이브 회귀·유닛·연구노트·인계 기록만 있음을 확인했다. 둘은 같은 여행 상세 사진 입력 경험을 완성하는 한 릴리스 범위이며 무관한 사용자 변경은 없었다.',
+    decision: '**v1.72로 축적을 닫고 원자 릴리스 절차를 실행한다.** CHANGELOG를 먼저 올린 최종 파일 상태에서 build→전체 harness/live→명시적 파일 stage·commit→push→Ready PR의 required checks→merge→Pages deploy→공개 version.json 1.72 read-back 순서를 지킨다. 어느 단계든 실패하면 배포 완료로 말하지 않는다.',
+  },
 ];

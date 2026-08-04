@@ -4,6 +4,27 @@
 
 ---
 
+## HANDOFF-0075 · v1.72 · **릴리스 후보 — Windows 다중 사진 드롭·순간 버튼 정렬** (2026-08-04)
+
+- **릴리스 범위**: HANDOFF-0073의 순간 편집 버튼 3종 정렬과 HANDOFF-0074의 Windows 타임라인 다중 사진 드롭, 그리고 이를 지키는 유닛·실제 Chromium 회귀·기록만 한 묶음으로 배포한다. 무관한 작업 트리 변경은 없다.
+- **사용자 변화**: Windows에서 사진 여러 장을 타임라인으로 끌어놓아 가장 가까운 순간에 추가할 수 있고, 놓기 전 영역·대상 카드가 함께 강조된다. 순간 편집의 사진·갤러리·소리 버튼도 같은 기준선으로 정렬된다.
+- **릴리스 계약**: v1.72 CHANGELOG를 포함한 최종 파일 상태에서 `build → 전체 harness/live → commit·push → Ready PR required checks → merge → Pages deploy → 공개 version.json 1.72 read-back`으로 완료를 판정한다. 실행 결과·PR·배포 주소는 GitHub 기록과 최종 보고에 남긴다.
+
+## HANDOFF-0074 · **릴리스 대기 — Windows 타임라인 다중 사진 드롭** (2026-08-04)
+
+- **사용자 제안**: Windows에서 여행 상세의 오른쪽 타임라인 영역으로 사진을 끌어놓으면 자동으로 추가하고 여러 장을 한 번에 처리한다.
+- **대상 선택·UI**: 넓은 타임라인 전체가 드롭존이며 포인터와 세로로 가장 가까운 순간을 목표로 삼는다. 드롭 중 영역 전체 점선·중앙 안내와 목표 카드 외곽선을 함께 보여 주므로 어디에 들어갈지 놓기 전에 알 수 있다. 순간이 없으면 임의로 만들지 않고 먼저 순간 저장을 안내한다. 안내와 이벤트 배선은 Windows에서만 생성한다.
+- **공용 데이터 경로**: 버튼 선택과 드롭이 `addPhotosToExistingMoment`를 공유한다. 여러 원본의 EXIF를 편집·압축 전에 먼저 읽고, 기존 배치 편집기와 `addPhotoToMoment` 로컬 우선 저장, 사진 위치 제안과 새로고침을 그대로 통과한다. Windows Explorer의 빈 MIME은 알려진 사진 확장자로 보완하고 최종 파일 해석은 기존 저장 경로가 맡는다.
+- **비공허·검증**: 구현 전 실제 DragEvent/DataTransfer 회귀 3건이 **308/311 RED**. 구현 후 Windows UI 활성·가장 가까운 카드 강조·두 장 저장으로 사진 수 `2→4`, editor live **311/311 PASS**. 플랫폼/파일 분류 유닛 **3/3 PASS**, build PASS. 1600×1000 Chromium 캡처에서 영역·중앙 안내·목표 카드 강조의 겹침과 넘침이 없음을 확인했다.
+- **릴리스 상태**: 비긴급 기능으로 v1.71을 유지하며 전체 harness·merge·deploy는 실행하지 않았다. HANDOFF-0073의 버튼 정렬 교정과 함께 다음 기능 릴리스 묶음을 기다린다.
+
+## HANDOFF-0073 · **릴리스 대기 — 순간 추가 버튼 3종 정렬** (2026-08-04)
+
+- **사용자 지적**: 순간 편집 카드의 `사진 추가`·`갤러리에서`·`소리 남기기` 행에서 가운데 버튼이 아래로 밀려 정렬이 어긋났다.
+- **원인·교정**: `.pick-original` 공용 클래스의 `margin-top` 은 생성 폼 맥락용인데, 편집 행에도 그대로 적용됐다. `.moment-addphoto .pick-original` 안에서만 위쪽 여백을 0으로 상쇄해 생성 폼의 기존 간격은 유지했다.
+- **비공허·검증**: 실제 편집 카드를 1600px 뷰포트에서 그린 뒤 세 컨트롤의 `getBoundingClientRect()` 상단·하단을 재는 회귀를 추가했다. 수정 전 1건 RED(**307/308**), 수정 후 편차 `0px/0px`·높이 `44/44/44px`·build PASS·editor live **308/308 PASS**다.
+- **릴리스 상태**: 비긴급 UI 교정이므로 v1.71을 유지하고 전체 harness·merge·deploy는 실행하지 않았다. 다음 기능 릴리스 묶음에 포함한다.
+
 ## HANDOFF-0072 · v1.71 · **Dependabot 보안 업데이트 전용 교정** (2026-08-04)
 
 - v1.70 merge 직후 일반 버전 업데이트 PR 8개가 Ready로 열려, 병합 의도 없이 전체 harness/live를 실행하는 새 정책 회귀를 확인했다. 과거 보안 자동 PR 3개까지 총 11개를 근거 댓글과 함께 닫았다.
@@ -44,7 +65,7 @@
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.71<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->171<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->81<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.72<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->172<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->84<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
