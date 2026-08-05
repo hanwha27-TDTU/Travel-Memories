@@ -21,6 +21,7 @@
 
 import { el, applyText } from '../dom';
 import { DIAG_TOOLS, renderDiagTool, rollup, type DiagTool } from '../panels/diagnostics';
+import { DIAG_GROUPS, GROUP_META, BLIND_SPOTS } from '../../domain/diagGroups';
 import { LEVELS, type Level } from '../panels/verdict';
 
 /** 허브 카드 하나 — 구조는 [가이드]·[데이터 관리]와 **같은 계약**(ic / mid / 우측 슬롯)을 지킨다. */
@@ -37,6 +38,54 @@ function card(t: DiagTool, onOpen: (t: DiagTool) => void): { btn: HTMLButtonElem
   btn.append(ic, mid, slot);
   btn.addEventListener('click', () => onOpen(t));
   return { btn, slot };
+}
+
+/**
+ * 🔴 **도구를 경로축 단계로 묶어 그린다**(v1.79).
+ *
+ * 사용자가 진단을 여는 이유는 늘 *"어디서 끊겼나?"*이므로, 목록이 **기억이 지나는 순서**로
+ * 서면 위에서부터 좁힐 수 있다. v1.76에서 이 분류(`DIAG_GROUPS`)를 만들어 놓고 **도구에는
+ * 안 걸어서** 목록이 평평한 채로 남아 있었다 — 분류는 사각지대 등록부에만 붙었고, 인계
+ * 문서는 「재분류했다」고 적혀 있었다. M-0015(*"만들어 놓고 화면에서 부르지 않음"*)의 재발이다.
+ *
+ * 🔴 **비어 있는 단계도 그린다.** 도구가 없는 단계를 그냥 빼면 그 구멍이 화면에서 사라지고,
+ * 사용자도 다음 개발자도 **그 단계가 검사된 줄 안다**(§8 — 모르는 것을 정상으로 반올림하지
+ * 않는다). 지금 「🖼 파일 실물」이 정확히 그 상태다(전수 확인 도구 미제작). 자리를 남기고
+ * **왜 비었는지**를 말한다 — 그 이유는 손으로 적지 않고 **사각지대 등록부에서 가져온다**
+ * (두 곳에 적으면 갈라진다 · §7). 등록부에 이유가 없으면 게이트가 RED로 잡는다.
+ *
+ * @returns 도구 id → 배지 슬롯. 롤업이 끝나면 부르는 쪽이 여기에 판정을 꽂는다.
+ */
+function renderByPath(body: HTMLElement, onOpen: (t: DiagTool) => void): Map<string, HTMLElement> {
+  const slots = new Map<string, HTMLElement>();
+  for (const g of DIAG_GROUPS) {
+    const meta = GROUP_META[g];
+    const tools = DIAG_TOOLS.filter((t) => t.group === g);
+    const head = el('div', 'diag-group-head');
+    head.setAttribute('data-diag-group', g);
+    head.append(
+      el('h3', 'diag-group-title', `${meta.icon} ${meta.label}`),
+      el('p', 'diag-group-asks muted small', meta.asks),
+    );
+    body.appendChild(head);
+    if (!tools.length) {
+      const why = BLIND_SPOTS.filter((b) => b.group === g && b.coveredBy === null);
+      const note = el('p', 'guide-note diag-group-empty');
+      note.textContent = why.length
+        ? `아직 이 단계를 보는 도구가 없어요 — ${why.map((b) => b.what).join(' · ')}`
+        : '아직 이 단계를 보는 도구가 없어요.';
+      body.appendChild(note);
+      continue;
+    }
+    const grid = el('div', 'guide-card-grid');
+    for (const t of tools) {
+      const { btn, slot } = card(t, onOpen);
+      slots.set(t.id, slot);
+      grid.appendChild(btn);
+    }
+    body.appendChild(grid);
+  }
+  return slots;
 }
 
 function dot(level: Level): HTMLElement {
@@ -89,14 +138,7 @@ export function openDiagnosticsHub(toolId?: string): void {
     banner.setAttribute('data-rollup', '');
     body.appendChild(banner);
 
-    const grid = el('div', 'guide-card-grid');
-    const slots = new Map<string, HTMLElement>();
-    for (const t of DIAG_TOOLS) {
-      const { btn, slot } = card(t, showDetail);
-      slots.set(t.id, slot);
-      grid.appendChild(btn);
-    }
-    body.appendChild(grid);
+    const slots = renderByPath(body, showDetail);
     body.appendChild(
       el(
         'p',

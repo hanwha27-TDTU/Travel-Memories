@@ -4,6 +4,18 @@
 
 ---
 
+## HANDOFF-0093 · v1.79 · **분류를 만들고 화면에 안 걸었던 것을 걸었다 + 헌장 갱신** (2026-08-05)
+
+- **사용자 지시**: *"내가 지시한 건 다한가지?"* → 대조해 보니 **둘이 빠져 있었다**. 그중 ①(*"배포까지 진행하고 **스킬 업데이트 하자**"*)을 먼저 하기로 결정(*"1부터 진행하자"*).
+- 🔴 **문서를 고치러 왔다가 코드에서 더 무거운 것을 찾았다(§9 2단계의 실증)**: v1.76이 진단 경로축 8단계(`DIAG_GROUPS`)를 만들고 **인계에 「재분류했다」고 적었는데, 실제로는 `BLIND_SPOTS`에만 걸렸고 도구에는 안 걸려 있었다.** `DiagTool`에 `group` 필드가 없었고 허브는 도구를 평평하게 나열했다. `grep -rn DIAG_GROUPS src/`가 **자기 파일 밖에서 0줄**이었다 — M-0015(*"만들어 놓고 화면에서 부르지 않음"*)의 재발이다. **먼저 문서를 썼다면 없는 구조를 설명하는 헌장이 생겼을 것이다.**
+- **세 층으로 걸었다(§7)**: ①조항은 헌장 §2-B ②구조는 `DiagTool.group`을 **필수**로(누락이 컴파일 오류) + 허브가 `renderByPath()` **한 곳**에서만 그림 ③기계는 게이트 F·G·H + 라이브 A⑥~A⑧.
+- 🔴 **비어 있는 단계도 그린다**: 도구가 없는 단계를 목록에서 빼면 그 구멍이 화면에서 사라지고 **사용자도 다음 개발자도 검사된 줄 안다**(§8의 화면판). 지금 🖼️ 「파일 실물」이 그 상태라, 자리를 남기고 **왜 비었는지를 `BLIND_SPOTS`에서 가져와** 말한다(손으로 적으면 갈라진다).
+- **새 게이트 검사 3종**: F 도구마다 `group`이 있는가 · G 도구 없는 단계에 등록부 이유가 있는가 · 🔴 H **단계 아이콘이 흑백 두부로 안 그려지는가**. H는 **캡처를 보고서야 알았다**(여덟 중 둘이 흑백 — `🛡`·`🖼`는 `Emoji_Presentation=No`라 U+FE0F가 필요하다). 눈으로만 잡히는 부류로 보이지만 규칙이 정확해(`\p{Emoji_Presentation}`) 기계로 잡았다. 셀프테스트 12케이스 추가.
+- 🔴 **첫 판이 공허했다**: `parseToolGroups`의 정규식이 `\s*` 뒤에 또 `\n`을 둬서 **영원히 안 맞았고**, 도구 12개가 전부 「group 없음」으로 잡혔다. 오탐도 결함이다(§11 ③) — 고치고 **실코드 주입 2종(F·G)으로 RED를 다시 확인**했다.
+- **헌장 갱신(이번 작업의 본래 목적)**: `diagnostics-dev`에 §2-B(경로축)·§2-C(사각지대 등록부)·§2-D(쓰기 시험 안전 경계) 신설 + 파일 지도 5행 추가 + 등록 필드 6→7 + 완료 조건 추가. `gates-mechanization-dev`에 §2-L(메타게이트·대조군)·§2-M(**분류를 만들고 화면에 안 거는 것** — `grep` 한 줄로 죽은 데이터를 가르는 법) 신설.
+- **검증**: 게이트 53종 PASS(건너뜀 0) · editor-live 337/337 · diagnostics-live **25/25**(신규 3건) · 주입 F·G 각각 RED → 원복 GREEN. 허브를 실제로 캡처해 8단계 순서와 빈 단계 문장을 눈으로 확인(그 캡처가 아이콘 결함을 잡았다).
+- **남은 것**: 사용자 지시 ②(사각지대 5건 중 도구 미제작 4건 — 파일 실재 전수 2건·백업 복원 왕복·`updated_at` 트리거). 「게이트가 실제로 돌았는가」는 앱이 원리적으로 못 잰다.
+
 ## HANDOFF-0092 · v1.78 · **장소 칸이 치는 동안 대장을 본다 — 형제 비대칭 하나를 지웠다** (2026-08-05)
 
 - **사용자 지적**: *"글자를 치면 바로 장소조회가 되야 하는데 그렇지 않네요? 이것만 추가하고 바로 배포하죠"* (스크린샷: 순간 편집 장소 칸에 「시」를 쳤는데 아무것도 안 나옴).
@@ -311,7 +323,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.78<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->178<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.79<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->179<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

@@ -46,8 +46,8 @@ export const GROUP_META: Record<DiagGroup, GroupMeta> = {
   upload: { icon: '📤', label: '올려보내기', asks: '이 기기에서 저장한 것이 실제로 서버까지 가는가' },
   compare: { icon: '☁️', label: '서버와 대조', asks: '이 기기와 서버가 같은 것을 갖고 있는가' },
   contract: { icon: '📡', label: '서버 계약', asks: '서버가 앱이 가정한 대로 행동하는가' },
-  files: { icon: '🖼', label: '파일 실물', asks: '기록이 가리키는 사진·소리가 실제로 열리는가' },
-  safety: { icon: '🛡', label: '안전망', asks: '잃어버려도 되돌릴 수 있는가' },
+  files: { icon: '🖼️', label: '파일 실물', asks: '기록이 가리키는 사진·소리가 실제로 열리는가' },
+  safety: { icon: '🛡️', label: '안전망', asks: '잃어버려도 되돌릴 수 있는가' },
   device: { icon: '🧩', label: '기기·계정', asks: '이 기기와 로그인이 앱에 필요한 것을 갖췄는가' },
   meta: { icon: '🧪', label: '검증 체계', asks: '검사하는 것 자신은 건강한가' },
 };
