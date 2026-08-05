@@ -82,6 +82,9 @@ const gates = [
   // 2026-08-05)를 기계로 되묻는다: check-*.mjs 전부가 harness에 배선됐는가 + 셀프테스트
   // (알려진 실패 주입) 흔적을 갖고 있는가. 새 게이트가 이 둘 없이 조용히 태어나는 것을 막는다.
   { name: 'check-gate-integrity', cmd: 'node scripts/check-gate-integrity.mjs' },
+  // 「내가 못 보는 것」 등록부가 조용히 비지 않게(사용자 지시 2026-08-05: *"빼면 안 됨"*).
+  // 이유 없는 미구현 · 없는 도구를 가리키는 coveredBy를 RED로 잡는다.
+  { name: 'check-diag-blindspots', cmd: 'node scripts/check-diag-blindspots.mjs' },
   { name: 'check-current-doc-facts', cmd: 'node scripts/check-current-doc-facts.mjs' },
   { name: 'check-platform-map', cmd: 'node scripts/check-platform-map.mjs' },
   { name: 'check-lazy-screens', cmd: 'node scripts/check-lazy-screens.mjs' },

@@ -60,6 +60,14 @@ import { exportBackup } from '../../services/backup';
 import { recordBackupNow, getLastBackupAt, backupFreshness, STALE_DAYS } from '../../services/backupMeta';
 import { collectTrashState } from '../../services/trashState';
 import { trashMetrics, trashHeadline, TRASH_ITEM_CAP } from '../../domain/trashVerdict';
+import { lastRoundTrip, runRoundTrip, cleanupRoundTripLeftovers } from '../../services/roundTrip';
+import {
+  roundTripView,
+  ROUND_TRIP_STEPS,
+  ROUND_TRIP_TITLE_PREFIX,
+  STEP_LABEL,
+  STEP_PROVES,
+} from '../../domain/roundTripVerdict';
 import {
   deviceLabel,
   shortDeviceId,
@@ -1798,6 +1806,95 @@ export async function trashProbe(): Promise<Verdict> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// ⑨ 왕복 시험 — 저장한 것이 서버까지 갔다가 지운 흔적까지 남기고 사라지는가 (쓰기 시험)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// 사용자 결정(2026-08-05): 진단 범위를 *"쓰기 시험까지"*로 확장. 읽기 전용 관측은 **지금
+// 상태**만 말한다 — 「저장이 실제로 도착하는가」는 한 번 보내 봐야 안다. 이 저장소의 결함
+// 셋(M-0100·M-0101·M-0015)이 전부 *"코드는 맞는데 실제로는 안 갔다"*였고, 그때마다 사용자의
+// 실기기가 유일한 검출기였다.
+//
+// 🔴 `probe()`는 **읽기 전용**이다 — 지난 결과만 보여준다. 실제 왕복은 사용자가 버튼을 눌러야
+//    돈다. 진단 도구가 열릴 때마다 서버에 쓰면 그건 관측이 아니라 부작용이다(§8).
+export function roundTripProbe(): Promise<Verdict> {
+  const run = lastRoundTrip();
+  const v = roundTripView(run);
+  const metrics: Metric[] = [
+    {
+      label: '왕복 시험',
+      actual: v.actual,
+      expected: v.expected,
+      level: v.level,
+      ...(v.meaning ? { meaning: v.meaning } : {}),
+    },
+  ];
+  const evidence: Verdict['evidence'] = [];
+  if (run) {
+    evidence.push({
+      label: `단계별 결과 ${run.steps.length}단계`,
+      build: () =>
+        table(
+          run.steps.map((s): [string, string] => {
+            const mark = s.state === 'pass' ? '통과' : s.state === 'fail' ? '실패' : '안 쟀음';
+            const time = s.ms === null ? '' : ` · ${s.ms}ms`;
+            const why = s.error ? ` — ${s.error}` : '';
+            return [`${STEP_LABEL[s.step]}`, `${mark}${time}${why}`];
+          }),
+          '단계 기록이 없어요',
+        ),
+    });
+    evidence.push({
+      label: '각 단계가 무엇을 증명하나',
+      build: () =>
+        table(
+          ROUND_TRIP_STEPS.map((s): [string, string] => [STEP_LABEL[s], STEP_PROVES[s]]),
+          // 단계 목록은 상수라 비는 일이 없다. 그래도 문구를 적는다 — 비었다면 그건
+          // 「단계가 없다」가 아니라 **등록부가 깨진 것**이고, 그 사실이 화면에 나와야 한다.
+          '단계 정의를 읽지 못했어요(등록부 이상)',
+        ),
+    });
+  }
+
+  const actions: Action[] = [
+    {
+      label: run ? '다시 시험' : '시험 실행',
+      primary: true,
+      hook: 'data-roundtrip-run',
+      run: async () => {
+        const r = await runRoundTrip();
+        const view = roundTripView(r);
+        return view.level === 'ok' ? `통과 — ${view.actual}` : `${view.headline} (${view.actual})`;
+      },
+    },
+  ];
+  // 잔재가 있을 때만 치우는 버튼을 준다 — 지울 것이 없는데 「정리」를 띄우면 사용자가
+  // 자기 자료가 지워지는 줄 안다(§8 침묵이 정상 · M-0046의 교훈).
+  if (run?.leftover) {
+    actions.push({
+      label: '남은 시험용 기록 치우기',
+      hook: 'data-roundtrip-cleanup',
+      run: async () => {
+        const stuck = await cleanupRoundTripLeftovers();
+        return stuck.length ? `${stuck.length}건을 아직 치우지 못했어요.` : '치웠어요.';
+      },
+    });
+  }
+
+  return Promise.resolve({
+    level: v.level,
+    headline: v.headline,
+    because:
+      '시험용 여행 하나를 만들었다가 스스로 지웁니다. 제목이 「' +
+      ROUND_TRIP_TITLE_PREFIX +
+      '」로 시작하며, 기존 기록은 읽지도 쓰지도 않아요.',
+    metrics,
+    actions,
+    evidence,
+    context: run ? [{ label: '마지막 시험', value: run.at.slice(0, 19).replace('T', ' ') }] : [],
+  });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // 도구 등록부 — 허브와 패널이 **같은 목록**을 본다
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1859,6 +1956,14 @@ export const CORE_TOOLS: DiagTool[] = [
     hint: '이 세션에서 생긴 오류',
     lead: '앱이 도는 동안 생긴 오류를 모아 둡니다. 새로고침하면 사라져요.',
     probe: errorProbe,
+  },
+  {
+    id: 'roundtrip',
+    icon: '🔁',
+    label: '왕복 시험',
+    hint: '저장한 게 서버까지 갔다 오나',
+    lead: '시험용 여행 하나를 만들어 서버까지 보냈다가 지우고 흔적까지 확인한 뒤 스스로 치웁니다. 기존 기록은 건드리지 않아요.',
+    probe: roundTripProbe,
   },
   {
     id: 'trash',

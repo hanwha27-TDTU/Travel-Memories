@@ -114,6 +114,13 @@ export const SKILL_ROUTES = [
   { match: /^src\/domain\/trashVerdict/, skill: 'sync-offline-dev' },
   { match: /^src\/services\/trashState/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/trashState/, skill: 'sync-offline-dev' },
+  // 진단 분류 축·사각지대 등록부 — 「무엇을 도구로 만들 것인가」의 정본이라 진단 헌장이다.
+  { match: /^src\/domain\/diagGroups/, skill: 'diagnostics-dev' },
+  // 🔴 왕복 시험은 **쓰기**다. 판정은 진단 규율이지만, 실제로 만들고 지우고 영구삭제하는
+  // 경로라 삭제·tombstone·원장 규율이 그대로 걸린다 — 두 헌장을 모두 읽는다.
+  { match: /^src\/domain\/roundTripVerdict/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/roundTrip\.ts/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/roundTrip\.ts/, skill: 'sync-offline-dev' },
   { match: /^src\/services\/(sync|canonicalSync|autoSync|purge|trips|moments|media|expenses|trash)\.ts/, skill: 'sync-offline-dev' },
   { match: /^src\/(sync|offline)\//, skill: 'sync-offline-dev' },
   { match: /^src\/domain\/\w+\/rowmap/, skill: 'sync-offline-dev' },

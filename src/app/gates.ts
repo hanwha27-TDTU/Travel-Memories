@@ -54,6 +54,8 @@ export const GATE_DESC: Record<string, string> = {
     '새 규정·기준 문서와 새 AI 지시문이 **등록 없이 생기지 않는지**(등록 안 되면 비교 대상에도 못 들어온다)',
   'check-gate-integrity':
     '모든 check-*.mjs가 harness에 배선되고 셀프테스트(대조군)를 갖는지 — 게이트도 검사받는다(§11, 사용자 질문 2026-08-05)',
+  'check-diag-blindspots':
+    '개발 환경이 못 보는 것의 등록부가 조용히 비지 않는지 — 이유 없는 미구현·없는 도구를 가리키는 항목 차단(사용자 지시 "빼면 안 됨")',
   'check-current-doc-facts': 'ROADMAP·DATA_MODEL·TEST_PLAN의 현재 상태가 migration·BACKLOG·릴리스 순서와 맞는지',
   'check-platform-map': '어느 데이터가 어느 서비스에 사는지의 지도가 실제 코드와 일치',
   'check-lazy-screens': '어쩌다 여는 화면이 첫 로드 번들에 딸려 오지 않는지',
@@ -120,6 +122,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-adapter-parity': 'generated',
   'check-doc-governance': 'generated',
   'check-gate-integrity': 'generated',
+  'check-diag-blindspots': 'generated',
   'check-current-doc-facts': 'generated',
   'check-platform-map': 'generated',
   'check-lazy-screens': 'static',
