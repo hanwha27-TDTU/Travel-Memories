@@ -4,8 +4,16 @@
 // 서버 push는 인증(Google OAuth, Phase 1 후속)이 붙기 전까지 대기열에만 쌓인다 —
 // sync_queue가 그 대기열이며, 유실되지 않는다.
 
-import { db, type LocalTrip, type SyncQueueItem, type PurgedId } from '../offline/db';
-import { purgeMarks, purgeOpType, ensureLocalTombstone, fetchServerDomainEntities, type PurgeDomain } from './purge';
+import { db, type LocalTrip, type SyncQueueItem } from '../offline/db';
+import {
+  collectPurgeTargets,
+  commitPurge,
+  cascadeChildDomains,
+  DOMAIN_PURGE,
+  PARENT_KEY,
+  ensureLocalTombstone,
+  fetchServerDomainEntities,
+} from './purge';
 import type { JourneyClient } from './supabase/client';
 import { compareInstants } from '../domain/time';
 
@@ -396,73 +404,27 @@ export async function purgeTripPermanently(id: string): Promise<void> {
   if (!cur) return;
   if (cur.deletedAt === null) throw new Error('삭제되지 않은 여행은 영구 삭제할 수 없습니다.');
 
-  const moments = await d.localMoments.where('tripId').equals(id).toArray();
-  const media = await d.localMedia.where('tripId').equals(id).toArray();
-  const expenses = await d.localExpenses.where('tripId').equals(id).toArray();
+  // 가족은 **등록부가 모은다**(`collectPurgeTargets`) — 여행과 순간이 같은 문을 지난다(§7 2층).
+  // 예전엔 여기서 네 테이블을 손으로 훑었고, 그 손 목록이 순간 쪽에는 아예 없었다(M-0107).
   // 소리도 이 여행의 가족이다 — 로컬 바이트도, 서버 행도, R2 객체도 함께 사라져야 한다.
-  // (v1.14~v1.19 동안은 표식·전파 op가 없었다. 그때도 로컬 바이트는 지웠는데, 그건
-  //  「이 기기의 저장공간을 실제로 비운다」가 이 함수의 정의이기 때문이다. 이제 서버까지 간다.)
-  const audio = await d.localAudio.where('tripId').equals(id).toArray();
+  const targets = await collectPurgeTargets('trip', id);
 
   // ① 사전 조건: 이 여행 가족에 대기 중인 동기화 작업이 있으면 진행하지 않는다.
   //    (permanent_failed도 포함해 센다 — 실패한 채 남은 것도 "서버에 반영 안 됨"이다.)
-  //    소리 id도 **함께 센다** — 소리에도 op가 생겼으므로 이 조건은 이제 실제로 일한다.
-  //    (op가 없던 시절에도 여기 세어 두었다: 조건에서 빼면 op가 생겨도 아무도 모른다.)
-  const ids = new Set<string>([
-    id,
-    ...moments.map((m) => m.id),
-    ...media.map((m) => m.id),
-    ...expenses.map((e) => e.id),
-    ...audio.map((a) => a.id),
-  ]);
+  const ids = new Set<string>(targets.map((t) => t.id));
   const pending = (await d.syncQueue.toArray()).filter((q) => ids.has(q.entityId));
   if (pending.length) throw new PendingSyncError(pending.length);
 
-  const now = new Date().toISOString();
-  // 도메인 × id 목록을 **한 번만** 만든다 — 표식·전파 op·하드 삭제가 모두 같은 목록을 쓴다.
-  // 예전엔 이 셋이 각자 자기 목록을 갖고 있어서 한 곳만 빠지는 사고가 반복됐다(§7).
-  const targets: { id: string; domain: PurgeDomain }[] = [
-    { id, domain: 'trip' },
-    ...moments.map((m) => ({ id: m.id, domain: 'moment' as const })),
-    ...media.map((m) => ({ id: m.id, domain: 'media' as const })),
-    ...expenses.map((e) => ({ id: e.id, domain: 'expense' as const })),
-    ...audio.map((a) => ({ id: a.id, domain: 'audio' as const })),
-  ];
-  const marks: PurgedId[] = purgeMarks(targets, now);
-  // ③ **서버에서 실제로 지운다**(ADR-0030) — 서버 행을 하드 삭제하는 작업을 큐에 넣는다.
-  //    이게 없으면 영구삭제가 이 기기에서만 일어나 다른 기기 휴지통엔 그대로 남는다
-  //    (사용자 지적 2026-07-26: "다른 기기에서 휴지통을 비웠으면 연동기기에서도 사라져야").
-  const purgeOps: SyncQueueItem[] = targets.map((t) => ({
-    operationId: uuid(),
-    entityType: purgeOpType(t.domain),
-    entityId: t.id,
-    operationType: 'purge',
-    state: 'local_only',
-    attempts: 0,
-    createdAt: now,
-  }));
+  // ②③ 표식 → 전파 op → 로컬 하드 삭제를 **한 트랜잭션**으로. 되읽기 확인도 그 안에 있다.
+  //    (③가 없으면 영구삭제가 이 기기에서만 일어나 다른 기기 휴지통엔 그대로 남는다 —
+  //     사용자 지적 2026-07-26: "다른 기기에서 휴지통을 비웠으면 연동기기에서도 사라져야".)
+  await commitPurge(targets, new Date().toISOString());
 
-  // 표 7개는 Dexie의 가변인자 오버로드 한도를 넘어 배열 형태를 쓴다(동작은 같다).
-  await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.purgedIds, d.syncQueue], async () => {
-    // ② 표식을 **먼저** 넣는다. 중간에 실패해도 "지웠는데 표식이 없어 되살아나는" 창이 생기지 않는다.
-    await d.purgedIds.bulkPut(marks);
-    for (const op of purgeOps) await d.syncQueue.add(op);
-    if (media.length) await d.localMedia.bulkDelete(media.map((m) => m.id));
-    if (expenses.length) await d.localExpenses.bulkDelete(expenses.map((e) => e.id));
-    if (audio.length) await d.localAudio.bulkDelete(audio.map((a) => a.id));
-    if (moments.length) await d.localMoments.bulkDelete(moments.map((m) => m.id));
-    await d.localTrips.delete(id);
-  });
-
-  const back = await d.localTrips.get(id);
-  if (back) throw new Error('영구 삭제 확인 실패: 행이 남아 있음');
-  // 바이트가 실제로 사라졌는지 **되읽어** 확인한다(성공 반환을 믿지 않는다).
-  const audioLeft = await d.localAudio.where('tripId').equals(id).count();
-  if (audioLeft) throw new Error('영구 삭제 확인 실패: 소리 행이 남아 있음');
-  if (!(await d.purgedIds.get(id))) throw new Error('영구 삭제 확인 실패: 표식이 남지 않음');
-  const queuedPurges = (await d.syncQueue.toArray()).filter((q) => q.operationType === 'purge').length;
-  if (queuedPurges < targets.length) {
-    throw new Error('영구 삭제 확인 실패: 다른 기기에 알릴 작업이 큐에 남지 않음');
+  // 가족이 실제로 사라졌는지 **되읽어** 확인한다(`commitPurge`는 id별로만 확인한다 —
+  // 여기서는 "그 여행을 가리키는 행이 하나도 안 남았는가"를 인덱스로 한 번 더 묻는다).
+  for (const child of cascadeChildDomains('trip')) {
+    const left = await DOMAIN_PURGE[child].table().where(PARENT_KEY.trip.index).equals(id).count();
+    if (left) throw new Error(`영구 삭제 확인 실패: ${child} 행이 남아 있음`);
   }
 }
 

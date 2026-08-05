@@ -37,7 +37,7 @@ const LEGACY = {
   'src/ui/screens/aboutApp.ts::openAboutApp': 168,
   'src/ui/screens/mapView.ts::openMapView': 133,
   'src/ui/screens/tripDetail.ts::buildPlaceField': 80,
-  'src/ui/panels/diagnostics.ts::syncProbe': 125,
+  'src/ui/panels/diagnostics.ts::syncProbe': 123,
   'src/domain/integrity.ts::checkIntegrity': 108,
   'src/ui/screens/r2Setup.ts::openR2Setup': 138,
   'src/ui/screens/researchNote.ts::openResearchNote': 126,

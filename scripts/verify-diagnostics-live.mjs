@@ -121,7 +121,7 @@ const FIXTURE = `
 import '../../src/ui/styles/tokens.css';
 import '../../src/ui/styles/app.css';
 import { renderTool, levelFromMetrics } from '../../src/ui/panels/verdict';
-import { fileAuditMetrics, storeHeadline } from '../../src/ui/panels/diagnostics';
+import { fileAuditMetrics, storeHeadline, stuckMeaning } from '../../src/ui/panels/diagnostics';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const audit = { files: 0, rows: 1, orphans: [], missing: [A], foreign: 0, truncated: false };
@@ -201,6 +201,38 @@ function headlinePanel(id, fileBad) {
   document.body.appendChild(host);
 }
 
+/**
+ * 🔴 **「막힌 작업」이 왜 막혔는지 화면에서 말하는가**(M-0107).
+ *
+ * 사용자 기기에 13건이 박혀 있었는데 화면은 개수만 말하고 *"[실패 재시도]를 눌러 주세요"*라며
+ * **눌러도 안 되는 일을 시켰다.** 사유는 이제 큐가 들고 있다 — 그것이 실제로 **DOM에 나오는지**,
+ * 그리고 문장이 길어져 **가로로 넘치지 않는지**를 잰다(자료구조에만 있으면 M-0022).
+ */
+function stuckPanel() {
+  const reasons = [
+    { reason: 'insert or update on table "media" violates foreign key constraint "media_moment_fk"', count: 13 },
+    { reason: '서버가 권한을 거절했어요(403) — 로그인을 확인해 주세요', count: 2 },
+  ];
+  const host = document.createElement('section');
+  host.setAttribute('data-panel', 'stuck');
+  host.appendChild(
+    renderTool({
+      title: '동기화 상태(주입)',
+      lead: '주입 판정',
+      probe: async () => ({
+        level: 'problem',
+        headline: '보내지 못하고 멈춘 작업이 15건 있어요',
+        because: '근거 한 줄',
+        metrics: [{ label: '막힌 작업', actual: '15건', expected: '없음', level: 'problem', meaning: stuckMeaning(reasons) }],
+        actions: [],
+        evidence: [],
+        context: [],
+      }),
+    }),
+  );
+  document.body.appendChild(host);
+}
+
 window.__probes = 0;
 function actionPanel() {
   const host = document.createElement('section');
@@ -238,6 +270,7 @@ panel('hascopy', new Set([A]), [UNKNOWN]);     // 사본 있음 → 다시 올�
 // 그때 화면은 [지운 소리 기록 정리]를 주버튼으로 권했다 — 따랐으면 태블릿의 사본까지 잃었다.
 panel('otherdev', new Set(), null, 1);
 actionPanel();
+stuckPanel();
 headlinePanel('hl-sound', [{ noun: '사진', n: 0 }, { noun: '소리', n: 1 }]);
 headlinePanel('hl-both', [{ noun: '사진', n: 1 }, { noun: '소리', n: 2 }]);
 `;
@@ -453,6 +486,28 @@ check(
   b.otherDevText.replace(/\s+/g, ' ').slice(0, 160),
 );
 check('B④ 지표 설명이 실제로 화면에 그려진다(자료구조에만 있으면 M-0022)', b.whyCount > 0, `설명 ${b.whyCount}개`);
+
+// ── B⑦ 🔴 「막힌 작업」이 **왜** 막혔는지 화면에서 말하는가 (M-0107) ─────────
+const stuckView = await page.evaluate(() => {
+  const el = document.querySelector('[data-panel="stuck"]');
+  const why = el.querySelector('.vd-metric-why');
+  return {
+    text: el.innerText,
+    // 설명 상자가 가로로 넘치면 긴 서버 메시지가 잘려 **읽을 수 없는 사유**가 된다.
+    overflowPx: why ? why.scrollWidth - why.clientWidth : -1,
+    pageOverflowPx: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  };
+});
+check(
+  'B⑦ 🔴 막힌 작업이 **서버가 말한 이유**를 화면에 그린다(개수만 말하지 않는다 — M-0107)',
+  stuckView.text.includes('서버가 말한 이유') && stuckView.text.includes('media_moment_fk') && stuckView.text.includes('13건'),
+  stuckView.text.replace(/\s+/g, ' ').slice(0, 200),
+);
+check(
+  'B⑦-2 긴 서버 메시지가 가로로 넘치지 않는다(잘리면 읽을 수 없는 사유가 된다)',
+  stuckView.overflowPx >= 0 && stuckView.overflowPx <= 1 && stuckView.pageOverflowPx <= 1,
+  `설명상자 넘침=${stuckView.overflowPx}px · 페이지 넘침=${stuckView.pageOverflowPx}px`,
+);
 check(
   'B⑤ 정상 지표는 **접혀서** 한 줄로만 집계된다(§8 침묵이 정상)',
   b.hasCopyQuiet.startsWith('정상 ') && !b.hasCopyShown.includes('영구삭제 후 남은 소리 파일'),

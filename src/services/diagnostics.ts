@@ -52,12 +52,35 @@ export interface SyncDiagnosis {
   opLessItems: TombstoneSyncRef[];
   /** 영구삭제 표식 수(pull이 건너뛰는 id). */
   purgedMarks: number;
+  /**
+   * **막힌 작업의 사유** — 같은 사유끼리 묶어 많은 순으로. 없으면 빈 배열.
+   *
+   * 🔴 왜(2026-08-05 · M-0107): 사용자 화면이 「막힌 작업 13건」이라고만 말했다. 앱은 실패
+   * 응답을 봤으면서 **그것을 버렸다** — 그래서 원인을 알아내는 데 실서버 조회가 필요했다(§12).
+   */
+  stuckReasons: { reason: string; count: number }[];
   /** 사진 바이트가 어디로 가는가. */
   mediaStore: 'r2' | 'supabase';
 }
 
 /** 목록 상한 — 이보다 많으면 개수로만 알린다. 화면이 목록으로 뒤덮이면 수리 버튼에 못 닿는다. */
 export const ITEM_CAP = 20;
+
+/**
+ * 실패 한 건의 사유 문장. **순수 함수** — 화면에 나가는 말은 유닛이 직접 돌린다(§10 ③).
+ *
+ * 🔴 **모르면 모른다고 적는다**(비타협 원칙 #4). 옛 큐는 사유를 아예 안 갖고 있었으므로
+ * 그때 만들어진 항목은 `lastError`도 `lastStatus`도 없다 — 그걸 「알 수 없는 오류」 같은
+ * 그럴듯한 문장으로 채우면 그게 거짓말이다.
+ */
+export function stuckReasonOf(lastError: string | undefined, lastStatus: number | undefined): string {
+  if (lastError) return lastError;
+  if (lastStatus === undefined) return '사유가 기록되지 않았어요(옛 버전에서 멈춘 작업)';
+  if (lastStatus === 401 || lastStatus === 403) return `서버가 권한을 거절했어요(${lastStatus}) — 로그인을 확인해 주세요`;
+  if (lastStatus === 409) return `서버가 관계 충돌로 거절했어요(409) — 연결된 항목이 이미 없어졌을 수 있어요`;
+  if (lastStatus >= 500) return `서버 오류예요(${lastStatus}) — 잠시 뒤 다시 시도합니다`;
+  return `서버가 거절했어요(${lastStatus})`;
+}
 
 export async function diagnoseSync(): Promise<SyncDiagnosis> {
   const d = db();
@@ -74,10 +97,17 @@ export async function diagnoseSync(): Promise<SyncDiagnosis> {
 
   const byState: Record<string, number> = {};
   const byType: Record<string, number> = {};
+  const reasonCount = new Map<string, number>();
   for (const q of queue) {
     byState[q.state] = (byState[q.state] ?? 0) + 1;
     byType[q.entityType] = (byType[q.entityType] ?? 0) + 1;
+    if (q.state === 'local_only') continue; // 실패한 적이 없다 — 말할 사유가 없다
+    const reason = stuckReasonOf(q.lastError, q.lastStatus);
+    reasonCount.set(reason, (reasonCount.get(reason) ?? 0) + 1);
   }
+  const stuckReasons = [...reasonCount]
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((a, b) => b.count - a.count);
 
   const queued = new Set(queue.map((q) => `${q.entityType}:${q.entityId}`));
   const tombstones: Record<string, number> = {};
@@ -121,6 +151,7 @@ export async function diagnoseSync(): Promise<SyncDiagnosis> {
     itemCandidates,
     opLessItems,
     purgedMarks: purged,
+    stuckReasons,
     mediaStore: 'r2' as const,
   };
 }

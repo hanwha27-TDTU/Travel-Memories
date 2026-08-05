@@ -32,7 +32,7 @@
 // 빠뜨리면 **컴파일 오류**가 난다 — 다음 사람이 이 규율을 몰라도 지켜진다(§7 2층 구조적 강제).
 
 import type { Table } from 'dexie';
-import { db, type PurgedId } from '../offline/db';
+import { db, type PurgedId, type SyncQueueItem } from '../offline/db';
 import { fromRow, type TripRow } from '../domain/trip/rowmap';
 import { fromMomentRow, type MomentRow } from '../domain/moment/rowmap';
 import { fromExpenseRow, type ExpenseRow } from '../domain/expense/rowmap';
@@ -45,6 +45,28 @@ import type { JourneyClient } from './supabase/client';
 export const PURGE_DOMAINS = ['trip', 'moment', 'media', 'expense', 'audio', 'place'] as const;
 export type PurgeDomain = (typeof PURGE_DOMAINS)[number];
 
+/**
+ * **부모 노릇을 하는 도메인** — 이 행을 지우면 서버 FK가 자식을 함께 지운다.
+ *
+ * 🔴 왜 이 개념이 생겼나 (2026-08-05 · M-0107, 사용자 실기기 Windows PC):
+ * 서버 스키마는 `media/expenses/audio → moments → trips`로 **두 단계** `ON DELETE CASCADE`인데,
+ * 앱은 **여행에만** 가족 개념이 있었다. 그래서 **순간을 영구삭제하면** 서버는 자식 사진까지
+ * 지우는데 앱은 몰랐다 — 자식은 ①원장에 안 들어가고 ②R2 바이트가 안 지워지고 ③모든 기기의
+ * 로컬 행이 남고 ④그 행의 delete op이 FK 위반(4xx)으로 **영구 실패**해 큐에 영원히 박혔다.
+ * 실측: 막힌 작업 13건 · 설명할 수 없는 사진 파일 13개 · 되살릴 곳이 없는 항목 13건.
+ */
+export const PURGE_PARENTS = ['trip', 'moment'] as const;
+export type PurgeParent = (typeof PURGE_PARENTS)[number];
+
+/**
+ * 부모를 가리키는 키 — **서버 컬럼과 로컬 인덱스를 한 곳에서 짝지운다.**
+ * 두 곳에 손으로 적으면 갈라진다(M-0060 — "같은 판정을 두 번 쓰지 마라").
+ */
+export const PARENT_KEY: Record<PurgeParent, { column: string; index: string }> = {
+  trip: { column: 'trip_id', index: 'tripId' },
+  moment: { column: 'moment_id', index: 'momentId' },
+};
+
 interface DomainPurge {
   /** 이 도메인의 로컬 테이블. 영구삭제는 여기서 행을 **하드 삭제**한다(로컬 저장공간을 실제로 비운다). */
   table: () => Table<{ id: string }, string>;
@@ -53,7 +75,12 @@ interface DomainPurge {
   /** 원격 바이트(R2·Supabase 객체)를 가진 도메인인가 — 사진만 해당. */
   hasRemoteBytes: boolean;
   /**
-   * 이 도메인이 **여행의 자식인가**(서버 테이블에 `trip_id` 컬럼이 있어 `trip_id`로 묶어 지울 수 있는가).
+   * 이 도메인을 **함께 데려가는 부모들** — 그 부모를 영구삭제하면 서버 FK가 이 행을 지운다.
+   * 목록에 있는 부모마다 `PARENT_KEY[부모].column`이 이 테이블에 있어야 한다(그 컬럼으로 찾는다).
+   *
+   * 🔴 왜 **자식 쪽이** 선언하는가: 부모 쪽에 자식 목록을 두면 새 자식이 생겼을 때 부모 파일을
+   * 고쳐야 하고, 그게 빠지면 조용히 남는다. 자식이 선언하면 Record가 **빠뜨림을 컴파일 오류로**
+   * 만든다(§7 2층). 부모 → 자식 목록은 `cascadeChildDomains()`가 **역으로 계산**한다.
    *
    * 🔴 왜 데이터인가(C-1 · 2026-08-01 감사·실서버 확정): 여행 영구삭제는 자식들을 `trip_id`로
    * 찾는데 **`journey.places`에는 `trip_id`가 없다**(장소는 여행의 자식이 아니라 사용자 소유 —
@@ -64,10 +91,10 @@ interface DomainPurge {
    *
    * 근본형은 §7 M-0057이다 — *"형제의 규율을 물려받되, 그 자리에서 참인지 다시 묻는다."*
    * 「trip 빼고 전부」라는 산문 대신 **각 형제가 자기 사정을 데이터로 선언**하게 한다: place가
-   * `false`를 안 적으면 이 Record가 컴파일되지 않는다. 그리고 `check-purge-scope`가 이 플래그를
-   * 실제 rowmap의 `trip_id` 유무와 대조해, 산문이 스키마와 갈라지는 것을 막는다(3층).
+   * 빈 배열을 안 적으면 이 Record가 컴파일되지 않는다. 그리고 `check-purge-scope`가 이 선언을
+   * **실제 rowmap의 컬럼 + migration의 `ON DELETE CASCADE`**와 대조한다(3층).
    */
-  tripScoped: boolean;
+  cascadeParents: readonly PurgeParent[];
 }
 
 /**
@@ -79,13 +106,13 @@ export const DOMAIN_PURGE: Record<PurgeDomain, DomainPurge> = {
     table: () => db().localTrips as unknown as Table<{ id: string }, string>,
     remoteTable: 'trips',
     hasRemoteBytes: false,
-    tripScoped: false, // 여행 자신은 부모다 — 자식으로서 trip_id로 묶이지 않는다
+    cascadeParents: [], // 여행 자신이 최상위 부모다 — 아무도 여행을 데려가지 않는다
   },
   moment: {
     table: () => db().localMoments as unknown as Table<{ id: string }, string>,
     remoteTable: 'moments',
     hasRemoteBytes: false,
-    tripScoped: true,
+    cascadeParents: ['trip'],
   },
   media: {
     // 사진 바이트(표시본·썸네일 blob)는 **로컬 행에 붙어 있으므로** 행을 지우면 함께 사라진다.
@@ -94,13 +121,15 @@ export const DOMAIN_PURGE: Record<PurgeDomain, DomainPurge> = {
     table: () => db().localMedia as unknown as Table<{ id: string }, string>,
     remoteTable: 'media',
     hasRemoteBytes: true,
-    tripScoped: true,
+    // 🔴 서버 FK는 순간에만 걸려 있고(`media_moment_fk`), 여행은 순간을 거쳐 **전이적으로**
+    // 데려간다. 둘 다 적는다 — 둘 다 이 표를 지우고, 둘 다 이 표의 컬럼으로 찾을 수 있다.
+    cascadeParents: ['trip', 'moment'],
   },
   expense: {
     table: () => db().localExpenses as unknown as Table<{ id: string }, string>,
     remoteTable: 'expenses',
     hasRemoteBytes: false,
-    tripScoped: true,
+    cascadeParents: ['trip', 'moment'],
   },
   audio: {
     // 소리 바이트도 사진과 같다: 로컬 blob은 행에 붙어 있어 행을 지우면 함께 사라지고,
@@ -109,7 +138,7 @@ export const DOMAIN_PURGE: Record<PurgeDomain, DomainPurge> = {
     table: () => db().localAudio as unknown as Table<{ id: string }, string>,
     remoteTable: 'audio',
     hasRemoteBytes: true,
-    tripScoped: true,
+    cascadeParents: ['trip', 'moment'],
   },
   place: {
     // 장소는 바이트가 없다(좌표와 글자뿐) — 지울 원격 객체가 없다.
@@ -121,20 +150,49 @@ export const DOMAIN_PURGE: Record<PurgeDomain, DomainPurge> = {
     table: () => db().localPlaces as unknown as Table<{ id: string }, string>,
     remoteTable: 'places',
     hasRemoteBytes: false,
-    tripScoped: false, // 🔴 여행의 자식이 아니다 — trip_id 컬럼이 없다(C-1). 여행 영구삭제가 건드리지 않는다.
+    cascadeParents: [], // 🔴 여행의 자식이 아니다 — trip_id도 moment_id도 없다(C-1). 아무도 데려가지 않는다.
   },
 };
 
 /**
- * **여행의 자식 도메인들** — 여행을 영구삭제할 때 `trip_id`로 묶어 함께 지우는 대상.
+ * **이 부모를 영구삭제할 때 함께 지워야 하는 자식 도메인들** — 등록부에서 **역으로** 뽑는다.
  *
- * 🔴 장소는 여기 없다(C-1). 예전엔 `PURGE_DOMAINS.filter(d => d !== 'trip')`로 뽑아 장소까지
- * 넣었고, `trip_id` 없는 장소 테이블에 `trip_id`로 질의해 여행 영구삭제가 서버에 영영 전파되지
- * 않았다. 이제 **각 도메인이 선언한 `tripScoped`**로 뽑는다 — 새 형제가 자기 사정을 데이터로
- * 밝히지 않으면 컴파일이 안 되고, `check-purge-scope`가 이 플래그를 실제 스키마와 대조한다.
+ * 🔴 장소는 어느 부모의 자식도 아니다(C-1). 예전엔 `PURGE_DOMAINS.filter(d => d !== 'trip')`로
+ * 뽑아 장소까지 넣었고, `trip_id` 없는 장소 테이블에 `trip_id`로 질의해 여행 영구삭제가 서버에
+ * 영영 전파되지 않았다. 이제 **각 도메인이 선언한 `cascadeParents`**에서 뽑는다 — 새 형제가
+ * 자기 사정을 데이터로 밝히지 않으면 컴파일이 안 되고, `check-purge-scope`가 그 선언을 실제
+ * 스키마(rowmap 컬럼 + migration의 `ON DELETE CASCADE`)와 대조한다.
  */
-export function tripScopedChildDomains(): PurgeDomain[] {
-  return PURGE_DOMAINS.filter((d) => d !== 'trip' && DOMAIN_PURGE[d].tripScoped);
+export function cascadeChildDomains(parent: PurgeParent): PurgeDomain[] {
+  return PURGE_DOMAINS.filter((d) => DOMAIN_PURGE[d].cascadeParents.includes(parent));
+}
+
+/**
+ * 이 도메인이 **부모인가** — 지우면 서버 FK가 자식을 데려가는가. 아니면 `null`(잎).
+ *
+ * 🔴 이 한 줄이 M-0107의 자리다. 예전 코드는 `if (domain === 'trip')`이라고 **손으로** 적어
+ * 순간을 잎처럼 다뤘다. 이제 부모 여부는 **등록부가 답한다** — 새 부모가 생겨도 따라온다.
+ */
+export function asPurgeParent(domain: PurgeDomain): PurgeParent | null {
+  const p = (PURGE_PARENTS as readonly string[]).includes(domain) ? (domain as PurgeParent) : null;
+  return p && cascadeChildDomains(p).length ? p : null;
+}
+
+/** 영구삭제 대상 한 칸 — id와 도메인이 **함께** 다닌다(표식·전파 op·하드 삭제가 같은 목록을 쓴다). */
+export interface PurgeTarget {
+  id: string;
+  domain: PurgeDomain;
+  /**
+   * **행이 사라지기 전에 적어 둔** 원격 바이트 경로. 바이트 없는 도메인이면 `undefined`.
+   *
+   * 🔴 왜 여기서 적나(M-0107): `pushPurges`는 지우기 **전에 서버에 경로를 묻는다**. 그런데
+   * 서버 행이 **이미 없는** 경우(부모 cascade가 먼저 데려간 자식)에는 물어볼 곳이 없다 —
+   * 그러면 R2 바이트가 영원히 고아로 남는다. 로컬 행이 기억하는 경로가 그때 유일한 근거이고,
+   * 로컬 행도 영구삭제가 지우므로 **지우는 그 순간에 적어 두는 수밖에 없다.**
+   */
+  bytePath?: string;
+  /** 이 대상은 **뿌리 op이 가족까지 쓸어 간다** — 자기 가족을 또 쓸지 않는다(요청 낭비). */
+  underRoot?: true;
 }
 
 /**
@@ -228,6 +286,105 @@ export function purgeMarks(entries: { id: string; domain: PurgeDomain }[], at: s
   return entries.map((e) => ({ id: e.id, entityType: e.domain, purgedAt: at }));
 }
 
+/** 바이트를 가진 도메인이면 로컬 행이 기억하는 경로를 target에 실어 준다(행이 사라지기 전에). */
+function targetOf(domain: PurgeDomain, row: { id: string; storagePath?: string }): PurgeTarget {
+  const path = DOMAIN_PURGE[domain].hasRemoteBytes ? row.storagePath : undefined;
+  return { id: row.id, domain, ...(path ? { bytePath: path } : {}) };
+}
+
+/**
+ * **영구삭제 가족을 이 기기에서 모은다** — 부모 자신 + 부모를 가리키는 모든 로컬 자식.
+ *
+ * 🔴 여행과 순간이 **같은 함수를 지난다**(§7 2층). 예전엔 여행만 가족을 모았고 순간은
+ * `purgeChildPermanently`에서 자기 한 행만 지웠다 — 그런데 서버 FK는 순간의 자식도 지운다.
+ * 그 비대칭이 M-0107이다. 이제 부모 여부는 등록부가 답하고, 모으는 코드는 여기 하나뿐이다.
+ *
+ * tombstone인지 활성인지 **묻지 않는다**: 부모를 영구삭제하면 서버는 상태와 무관하게 자식 행을
+ * 전부 데려간다. 여기서 활성 자식을 남기면 그 행은 어디에도 없는 부모를 가리키게 된다.
+ */
+export async function collectPurgeTargets(parent: PurgeParent, id: string): Promise<PurgeTarget[]> {
+  const key = PARENT_KEY[parent].index;
+  const targets: PurgeTarget[] = [{ id, domain: parent }];
+  for (const child of cascadeChildDomains(parent)) {
+    const rows = (await DOMAIN_PURGE[child]
+      .table()
+      .where(key)
+      .equals(id)
+      .toArray()) as { id: string; storagePath?: string }[];
+    // 자식에는 `underRoot`를 붙인다 — 뿌리 op의 `hardDeleteFamily`가 이미 자손을 데려가므로,
+    // 자식이 (자기도 부모라도) 가족을 다시 쓸 이유가 없다.
+    for (const r of rows) targets.push({ ...targetOf(child, r), underRoot: true });
+  }
+  // 여행의 자식 목록은 `trip_id`로 뽑으므로 순간의 자식(사진·비용·소리)도 이미 들어 있다.
+  // 중복이 생길 여지는 없지만(도메인마다 한 번씩 훑는다) id 기준으로 한 번 더 접는다 —
+  // 새 부모가 생겨 두 경로로 잡히게 되면 표식·op이 두 벌 만들어지기 때문이다.
+  const seen = new Set<string>();
+  return targets.filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)));
+}
+
+/** 전파 작업 하나. `bytePath`는 **서버 행이 이미 없을 때의 유일한 근거**다(M-0107). */
+export function purgeOpOf(t: PurgeTarget, at: string): SyncQueueItem {
+  return {
+    operationId: crypto.randomUUID(),
+    entityType: purgeOpType(t.domain),
+    entityId: t.id,
+    operationType: 'purge',
+    state: 'local_only',
+    attempts: 0,
+    createdAt: at,
+    ...(t.bytePath ? { bytePath: t.bytePath } : {}),
+    ...(t.underRoot ? { purgeUnderRoot: true as const } : {}),
+  };
+}
+
+/**
+ * **가족 전체를 한 트랜잭션에 영구삭제한다** — 표식 → 전파 op → 로컬 하드 삭제.
+ *
+ * 순서가 곧 안전이다(§2-Z): 표식을 **먼저** 넣어야 중간에 실패해도 "지웠는데 표식이 없어
+ * 되살아나는" 창이 생기지 않는다. 셋이 한 트랜잭션인 이유는 불변식 #1과 같다 —
+ * "곧 이어서 쓸 것"은 없는 것과 같다(M-0033).
+ *
+ * `dropEntityOps`는 **대상 id의 일반 op(create/update/delete)를 함께 지운다.** 기본은 `false`다:
+ * 사용자가 누른 영구삭제는 사전 조건에서 대기 작업을 **거부**하지, 조용히 버리지 않는다.
+ * `true`는 복구 경로 전용이다 — 그 op들이 **원리적으로 성공할 수 없음이 확인된** 경우
+ * (부모가 이미 영구삭제돼 서버 행도 부모도 없는 자식)에만 쓴다.
+ */
+export async function commitPurge(
+  targets: PurgeTarget[],
+  at: string,
+  opts: { dropEntityOps?: boolean } = {},
+): Promise<void> {
+  if (!targets.length) return;
+  const d = db();
+  const tables = [...new Set(targets.map((t) => t.domain))].map((dm) => DOMAIN_PURGE[dm].table());
+  const ids = new Set(targets.map((t) => t.id));
+  const doomed = opts.dropEntityOps
+    ? (await d.syncQueue.toArray()).filter((q) => ids.has(q.entityId) && purgeDomainOf(q.entityType) === null)
+    : [];
+
+  await d.transaction('rw', [d.purgedIds, d.syncQueue, ...tables], async () => {
+    await d.purgedIds.bulkPut(purgeMarks(targets, at));
+    for (const t of targets) await d.syncQueue.add(purgeOpOf(t, at));
+    for (const q of doomed) await d.syncQueue.delete(q.operationId);
+    // 자식 먼저 지우고 부모를 마지막에 — 중간에 끊겨도 부모가 남아 있으면 다시 모을 수 있다.
+    for (const t of [...targets].reverse()) await DOMAIN_PURGE[t.domain].table().delete(t.id);
+  });
+
+  // read-back — 성공 반환이 아니라 되읽어 확인한다(데이터 안전 불변식).
+  for (const t of targets) {
+    if (!(await d.purgedIds.get(t.id))) throw new Error(`영구삭제 표식 확인 실패: ${t.domain} ${t.id}`);
+    if (await DOMAIN_PURGE[t.domain].table().get(t.id)) {
+      throw new Error(`영구삭제 확인 실패: ${t.domain} 행이 남아 있음 ${t.id}`);
+    }
+  }
+  const queued = new Set(
+    (await d.syncQueue.toArray()).filter((q) => purgeDomainOf(q.entityType) !== null).map((q) => q.entityId),
+  );
+  for (const t of targets) {
+    if (!queued.has(t.id)) throw new Error(`영구 삭제 확인 실패: 다른 기기에 알릴 작업이 큐에 남지 않음 ${t.id}`);
+  }
+}
+
 /**
  * **서버가 알려준 영구삭제를 이 기기에 적용한다.** 멱등 — 이미 적용됐으면 아무 일도 하지 않는다.
  *
@@ -289,6 +446,74 @@ export async function applyPurgedLedger(ids: string[]): Promise<number> {
     if (!(await d.purgedIds.get(id))) throw new Error(`영구삭제 표식 확인 실패: ${id}`);
   }
   return fresh.length;
+}
+
+/**
+ * **부모가 영구삭제됐는데 이 기기에 남아 있는 자식들을 데려간다**(2026-08-05 · M-0107).
+ *
+ * ── 왜 이게 필요한가 (사용자 실기기 Windows PC) ─────────────────────────────
+ * 서버 FK는 `media/expenses/audio → moments → trips`로 `ON DELETE CASCADE`다. 즉 **부모를
+ * 영구삭제하면 서버는 자식 행을 지운다.** 그런데 앱은 여행에만 가족 개념이 있어, 순간을
+ * 영구삭제한 자리에 자식이 통째로 남았다. 그 자식들은:
+ *
+ *  · 서버에 행이 없고 원장에도 없다 → R2 바이트가 「설명할 수 없는 파일」로 영원히 남는다
+ *  · 부모가 없으니 **되살릴 곳이 없다**
+ *  · 그 행의 delete op은 서버에서 FK 위반(4xx)이라 `permanent_failed`로 굳고, push는 그
+ *    상태를 **영원히 건너뛴다** — 「막힌 작업 13건」이 그것이었다
+ *
+ * ── 왜 자동인가 ───────────────────────────────────────────────────────────
+ * 이건 새 삭제 결정이 아니라 **이미 내려진 삭제 결정의 나머지 절반**이다. 부모의 영구삭제는
+ * 2단계 확인을 거친 사용자의 명시적 의도였고(ADR-0030), 서버는 이미 자식을 지웠다. 남은 행은
+ * 어느 기기에서도 되살릴 수 없고 큐를 막는다 — 남겨 두는 것이 곧 결함이다. `applyPurgedLedger`가
+ * 원장의 id를 이미 자동으로 하드 삭제하는 것과 같은 층이다.
+ *
+ * ── 안전 경계 ─────────────────────────────────────────────────────────────
+ *  · **복원 대기 중인 부모는 건드리지 않는다**(`pendingUnpurgeIds`) — 백업 복원이 되살린 것을
+ *    원장이 다시 지우면 복원이 조용히 무효화된다(2026-07-26에 실제로 그렇게 됐다).
+ *  · **부모 행이 이 기기에 살아 있으면 건너뛴다** — 표식이 있어도 되살아나 있으면 고아가 아니다.
+ *  · 자식의 원격 바이트 경로를 **지우기 전에 op에 적어 둔다**(`bytePath`). 서버 행이 없어
+ *    `pushPurges`가 경로를 물어볼 곳이 없기 때문이다.
+ *  · 자식에 박혀 있던 일반 op은 함께 지운다 — 서버 행도 부모도 없으므로 **원리적으로 성공할 수
+ *    없음이 확인된** 작업이다(M-0095의 반대 방향: 모르는 것을 지우는 게 아니라 아는 것을 지운다).
+ *
+ * @returns 이번에 데려간 자식 수.
+ */
+export async function sweepPurgedOrphans(): Promise<number> {
+  const d = db();
+  const marks = await d.purgedIds.toArray();
+  if (!marks.length) return 0;
+  const restoring = await pendingUnpurgeIds();
+  const purged = new Set(marks.map((m) => m.id).filter((id) => !restoring.has(id)));
+
+  const targets: PurgeTarget[] = [];
+  const seen = new Set<string>();
+  const parentAlive = new Map<string, boolean>();
+  for (const parent of PURGE_PARENTS) {
+    for (const child of cascadeChildDomains(parent)) {
+      const table = DOMAIN_PURGE[child].table();
+      // 🔴 표식이 아니라 **인덱스 쪽에서** 훑는다. 표식마다 질의하면 원장이 커질수록 동기화마다
+      // 질의 수가 선형으로 늘어난다 — `uniqueKeys()`는 인덱스에 실제로 있는 부모 id만 준다.
+      const present = (await table.orderBy(PARENT_KEY[parent].index).uniqueKeys()) as string[];
+      for (const pid of present.filter((k) => purged.has(k))) {
+        const key = `${parent}:${pid}`;
+        if (!parentAlive.has(key)) parentAlive.set(key, Boolean(await DOMAIN_PURGE[parent].table().get(pid)));
+        if (parentAlive.get(key)) continue; // 부모가 이 기기에 살아 있다 — 고아가 아니다(복원됐을 수 있다)
+        // 🔴 `primaryKeys()`로 먼저 좁힌다 — `toArray()`는 사진 blob을 통째로 메모리에 올린다.
+        const hits = (await table.where(PARENT_KEY[parent].index).equals(pid).primaryKeys()) as string[];
+        for (const id of hits) {
+          if (seen.has(id) || restoring.has(id)) continue;
+          const row = (await table.get(id)) as { id: string; storagePath?: string } | undefined;
+          if (!row) continue;
+          seen.add(id);
+          targets.push(targetOf(child, row));
+        }
+      }
+    }
+  }
+  if (!targets.length) return 0;
+  await commitPurge(targets, new Date().toISOString(), { dropEntityOps: true });
+  console.info(`영구삭제 정리: 부모가 영구삭제된 자식 ${targets.length}건을 함께 치웠어요(서버는 이미 지운 상태).`);
+  return targets.length;
 }
 
 /**

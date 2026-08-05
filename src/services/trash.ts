@@ -22,8 +22,9 @@ import { db, type LocalMoment, type LocalMedia, type LocalExpense, type LocalAud
 import { momentWhen, compareInstants, type TripClock } from '../domain/time';
 import { homeZone } from './homeZone';
 import {
-  TRASH_DOMAINS, localTableOf, purgeOpType, ensureLocalTombstone, fetchServerDomainEntities,
-  type TrashDomain,
+  TRASH_DOMAINS, localTableOf, ensureLocalTombstone, fetchServerDomainEntities,
+  asPurgeParent, collectPurgeTargets, commitPurge, DOMAIN_PURGE,
+  type TrashDomain, type PurgeTarget,
 } from './purge';
 import { formatDuration } from '../domain/audio/note';
 import { restoreMomentLocalFirst } from './moments';
@@ -286,11 +287,19 @@ export class PendingChildSyncError extends Error {
 /**
  * 순간·사진·비용·소리 하나를 **영구삭제**한다. `purgeTripPermanently`와 같은 순서·같은 규율:
  *
- *  ① **사전 조건** — 이 id에 대기 중인 큐 작업이 있으면 거부한다. 작업이 없다 = tombstone이
- *     서버에 반영됐다는 뜻이므로 "서버에 활성 행이 남는" 갈래가 사라진다.
+ *  ① **사전 조건** — 이 **가족**에 대기 중인 큐 작업이 있으면 거부한다. 작업이 없다 =
+ *     tombstone이 서버에 반영됐다는 뜻이므로 "서버에 활성 행이 남는" 갈래가 사라진다.
  *  ② **표식을 먼저** 넣는다 — 중간에 실패해도 "지웠는데 표식이 없어 되살아나는" 창이 없다.
  *  ③ 전파 작업을 큐에 넣는다 — 없으면 이 기기에서만 지워지고 서버엔 영영 남는다(M-0023).
  *  ④ 로컬 행을 하드 삭제하고 **되읽어** 확인한다.
+ *
+ * 🔴 **순간은 잎이 아니다**(2026-08-05 · M-0107, 사용자 실기기 Windows PC). 예전 이 함수는
+ * 도메인과 무관하게 **자기 한 행만** 지웠다. 그런데 서버 FK는 `media/expenses/audio → moments`가
+ * `ON DELETE CASCADE`라 **서버는 자식까지 지운다.** 앱만 몰랐고, 그 결과 자식은 원장에도 못
+ * 들어가고 R2 바이트도 안 지워지고 로컬에 남아 delete op이 FK 위반으로 **영원히 막혔다**.
+ * 바로 옆 `restoreTrashedChild`는 순간을 되살릴 때 자식을 **이미 데려가고 있었다** — 되살리기는
+ * 가족을 알고 지우기는 몰랐던 것이 §7이 말하는 형제 비대칭이다.
+ * 이제 부모 여부는 등록부가 답하고(`asPurgeParent`), 가족은 여행과 **같은 함수**가 모은다.
  *
  * 🔴 예전엔 소리만 ②③을 건너뛰었다(서버에 표가 없었으므로). 그 예외는 사라졌다 —
  * 마이그레이션 0019 이후 소리도 `PURGE_DOMAINS`의 형제라 **네 단계를 전부 지난다.**
@@ -303,36 +312,30 @@ export async function purgeChildPermanently(domain: ChildDomain, id: string): Pr
   const localTable = localTableOf(domain);
   const table = localTable as unknown as {
     get(id: string): Promise<{ id: string; deletedAt: string | null } | undefined>;
-    delete(id: string): Promise<void>;
   };
   const cur = await table.get(id);
   if (!cur) return; // 이미 없다 — 멱등
   if (cur.deletedAt === null) throw new Error('삭제되지 않은 항목은 영구 삭제할 수 없습니다.');
 
-  // ① 사전 조건은 **모든 도메인에 같다.**
-  const pending = (await d.syncQueue.toArray()).filter((q) => q.entityId === id);
+  // 부모면 가족을 데려간다(서버가 그렇게 하기 때문이다). 잎이면 자기 한 칸이다.
+  const parent = asPurgeParent(domain);
+  const targets = parent ? await collectPurgeTargets(parent, id) : await collectPurgeTargets2(domain, id);
+
+  // ① 사전 조건은 **모든 도메인에 같다** — 그리고 이제 **가족 전체**를 센다.
+  //    자식의 대기 작업을 안 세면 그 op이 부모가 사라진 뒤 영원히 막힌다(M-0107이 그 형태였다).
+  const ids = new Set(targets.map((t) => t.id));
+  const pending = (await d.syncQueue.toArray()).filter((q) => ids.has(q.entityId));
   if (pending.length) throw new PendingChildSyncError(pending.length);
 
-  const now = new Date().toISOString();
-  await d.transaction('rw', [localTable, d.purgedIds, d.syncQueue], async () => {
-    await d.purgedIds.put({ id, entityType: domain, purgedAt: now });
-    await d.syncQueue.add({
-      operationId: crypto.randomUUID(),
-      entityType: purgeOpType(domain),
-      entityId: id,
-      operationType: 'purge',
-      state: 'local_only',
-      attempts: 0,
-      createdAt: now,
-    });
-    await localTable.delete(id);
-  });
+  await commitPurge(targets, new Date().toISOString());
+}
 
-  // read-back — 성공 반환이 아니라 되읽어 확인한다(데이터 안전 불변식).
-  if (await table.get(id)) throw new Error('영구 삭제 확인 실패: 행이 남아 있음');
-  if (!(await d.purgedIds.get(id))) throw new Error('영구 삭제 확인 실패: 표식이 남지 않음');
-  const queued = (await d.syncQueue.toArray()).some((q) => q.entityId === id && q.operationType === 'purge');
-  if (!queued) throw new Error('영구 삭제 확인 실패: 다른 기기에 알릴 작업이 큐에 남지 않음');
+/** 잎 도메인 한 칸 — `collectPurgeTargets`와 같은 모양으로 만든다(바이트 경로 포함). */
+async function collectPurgeTargets2(domain: ChildDomain, id: string): Promise<PurgeTarget[]> {
+  const row = (await localTableOf(domain).get(id)) as { id: string; storagePath?: string } | undefined;
+  if (!row) return [];
+  const path = DOMAIN_PURGE[domain].hasRemoteBytes ? row.storagePath : undefined;
+  return [{ id, domain, ...(path ? { bytePath: path } : {}) }];
 }
 
 /**
