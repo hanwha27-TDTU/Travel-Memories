@@ -999,6 +999,156 @@ await page.locator('.moment-form .place-picked .chip-clear').first().click(); //
 await page.waitForTimeout(200);
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ⌨️ v1.78 — **글자를 치면 바로 「내 장소」가 나오는가** (사용자 지적 2026-08-05)
+//
+// *"글자를 치면 바로 장소조회가 되야 하는데 그렇지 않네요?"* — 맞는 지적이었고 **형제
+// 비대칭**이었다: 위치관리대장 화면은 치는 즉시 찾아 주는데 순간 편집의 같은 칸은
+// [🔍 검색]을 눌러야 했다(§7 사용자 대면 대칭).
+//
+// 🔴 이 검사가 재는 **두 번째** 것이 더 중요하다: 치는 동안 **아무것도 기기 밖으로 안 나간다.**
+// 키 하나마다 지오코더에 물으면 검색어가 곧 「어디에 갔는가」이므로 매 자모가 밖으로 나간다
+// (map-place-dev §2 · 비타협 원칙 #3). 그 경계는 조용히 무너지기 쉬워서 기계로 잠근다.
+//
+// §4 주입 기록(2026-08-05) — **어떤 주입이 RED로 잡히는지 재봤다**:
+//   ✅ 지오코더 호출을 치는 경로에 넣기(CSP 허용 호스트) → RED. 진짜 회귀의 모양이 이것이다.
+//   ✅ 「2글자 이상만 조회」로 되돌리기 → RED(목록·출처 줄 둘 다).
+//   ⚠️ CSP가 **막는** 호스트로 부르기 → 초록. 요청이 렌더러에서 죽어 여기까지 안 온다.
+//      이 검사는 그 경우 CSP를 재고 있는 것이지 앱을 재는 게 아니다 — 다행히 진짜 지오코더는
+//      `connect-src`에 있어야 동작하므로(index.html) 실제 회귀는 위 ✅ 경로로 잡힌다.
+//   ⚠️ `wireNameEdit`이 상자를 다시 감추게 되돌리기 → 초록. 감추기는 동기, 그리기는 120ms
+//      뒤라 타이밍이 이긴다. **그 정리는 설계 규율이고 기계가 못 본다**(코드 주석에 적어 뒀다).
+// ─────────────────────────────────────────────────────────────────────────────
+const lrSeed = await page.evaluate(async () => {
+  const now = new Date().toISOString();
+  const rows = [
+    { id: 'lr-live-a', name: '시드니 오페라하우스', latitude: -33.8568, longitude: 151.2153 },
+    { id: 'lr-live-b', name: '타슈켄트 의대', latitude: 41.3111, longitude: 69.2797 },
+  ].map((r) => ({
+    ...r, formattedAddress: null, provider: null, providerPlaceId: null,
+    countryCode: null, country: null, region: null, city: null, district: null, postcode: null,
+    category: null, memo: null, precision: null, spanMeters: null, mapPicked: false,
+    version: 1, baseVersion: 0, createdAt: now, updatedAt: now, deletedAt: null,
+    clientOperationId: `lr-live-${r.id}`,
+  }));
+  await new Promise((resolve, reject) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction('localPlaces', 'readwrite');
+      for (const r of rows) tx.objectStore('localPlaces').put(r);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+  return rows.length;
+});
+check('치는 동안 조회: 픽스처 주입(장소 2건)', lrSeed === 2, String(lrSeed));
+
+// 🔴 **밖으로 나간 요청을 센다.** 로컬 시험서버가 아닌 곳으로 간 것만 잡는다 —
+// 「지오코더를 안 불렀다」를 앱 내부 플래그가 아니라 **실제 네트워크**로 판정한다(§3).
+const offBox = [];
+const offBoxWatch = (req) => {
+  const u = req.url();
+  if (!u.startsWith('http://localhost:4173') && !u.startsWith('data:') && !u.startsWith('blob:')) offBox.push(u);
+};
+page.on('request', offBoxWatch);
+
+// 한 글자만 친다 — [🔍 검색]은 **누르지 않는다**. 그게 이 검사의 전부다.
+await page.fill('.moment-form .place-input', '시');
+await page.waitForTimeout(400);
+const lrTyped = await page.evaluate(() => {
+  const r = document.querySelector('.moment-form .place-results');
+  return {
+    hidden: r ? r.hidden : null,
+    names: [...(r?.querySelectorAll('.place-result-name') ?? [])].map((b) => b.textContent ?? ''),
+    source: r?.querySelector('.place-source')?.textContent ?? '',
+  };
+});
+check(
+  '🔴 치는 동안 조회: [🔍 검색]을 **안 눌러도** 내 장소가 나온다(사용자 지적 2026-08-05)',
+  lrTyped.hidden === false && lrTyped.names.some((n) => n.includes('시드니')),
+  `hidden=${lrTyped.hidden} · ${lrTyped.names.join(' | ') || '(없음)'}`,
+);
+check(
+  '치는 동안 조회: 이 목록이 **무엇인지** 말한다(내 장소 — 지도 검색 결과가 아니다)',
+  lrTyped.source.includes('내 장소'),
+  lrTyped.source || '(출처 줄 없음)',
+);
+check(
+  '🔴 치는 동안 조회: **아무것도 기기 밖으로 안 나갔다**(키마다 지오코더 호출 금지 · 원칙 #3)',
+  offBox.length === 0,
+  offBox.length ? offBox.slice(0, 3).join(' | ') : '외부 요청 0건',
+);
+
+// 못 찾았을 때 — 침묵은 「그런 곳은 없다」로 읽힌다. 대장이 아는 것은 **내가 담아 둔 곳뿐**이다.
+await page.fill('.moment-form .place-input', '없는곳입니다');
+await page.waitForTimeout(400);
+const lrMiss = await page.evaluate(() => {
+  const r = document.querySelector('.moment-form .place-results');
+  return { hidden: r ? r.hidden : null, text: r?.textContent ?? '' };
+});
+check(
+  '🔴 치는 동안 조회: 못 찾으면 **시야의 경계**를 밝힌다(§7-C 한정 생략 — 「없다」가 아니라 「내 장소 중에 없다」)',
+  lrMiss.hidden === false && lrMiss.text.includes('내 장소') && lrMiss.text.includes('검색'),
+  lrMiss.text || '(빈 상자)',
+);
+
+// 🔴 **없어야 할 때 없는가** — 좌표를 붙여넣는 흐름에서는 대장 목록이 뜨면 안 된다.
+// 그건 장소 이름이 아니므로 대장에서 찾을 것이 없고, [🔍 검색]이 좌표로 알아본다.
+await page.fill('.moment-form .place-input', '41.3111, 69.2797');
+await page.waitForTimeout(400);
+const lrCoord = await page.evaluate(() => {
+  const r = document.querySelector('.moment-form .place-results');
+  return { hidden: r ? r.hidden : null, n: r?.querySelectorAll('.place-result').length ?? 0 };
+});
+check(
+  '🔴 치는 동안 조회: 좌표를 붙여넣으면 대장 목록이 **안 뜬다**(오탐 차단 · §4)',
+  lrCoord.hidden === true && lrCoord.n === 0,
+  `hidden=${lrCoord.hidden} · 행 ${lrCoord.n}개`,
+);
+
+// 눌러 본다 — 그리는 것과 도는 것은 다른 층이다(§13 4항).
+await page.fill('.moment-form .place-input', '타슈');
+await page.waitForTimeout(400);
+await page.locator('.moment-form .place-results .place-result').first().click();
+await page.waitForTimeout(300);
+const lrPicked = await page.evaluate(() => {
+  const f = document.querySelector('.moment-form');
+  return {
+    typed: f?.querySelector('.place-input')?.value ?? '',
+    badge: f?.querySelector('.place-picked')?.textContent ?? '',
+    hidden: f?.querySelector('.place-results')?.hidden ?? null,
+  };
+});
+check(
+  '🔴 치는 동안 조회: 고르면 **실제로 칸에 앉는다**(자료구조에만 있으면 M-0022의 행동판)',
+  lrPicked.typed === '타슈켄트 의대',
+  lrPicked.typed || '(안 채워짐)',
+);
+check('치는 동안 조회: 무엇이 지정됐는지 배지로 말한다', lrPicked.badge.length > 0, lrPicked.badge || '(배지 없음)');
+check('치는 동안 조회: 고른 뒤 목록이 닫힌다', lrPicked.hidden === true, `hidden=${lrPicked.hidden}`);
+
+page.off('request', offBoxWatch);
+// 뒷정리 — 심은 픽스처와 폼 상태를 되돌린다(§3-C, 내 상태를 남기지 않는다).
+await page.locator('.moment-form .place-picked .chip-clear').first().click().catch(() => {});
+await page.fill('.moment-form .place-input', '');
+await page.waitForTimeout(200);
+await page.evaluate(async () => {
+  await new Promise((resolve) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction('localPlaces', 'readwrite');
+      for (const id of ['lr-live-a', 'lr-live-b']) tx.objectStore('localPlaces').delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    };
+    req.onerror = () => resolve();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 🔴 좌표를 못 얻었을 때 **왜 못 얻었는지 말하는가** (사용자 2026-07-31: *"아직도 해결이 안되네"*)
 //
 // §11 ② — **여기 있던 검사가 옛 전제를 못박고 있었다.** *"좌표 없는 사진이면 침묵한다"*를

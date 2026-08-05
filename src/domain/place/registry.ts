@@ -62,6 +62,22 @@ export function searchRegistry<T extends RegistryPlace>(places: readonly T[], qu
   });
 }
 
+/**
+ * 순간 편집의 장소 칸에서 **치는 동안** 대장이 못 찾았을 때 할 말. 못 찾았으면 `null`이 아니라
+ * 문장을 준다 — 침묵은 「그런 곳은 없다」로 읽히는데, 대장이 아는 것은 **내가 담아 둔 곳뿐**이다
+ * (§7-C 「한정을 생략」). 그래서 시야의 경계를 밝히고 **다음에 할 일**을 함께 준다(막다른 길 금지).
+ *
+ * 순수 함수인 이유: 이 한 줄이 사용자가 「내 장소에 없구나」를 판단하는 근거이고, 문장 로직이
+ * DOM 클로저에 있으면 갈래를 검사할 수 없다(§10 ③ — 이 저장소의 최빈 결함군).
+ *
+ * @param total 대장에 담긴 살아 있는 장소 수. 0이면 「없다」가 아니라 **아직 안 쌓였다**이다.
+ */
+export function liveLookupNote(query: string, total: number): string | null {
+  if (!query.trim()) return null; // 안 친 상태에서 먼저 말하지 않는다(§8 침묵이 정상)
+  if (total === 0) return '아직 담아 둔 장소가 없어요 — [🔍 검색]이나 [🗺 지도]로 정하면 여기 쌓입니다.';
+  return `내 장소 ${total}곳 중에 없어요 — [🔍 검색]으로 지도에서 찾을 수 있어요.`;
+}
+
 /** 국가·도시까지만 — 사용자 요청 ④ (예: `우즈베키스탄 · 타슈켄트`). 없으면 null. */
 export function shortAddress(p: { country: string | null; city: string | null }): string | null {
   const parts = [p.country, p.city].filter((x): x is string => Boolean(x));
