@@ -55,7 +55,7 @@ import { ensureProviders, reverseGeocode, searchPlaces, type PlaceResult } from 
 import { providerLabel } from '../../domain/place/provider';
 import { coordInputLabel, parseCoordinateInput, swapCoord, isRealCoord, type ParsedCoord } from '../../domain/place/coordInput';
 import { listPlaces, savePlace } from '../../services/places';
-import { searchRegistry, sortRegistry } from '../../domain/place/registry';
+import { searchRegistry, sortRegistry, liveLookupNote } from '../../domain/place/registry';
 import { supabase } from '../../services/supabase/client';
 import { needsRefine, precisionGlyph, precisionLabel, verdictFromStored, type PrecisionVerdict } from '../../domain/place/precision';
 
@@ -159,6 +159,36 @@ function placeInputOf(field: PlaceField): {
   };
 }
 
+/**
+ * 치는 동안 대장을 다시 읽기까지 기다리는 시간.
+ *
+ * 한글은 자모마다 `input` 이벤트가 뜨므로(ㅅ → 시) 그대로 두면 한 글자에 두세 번 읽는다.
+ * 사람이 「바로」로 느끼는 한계(~150ms)보다 짧게 두어 **기다린다는 느낌은 주지 않는다.**
+ */
+const LIVE_LOOKUP_MS = 120;
+
+/**
+ * 🔴 **결과 상자의 주인을 정하는 표식** — 이 상자에 그리는 손이 **둘**이기 때문이다:
+ * 치는 동안의 대장 조회(비동기 · 120ms 뒤)와 [🔍 검색](비동기 · 네트워크).
+ *
+ * 둘 다 `await` 뒤에 그리므로 **늦게 시작한 쪽이 먼저 끝날 수 있다.** 그러면 사용자가 방금
+ * [🔍 검색]으로 띄운 결과를 **직전 타이핑의 답이 지나가며 지운다.** 실제로 났다 — 전체
+ * 하네스가 기존 라이브 검사에서 잡았다(`element was detached from the DOM`, 2026-08-05).
+ * 「나중에 그린 쪽이 이긴다」는 시간에 기대는 규칙이고, 시간은 계약이 아니다.
+ *
+ * 그래서 규칙을 **구조로** 바꾼다: 그리려면 먼저 `claim()`으로 주인이 되고, `await`에서
+ * 돌아온 뒤 `holds()`로 **아직 내가 주인인지** 확인한다. 새 주인이 나섰으면 조용히 물러난다.
+ * 세 번째 손이 붙어도 같은 문을 지나야 하므로 자동으로 따라온다(§7 2층).
+ */
+interface ResultsOwner {
+  claim: () => number;
+  holds: (token: number) => boolean;
+}
+function placeResultsOwner(): ResultsOwner {
+  let gen = 0;
+  return { claim: () => ++gen, holds: (token) => token === gen };
+}
+
 /** `runPlaceSearch`가 고른 결과를 폼에 되돌려 주는 모양. 한 곳으로 모아 누락을 막는다. */
 interface PickedPlace {
   name: string;
@@ -168,6 +198,27 @@ interface PickedPlace {
   precision: PrecisionVerdict | null;
   placeId: string | null;
   mapPicked: boolean;
+}
+
+/**
+ * 대장에 담긴 장소 → 폼에 앉힐 값.
+ *
+ * 🔴 **한 곳에만 있어야 한다.** 이 매핑이 두 벌이면(치는 동안 / [🔍 검색] 결과) 언젠가 한쪽만
+ * `placeId`를 안 붙이고, 그러면 「저장은 됐는데 장소별 모아보기에 안 나오는」 조용한 결함이
+ * 된다 — 이 파일이 `placeInputOf`를 한 곳에 둔 이유와 같은 규율이다(§7 2층).
+ */
+function savedPick(p: LocalPlace): PickedPlace {
+  return {
+    name: p.name,
+    lat: p.latitude,
+    lng: p.longitude,
+    detail: p.formattedAddress || p.name,
+    // 라이브러리에 등급을 적어 뒀으므로 **그대로 다시 말한다.** 두 번째로 고를 때 조용해지면
+    // 같은 사실에 대해 앱이 두 번 다르게 말하는 셈이다(§7·§8).
+    precision: verdictFromStored(p.precision, p.spanMeters),
+    placeId: p.id,
+    mapPicked: p.mapPicked,
+  };
 }
 
 interface PlaceSearchContext {
@@ -200,19 +251,7 @@ async function runPlaceSearch(q: string, ctx: PlaceSearchContext): Promise<void>
     const saved = sortRegistry(searchRegistry(await listPlaces(), q));
     const places = await searchPlaces(q, { client, available, near: ctx.near });
     results.innerHTML = '';
-    renderSavedPlaces(results, saved, (p) =>
-      ctx.apply({
-        name: p.name,
-        lat: p.latitude,
-        lng: p.longitude,
-        detail: p.formattedAddress || p.name,
-        // 라이브러리에 등급을 적어 뒀으므로 **그대로 다시 말한다.** 두 번째로 고를 때
-        // 조용해지면 같은 사실에 대해 앱이 두 번 다르게 말하는 셈이다(§7·§8).
-        precision: verdictFromStored(p.precision, p.spanMeters),
-        placeId: p.id,
-        mapPicked: p.mapPicked,
-      }),
-    );
+    renderSavedPlaces(results, saved, (p) => ctx.apply(savedPick(p)));
     if (places.length === 0) {
       if (!saved.length) {
         // 🔴 **막다른 길을 만들지 않는다.** 검색이 못 찾는 곳은 반드시 있다(신축·골목·해외 소도시).
@@ -424,16 +463,24 @@ function wireHereButton(o: {
  *   남는다. 그건 조용한 거짓말이다.
  * · **지도·내 위치로 찍은 좌표**는 이름과 독립이다(사용자가 자리를 먼저 정하고 이름을 나중에
  *   적는 흐름). 유지하고 배지의 이름만 갱신한다.
+ *
+ * 🔴 **결과 상자는 건드리지 않는다.** 예전엔 여기서 `results.hidden = true`를 했는데, 치는 동안
+ * 대장을 보여주게 되자(v1.78) 같은 `input` 이벤트에 리스너가 둘 붙어 **한 상자의 표시 여부를
+ * 두 곳이 정하는** 모양이 됐다. 그래서 상자의 주인을 `wireLiveRegistry` 하나로 모았다 —
+ * §7이 금지하는 「같은 규율을 두 곳에 손으로 구현」이기 때문이다.
+ *
+ * 🔴 **정직한 한계**: 이 정리는 *지금* 결함을 고친 것이 아니다. 옛 코드를 그대로 두고 주입해
+ * 봤더니 **라이브가 RED로 잡지 못했다**(2026-08-05 §4 주입 ①) — 감추기는 동기이고 그리기는
+ * 120ms 뒤라 타이밍이 싸움을 대신 정리해 주고 있었다. 즉 이건 **설계 규율**이지 기계가
+ * 지켜 주는 계약이 아니다. 세 번째 리스너가 붙는 날 조용히 깨질 수 있으므로 여기 적어 둔다.
  */
 function wireNameEdit(o: {
   input: HTMLInputElement;
-  results: HTMLElement;
   coordIsIndependent: () => boolean;
   setPicked: (detail: string | null) => void;
   clearCoord: () => void;
 }): void {
   o.input.addEventListener('input', () => {
-    o.results.hidden = true;
     if (o.coordIsIndependent()) {
       o.setPicked(o.input.value.trim() || '지도에서 지정');
       return;
@@ -1052,10 +1099,14 @@ function makeDoSearch(o: {
   near: () => { lat: number; lng: number } | null;
   apply: Parameters<typeof runPlaceSearch>[1]['apply'];
   linkPlace: (id: string | null) => void;
+  owner: ResultsOwner;
 }): () => void {
   return () => {
     const q = o.input.value.trim();
     if (!q) return;
+    // 🔴 상자의 주인이 된다 — 직전 타이핑이 띄워 둔 대장 조회가 `await`에서 돌아와
+    //    **이 결과를 지우고 지나가지 못하게.** 시간 순서에 기대지 않는다(`ResultsOwner` 주석).
+    o.owner.claim();
     // 🔴 **좌표 먼저 본다.** 네이버·카카오·구글에서 찾은 좌표를 그대로 붙여넣는 흐름
     //    (사용자 제안 2026-07-30) — 앱이 못 찾는 곳을 사람이 뚫는 탈출구다.
     //    지오코더에 「37.587, 127.0016」을 물어봐야 좋은 답이 나올 리 없다.
@@ -1080,6 +1131,66 @@ function makeDoSearch(o: {
       o.searchBtn.disabled = false;
     });
   };
+}
+
+/**
+ * ⌨️ **치는 동안 「내 장소」를 바로 보여준다** (사용자 지적 2026-08-05:
+ * *"글자를 치면 바로 장소조회가 되야 하는데 그렇지 않네요"*).
+ *
+ * 맞는 지적이고, **형제 비대칭**이었다(§7 사용자 대면 대칭): 위치관리대장 화면은 치는 즉시
+ * 찾아 주는데(`search.addEventListener('input', paint)`) 순간 편집의 같은 칸은 [🔍 검색]을
+ * 눌러야 했다. **같은 일(장소 찾기)을 두 화면이 다른 규칙으로** 하고 있었다.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 🔴 왜 치는 동안에는 **대장만** 보는가 — 지오코더를 부르지 않는다
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 키 하나마다 지오코더에 물으면 **글자를 칠 때마다 검색어가 기기 밖으로 나간다.** 이 저장소는
+ * 그 경계를 명시적으로 그어 뒀다 — *"검색어는 로그에 찍지 않는다 — 어디를 찾아봤는지가 곧
+ * 어디에 갔는지다"*(map-place-dev §2 · 비타협 원칙 #3). 사진 GPS로 이름을 물을 때조차 **한 번
+ * 동의를 받는다**(`PHOTO_GEO_CONSENT_KEY`). 그 규율을 지키면서 키 입력마다 조용히 내보내는 것은
+ * 앞뒤가 안 맞는다. 저트래픽 예의(같은 문서)도 같은 답을 가리킨다.
+ *
+ * 그래서 **경계는 그대로 둔다**: 치는 동안은 이 기기 안(네트워크 0 · 오프라인에서도 답이 나온다),
+ * 지도로 나가는 것은 사용자가 [🔍 검색]을 눌러 **의도를 밝혔을 때**뿐이다.
+ *
+ * 검색·정렬은 위치관리대장과 **같은 함수**를 쓴다(§7 2층) — 두 곳이 다르게 찾으면 대장에서 본
+ * 장소가 여기선 안 나온다.
+ */
+function wireLiveRegistry(
+  input: HTMLInputElement,
+  results: HTMLElement,
+  pick: (p: LocalPlace) => void,
+  owner: ResultsOwner,
+): void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const paint = async (token: number): Promise<void> => {
+    if (!owner.holds(token)) return;
+    const q = input.value.trim();
+    const all = await listPlaces();
+    if (!owner.holds(token)) return; // 그 사이 더 쳤거나 [🔍 검색]이 나섰다 — 이 답은 낡았다
+    const alive = searchRegistry(all, '');
+    const found = sortRegistry(searchRegistry(all, q));
+    results.replaceChildren();
+    renderSavedPlaces(results, found, pick);
+    if (!found.length) {
+      const note = liveLookupNote(q, alive.length);
+      if (note) results.appendChild(el('p', 'place-live-none muted small', note));
+    }
+    results.hidden = !results.childElementCount;
+  };
+  input.addEventListener('input', () => {
+    const token = owner.claim();
+    // 좌표·지도 링크를 **붙여넣는** 흐름이 있다(사용자 제안 2026-07-30). 그건 장소 이름이
+    // 아니므로 대장에서 찾을 것이 없다 — 상자를 닫고 [🔍 검색]에 맡긴다.
+    if (!input.value.trim() || parseCoordinateInput(input.value.trim())) {
+      results.hidden = true;
+      results.replaceChildren();
+      return;
+    }
+    // 한글은 자모마다 `input`이 뜬다(ㅅ → 시). 매 자모에 Dexie를 전부 읽지 않게 잠깐 모은다.
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => void paint(token), LIVE_LOOKUP_MS);
+  });
 }
 
 /**
@@ -1143,72 +1254,92 @@ function photoPlaceSuggester(o: {
   };
 }
 
+/**
+ * 장소 필드가 들고 있는 **좌표 상태 넷** — 값 둘(위·경도)과 그 값의 성격 둘
+ * (지도로 직접 찍었나 · 대장의 어느 항목인가).
+ *
+ * 🔴 왜 밖으로 뺐나: 이 넷을 **손으로 비우는 자리가 세 곳**이었고(배지 해제·이름 손편집·폼
+ * 초기화) 채우는 자리가 둘이었다. 손으로 적힌 자리가 다섯이면 여섯 번째가 생길 때 하나가
+ * 빠진다 — 그리고 빠지는 것이 `placeId`면 「저장은 됐는데 장소별 모아보기에 안 나오는」
+ * 조용한 결함이 된다. 이제 비우는 법은 `clear()` 하나, 채우는 법은 `pick()`·`commit()`뿐이다.
+ *
+ * `mapPicked`가 뜻하는 것: 지도·내 위치로 **자리를 먼저 정한** 좌표는 이름과 독립이라 이름을
+ * 나중에 적어도 유지된다. 검색으로 얻은 좌표는 이름과 한 몸이라 이름을 고치면 무효가 된다.
+ */
+function placeCoordState(initial: { lat: number | null; lng: number | null }) {
+  let lat = initial.lat;
+  let lng = initial.lng;
+  let mapPicked = false;
+  let placeId: string | null = null;
+  return {
+    coords: () => (lat !== null && lng !== null ? { lat, lng } : null),
+    isIndependent: () => mapPicked,
+    getPlaceId: () => placeId,
+    linkPlace: (id: string | null) => {
+      placeId = id;
+    },
+    /** 좌표가 무효면 링크도 무효다 — 링크만 남으면 엉뚱한 곳을 가리킨다. */
+    clear: () => {
+      lat = null;
+      lng = null;
+      mapPicked = false;
+      placeId = null;
+    },
+    /** 사용자가 지도·붙여넣기로 확정한 지점. 라이브러리 항목이 아니다(담기면 링크가 생긴다). */
+    commit: (la: number, ln: number) => {
+      lat = la;
+      lng = ln;
+      mapPicked = true;
+      placeId = null;
+    },
+    pick: (p: PickedPlace) => {
+      lat = p.lat;
+      lng = p.lng;
+      mapPicked = p.mapPicked;
+      placeId = p.placeId;
+    },
+  };
+}
+
 function buildPlaceField(initial: { name: string; lat: number | null; lng: number | null }): PlaceField {
   const { wrap, row, input, searchBtn, mapBtn, hereBtn, results } = buildPlaceFieldShell(initial.name);
-
-  let lat: number | null = initial.lat;
-  let lng: number | null = initial.lng;
-  // 좌표를 지도에서 직접 찍었는지 여부. 지도로 찍은 좌표는 이름을 나중에 적어도 유지한다
-  // (사용자가 이름과 위치를 따로 입력하는 흐름). 검색 결과 좌표는 이름과 묶여 있으므로 손편집 시 무효화한다.
-  let mapPicked = false;
-  // 라이브러리 링크. 좌표가 무효화되면 함께 사라진다 — 링크만 남으면 엉뚱한 장소를 가리킨다.
-  let placeId: string | null = null;
+  const st = placeCoordState(initial);
+  const owner = placeResultsOwner(); // 결과 상자에 그리는 손이 둘이라 주인을 정한다
 
   // 해제는 배지 자신이 그릴 수 있으므로 `picked.set`을 직접 부른다(선언 전 참조를 만들지 않는다).
   const picked: PickedBadge = buildPickedBadge(() => {
-    lat = null;
-    lng = null;
-    mapPicked = false;
-    placeId = null;
+    st.clear();
     picked.set(null);
   });
   const setPicked = picked.set;
   wrap.append(row, results, picked.badge, picked.hint);
-  setPicked(lat !== null && lng !== null ? '' : null); // 기존 좌표가 있으면 배지 표시
-  wireNameEdit({
-    input,
-    results,
-    coordIsIndependent: () => mapPicked,
-    setPicked,
-    clearCoord: () => {
-      lat = null;
-      lng = null;
-      placeId = null; // 좌표가 무효면 링크도 무효다 — 링크만 남으면 엉뚱한 곳을 가리킨다
-    },
-  });
+  setPicked(st.coords() ? '' : null); // 기존 좌표가 있으면 배지 표시
+  wireNameEdit({ input, coordIsIndependent: st.isIndependent, setPicked, clearCoord: st.clear });
 
-  const coordCtx: CoordApplyContext = {
-    input,
-    setPicked: (d, p) => setPicked(d, p),
-    commit: (la, ln) => {
-      lat = la;
-      lng = ln;
-      mapPicked = true; // 사용자가 확정한 지점 — 이름을 나중에 적어도 유지된다
-      placeId = null; // 라이브러리 항목이 아니다(담기면 그때 링크가 생긴다)
-    },
-  };
+  const coordCtx: CoordApplyContext = { input, setPicked: (d, p) => setPicked(d, p), commit: st.commit };
   const useCoord = (c: ParsedCoord): void => applyPastedCoord(coordCtx, c);
 
+  // 고른 장소를 폼에 앉히는 **유일한 경로**. 치는 동안 고른 것과 [🔍 검색]으로 고른 것이
+  // 같은 문을 지나야 한다 — 두 벌이면 언젠가 한쪽만 `placeId`를 안 붙인다(§7 2층).
+  const applyPick = (p: PickedPlace): void => {
+    input.value = p.name;
+    st.pick(p);
+    results.hidden = true;
+    setPicked(p.detail, p.precision);
+  };
   const doSearch = makeDoSearch({
     input,
     results,
     searchBtn,
     useCoord,
-    near: () => (lat !== null && lng !== null ? { lat, lng } : null),
-    apply: (picked) => {
-      input.value = picked.name;
-      lat = picked.lat;
-      lng = picked.lng;
-      placeId = picked.placeId;
-      mapPicked = picked.mapPicked;
-      results.hidden = true;
-      setPicked(picked.detail, picked.precision);
-    },
-    linkPlace: (id) => {
-      placeId = id;
-    },
+    near: st.coords,
+    apply: applyPick,
+    linkPlace: st.linkPlace,
+    owner,
   });
   searchBtn.addEventListener('click', doSearch);
+  // ⌨️ 치는 동안 「내 장소」를 바로 보여준다(네트워크 0 — 지오코더는 [🔍 검색] 뒤에 그대로).
+  wireLiveRegistry(input, results, (p) => applyPick(savedPick(p)), owner);
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault(); // 폼 제출 대신 검색
@@ -1224,29 +1355,26 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
     note: photoNote,
     ctx: coordCtx,
     setPicked,
-    taken: () => input.value.trim() !== '' || (lat !== null && lng !== null),
+    taken: () => input.value.trim() !== '' || st.coords() !== null,
   });
 
   // 🗺 지도에서 위치 지정 — 장소 이름은 사용자가 직접 적고, 좌표만 지도로 찍는다.
   // (등록되지 않은 곳일 수 있으므로 이름은 검색 결과에 의존하지 않는다.)
-  wireMapPickButton(mapBtn, results, coordCtx, () => (lat !== null && lng !== null ? { lat, lng } : null));
+  wireMapPickButton(mapBtn, results, coordCtx, st.coords);
   // 📍 내 위치 — 같은 부품이므로 생성 폼·편집 폼이 **함께** 받는다(§7 2층).
-  wireHereButton({ btn: hereBtn, note: photoNote, ctx: coordCtx, hasCoord: () => lat !== null && lng !== null });
+  wireHereButton({ btn: hereBtn, note: photoNote, ctx: coordCtx, hasCoord: () => st.coords() !== null });
 
   return {
     el: wrap,
     getName: () => input.value,
-    getCoords: () => (lat !== null && lng !== null ? { lat, lng } : null),
-    getPlaceId: () => placeId,
+    getCoords: st.coords,
+    getPlaceId: st.getPlaceId,
     suggestFrom,
     reset: () => {
       photoNote.hidden = true;
       photoNote.textContent = '';
       input.value = '';
-      lat = null;
-      lng = null;
-      mapPicked = false;
-      placeId = null;
+      st.clear();
       results.hidden = true;
       results.innerHTML = '';
       setPicked(null);

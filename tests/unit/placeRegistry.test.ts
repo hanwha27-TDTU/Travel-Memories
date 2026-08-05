@@ -12,6 +12,7 @@ import {
   shortAddress,
   coordPreview,
   needsAddress,
+  liveLookupNote,
   type RegistryPlace,
 } from '../../src/domain/place/registry';
 
@@ -131,6 +132,32 @@ describe('🔴 좌표 미리보기 — 순서를 틀리면 기억이 엉뚱한 �
 
   it('범위 밖 좌표는 usable이 false', () => {
     expect(coordPreview(200, 300).current.usable).toBe(false);
+  });
+});
+
+describe('치는 동안 못 찾았을 때의 한 줄 — 침묵은 「그런 곳은 없다」로 읽힌다(§7-C)', () => {
+  it('🔴 안 친 상태에서는 먼저 말하지 않는다(§8 침묵이 정상)', () => {
+    expect(liveLookupNote('', 12)).toBeNull();
+    expect(liveLookupNote('   ', 12)).toBeNull();
+  });
+
+  it('🔴 시야의 경계를 밝힌다 — 「없다」가 아니라 「**내 장소** 중에 없다」', () => {
+    const s = liveLookupNote('시', 12)!;
+    expect(s).toContain('내 장소');
+    expect(s).toContain('12곳');
+    // 막다른 문장으로 끝내지 않는다 — 다음에 할 일을 준다.
+    expect(s).toContain('검색');
+  });
+
+  it('🔴 대장이 비었으면 「없다」가 아니라 **아직 안 쌓였다**라고 말한다', () => {
+    const s = liveLookupNote('시', 0)!;
+    expect(s).toContain('아직');
+    expect(s).not.toContain('0곳'); // 「0곳 중에 없어요」는 사람이 쓰는 말이 아니다
+    expect(s).toContain('지도');
+  });
+
+  it('마크다운을 쓰지 않는다 — textContent로 그려진다(§5 7항)', () => {
+    for (const total of [0, 1, 99]) expect(liveLookupNote('시', total)).not.toContain('**');
   });
 });
 
