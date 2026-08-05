@@ -119,29 +119,30 @@ export const BLIND_SPOTS: BlindSpot[] = [
     what: '서버가 한 번에 주는 행수 상한이 앱의 가정과 같은가',
     whyDevCannot: '개발 컨테이너의 프록시가 운영 서버 질의를 막는다 — Range/Content-Range를 실측할 수 없다',
     group: 'contract',
-    coveredBy: null,
-    pendingReason: '「서버 응답 계약」 도구로 만든다(다음 묶음)',
+    coveredBy: 'contract',
   },
   {
     what: '페이지를 나눠 받을 때 사이가 빠지지 않는가',
     whyDevCannot: '위와 같음 — 실제 서버에 두 페이지를 요청해 대조해야 안다',
     group: 'contract',
-    coveredBy: null,
-    pendingReason: '「서버 응답 계약」 도구로 만든다(다음 묶음)',
+    coveredBy: 'contract',
   },
   {
     what: '서버 트리거가 updated_at을 덮어써서 LWW 판정을 흔들지 않는가',
     whyDevCannot: '실제로 저장해 보고 응답을 비교해야 안다 — 쓰기 권한이 있는 서버가 필요하다',
     group: 'contract',
     coveredBy: null,
-    pendingReason: '「서버 응답 계약」 도구로 만든다(다음 묶음)',
+    // 🔴 「서버 계약」 도구는 **읽기 전용**이라 이건 못 잰다 — 덮었다고 적으면 거짓 커버리지가
+    // 된다(게이트는 도구 id의 실재까지만 보고 *실제로 재는지*는 못 본다 — 그 자리는 사람 몫).
+    pendingReason:
+      '쓰기가 필요해 「서버 계약」(읽기 전용)에 넣을 수 없다. 「왕복 시험」에 단계를 하나 더 붙여 ' +
+      '저장 직후 서버가 돌려준 updated_at과 앱이 보낸 값을 대조하는 방식으로 만든다(다음 묶음).',
   },
   {
     what: '로그인하지 않은 요청이 실제로 막히는가(RLS·초대제)',
     whyDevCannot: '실제 anon 키와 실제 RLS 정책이 있는 서버가 필요하다',
     group: 'contract',
-    coveredBy: null,
-    pendingReason: '「접근 차단 실측」 도구로 만든다(다음 묶음)',
+    coveredBy: 'contract',
   },
   // ── R2 자격증명이 없어 못 재는 것 ──
   {

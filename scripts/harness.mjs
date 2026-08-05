@@ -85,6 +85,9 @@ const gates = [
   // 「내가 못 보는 것」 등록부가 조용히 비지 않게(사용자 지시 2026-08-05: *"빼면 안 됨"*).
   // 이유 없는 미구현 · 없는 도구를 가리키는 coveredBy를 RED로 잡는다.
   { name: 'check-diag-blindspots', cmd: 'node scripts/check-diag-blindspots.mjs' },
+  // 진단이 「서버가 한 번에 주는 행수」를 판정할 때 쓰는 **가정값**이 실제 페이지네이션 코드와
+  // 갈라지지 않게. 갈라지면 진단이 틀린 기준으로 초록을 낸다(§7 SSOT).
+  { name: 'check-page-size-parity', cmd: 'node scripts/check-page-size-parity.mjs' },
   { name: 'check-current-doc-facts', cmd: 'node scripts/check-current-doc-facts.mjs' },
   { name: 'check-platform-map', cmd: 'node scripts/check-platform-map.mjs' },
   { name: 'check-lazy-screens', cmd: 'node scripts/check-lazy-screens.mjs' },

@@ -61,6 +61,8 @@ import { recordBackupNow, getLastBackupAt, backupFreshness, STALE_DAYS } from '.
 import { collectTrashState } from '../../services/trashState';
 import { trashMetrics, trashHeadline, TRASH_ITEM_CAP } from '../../domain/trashVerdict';
 import { lastRoundTrip, runRoundTrip, cleanupRoundTripLeftovers } from '../../services/roundTrip';
+import { collectServerContract } from '../../services/serverContract';
+import { serverContractMetrics, serverContractHeadline } from '../../domain/serverContractVerdict';
 import {
   roundTripView,
   ROUND_TRIP_STEPS,
@@ -1895,6 +1897,39 @@ export function roundTripProbe(): Promise<Verdict> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// ⑩ 서버 계약 — 서버가 앱이 가정한 대로 행동하는가 (읽기 전용 실측)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// 오늘 고친 결함 셋(M-0100·M-0101·M-0102)이 전부 *"서버가 내 가정과 다르게 행동한다"*였고,
+// 그걸 좁히려고 **운영 DB에 직접 SQL을 질의**해야 했다(개발 컨테이너의 프록시가 막는다).
+// 사용자의 앱은 진짜 서버에 붙어 있으므로 그 자리에서 재면 다음 고장이 훨씬 싸다.
+export async function serverContractProbe(): Promise<Verdict> {
+  const o = await collectServerContract();
+  const views = serverContractMetrics(o);
+  const labels = ['로그인 없는 접근', '한 번에 받는 행수', '페이지 경계'];
+  const metrics: Metric[] = views.map((v, i) => ({
+    label: labels[i] ?? '',
+    actual: v.actual,
+    expected: v.expected,
+    level: v.level,
+    ...(v.meaning ? { meaning: v.meaning } : {}),
+  }));
+  return {
+    level: levelFromMetrics(metrics),
+    headline: serverContractHeadline(o),
+    because:
+      '전부 읽기 전용입니다 — 서버에 아무것도 쓰지 않아요. 쓰기 쪽 계약은 [왕복 시험]이 따로 봅니다.',
+    actions: [],
+    metrics,
+    evidence: [],
+    context: [
+      { label: '앱이 쓰는 페이지 크기', value: `${o.assumedPageSize}행` },
+      { label: '로그인 상태', value: o.signedIn ? '로그인됨' : '로그인 전' },
+    ],
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // 도구 등록부 — 허브와 패널이 **같은 목록**을 본다
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1956,6 +1991,14 @@ export const CORE_TOOLS: DiagTool[] = [
     hint: '이 세션에서 생긴 오류',
     lead: '앱이 도는 동안 생긴 오류를 모아 둡니다. 새로고침하면 사라져요.',
     probe: errorProbe,
+  },
+  {
+    id: 'contract',
+    icon: '📡',
+    label: '서버 계약',
+    hint: '서버가 가정대로 행동하나',
+    lead: '로그인 없는 접근이 실제로 막히는지, 서버가 한 번에 주는 행수가 앱의 가정과 맞는지 실제로 물어봅니다. 읽기 전용이에요.',
+    probe: serverContractProbe,
   },
   {
     id: 'roundtrip',

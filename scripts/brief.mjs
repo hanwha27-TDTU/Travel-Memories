@@ -121,6 +121,11 @@ export const SKILL_ROUTES = [
   { match: /^src\/domain\/roundTripVerdict/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/roundTrip\.ts/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/roundTrip\.ts/, skill: 'sync-offline-dev' },
+  // 서버 계약 실측 — 판정은 진단 규율이고, 익명 클라이언트·RLS·페이지네이션을 만지므로
+  // Supabase 보안 헌장도 함께 읽는다(잘못 만들면 **검사가 내 세션을 물고 가 공허해진다**).
+  { match: /^src\/domain\/serverContractVerdict/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/serverContract/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/serverContract/, skill: 'supabase-security-dev' },
   { match: /^src\/services\/(sync|canonicalSync|autoSync|purge|trips|moments|media|expenses|trash)\.ts/, skill: 'sync-offline-dev' },
   { match: /^src\/(sync|offline)\//, skill: 'sync-offline-dev' },
   { match: /^src\/domain\/\w+\/rowmap/, skill: 'sync-offline-dev' },
