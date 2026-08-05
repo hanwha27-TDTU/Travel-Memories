@@ -4,6 +4,22 @@
 
 ---
 
+## HANDOFF-0089 · **릴리스 대기 — 「저장·삭제·휴지통」 진단도구 + 오프라인 복귀 배선 검사** (2026-08-05)
+
+- **사용자 요청**: *"저장/삭제/휴지통 진단도구"* 신설. 이어서 *"인터넷이 안되는 지역에서 저장한 것들은 인터넷이 연결되자마자 자동으로 업로드 되도록 설계해야 의미가 있는데 그렇게 했겠지요? 당연히..."*
+- **빈칸을 실측해서 골랐다**(겹치는 지표는 만들지 않았다): 「동기화 상태」는 삭제가 서버에 **갔는가**를, 「저장 상태」는 개수 대조를 이미 잰다. 🔴 결정적으로 `checkIntegrity`는 **살아 있는 행만 본다**(`deletedAt === null` 필터) — **휴지통 항목은 지금까지 어느 도구의 시야에도 없었다.**
+- **신설 도구(7번째) 「저장·삭제·휴지통」** — 묻는 질문 한 문장: *「지운 것을 되살릴 수 있는가, 그리고 모든 기기가 같은 휴지통을 보는가?」* 지표 셋:
+  ① **휴지통 목록의 기준** — ADR-0049 계약이 실제로 서 있는지. 🔴 개수를 **대조하지 않는다**(로컬이 서버보다 적은 건 불변식 #8상 정상이라, 개수로 판정하면 정상을 영원히 경고한다 — §7-D 오탐).
+  ② **되살려도 자료가 비는 항목** — `bytesMissing` 표시가 붙은 tombstone. M-0101에서 그 표시를 도입했는데 **사용자가 볼 곳을 안 만들었다**(§7-B *"이미 그 상태에 빠진 사람은 누가 데려오나?"*의 빈칸).
+  ③ **되살릴 곳이 없는 항목** — 순간을 영구삭제하면 그 순간 행만 사라지고(자식은 `trip_id`로만 묶임) 휴지통의 사진·소리·비용은 돌아갈 부모를 잃는다. 부모 판정은 **로컬 부재 + 영구삭제 원장에 있음** 둘 다를 요구한다(M-0048 — 「이 기기에 없다」는 「없다」가 아니다).
+- **판정을 순수 함수로**(`src/domain/trashVerdict.ts`) + 관측 수집만 서비스로(`src/services/trashState.ts`). 화면에 나가는 문장 자체가 결함일 수 있어서다(§10 ③).
+- **곁가지 — 과도한 `unknown`을 잡았다**(§7-E): 첫 판이 클라우드 미설정 배포에서도 `확인 불가`를 내며 *"연결이 돌아오면"*이라고 말했다 — **돌아올 연결이 없는데** 하는 말이다. `cloudConfigured`를 관측에 넣어 「읽을 서버가 없음(정상)」과 「서버를 못 읽음(확인 불가)」을 갈랐다.
+- 🔴 **오프라인 복귀 배선에 검사를 붙였다**: 설계는 이미 옳았지만(`installAutoSync`가 `online`에 `requestSync`를 건다, 큐는 Dexie라 영속) **그게 실제로 도는지 재는 검사가 없었다** — M-0015가 정확히 그 형태였다(만들어 놓고 안 부름). `tests/unit/autoSync.test.ts`에 4건 추가: online 발화 → 동기화 · 오프라인엔 안 돌고 복귀하면 돎(한 흐름) · visibilitychange · uninstall 후 미발화. **진짜 `EventTarget`을 세워** 배선을 잰다(addEventListener를 mock으로 두면 "불렸다"만 재고 배선은 못 잰다).
+- **비공허 확인(§4)**: 판정 함수에 알려진 실패 **4종**(개수 대조 도입 · 이유 없는 unknown · headline이 급한 것 대신 옛 지표 지목 · 원인 단정 문장), 배선에 **2종**(online 리스너 제거 · uninstall 누수) 주입해 전부 RED → 원복 GREEN 확인.
+- **육안 확인(§13)**: 실제 Chromium으로 도구를 열어 정상 시 지표 3개가 전부 접히고 판정만 남는 것(침묵이 정상), 가로 넘침 0을 확인. `verify-diagnostics-live`는 `data-tool`로 도구를 **스스로 발견**해 스크립트 수정 없이 22/22 PASS.
+- **검증**: `npm run build && npm run harness` — 정적 48종 + unit(신규 24건 포함) + editor live + diagnostics live **전부 PASS, SKIP 0**.
+- **다음**: 사용자 승인(2026-08-05)에 따라 홈 동기화 배지를 「보낼 게 없음」이 아니라 **「서버와 실제로 같음」**으로 판정하도록 바꾸고(M-0101 재발 방지), [동기화] 버튼을 배지에 합친다. 로컬은 **읽기 캐시**로 내리되 **쓰기는 로컬 우선 유지**(오프라인 기록 보존 — 비타협 원칙 #1).
+
 ## HANDOFF-0088 · **릴리스 대기 — 여행 목록 카드 재설계(조용한 카드)** (2026-08-05)
 
 - **사용자 지적**(실기기 스크린샷): *"제목이 일관되지 않는 거 같아요. 그리고 제목 글자크기도 좀 줄여야 될 거 같고 목록카드 색상은 요란한 거 같아요. 심플하게 디자인 설계가 필요할 듯 합니다."* 방향은 3안 중 **「조용한 카드」**로 사용자가 선택했다.
@@ -248,7 +264,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.75<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->175<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->96<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.75<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->175<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->97<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

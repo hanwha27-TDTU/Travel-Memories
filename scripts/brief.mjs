@@ -108,6 +108,12 @@ export const SKILL_ROUTES = [
   // 동시에 걸리는 이음매라 두 헌장을 모두 읽는다(M-0095).
   { match: /^src\/domain\/syncTombstoneVerdict/, skill: 'diagnostics-dev' },
   { match: /^src\/domain\/syncTombstoneVerdict/, skill: 'sync-offline-dev' },
+  // 휴지통 판정 + 그 관측 수집. `syncTombstoneVerdict`와 **같은 이음매**라 두 헌장을 모두 읽는다:
+  // 판정 문장은 진단 규율(§8 · §10 ③), 「무엇을 휴지통으로 볼 것인가」는 삭제·tombstone 규율이다.
+  { match: /^src\/domain\/trashVerdict/, skill: 'diagnostics-dev' },
+  { match: /^src\/domain\/trashVerdict/, skill: 'sync-offline-dev' },
+  { match: /^src\/services\/trashState/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/trashState/, skill: 'sync-offline-dev' },
   { match: /^src\/services\/(sync|canonicalSync|autoSync|purge|trips|moments|media|expenses|trash)\.ts/, skill: 'sync-offline-dev' },
   { match: /^src\/(sync|offline)\//, skill: 'sync-offline-dev' },
   { match: /^src\/domain\/\w+\/rowmap/, skill: 'sync-offline-dev' },

@@ -58,6 +58,8 @@ import {
 import { supabase, isConfigured } from '../../services/supabase/client';
 import { exportBackup } from '../../services/backup';
 import { recordBackupNow, getLastBackupAt, backupFreshness, STALE_DAYS } from '../../services/backupMeta';
+import { collectTrashState } from '../../services/trashState';
+import { trashMetrics, trashHeadline, TRASH_ITEM_CAP } from '../../domain/trashVerdict';
 import {
   deviceLabel,
   shortDeviceId,
@@ -1730,6 +1732,72 @@ export function backupProbe(): Promise<Verdict> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// ⑧ 저장·삭제·휴지통 — 지운 것을 되살릴 수 있는가, 모든 기기가 같은 휴지통을 보는가
+// ────────────────────────────────────────────────────────────────────────────
+//
+// 사용자 요청(2026-08-05): *"저장/삭제/휴지통 진단도구 등이 없다면 추가하면 좋을 거 같아요."*
+// 기존 도구가 덮는 부분을 **실측해서 빼고** 남은 빈칸만 잰다(겹치는 지표는 만들지 않는다):
+//   · 「동기화 상태」가 이미 재는 것 = 삭제가 서버까지 **갔는가**. 이 도구는 **간 뒤**를 본다.
+//   · 「저장 상태」가 이미 재는 것 = 개수 대조. 이 도구는 개수를 대조하지 **않는다**(아래 참조).
+//   · 「ID 무결성」이 못 보는 것 = 🔴 그 검사는 **살아 있는 행만** 본다. 휴지통 항목은 지금까지
+//     어느 도구의 시야에도 없었다 — 이 도구가 그 자리다.
+//
+// 판정과 문장은 전부 `domain/trashVerdict.ts`(순수 함수)가 만든다. 여기서는 Metric으로 옮기고
+// 접힌 출처만 붙인다 — 화면에 나가는 문장 자체가 결함일 수 있어서다(§10 ③).
+export async function trashProbe(): Promise<Verdict> {
+  const o = await collectTrashState();
+  const views = trashMetrics(o);
+  const labels = ['휴지통 목록의 기준', '되살려도 자료가 비는 항목', '되살릴 곳이 없는 항목'];
+  const metrics: Metric[] = views.map((v, i) => ({
+    label: labels[i] ?? '',
+    actual: v.actual,
+    expected: v.expected,
+    level: v.level,
+    ...(v.meaning ? { meaning: v.meaning } : {}),
+  }));
+
+  const cap = (rows: { label: string }[]): [string, string][] => {
+    const shown: [string, string][] = rows.slice(0, TRASH_ITEM_CAP).map((r) => [r.label, '']);
+    const omitted = rows.length - shown.length;
+    // 조용히 자르지 않는다 — 자른 사실을 **적는다**(§5 3항).
+    if (omitted > 0) shown.push([`외 ${omitted}건 생략`, '']);
+    return shown;
+  };
+
+  const evidence: Verdict['evidence'] = [];
+  if (o.emptyOnRestore.length) {
+    evidence.push({
+      label: `되살려도 자료가 비는 항목 ${o.emptyOnRestore.length}건`,
+      build: () => table(cap(o.emptyOnRestore), '해당 항목이 없어요'),
+    });
+  }
+  if (o.orphans.length) {
+    evidence.push({
+      label: `되살릴 곳이 없는 항목 ${o.orphans.length}건`,
+      build: () => table(cap(o.orphans), '해당 항목이 없어요'),
+    });
+  }
+
+  return {
+    level: levelFromMetrics(metrics),
+    headline: trashHeadline(o),
+    // 🔴 「휴지통이 비었다」와 「이 기기 기준으로 비어 보인다」는 다른 말이다(§7-C 한정 생략).
+    //    그리고 클라우드가 없는 배포에는 「다른 기기」 자체가 없다 — 셋을 구분해 말한다.
+    because: !o.cloudConfigured
+      ? `이 배포는 클라우드를 쓰지 않아 이 기기의 기록 ${o.localTrashCount}건이 전부입니다.`
+      : o.serverTrashCount === null
+        ? `이 기기에 남은 휴지통 기록 ${o.localTrashCount}건을 기준으로 본 결과예요 — 다른 기기가 지운 것은 여기 안 보일 수 있습니다.`
+        : '온라인이면 휴지통은 서버가 정본이라 어느 기기에서 열어도 같은 목록입니다(ADR-0049).',
+    metrics,
+    // 🔴 파괴적 행동(영구삭제·정리)을 여기 두지 않는다. 이 도구는 **관측과 판정**만 하고,
+    // 지우는 일은 [데이터 관리 › 휴지통]에서 2단계 확인을 거쳐야 한다(§0 · §13 4항).
+    actions: [],
+    evidence,
+    context: [{ label: '이 기기의 휴지통 기록', value: `${o.localTrashCount}건` }],
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // 도구 등록부 — 허브와 패널이 **같은 목록**을 본다
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1791,6 +1859,14 @@ export const CORE_TOOLS: DiagTool[] = [
     hint: '이 세션에서 생긴 오류',
     lead: '앱이 도는 동안 생긴 오류를 모아 둡니다. 새로고침하면 사라져요.',
     probe: errorProbe,
+  },
+  {
+    id: 'trash',
+    icon: '🗑️',
+    label: '저장·삭제·휴지통',
+    hint: '지운 것을 되살릴 수 있나',
+    lead: '휴지통을 모든 기기가 같이 보는지, 되살렸을 때 자료가 온전히 돌아오는지 봅니다. 읽기 전용이라 아무것도 지우지 않아요.',
+    probe: trashProbe,
   },
   {
     id: 'backup',
