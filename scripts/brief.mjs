@@ -119,6 +119,8 @@ export const SKILL_ROUTES = [
   // 🔴 왕복 시험은 **쓰기**다. 판정은 진단 규율이지만, 실제로 만들고 지우고 영구삭제하는
   // 경로라 삭제·tombstone·원장 규율이 그대로 걸린다 — 두 헌장을 모두 읽는다.
   { match: /^src\/domain\/roundTripVerdict/, skill: 'diagnostics-dev' },
+  { match: /^src\/domain\/fileRealityVerdict/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/fileReality/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/roundTrip\.ts/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/roundTrip\.ts/, skill: 'sync-offline-dev' },
   // 서버 계약 실측 — 판정은 진단 규율이고, 익명 클라이언트·RLS·페이지네이션을 만지므로
