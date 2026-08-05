@@ -752,4 +752,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '서버는 8개 모두 정상 보유함을 SQL로 확인했다. 완전히 새 기기 상태로 재로그인한 결과 0개를 받는 것을 확인해 재현 가능한 코드 결함으로 확정했다. `ensureCanonicalBeforeSync`의 신규 기기 최초 진입 경로가 미디어 바이트를 전부 받아야 하는데, M-0100이 남긴 tombstone 사진 하나의 죽은 경로가 `materializeMedia`에서 throw해 트립을 포함한 전체 최종본 반영을 막았다(M-0101). 홈 배지는 pending count만 보고 실제 실패 상태를 확인하지 않아 "동기화됨"으로 거짓 표시됐다.',
     decision: '**활성 자료는 바이트 실패 시 여전히 전체를 멈추고, tombstone은 `bytesMissing:true`로 최선노력 진행한다.** 홈 배지는 `syncStatus().phase===\'failed\'`를 pending 여부보다 먼저 확인한다. 수정 전 RED(트립도 0건)를 재현한 유닛을 추가한 뒤 고쳤다. build·전체 harness 49종·유닛·editor live·diagnostics live 모두 PASS.',
   },
+  {
+    seq: 94,
+    date: '2026-08-05',
+    topic: '휴지통을 통째로 서버 정본으로 — "절대절대절대 기기끼리 내용이 다르면 안 됩니다"',
+    human: '같은 태블릿의 Android 앱과 Chrome이 휴지통 내용이 다른 이유를 물었다(플랫폼상 별도 저장소 파티션이라고 설명). 그 뒤 사용자가 방향을 냈다: "휴지통 개념을 아예 서버로 확정짓자..로컬은 그냥 업로드하는 창구일뿐..당신 생각은?" AI가 "쓰기는 로컬 우선 유지, 목록 표시만 서버 정본 + 오프라인 폴백"을 역제안하자 승인: "니 추천대로 진행하자. 내가 원하는게 뭔지 알지? 절대절대절대 기기끼리 내용이 다르면 안됩니다."',
+    ai: '휴지통(여행 + 순간·사진·비용·소리·장소 5도메인) 목록 표시를 서버 조회 우선으로 바꿨다. `fetchServerDomainEntities`(전체 도메인, purged_ids 제외)와 `ensureLocalTombstone`(액션 직전 on-demand materialize, ACTIVE 행 거부)을 만들고, 여행·자식 양쪽에 대칭으로 `listDeletedTripsFromServer`/`listTrashedChildrenFromServer` + `prepare*ForAction`을 배선했다. 서버 조회가 둘 다 성공했을 때만 서버 결과를 쓰고, 하나라도 실패하면 전부 로컬 폴백으로 내려간다(부분 정본 금지). `trashPanel` 리팩터 중 자식 목록 렌더링이 이미 받아온 서버/로컬 대칭 `kids`를 안 쓰고 `listTrashedChildren()`(로컬 전용)을 다시 부르던 결함을 발견해 함께 고쳤다 — 안 고쳤으면 여행은 서버, 자식은 로컬로 정본이 갈라져 있었을 것이다.',
+    decision: 'ADR-0049로 확정: **표시는 온라인이면 서버 정본, 쓰기는 로컬 우선 유지.** `serverTrashAuthority.test.ts`(15건, 로컬/서버 경로 바이트 단위 SSOT 대조 포함) 추가, 전체 유닛 1184건 PASS. `check-fn-size` 래칫 위반(trashPanel 196>177)은 `tripRow`/`childRow`를 top-level로 추출해 75줄로 해소. `npm run build && npm run harness` — 정적 47종 + unit + editor live + diagnostics live 전부 PASS, SKIP 0. 비긴급이라 commit·push만 하고 다음 기능 릴리스 묶음에 포함한다.',
+  },
 ];

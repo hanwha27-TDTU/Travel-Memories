@@ -4,6 +4,16 @@
 
 ---
 
+## HANDOFF-0085 · **릴리스 대기 — 휴지통 서버 정본화(ADR-0049)** (2026-08-05)
+
+- **계기**: 같은 태블릿의 Android 앱과 Chrome이 서로 다른 휴지통을 보인다는 사용자 신고 → 원인은 버그가 아니라 WebView/브라우저의 별도 저장소 파티션(플랫폼 사실)이라고 설명했으나, 사용자가 근본적으로 다른 요구를 냈다: *"절대절대절대 기기끼리 내용이 다르면 안됩니다."*
+- **결정(ADR-0049)**: 휴지통 **목록 표시**는 온라인이면 서버가 정본이다 — 여행 + 5개 자식 도메인(순간·사진·비용·소리·장소) 전부 서버를 조회해 보여준다. **쓰기는 그대로 로컬 우선**을 유지한다(비타협 원칙 #1). 서버 조회가 부분 실패하면 전부 로컬 폴백으로 내려가며 "📴 오프라인 — 이 기기의 기록 기준" 문구로 밝힌다.
+- **구현**: `src/services/purge.ts`에 `fetchServerDomainEntities`(전체 도메인 서버 조회, `purged_ids` 제외)와 `ensureLocalTombstone`(액션 직전 on-demand materialize — ACTIVE 행은 거부)을 추가. `src/services/trash.ts`에 `listTrashedChildrenFromServer`·`prepareChildForAction`, `src/services/trips.ts`에 `listDeletedTripsFromServer`·`prepareTripForAction`을 대칭으로 추가. `src/ui/screens/dataManager.ts`의 `trashPanel`은 `fetchTrashLists()`로 서버/로컬을 한 곳에서 고르고, 복원·영구삭제 버튼은 액션 직전 `prepare*ForAction`을 호출해 서버 조회로만 알던 항목도 실제로 행동할 수 있게 한다.
+- **리팩터**: `trashPanel`이 새 로직(소스 안내 문구·prepare 호출 4곳)으로 `check-fn-size` 래칫(177줄)을 넘겨(196줄), 여행/자식 행 렌더링을 top-level `tripRow`/`childRow`(+ 공유 `TrashRowCtx`)로 추출해 75줄로 낮췄다. 추출 중 렌더 함수가 `kids`(이미 fetchTrashLists가 받아온 서버/로컬 대칭 목록)를 쓰지 않고 자식 목록만 다시 `listTrashedChildren()`(로컬 전용)로 부르던 결함을 함께 발견해 고쳤다 — 고치지 않았다면 여행은 서버 정본, 자식은 로컬 정본으로 갈라져 "절대 기기끼리 다르면 안 된다"는 요구를 정확히 어겼을 것이다.
+- **비공허·검증**: `tests/unit/serverTrashAuthority.test.ts`(신규 15건) — 로컬 경로와 서버 경로가 **동일 시드 데이터에서 바이트 단위로 같은 결과**를 내는지 SSOT 대조, ACTIVE 행 materialize 거부, 부분 실패 시 null 전파 등을 검증. 전체 유닛 1184건 PASS. `npm run build && npm run harness` — 정적 47종 + unit-tests + `verify-editor-live` + `verify-diagnostics-live` **전부 PASS, SKIP 0**(`check-instant-normalization`에 걸린 문자열 비교 정렬을 `compareInstants`로, `verify-editor-live`에 걸린 DOM 순서 결함을 `purgeNote`가 `sourceNote`보다 먼저 오도록 고친 뒤 재확인).
+- **정직한 한계**: 오프라인 폴백은 여전히 "이 기기가 아는 것"이라 다른 기기와 다를 수 있다 — 그건 §8이 요구하는 대로 화면에 밝힌다. 실기기 왕복(다른 기기에서 지운 항목이 이 기기 휴지통에 실제로 뜨는지)은 아직 사용자 확인 전이다.
+- **릴리스 상태**: 비긴급(핵심 흐름 차단 아님)이므로 commit·push만 하고 merge·deploy는 다음 기능 릴리스 묶음에 포함한다.
+
 ## HANDOFF-0084 · **릴리스 대기 — M-0101 죽은 tombstone 사진이 신규 기기 온보딩을 전멸시킴** (2026-08-05)
 
 - **사용자 신고**: 같은 기기의 Android 앱(8개 여행)과 Chrome 브라우저(5개 여행)가 서로 다른 개수를 보였다. 로그아웃·재로그인·사이트 데이터 완전 삭제까지 시켜 재현했다.
@@ -208,7 +218,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.75<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->175<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->93<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.75<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->175<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->94<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

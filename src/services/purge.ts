@@ -33,6 +33,14 @@
 
 import type { Table } from 'dexie';
 import { db, type PurgedId } from '../offline/db';
+import { fromRow, type TripRow } from '../domain/trip/rowmap';
+import { fromMomentRow, type MomentRow } from '../domain/moment/rowmap';
+import { fromExpenseRow, type ExpenseRow } from '../domain/expense/rowmap';
+import { fromMediaRow, type MediaRow } from '../domain/media/rowmap';
+import { fromAudioRow, type AudioRow } from '../domain/audio/rowmap';
+import { fromPlaceRow, type PlaceRow } from '../domain/place/rowmap';
+import { fetchAllRows, fetchAllIds } from './canonicalSync';
+import type { JourneyClient } from './supabase/client';
 
 export const PURGE_DOMAINS = ['trip', 'moment', 'media', 'expense', 'audio', 'place'] as const;
 export type PurgeDomain = (typeof PURGE_DOMAINS)[number];
@@ -379,4 +387,78 @@ export async function purgeServerOnly(domain: PurgeDomain, ids: string[]): Promi
     added++;
   }
   return added;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 휴지통 화면을 **서버 기준**으로 (2026-08-05 · 사용자 결정)
+// ─────────────────────────────────────────────────────────────────────────────
+// "휴지통 개념을 아예 서버로 확정짓자 — 절대절대절대 기기끼리 내용이 다르면 안 됩니다."
+//
+// 불변식 #8("로컬에 없는 tombstone을 만들지 않는다")은 **일반 동기화**에는 옳다 — 이 기기가
+// 한 번도 본 적 없는 자료를 함부로 로컬에 채우면 안 된다. 그런데 그 규율을 **휴지통 화면**에
+// 그대로 물려썼더니(§7 M-0057의 시간축 버전) "이 기기가 언제 마지막으로 그 항목을 봤는가"가
+// 곧 "휴지통에 뭐가 보이는가"가 됐다 — 정확히 `purgeServerOnly`가 이미 한 번 겪은 근본형이다
+// (위 함수 주석 참조). 여기서는 그 처방을 **읽기(목록)**로 확장한다.
+//
+// 쓰기(삭제·복원 자체)는 여전히 로컬 우선이다 — 오프라인에서도 즉시·안전하게 되는 것이
+// 비타협 원칙 #1이다. 서버 기준은 오직 **"지금 화면에 뭘 보여줄까"**에만 쓴다.
+function purgeRowsCol(domain: PurgeDomain, r: Record<string, unknown>): { id: string; entity: unknown } {
+  switch (domain) {
+    case 'trip': return { id: r.id as string, entity: fromRow(r as unknown as TripRow) };
+    case 'moment': return { id: r.id as string, entity: fromMomentRow(r as unknown as MomentRow) };
+    case 'expense': return { id: r.id as string, entity: fromExpenseRow(r as unknown as ExpenseRow) };
+    case 'place': return { id: r.id as string, entity: fromPlaceRow(r as unknown as PlaceRow) };
+    case 'media': {
+      const meta = fromMediaRow(r as unknown as MediaRow);
+      const blob = new Blob([], { type: 'image/webp' });
+      return { id: r.id as string, entity: { ...meta, mime: 'image/webp', displayBlob: blob, thumbBlob: blob, bytesMissing: true as const } };
+    }
+    case 'audio': {
+      const meta = fromAudioRow(r as unknown as AudioRow);
+      return { id: r.id as string, entity: { ...meta, blob: new Blob([], { type: 'audio/webm' }), bytesMissing: true as const } };
+    }
+  }
+}
+
+/**
+ * **서버가 지금 아는 도메인 한 종류의 행 전부**를 로컬과 같은 모양(`LocalX`)으로 가져온다.
+ * 화면 표시·라벨링에만 쓴다 — 어떤 값도 로컬 Dexie에 쓰지 않는다(그건 정상 pull의 일이다).
+ * 영구삭제 원장에 있는 id는 제외한다(다른 기기가 이미 영구삭제한 것을 휴지통에 다시 보여주지 않는다).
+ *
+ * @returns 실패(오프라인·네트워크 오류)하면 `null` — 호출부가 로컬 목록으로 내려간다.
+ */
+export async function fetchServerDomainEntities<T extends { id: string; deletedAt: string | null }>(
+  domain: PurgeDomain,
+  client: JourneyClient,
+): Promise<T[] | null> {
+  const [rowsRes, purgedRes] = await Promise.all([
+    fetchAllRows<Record<string, unknown>>(client, DOMAIN_PURGE[domain].remoteTable),
+    fetchAllIds(client, 'purged_ids'),
+  ]);
+  if (rowsRes.error) return null;
+  const purged = new Set(purgedRes.data ?? []);
+  return rowsRes.data
+    .filter((r) => !purged.has(r.id as string))
+    .map((r) => purgeRowsCol(domain, r).entity as T);
+}
+
+/**
+ * **이 기기에 없는 tombstone 행을 서버에서 메타데이터만** 채운다(바이트 없이 — 복원·영구삭제는
+ * 바이트가 필요 없고, 필요해지면 정상 pull이 채운다). 이미 로컬에 있으면 그대로 둔다(멱등).
+ *
+ * 활성(살아 있는) 행은 이 경로로 만들지 않는다 — 그건 비파괴 pull의 일이고, 여기서 만들면
+ * 이 기기가 본 적 없는 행이 조용히 "활성"으로 나타나는 결함이 된다(§0).
+ *
+ * @returns 이제 로컬에 있으면 true(원래 있었거나, 방금 채웠거나). 서버에도 없거나 활성이면 false.
+ */
+export async function ensureLocalTombstone(domain: PurgeDomain, id: string, client: JourneyClient): Promise<boolean> {
+  const table = DOMAIN_PURGE[domain].table();
+  if (await table.get(id)) return true;
+  const { data, error } = await client.from(DOMAIN_PURGE[domain].remoteTable).select('*').eq('id', id).maybeSingle();
+  if (error || !data) return false;
+  const row = data as Record<string, unknown>;
+  if (row.deleted_at == null) return false; // 활성 행 — 이 경로가 만들 대상이 아니다
+  const { entity } = purgeRowsCol(domain, row);
+  await table.put(entity as never);
+  return Boolean(await table.get(id));
 }
