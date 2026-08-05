@@ -108,8 +108,7 @@ export const BLIND_SPOTS: BlindSpot[] = [
     what: '두 기기가 실제로 같은 휴지통을 보는가(ADR-0049)',
     whyDevCannot: '개발 환경에는 기기가 하나뿐이라 「기기 간」이 성립하지 않는다',
     group: 'compare',
-    coveredBy: null,
-    pendingReason: '「기기별 현황」을 접힌 출처에서 도구로 승격하며 함께 만든다',
+    coveredBy: 'fleet',
   },
   // ── 운영 DB에 직접 질의해야 했던 것들(오늘 결함 셋을 좁힐 때 실제로 필요했다) ──
   {

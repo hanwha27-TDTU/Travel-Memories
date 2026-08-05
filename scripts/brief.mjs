@@ -130,6 +130,7 @@ export const SKILL_ROUTES = [
   // 🔴 authGate는 **홈 잠금과 딥링크 가드가 공유하는 단일 판정**이다(두 곳에 손으로 두면 우회로가 생긴다).
   { match: /^src\/domain\/authGate/, skill: 'supabase-security-dev' },
   { match: /^src\/domain\/sessionVerdict/, skill: 'diagnostics-dev' },
+  { match: /^src\/domain\/deviceFleetVerdict/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/sessionState/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/sessionState/, skill: 'supabase-security-dev' },
   { match: /^src\/services\/(sync|canonicalSync|autoSync|purge|trips|moments|media|expenses|trash)\.ts/, skill: 'sync-offline-dev' },

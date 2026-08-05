@@ -64,6 +64,7 @@ import { lastRoundTrip, runRoundTrip, cleanupRoundTripLeftovers } from '../../se
 import { collectServerContract } from '../../services/serverContract';
 import { serverContractMetrics, serverContractHeadline } from '../../domain/serverContractVerdict';
 import { collectSessionState } from '../../services/sessionState';
+import { fleetMetrics, fleetHeadline, daysSince, type FleetObservation } from '../../domain/deviceFleetVerdict';
 import { sessionMetrics, sessionHeadline, WANTED_SESSION_DAYS } from '../../domain/sessionVerdict';
 import { AUTH_GATE_CASES } from '../../domain/authGate';
 import {
@@ -1978,6 +1979,71 @@ export async function sessionProbe(): Promise<Verdict> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// ⑫ 기기별 현황 — 내 기기들이 서로 뒤처지지 않았는가
+// ────────────────────────────────────────────────────────────────────────────
+//
+// 접힌 출처에서 **도구로 승격**했다. 「내 기기들 N대」는 M-0048에서 판정을 뒤집은 결정적
+// 근거였는데(다른 기기가 있으면 파괴적 정리를 권하면 안 된다) 펼쳐야 보였다 — 판정을 뒤집는
+// 정보가 접혀 있는 것은 §8 위반이다. 그리고 사용자가 여러 날 겪은 문제가 정확히 이 축이었다.
+export async function deviceFleetProbe(): Promise<Verdict> {
+  const c = supabase();
+  const u = c ? await currentUserSafe() : null;
+  let devices: FleetObservation['devices'] = null;
+  let reason: string | null = null;
+  if (!c) reason = '서버 연결이 설정되지 않았습니다';
+  else if (!u) reason = '로그인 상태가 아닙니다';
+  else {
+    try {
+      const cmp = await compareStore(storeStateRemote(c));
+      devices = cmp.devices.map((d) => ({ label: d.label, id: d.id, lastPushAt: d.lastPushAt, isThis: d.isThis }));
+    } catch (e) {
+      reason = (e as Error).message || '기기 목록 조회에 실패했습니다';
+    }
+  }
+  const o: FleetObservation = {
+    cloudConfigured: isConfigured(),
+    signedIn: Boolean(u),
+    devices,
+    unavailableReason: reason,
+    now: new Date().toISOString(),
+  };
+  const views = fleetMetrics(o);
+  const labels = ['이 계정의 기기', '오래 안 올린 기기'];
+  const metrics: Metric[] = views.map((v, i) => ({
+    label: labels[i] ?? '',
+    actual: v.actual,
+    expected: v.expected,
+    level: v.level,
+    ...(v.meaning ? { meaning: v.meaning } : {}),
+  }));
+  return {
+    level: levelFromMetrics(metrics),
+    headline: fleetHeadline(o),
+    // 🔴 라벨이 말할 수 있는 것만 말한다(§5 9항) — 이 목록은 **올린 기록**에서 나온다.
+    because: '이 목록은 서버에 무언가를 올린 기기만 보여줍니다. 받아만 간 기기는 흔적이 남지 않아요.',
+    actions: [],
+    metrics,
+    evidence: devices?.length
+      ? [
+          {
+            label: `기기 ${devices.length}대 — 마지막으로 올린 시각`,
+            build: () =>
+              table(
+                devices.map((d): [string, string] => {
+                  const days = daysSince(d.lastPushAt, o.now);
+                  const ago = days === null ? '' : days === 0 ? '오늘' : `${days}일 전`;
+                  return [`${d.label}${d.isThis ? ' (지금 이 기기)' : ''}`, ago];
+                }),
+                '올린 기기가 없어요',
+              ),
+          },
+        ]
+      : [],
+    context: [],
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // 도구 등록부 — 허브와 패널이 **같은 목록**을 본다
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -2039,6 +2105,14 @@ export const CORE_TOOLS: DiagTool[] = [
     hint: '이 세션에서 생긴 오류',
     lead: '앱이 도는 동안 생긴 오류를 모아 둡니다. 새로고침하면 사라져요.',
     probe: errorProbe,
+  },
+  {
+    id: 'fleet',
+    icon: '📱',
+    label: '기기별 현황',
+    hint: '내 기기들이 뒤처지지 않았나',
+    lead: '이 계정에서 서버에 올린 적 있는 기기들과, 각 기기가 마지막으로 올린 시각을 봅니다.',
+    probe: deviceFleetProbe,
   },
   {
     id: 'session',
