@@ -4,6 +4,17 @@
 
 ---
 
+## HANDOFF-0088 · **릴리스 대기 — 여행 목록 카드 재설계(조용한 카드)** (2026-08-05)
+
+- **사용자 지적**(실기기 스크린샷): *"제목이 일관되지 않는 거 같아요. 그리고 제목 글자크기도 좀 줄여야 될 거 같고 목록카드 색상은 요란한 거 같아요. 심플하게 디자인 설계가 필요할 듯 합니다."* 방향은 3안 중 **「조용한 카드」**로 사용자가 선택했다.
+- **원인 셋 — 다 같은 뿌리**: 이 카드는 *사진 커버 카드*로 설계됐는데 **이 앱엔 대표사진 개념이 아직 없다.** ①`.cover-info`가 `bottom:14px`로 아래에 붙어 제목이 두 줄이면 배지가 위로 밀려 카드마다 배지 높이가 달랐다 ②`word-break` 설정이 없어 한글이 낱말 중간에서 끊겼다(실제 화면: 「한화에어 / 로」·「의 / 대 유학생활」) ③그라데이션+베일+노이즈 세 겹이 **받쳐줄 사진 없이** 깔렸고, 색은 `index % 3`이라 기간 필터를 걸면 같은 여행의 색이 바뀌었다.
+- **수정**: 목록 카드를 표면색 배경 + 잉크색 글자 + 가는 테두리로 바꾸고 베일·노이즈·색 로테이션을 걷어냈다. `.cover-info`를 흐름 배치로 되돌려 배지가 늘 같은 자리에 선다. 제목 1.35rem→1.05rem·`word-break: keep-all`·2줄 제한, 앱 제목 1.4rem→1.2rem. 배지는 순번이 아니라 **상태**로 칠한다(`.trip-badge--active/planned`). 고정 높이 132px→`min-height: 104px`로 바꿔 격자 stretch에 맡겼다(제목 한 줄인 줄은 줄째 낮아진다).
+- **§7 대칭**: `tripCard`와 `archivedCard`가 각자 커버를 손으로 붙이고 있어 한쪽만 고칠 위험이 있었다 — 껍데기를 `tripCardShell`, 내용을 `tripCardInfo`로 모아 **그 선택지를 없앴다.** `index` 인자는 쓸모가 사라져 제거했다.
+- **§7 의도적 비대칭**: 상세 화면 히어로(`.detail-hero`)는 `cover--*`를 **계속 쓴다** — 거기는 `coverIndex(trip.id)` 해시라 여행마다 색이 고정이고, 목록이 아니라 그 여행 한 건의 머리띠다. 왜 다른지를 CSS 주석에 적었다(적지 않으면 다음 사람이 선의로 통일한다).
+- **육안 확인(§13 1항)**: 실제 Chromium으로 사용자 화면과 같은 제목 8건을 Dexie에 심어 렌더했다. 실측 — **배지 top 편차 0px**(전 카드 15px), 가로 넘침 0(1480px·390px 둘 다), 낱말 쪼개짐 해소 확인(「한화에어로 동료들과 / 만남」·「의대 유학생활 / (TSMU)」), 라이트·다크 두 테마 스크린샷 확인. 픽스처는 검사 끝에 스스로 지웠다(§3-C).
+- **검증**: `npm run build && npm run harness` — 정적 48종 + unit 1184건 + `verify-editor-live`(홈 카드 높이 ≤136 계약 포함) + `verify-diagnostics-live` **전부 PASS, SKIP 0**.
+- **교훈**: `ui-responsive-dev` §3-H 신설 — 한글 `word-break: keep-all`, 나란히 선 카드는 위에서부터 흐르게, **장식은 그것이 받쳐줄 내용이 생긴 뒤에** 만든다.
+
 ## HANDOFF-0087 · **릴리스 대기 — 게이트 무결성 메타게이트 + 백업 신선도 진단도구** (2026-08-05)
 
 - **사용자 요청**: *"게이트 진단도구, 백업 진단도구, 저장/삭제/휴지통 진단도구 등이 없다면 추가하면 좋을 거 같아요."* 「게이트 진단도구」의 뜻을 되물으니: *"게이트가 목적에 맞게 작동하고 있는가? 왜냐하면 게이트가 목적을 잃고 작동하면 오류를 내기 때문... 게이트에 대조군이 있는가?"*
@@ -237,7 +248,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.75<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->175<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->95<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.75<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->175<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->96<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

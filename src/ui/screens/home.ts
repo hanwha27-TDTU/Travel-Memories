@@ -61,14 +61,18 @@ const STATUS_LABEL: Record<LocalTrip['status'], string> = {
   archived: '보관',
 };
 
-// 활성 여행 카드 — div(role=button)로 만들어 내부에 '삭제' 버튼을 중첩 허용(button 중첩 불가 회피).
-function tripCard(
-  t: LocalTrip,
-  index: number,
-  navigate: Navigate,
-  onDelete: (t: LocalTrip) => void,
-): HTMLElement {
-  const card = el('div', `trip-card cover--${index % 3}`);
+/**
+ * 카드 껍데기 — 활성·보관함 **두 카드가 이 한 곳**을 쓴다(§7 구조적 강제).
+ *
+ * 🔴 예전엔 두 함수가 각자 `cover--${index % 3}`·베일·노이즈를 손으로 붙였다. 그래서
+ * 「목록 카드에서 커버를 걷어낸다」는 결정이 **두 곳을 다 고쳐야만** 지켜졌다 — 한쪽만
+ * 고치면 보관함만 조용히 옛 모양으로 남는다. 껍데기를 하나로 모아 그 선택지를 없앤다.
+ *
+ * `index`를 더는 받지 않는다: 순번으로 색을 돌리던 유일한 쓸모가 사라졌고(사용자 결정
+ * 2026-08-05 — 뜻 없는 색은 소음), 남겨 두면 다음 사람이 다시 색을 걸 자리가 된다.
+ */
+function tripCardShell(t: LocalTrip, navigate: Navigate): HTMLElement {
+  const card = el('div', 'trip-card');
   card.setAttribute('role', 'button');
   card.tabIndex = 0;
   card.setAttribute('aria-label', `${t.title} 여행 열기`);
@@ -80,7 +84,22 @@ function tripCard(
       go();
     }
   });
-  card.append(el('div', 'cover-veil'), el('div', 'cover-grain'));
+  return card;
+}
+
+/** 배지·제목·날짜 — 두 카드가 **같은 자리에 같은 어휘**로 말한다(§7 사용자 대면 대칭). */
+function tripCardInfo(t: LocalTrip): HTMLElement {
+  const info = el('div', 'cover-info');
+  // 상태를 클래스로도 준다 — 색이 **순번이 아니라 뜻**을 따르게(CSS의 .trip-badge--*).
+  info.appendChild(el('span', `trip-badge trip-badge--${t.status}`, STATUS_LABEL[t.status]));
+  info.appendChild(el('h3', 'trip-title', t.title));
+  info.appendChild(el('p', 'trip-meta', formatTripPeriod(t.startDate, t.endDate)));
+  return info;
+}
+
+// 활성 여행 카드 — div(role=button)로 만들어 내부에 '삭제' 버튼을 중첩 허용(button 중첩 불가 회피).
+function tripCard(t: LocalTrip, navigate: Navigate, onDelete: (t: LocalTrip) => void): HTMLElement {
+  const card = tripCardShell(t, navigate);
   // 삭제(🗑) — 카드 열기와 겹치지 않게 stopPropagation. 실제 삭제는 확인 + 실행취소 + 휴지통(복구 가능).
   const del = el('button', 'trip-delete', '🗑') as HTMLButtonElement;
   del.type = 'button';
@@ -90,35 +109,13 @@ function tripCard(
     e.stopPropagation();
     onDelete(t);
   });
-  card.appendChild(del);
-  const info = el('div', 'cover-info');
-  info.appendChild(el('span', 'trip-badge', STATUS_LABEL[t.status]));
-  info.appendChild(el('h3', 'trip-title', t.title));
-  info.appendChild(el('p', 'trip-meta', formatTripPeriod(t.startDate, t.endDate)));
-  card.appendChild(info);
+  card.append(del, tripCardInfo(t));
   return card;
 }
 
 /** 보관함 카드 — 카드는 div(role=button)로 만들어 내부에 '복원' 버튼을 중첩 허용. */
-function archivedCard(
-  t: LocalTrip,
-  index: number,
-  navigate: Navigate,
-  onRestore: (id: string) => void,
-): HTMLElement {
-  const card = el('div', `trip-card cover--${index % 3}`);
-  card.setAttribute('role', 'button');
-  card.tabIndex = 0;
-  card.setAttribute('aria-label', `${t.title} 여행 열기`);
-  const go = (): void => navigate('trip-detail', t.id);
-  card.addEventListener('click', go);
-  card.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      go();
-    }
-  });
-  card.append(el('div', 'cover-veil'), el('div', 'cover-grain'));
+function archivedCard(t: LocalTrip, navigate: Navigate, onRestore: (id: string) => void): HTMLElement {
+  const card = tripCardShell(t, navigate);
   const restore = el('button', 'trip-restore', '↩ 복원') as HTMLButtonElement;
   restore.type = 'button';
   restore.setAttribute('aria-label', `${t.title} 여행 복원`);
@@ -126,12 +123,7 @@ function archivedCard(
     e.stopPropagation();
     onRestore(t.id);
   });
-  card.appendChild(restore);
-  const info = el('div', 'cover-info');
-  info.appendChild(el('span', 'trip-badge', STATUS_LABEL[t.status]));
-  info.appendChild(el('h3', 'trip-title', t.title));
-  info.appendChild(el('p', 'trip-meta', formatTripPeriod(t.startDate, t.endDate)));
-  card.appendChild(info);
+  card.append(restore, tripCardInfo(t));
   return card;
 }
 
@@ -626,9 +618,9 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
         }),
       );
     } else if (view === 'archived') {
-      shown.forEach((t, i) => list.appendChild(archivedCard(t, i, navigate, restoreTrip)));
+      for (const t of shown) list.appendChild(archivedCard(t, navigate, restoreTrip));
     } else {
-      shown.forEach((t, i) => list.appendChild(tripCard(t, i, navigate, deleteTrip)));
+      for (const t of shown) list.appendChild(tripCard(t, navigate, deleteTrip));
     }
     renderSyncNote(status, pending, user);
   }
