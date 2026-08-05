@@ -4,6 +4,21 @@
 
 ---
 
+## HANDOFF-0095 · v1.80 · **순간도 부모다 — 서버가 지우는 것을 앱이 몰랐다** (2026-08-05)
+
+- **사용자 신고**: *"윈도우 환경에서 문제가 있네요. PC... 다기기간 동기화가 아직 문제인듯 합니다."* + 진단 요약 붙여넣기(`막힌 작업 13건` · `설명할 수 없는 사진 파일 13개` · `되살릴 곳이 없는 항목 13건` · `휴지통 클라우드 1 · 이 기기 14`).
+- 🔴 **원인은 코드가 아니라 스키마에 있었다(M-0107)**: 서버 FK는 `media/expenses/audio → moments → trips`로 **두 단계 `ON DELETE CASCADE`**인데, 앱은 가족 개념을 **여행에만** 뒀다(`if (domain === 'trip')`이 손으로 적혀 있었다). 순간을 영구삭제하면 서버는 자식을 지우고 앱은 몰라, 자식이 ①원장에 못 들어가 R2 바이트가 「설명할 수 없는 파일」이 되고 ②부모가 없어 되살릴 곳이 없고 ③그 delete op이 **없는 부모를 가리키는 INSERT**가 되어 FK 위반(4xx) → `permanent_failed`로 굳어 push가 **영원히 건너뛰었다**.
+- **§9 4단계(세계를 본다)가 결정적이었다**: Supabase MCP로 실서버를 떠서 확정했다 — 그 13개 id는 `journey.media`에도 `journey.purged_ids`에도 **없었고**, `pg_constraint`가 `media_moment_fk … on delete cascade`를 보여줬고, 원장 14건 중 7건이 **1초 간격의 개별 자식 영구삭제**였다. 코드만 읽었으면 「순간을 지웠으니 사진도 지워졌겠지」로 넘어갔을 자리다.
+- 🔴 **바로 옆에 답이 있었다**: `restoreTrashedChild('moment', …)`는 되살릴 때 자식을 **이미 모으고 있었다**(주석까지 달려 있었다). **되살리기는 가족을 알고 지우기는 몰랐다** — §7 형제 비대칭의 교과서적 형태.
+- **고친 방식(§7 3층)**: ①조항은 `sync-offline-dev` §7-A·B·C ②구조는 각 도메인이 `cascadeParents`를 **자식 쪽에서** 선언(빠뜨리면 컴파일 오류)하고 여행·순간이 `collectPurgeTargets`·`commitPurge` **한 문**을 지난다 ③기계는 `check-purge-scope`가 그 선언을 **migration SQL의 cascade 전이 폐포** + rowmap 컬럼과 대조한다(실코드 주입으로 RED 확인).
+- **이미 벌어진 상태를 데려온다**(§9 4단계 — *"옛 방식으로 만들어진 것을 누가 데려오는가?"*): `sweepPurgedOrphans()`가 동기화마다 훑어 부모가 영구삭제된 자식을 마무리한다. 안전 경계 셋 — 부모가 살아 있으면 건드리지 않음 · 복원 대기(`unpurge`)는 건드리지 않음 · **표식 없는 부모는 「아직 못 받았을 뿐」이라 세지 않음**(M-0048). 자동으로 하는 이유는 ADR-0050에 적었다.
+- **곁가지 둘**:
+  - **`bytePath`를 op에 실어 보낸다**: `pushPurges`는 "지우기 전에 **서버에** 경로를 묻는" 방식인데 부모 cascade가 데려간 자식은 **물어볼 행이 없다** → R2 고아를 지울 근거가 사라진다. 이제 행이 사라지는 그 순간에 적어 둔다.
+  - 🔴 **큐가 실패 사유를 안 갖고 있었다** → `lastStatus`·`lastError` 신설. 화면은 「막힌 작업 13건」까지만 말하고 *"[실패 재시도]를 눌러 주세요"*라며 **눌러도 안 되는 일을 시켰다.** 원인을 알려면 실서버를 조회해야 했다(§12). 이제 사유가 화면 문장과 **복사되는 진단 요약** 양쪽에 나간다 — 사용자가 붙여 넣는 건 후자다.
+- **검증**: 유닛 신규 19건(`purgeCascade` 13 · `stuckReason` 6) · **주입 4종 RED → 원복 GREEN**(순간을 잎으로 되돌림 · `bytePath` 무시 · 살아 있는 부모 확인 생략 · 게이트에서 `media`의 `moment` 제거). 옛 계약을 못박고 있던 유닛 1건은 **뒤집었다**(§11 ② — 통과시키려 로직을 되돌리지 않는다).
+- 🔴 **사용자가 확인해야 할 것**: PC에서 앱을 열고 동기화가 한 번 돌면 「막힌 작업」·「되살릴 곳이 없는 항목」이 0이 되고, 「설명할 수 없는 사진 파일 13개」는 **원장에 들어가면서 「영구삭제 후 남은 사진 파일」로 바뀐다** — 그 자리의 [남은 파일 정리]를 누르면 R2에서 사라진다(앱이 자동으로 지우지 않는 이유: 원장에 없던 동안은 *마지막 사본일 수 있어서*였고, 이제 원장이 그것을 설명한다).
+- **정직한 한계**: 이 샌드박스는 `*.github.io`를 막는다 — 「배포 성공 확인」까지가 잰 것이고 실제 기기 화면은 사용자 몫이다. 그리고 **사용자 기기의 13건이 실제로 정리되는 것은 아직 안 봤다**(그 상태를 여기서 재현할 수 없다 — 유닛으로 그 모양을 만들어 잠갔을 뿐이다).
+
 ## HANDOFF-0094 · **세션 마무리 — 다음 사람이 여기서 이어받는다** (2026-08-05)
 
 > 사용자 지시: *"다 배포한거지? 다른인공지능이 이어서 하도록 잘 정리하고 세션 마무리하자"*
@@ -391,7 +406,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.79<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->179<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.80<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->180<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

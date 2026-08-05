@@ -30,8 +30,12 @@ import {
   purgeDomainOf,
   DOMAIN_PURGE,
   PURGE_DOMAINS,
-  tripScopedChildDomains,
+  cascadeChildDomains,
+  asPurgeParent,
+  sweepPurgedOrphans,
+  PARENT_KEY,
   type PurgeDomain,
+  type PurgeParent,
 } from './purge';
 
 export interface SyncResult {
@@ -221,12 +225,24 @@ export function audioRemote(client: JourneyClient): AudioRemote {
   };
 }
 
-async function markFail(op: SyncQueueItem, status: number | undefined): Promise<void> {
+/**
+ * 실패를 큐에 적는다. **왜 실패했는지도 함께 적는다**(2026-08-05 · M-0107).
+ *
+ * 🔴 왜 사유를 남기나: 사용자 기기에 `permanent_failed` 13건이 박혀 있었는데 화면도 진단도
+ * **이유를 말할 수 없었다** — 큐가 사유를 안 갖고 있었기 때문이다. 원인(순간 영구삭제가 자식을
+ * 남겨 FK 위반)을 알아내는 데 **실서버를 직접 조회**해야 했다. 앱이 아는 것을 사람에게 대신
+ * 시킨 자리다(§12). 상태 코드 하나만 있어도 갈래가 갈린다: 401/403은 권한, 409는 관계 충돌,
+ * 400은 스키마 — 사용자가 할 일이 각각 다르다.
+ */
+async function markFail(op: SyncQueueItem, status: number | undefined, reason?: string): Promise<void> {
   const kind = classifyError(status);
   const attempts = (op.attempts ?? 0) + 1;
   await db().syncQueue.update(op.operationId, {
     state: kind === 'retryable' ? 'retryable_failed' : 'permanent_failed',
     attempts,
+    ...(status === undefined ? {} : { lastStatus: status }),
+    // 사유가 없으면 **비운다**(옛 사유를 남겨 두면 이번 실패를 지난번 이유로 설명하게 된다).
+    lastError: reason ?? '',
     // **다음 시도 시각을 적는다**(2026-07-27). 예전엔 `attempts`만 올리고 아무도 읽지 않아,
     // 실패한 op이 `autoSync` 트리거(online·visibilitychange·5분 주기)마다 **즉시** 재시도됐다.
     // 계약은 `docs/SYNC_PROTOCOL.md:31`에 처음부터 있었다 — 코드가 따라가지 않았을 뿐이다.
@@ -463,7 +479,7 @@ export async function pushPending(remote: TripsRemote, userId: string): Promise<
     const sent = withSyncOperation(trip, op.operationId);
     const up = await remote.upsert(toRow(sent, userId, deviceStamp()));
     if (up.error) {
-      await markFail(op, up.status);
+      await markFail(op, up.status, up.error);
       failed++;
       continue;
     }
@@ -472,13 +488,13 @@ export async function pushPending(remote: TripsRemote, userId: string): Promise<
     const back = await remote.getById(trip.id);
     const serverTrip = back.data ? fromRow(back.data) : null;
     if (back.error || !serverTrip) {
-      await markFail(op, back.status);
+      await markFail(op, back.status, back.error);
       failed++;
       continue;
     }
     if (!writeLanded(serverTrip, sent.version, op.operationId)) {
       await rebaseRejectedLocal(d.localTrips, trip, op.operationId, serverTrip);
-      await markFail(op, undefined);
+      await markFail(op, undefined, '다른 기기의 변경과 겹쳐 내 쓰기가 착지하지 못했어요 — 다음 동기화에서 다시 시도합니다');
       failed++;
       continue;
     }
@@ -557,7 +573,7 @@ export async function pushPendingMoments(
     const sent = withSyncOperation(moment, op.operationId);
     const up = await remote.upsert(toMomentRow(sent, userId, deviceStamp()));
     if (up.error) {
-      await markFail(op, up.status);
+      await markFail(op, up.status, up.error);
       failed++;
       continue;
     }
@@ -565,13 +581,13 @@ export async function pushPendingMoments(
     const back = await remote.getById(moment.id);
     const serverMoment = back.data ? fromMomentRow(back.data) : null;
     if (back.error || !serverMoment) {
-      await markFail(op, back.status);
+      await markFail(op, back.status, back.error);
       failed++;
       continue;
     }
     if (!writeLanded(serverMoment, sent.version, op.operationId)) {
       await rebaseRejectedLocal(d.localMoments, moment, op.operationId, serverMoment);
-      await markFail(op, undefined);
+      await markFail(op, undefined, '다른 기기의 변경과 겹쳐 내 쓰기가 착지하지 못했어요 — 다음 동기화에서 다시 시도합니다');
       failed++;
       continue;
     }
@@ -645,7 +661,7 @@ export async function pushPendingExpenses(
     const sent = withSyncOperation(expense, op.operationId);
     const up = await remote.upsert(toExpenseRow(sent, userId, deviceStamp()));
     if (up.error) {
-      await markFail(op, up.status);
+      await markFail(op, up.status, up.error);
       failed++;
       continue;
     }
@@ -653,13 +669,13 @@ export async function pushPendingExpenses(
     const back = await remote.getById(expense.id);
     const serverExpense = back.data ? fromExpenseRow(back.data) : null;
     if (back.error || !serverExpense) {
-      await markFail(op, back.status);
+      await markFail(op, back.status, back.error);
       failed++;
       continue;
     }
     if (!writeLanded(serverExpense, sent.version, op.operationId)) {
       await rebaseRejectedLocal(d.localExpenses, expense, op.operationId, serverExpense);
-      await markFail(op, undefined);
+      await markFail(op, undefined, '다른 기기의 변경과 겹쳐 내 쓰기가 착지하지 못했어요 — 다음 동기화에서 다시 시도합니다');
       failed++;
       continue;
     }
@@ -745,7 +761,7 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
     if (uploadsBytes) {
       const up = await remote.uploadDisplay(path, media.displayBlob); // 표시본만(원본 미업로드)
       if (up.error) {
-        await markFail(op, up.status);
+        await markFail(op, up.status, up.error);
         failed++;
         continue;
       }
@@ -753,13 +769,13 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
     const sent = withSyncOperation(media, op.operationId);
     const res = await remote.upsert(toMediaRow(sent, userId, path, deviceStamp()));
     if (res.error) {
-      await markFail(op, res.status);
+      await markFail(op, res.status, res.error);
       failed++;
       continue;
     }
     const back = await remote.getById(media.id);
     if (back.error || !back.data) {
-      await markFail(op, back.status);
+      await markFail(op, back.status, back.error);
       failed++;
       continue;
     }
@@ -768,7 +784,7 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
     if (!writeLanded(server, sent.version, op.operationId, path)) {
       await removeUnreferencedBytes(remote, uploadsBytes ? path : undefined, server.storagePath);
       await rebaseRejectedLocal(d.localMedia, media, op.operationId, server);
-      await markFail(op, undefined);
+      await markFail(op, undefined, '다른 기기의 변경과 겹쳐 내 쓰기가 착지하지 못했어요 — 다음 동기화에서 다시 시도합니다');
       failed++;
       continue;
     }
@@ -776,7 +792,7 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
     // 방금 보낸 표시본과 같아야만 아래 트랜잭션에서 원본 임시본을 버릴 수 있다.
     const verified = await remote.download(path);
     if (verified.error || !verified.data || !(await sameBlobBytes(media.displayBlob, verified.data))) {
-      await markFail(op, verified.status);
+      await markFail(op, verified.status, verified.error);
       failed++;
       continue;
     }
@@ -1008,7 +1024,7 @@ export async function pushPendingPlaces(
     const sent = withSyncOperation(place, op.operationId);
     const up = await remote.upsert(toPlaceRow(sent, userId, deviceStamp()));
     if (up.error) {
-      await markFail(op, up.status);
+      await markFail(op, up.status, up.error);
       failed++;
       continue;
     }
@@ -1016,13 +1032,13 @@ export async function pushPendingPlaces(
     const back = await remote.getById(place.id);
     const serverPlace = back.data ? fromPlaceRow(back.data) : null;
     if (back.error || !serverPlace) {
-      await markFail(op, back.status);
+      await markFail(op, back.status, back.error);
       failed++;
       continue;
     }
     if (!writeLanded(serverPlace, sent.version, op.operationId)) {
       await rebaseRejectedLocal(d.localPlaces, place, op.operationId, serverPlace);
-      await markFail(op, undefined);
+      await markFail(op, undefined, '다른 기기의 변경과 겹쳐 내 쓰기가 착지하지 못했어요 — 다음 동기화에서 다시 시도합니다');
       failed++;
       continue;
     }
@@ -1091,7 +1107,7 @@ export async function pushPendingAudio(remote: AudioRemote, userId: string): Pro
     const previousPath = audio.storagePath;
     const stablePath = previousPath ?? audioStoragePath(userId, audio, trip?.title ?? null);
     if (!stablePath) {
-      await markFail(op, 400); // permanent — 형식이 바뀌지 않는 한 다시 시도해도 같다
+      await markFail(op, 400, '이 형식은 서버가 받지 않아요(확장자를 알 수 없음)'); // 형식이 바뀌지 않는 한 같다
       failed++;
       continue;
     }
@@ -1117,7 +1133,7 @@ export async function pushPendingAudio(remote: AudioRemote, userId: string): Pro
     if (uploadsBytes) {
       const up = await remote.upload(path, audio.blob, audio.mime || 'application/octet-stream');
       if (up.error) {
-        await markFail(op, up.status);
+        await markFail(op, up.status, up.error);
         failed++;
         continue;
       }
@@ -1125,13 +1141,13 @@ export async function pushPendingAudio(remote: AudioRemote, userId: string): Pro
     const sent = withSyncOperation(audio, op.operationId);
     const res = await remote.upsert(toAudioRow(sent, userId, path, deviceStamp()));
     if (res.error) {
-      await markFail(op, res.status);
+      await markFail(op, res.status, res.error);
       failed++;
       continue;
     }
     const back = await remote.getById(audio.id);
     if (back.error || !back.data) {
-      await markFail(op, back.status);
+      await markFail(op, back.status, back.error);
       failed++;
       continue;
     }
@@ -1140,7 +1156,7 @@ export async function pushPendingAudio(remote: AudioRemote, userId: string): Pro
     if (!writeLanded(server, sent.version, op.operationId, path)) {
       await removeUnreferencedBytes(remote, uploadsBytes ? path : undefined, server.storagePath);
       await rebaseRejectedLocal(d.localAudio, audio, op.operationId, server);
-      await markFail(op, undefined);
+      await markFail(op, undefined, '다른 기기의 변경과 겹쳐 내 쓰기가 착지하지 못했어요 — 다음 동기화에서 다시 시도합니다');
       failed++;
       continue;
     }
@@ -1674,7 +1690,7 @@ export interface PurgeRemote {
    * 그래서 여행 "R2 테스트"를 영구삭제했을 때 **사진 하나만 서버에 남았다.**
    * 로컬이 못 보는 자식은 **서버가 안다.**
    */
-  familyIds(tripId: string): Promise<{ ids: string[]; error?: string | undefined }>;
+  familyIds(parent: PurgeParent, id: string): Promise<{ ids: string[]; error?: string | undefined }>;
   /**
    * 그 여행에 딸린 **바이트를 가진 모든 자식**의 서버 경로들. **행을 지우기 전에** 물어야
    * 한다 — 행이 사라지면 경로도 사라진다.
@@ -1683,17 +1699,17 @@ export interface PurgeRemote {
    * 여행을 영구삭제하면 사진 파일만 지워지고 **소리 파일은 R2에 영영 남는다.** 그래서 등록부
    * (`DOMAIN_PURGE[d].hasRemoteBytes`)를 도는 형태로 바꿨다: 다음 형제가 자동으로 따라온다(§7).
    */
-  familyBytePaths(tripId: string): Promise<{ paths: string[]; error?: string | undefined }>;
+  familyBytePaths(parent: PurgeParent, id: string): Promise<{ paths: string[]; error?: string | undefined }>;
   /** 자식 하나의 서버 경로. 위와 같은 이유로 **지우기 전에** 묻는다. */
   bytePath(domain: PurgeDomain, id: string): Promise<{ path: string | null; error?: string | undefined }>;
   /** 행을 **하드 삭제**한다(§0의 "하드 삭제 없음"에 대한 유일한 예외 — ADR-0030). */
   hardDelete(domain: PurgeDomain, id: string): Promise<{ error?: string | undefined }>;
-  /** 그 여행의 자식 행 전부를 하드 삭제한다(등록부를 돌므로 새 도메인이 자동으로 따라온다). */
-  hardDeleteFamily(tripId: string): Promise<{ error?: string | undefined }>;
+  /** 그 부모의 자식 행 전부를 하드 삭제한다(등록부를 돌므로 새 도메인이 자동으로 따라온다). */
+  hardDeleteFamily(parent: PurgeParent, id: string): Promise<{ error?: string | undefined }>;
   /** read-back — 그 행이 아직 서버에 있는가(false여야 완료). */
   stillThere(domain: PurgeDomain, id: string): Promise<{ found: boolean; error?: string | undefined }>;
   /** read-back — 그 가족에 남은 행 수(0이어야 완료). */
-  remainingInFamily(tripId: string): Promise<{ count: number; error?: string | undefined }>;
+  remainingInFamily(parent: PurgeParent, id: string): Promise<{ count: number; error?: string | undefined }>;
 }
 
 /** 원장 테이블 이름 — 문자열을 여러 곳에 손으로 적지 않는다. */
@@ -1750,21 +1766,26 @@ function ledgerOps(client: JourneyClient): Pick<PurgeRemote, 'ledgerAdd' | 'ledg
 
 export function purgeRemote(client: JourneyClient): PurgeRemote {
   /**
-   * 여행의 자식 도메인만 훑는다 — **`trip_id`로 묶어 지울 수 있는 것만**(`tripScoped`).
+   * 부모의 자식 도메인만 훑는다 — **그 부모의 키로 묶어 지울 수 있는 것만**(`cascadeParents`).
    *
-   * 🔴 장소는 여기 없다(C-1). `PURGE_DOMAINS.filter(d => d !== 'trip')`로 뽑던 것이 장소까지
-   * 넣어 `trip_id` 없는 테이블에 질의했고, 여행 영구삭제가 서버에 영영 전파되지 않았다. 이제
-   * 등록부의 `tripScoped` 선언으로 뽑으므로 새 형제가 자기 사정을 밝히지 않으면 컴파일이 안 된다.
+   * 🔴 장소는 어느 부모의 자식도 아니다(C-1). `PURGE_DOMAINS.filter(d => d !== 'trip')`로 뽑던
+   * 것이 장소까지 넣어 `trip_id` 없는 테이블에 질의했고, 여행 영구삭제가 서버에 영영 전파되지
+   * 않았다. 이제 등록부의 `cascadeParents` 선언으로 뽑으므로 새 형제가 자기 사정을 밝히지
+   * 않으면 컴파일이 안 된다.
+   *
+   * 🔴 그리고 **부모는 여행만이 아니다**(M-0107). 서버 FK는 순간에도 `ON DELETE CASCADE`가
+   * 걸려 있는데 이 파일은 `tripId`라는 이름으로 여행만 상정하고 있었다 — 이름이 곧 사각이었다.
    */
-  const childDomains = tripScopedChildDomains;
+  const childDomains = cascadeChildDomains;
 
   return {
     ...ledgerOps(client),
-    async familyIds(tripId) {
+    async familyIds(parent, id) {
       try {
         const ids: string[] = [];
-        for (const d of childDomains()) {
-          const r = await client.from(DOMAIN_PURGE[d].remoteTable).select('id').eq('trip_id', tripId);
+        const col = PARENT_KEY[parent].column;
+        for (const d of childDomains(parent)) {
+          const r = await client.from(DOMAIN_PURGE[d].remoteTable).select('id').eq(col, id);
           if (r.error) return { ids: [], error: `${DOMAIN_PURGE[d].remoteTable}: ${r.error.message}` };
           for (const x of (r.data ?? []) as { id: string }[]) ids.push(x.id);
         }
@@ -1773,14 +1794,15 @@ export function purgeRemote(client: JourneyClient): PurgeRemote {
         return { ids: [], error: (e as Error).message };
       }
     },
-    async familyBytePaths(tripId) {
+    async familyBytePaths(parent, id) {
       try {
         const paths: string[] = [];
-        // 바이트를 가졌고 **여행의 자식인** 도메인만(trip_id로 질의하므로 tripScoped 필수 — C-1).
+        // 바이트를 가졌고 **이 부모의 자식인** 도메인만(그 부모의 키로 질의하므로 — C-1).
         // 손으로 'media'라 적지 않는다.
-        for (const dm of PURGE_DOMAINS.filter((x) => DOMAIN_PURGE[x].hasRemoteBytes && DOMAIN_PURGE[x].tripScoped)) {
+        const col = PARENT_KEY[parent].column;
+        for (const dm of childDomains(parent).filter((x) => DOMAIN_PURGE[x].hasRemoteBytes)) {
           const t = DOMAIN_PURGE[dm].remoteTable;
-          const r = await client.from(t).select('storage_path').eq('trip_id', tripId).not('storage_path', 'is', null);
+          const r = await client.from(t).select('storage_path').eq(col, id).not('storage_path', 'is', null);
           if (r.error) return { paths: [], error: `${t}: ${r.error.message}` };
           for (const x of (r.data ?? []) as { storage_path: string | null }[]) {
             if (x.storage_path) paths.push(x.storage_path);
@@ -1809,10 +1831,11 @@ export function purgeRemote(client: JourneyClient): PurgeRemote {
         return { error: (e as Error).message };
       }
     },
-    async hardDeleteFamily(tripId) {
+    async hardDeleteFamily(parent, id) {
       try {
-        for (const d of childDomains()) {
-          const r = await client.from(DOMAIN_PURGE[d].remoteTable).delete().eq('trip_id', tripId);
+        const col = PARENT_KEY[parent].column;
+        for (const d of childDomains(parent)) {
+          const r = await client.from(DOMAIN_PURGE[d].remoteTable).delete().eq(col, id);
           if (r.error) return { error: `${DOMAIN_PURGE[d].remoteTable}: ${r.error.message}` };
         }
         return {};
@@ -1828,14 +1851,15 @@ export function purgeRemote(client: JourneyClient): PurgeRemote {
         return { found: false, error: (e as Error).message };
       }
     },
-    async remainingInFamily(tripId) {
+    async remainingInFamily(parent, id) {
       try {
         let count = 0;
-        for (const d of childDomains()) {
+        const col = PARENT_KEY[parent].column;
+        for (const d of childDomains(parent)) {
           const r = await client
             .from(DOMAIN_PURGE[d].remoteTable)
             .select('id', { count: 'exact', head: true })
-            .eq('trip_id', tripId);
+            .eq(col, id);
           if (r.error) return { count: -1, error: `${DOMAIN_PURGE[d].remoteTable}: ${r.error.message}` };
           count += r.count ?? 0;
         }
@@ -1879,20 +1903,26 @@ export async function pushPurges(remote: PurgeRemote, bytes?: BytesRemote): Prom
     const domain = purgeDomainOf(op.entityType);
     if (!domain) continue;
 
-    // ① 지우기 **전에** 묻는다.
+    // ① 지우기 **전에** 묻는다. 부모 여부는 **등록부가 답한다** — 예전엔 `domain === 'trip'`을
+    //    손으로 적어 순간을 잎처럼 다뤘고, 그게 M-0107이었다(서버 FK는 순간도 부모로 안다).
+    // 뿌리 op이 가족을 쓸어 가는 대상이면 여기서 또 쓸지 않는다(`purgeUnderRoot` — 요청 낭비).
+    const parent = op.purgeUnderRoot ? null : asPurgeParent(domain);
     const paths: string[] = [];
+    // 🔴 **행이 사라지기 전에 적어 둔 경로**를 먼저 넣는다. 부모 cascade가 이미 데려간 자식은
+    //    서버에 행이 없어 물어볼 곳이 없다 — 그때 이 경로가 R2 고아를 막는 유일한 근거다.
+    if (op.bytePath) paths.push(op.bytePath);
     const ledgerIds: string[] = [op.entityId];
-    if (domain === 'trip') {
-      const fam = await remote.familyIds(op.entityId);
+    if (parent) {
+      const fam = await remote.familyIds(parent, op.entityId);
       if (fam.error) {
-        await markFail(op, undefined);
+        await markFail(op, undefined, `자식 목록 조회 실패: ${fam.error}`);
         failed++;
         continue;
       }
       ledgerIds.push(...fam.ids);
-      const fp = await remote.familyBytePaths(op.entityId);
+      const fp = await remote.familyBytePaths(parent, op.entityId);
       if (fp.error) {
-        await markFail(op, undefined);
+        await markFail(op, undefined, `파일 경로 조회 실패: ${fp.error}`);
         failed++;
         continue;
       }
@@ -1901,7 +1931,7 @@ export async function pushPurges(remote: PurgeRemote, bytes?: BytesRemote): Prom
       // 사진이든 소리든 **바이트를 가진 도메인이면** 경로를 먼저 묻는다(도메인 이름을 적지 않는다).
       const mp = await remote.bytePath(domain, op.entityId);
       if (mp.error) {
-        await markFail(op, undefined);
+        await markFail(op, undefined, `파일 경로 조회 실패: ${mp.error}`);
         failed++;
         continue;
       }
@@ -1911,29 +1941,29 @@ export async function pushPurges(remote: PurgeRemote, bytes?: BytesRemote): Prom
     // ② 원장 먼저. 여행이면 자식 id까지 함께 — 자식도 재삽입이 막혀야 한다.
     const led = await remote.ledgerAdd(ledgerIds);
     if (led.error) {
-      await markFail(op, undefined);
+      await markFail(op, undefined, `영구삭제 원장 기록 실패: ${led.error}`);
       failed++;
       continue;
     }
     const back = await remote.ledgerHas(op.entityId);
     if (back.error || !back.found) {
-      await markFail(op, undefined);
+      await markFail(op, undefined, back.error ?? '원장을 되읽었더니 기록이 없어요');
       failed++;
       continue;
     }
 
     // ③ 행을 지운다. 자식 먼저 — FK가 있어도 순서가 맞는다.
-    if (domain === 'trip') {
-      const fd = await remote.hardDeleteFamily(op.entityId);
+    if (parent) {
+      const fd = await remote.hardDeleteFamily(parent, op.entityId);
       if (fd.error) {
-        await markFail(op, undefined);
+        await markFail(op, undefined, `자식 행 삭제 실패: ${fd.error}`);
         failed++;
         continue;
       }
     }
     const hd = await remote.hardDelete(domain, op.entityId);
     if (hd.error) {
-      await markFail(op, undefined);
+      await markFail(op, undefined, `서버 행 삭제 실패: ${hd.error}`);
       failed++;
       continue;
     }
@@ -1942,14 +1972,14 @@ export async function pushPurges(remote: PurgeRemote, bytes?: BytesRemote): Prom
     //    실패로 두면 그 작업이 영원히 큐에 남아 다음 영구삭제의 사전조건까지 막는다.
     const left = await remote.stillThere(domain, op.entityId);
     if (left.error || left.found) {
-      await markFail(op, undefined);
+      await markFail(op, undefined, left.error ?? '지웠는데 되읽으니 행이 남아 있어요');
       failed++;
       continue;
     }
-    if (domain === 'trip') {
-      const lf = await remote.remainingInFamily(op.entityId);
+    if (parent) {
+      const lf = await remote.remainingInFamily(parent, op.entityId);
       if (lf.error || lf.count > 0) {
-        await markFail(op, undefined);
+        await markFail(op, undefined, lf.error ?? `지웠는데 자식 ${lf.count}건이 서버에 남아 있어요`);
         failed++;
         continue;
       }
@@ -1959,7 +1989,7 @@ export async function pushPurges(remote: PurgeRemote, bytes?: BytesRemote): Prom
     //    휴지통에 있는 동안은 서버에 남겨 두었다가, 휴지통을 비울 때 지운다 —
     //    그래야 휴지통이 진짜 휴지통이고, 어느 기기에서 복원해도 사진이 돌아온다.
     if (bytes) {
-      for (const p of paths) {
+      for (const p of new Set(paths)) {
         const rm = await bytes.remove(p);
         if (rm.error) console.error(`영구삭제: 저장소 파일 삭제 실패 ${p} — ${rm.error}`);
       }
@@ -2228,6 +2258,13 @@ export async function runSync(
   if (ledger.error) console.error(`영구삭제 원장 조회 실패 — ${ledger.error}`);
   else await applyPurgedLedger(ledger.ids);
 
+  // 🔴 **부모가 영구삭제된 자식을 데려간다**(M-0107). 원장은 id만 담으므로 원장 적용은 그 id의
+  // 행만 지운다 — 그런데 서버 FK는 자식까지 지웠다. 남은 자식은 되살릴 곳도 없고, 그 delete op은
+  // FK 위반으로 영원히 막힌다. 원장을 적용한 **직후**에 훑어야 방금 배운 영구삭제도 함께 잡힌다.
+  // 새로 만든 전파 op은 이번 동기화 안에서 내보낸다 — 다음 번을 기다리면 R2 고아가 하루 더 산다.
+  const swept = await sweepPurgedOrphans();
+  const sweepPush = swept ? await pushPurges(pRemote, dRemote) : { pushed: 0, failed: 0 };
+
   const q = await pullTrips(remote, 'merge');
   const qm = await pullMoments(mRemote, 'merge');
   const qd = await pullMedia(dRemote, 'merge');
@@ -2247,8 +2284,8 @@ export async function runSync(
     ? await pushEntityOps(entityRemotes, userId)
     : { pushed: 0, failed: 0 };
   return {
-    pushed: pu.pushed + entities.pushed + pp.pushed + followup.pushed,
-    failed: pu.failed + entities.failed + pp.failed + followup.failed,
+    pushed: pu.pushed + entities.pushed + pp.pushed + sweepPush.pushed + followup.pushed,
+    failed: pu.failed + entities.failed + pp.failed + sweepPush.failed + followup.failed,
     pulled: q.pulled + qm.pulled + qd.pulled + qe.pulled + qa.pulled + qpl.pulled,
     skippedEmptyCloud:
       q.skippedEmptyCloud ||

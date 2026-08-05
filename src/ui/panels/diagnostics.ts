@@ -226,6 +226,24 @@ export async function storageProbe(): Promise<Verdict> {
  */
 export const STUCK_STATES = new Set(['permanent_failed', 'conflict', 'failed']);
 
+/**
+ * 「막힌 작업」의 설명 문장. **순수 함수** — 사용자에게 가는 말은 유닛이 직접 돌린다(§10 ③).
+ *
+ * 🔴 왜 사유를 붙이나(2026-08-05 · M-0107): 옛 문장은 *"[실패 재시도]를 눌러 주세요"* 한 줄이었다.
+ * 그런데 사용자 기기의 13건은 **눌러도 절대 풀리지 않는** 부류였다(부모가 영구삭제돼 서버에
+ * 그 관계가 없어진 사진들). 즉 화면이 **안 되는 일을 시키고 있었다** — 진단 도구가 원자료
+ * 덤프보다 나쁜 순간이다(§8: 엉뚱한 것을 판정하면 사용자를 틀린 곳으로 보낸다).
+ *
+ * 사유를 **앱이 아는 만큼만** 말한다. 모르면 모른다고 적는다(원칙 #4).
+ */
+export function stuckMeaning(reasons: ReadonlyArray<{ reason: string; count: number }>): string {
+  const head = '보내다 실패해 멈춘 작업이에요. 동기화를 눌러도 저절로 풀리지 않습니다 — 아래 [실패 재시도]를 눌러 주세요.';
+  if (!reasons.length) return head;
+  const top = reasons.slice(0, 2).map((r) => `${r.reason} (${r.count}건)`).join(' · ');
+  const more = reasons.length > 2 ? ` 외 ${reasons.length - 2}가지` : '';
+  return `${head} 서버가 말한 이유: ${top}${more}`;
+}
+
 interface LoadedTombstoneAudit {
   findings: TombstoneSyncFinding[];
   unavailableReason: string | null;
@@ -282,9 +300,7 @@ export async function syncProbe(): Promise<Verdict> {
       actual: stuck === 0 ? '없음' : `${stuck}건`,
       expected: '없음',
       level: stuck > 0 ? 'problem' : 'ok',
-      ...(stuck > 0
-        ? { meaning: '보내다 실패해 멈춘 작업이에요. 동기화를 눌러도 저절로 풀리지 않습니다 — 아래 [실패 재시도]를 눌러 주세요.' }
-        : {}),
+      ...(stuck > 0 ? { meaning: stuckMeaning(d.stuckReasons) } : {}),
     },
     {
       label: '보낼 대기',
@@ -1616,6 +1632,9 @@ async function summaryText(): Promise<string> {
     `SW ${env.sw.supported ? (env.sw.controlled ? '제어중' : '미제어') : '미지원'} · 범위 ${env.sw.scope ?? '(없음)'}`,
     `--- 동기화 ---`,
     `대기 ${sync.queue.total} (${fmt(sync.queue.byState)} / ${fmt(sync.queue.byType)})`,
+    // 🔴 사유를 요약에 넣는다(M-0107). 사용자가 붙여 넣는 건 이 글이고, 옛 요약은 「13건 막힘」
+    // 까지만 말해 **왜인지 알려면 실서버를 조회해야 했다**(§12).
+    ...sync.stuckReasons.map((r) => `  사유 x${r.count}: ${r.reason}`),
     `tombstone ${fmt(sync.tombstones)} · op없는tombstone ${fmt(sync.opLessTombstones)} · 영구삭제표식 ${sync.purgedMarks}`,
     ...sync.items.map((i) => `  ${i.type} ${i.id.slice(0, 8)} ${i.deleted ? 'del' : 'alive'}${i.queued ? ' queued' : ''}`),
     `--- 무결성 (${integ.checked}건 검사) ---`,

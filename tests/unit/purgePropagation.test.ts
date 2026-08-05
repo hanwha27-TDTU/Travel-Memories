@@ -22,6 +22,7 @@ import 'fake-indexeddb/auto';
 import { db } from '../../src/offline/db';
 import { createTripLocalFirst, softDeleteTripLocalFirst, purgeTripPermanently } from '../../src/services/trips';
 import { createMomentLocalFirst } from '../../src/services/moments';
+import { purgeChildPermanently } from '../../src/services/trash';
 import {
   applyPurgedLedger,
   purgedIdSet,
@@ -29,7 +30,7 @@ import {
   purgeOpType,
   DOMAIN_PURGE,
   PURGE_DOMAINS,
-  tripScopedChildDomains,
+  cascadeChildDomains,
 } from '../../src/services/purge';
 import { pushPending, pushPendingMoments, pushPendingMedia, pushPurges, purgeRemote, type PurgeRemote } from '../../src/services/sync';
 
@@ -139,9 +140,9 @@ function fakePurge(over: Partial<PurgeRemote> = {}): PurgeRemote & { calls: stri
       deleted.push(`${domain}:${id}`);
       return Promise.resolve({});
     },
-    hardDeleteFamily: (tripId) => {
+    hardDeleteFamily: (_parent, id) => {
       calls.push('hardDeleteFamily');
-      deleted.push(`family:${tripId}`);
+      deleted.push(`family:${id}`);
       return Promise.resolve({});
     },
     stillThere: () => {
@@ -269,12 +270,31 @@ describe('② 전파 push — 서버 행을 지우고 원장에 id만 남긴다 
     expect(left.length).toBe(1);
   });
 
-  it('자식(순간·사진) purge는 가족 쓸기를 하지 않는다 — 여행 단위로 한 번만', async () => {
+  // 🔴 이 검사는 2026-08-05에 **뒤집혔다**(M-0107). 옛 계약은 *"가족 쓸기는 여행 단위로 한 번"*
+  // 이었고, 그래서 순간을 영구삭제하면 자식이 통째로 남았다 — 서버 FK는 순간도 부모로 알기 때문이다.
+  // 지금 계약은 *"부모면 쓴다. 단, 위 부모가 이미 쓸어 간 자리는 두 번 쓸지 않는다"*이다.
+  it('부모가 이미 쓸어 간 자식은 다시 쓸지 않는다 — 여행 하나에 가족 쓸기는 한 번', async () => {
     const { tripId } = await deletedTripWithChild();
     await purgeTripPermanently(tripId);
     const remote = fakePurge();
     await pushPurges(remote);
     expect(remote.calls.filter((c) => c === 'hardDeleteFamily').length).toBe(1);
+    expect(remote.deleted).toContain(`family:${tripId}`);
+  });
+
+  it('🔴 순간만 영구삭제해도 **자식을 쓸어 간다** — 서버 FK가 그렇게 하기 때문이다(M-0107)', async () => {
+    const { tripId, momentId } = await deletedTripWithChild();
+    // 여행은 살려 두고 순간만 영구삭제한다(사용자가 휴지통에서 순간 하나를 비운 상황).
+    await db().localTrips.update(tripId, { deletedAt: null });
+    await db().syncQueue.clear();
+    await purgeChildPermanently('moment', momentId);
+    const ghost = '99999999-9999-4999-8999-999999999999'; // 로컬엔 없고 서버에만 있는 사진
+    const remote = fakePurge({ familyIds: () => Promise.resolve({ ids: [ghost] }) });
+    await pushPurges(remote);
+    expect(remote.calls).toContain('hardDeleteFamily');
+    expect(remote.deleted).toContain(`family:${momentId}`);
+    // 서버에만 있던 자식도 **원장에 담긴다** — 안 담으면 그 바이트가 「설명할 수 없는 파일」이 된다.
+    expect(remote.ledger).toContain(ghost);
   });
 });
 
@@ -464,8 +484,8 @@ function fakeClientRecording(): { client: unknown; tripIdTables: string[] } {
 }
 
 describe('C-1 · 여행 영구삭제는 places를 trip_id로 건드리지 않는다', () => {
-  it('tripScopedChildDomains는 place를 빼고 자식 넷을 준다', () => {
-    const kids = tripScopedChildDomains();
+  it('cascadeChildDomains(trip)은 place를 빼고 자식 넷을 준다', () => {
+    const kids = cascadeChildDomains('trip');
     expect(kids).not.toContain('place');
     expect(kids).not.toContain('trip');
     expect(kids.sort()).toEqual(['audio', 'expense', 'media', 'moment']);
@@ -473,7 +493,7 @@ describe('C-1 · 여행 영구삭제는 places를 trip_id로 건드리지 않는
 
   it('familyIds가 places를 질의하지 않고 성공한다 (옛 코드였다면 42703으로 실패)', async () => {
     const { client, tripIdTables } = fakeClientRecording();
-    const r = await purgeRemote(client as never).familyIds('trip-123');
+    const r = await purgeRemote(client as never).familyIds('trip', 'trip-123');
     expect(r.error).toBeUndefined();
     expect(tripIdTables).not.toContain('places');
     expect(tripIdTables).toEqual(expect.arrayContaining(['moments', 'media', 'expenses', 'audio']));
@@ -481,17 +501,17 @@ describe('C-1 · 여행 영구삭제는 places를 trip_id로 건드리지 않는
 
   it('hardDeleteFamily·remainingInFamily·familyBytePaths도 places를 건드리지 않는다', async () => {
     const a = fakeClientRecording();
-    expect((await purgeRemote(a.client as never).hardDeleteFamily('t')).error).toBeUndefined();
+    expect((await purgeRemote(a.client as never).hardDeleteFamily('trip', 't')).error).toBeUndefined();
     expect(a.tripIdTables).not.toContain('places');
 
     const b = fakeClientRecording();
-    const rem = await purgeRemote(b.client as never).remainingInFamily('t');
+    const rem = await purgeRemote(b.client as never).remainingInFamily('trip', 't');
     expect(rem.error).toBeUndefined();
     expect(b.tripIdTables).not.toContain('places');
 
     const c = fakeClientRecording();
-    const bp = await purgeRemote(c.client as never).familyBytePaths('t');
+    const bp = await purgeRemote(c.client as never).familyBytePaths('trip', 't');
     expect(bp.error).toBeUndefined();
-    expect(c.tripIdTables).not.toContain('places'); // 바이트 도메인도 tripScoped만
+    expect(c.tripIdTables).not.toContain('places'); // 바이트 도메인도 여행의 자식만
   });
 });
