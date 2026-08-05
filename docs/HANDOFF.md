@@ -18,7 +18,9 @@
 - **신설 도구 「서버 계약」(읽기 전용 실측)**: 오늘 결함 셋을 좁힐 때 **운영 DB에 직접 SQL을 질의**해야 했던 것들을 앱이 스스로 재게 했다. ①🔴**로그인 없는 접근이 실제로 막히는가** — 세션이 안 붙은 새 클라이언트(`persistSession:false`)로 같은 표를 조회한다. 기존 `supabase()`를 쓰면 **내 세션을 물고 가 검사가 공허해진다**(§4). ②서버가 한 번에 주는 행수가 앱 가정 이상인가 ③페이지 경계에서 행이 빠지지 않는가(겹치는 자리 대조). 접근 차단이 지표 **맨 위**이고, 뚫리면 판정 문장이 그것을 먼저 말한다 — 급이 다르기 때문이다.
 - **신설 게이트 `check-page-size-parity`**: 진단이 쓰는 가정값(`ASSUMED_PAGE_SIZE`)이 실제 페이지네이션 코드(`canonicalSync.PAGE_SIZE`)와 갈라지면 **진단이 틀린 기준으로 초록을 낸다**. 복제는 두되 기계가 대조한다(§7 SSOT).
 - 🔴 **거짓 커버리지를 스스로 잡았다**: 사각지대 4건을 `contract` 도구로 덮었다고 표시했는데, 그중 「서버 트리거가 updated_at을 덮는가」는 **쓰기가 필요해 읽기 전용 도구로는 못 잰다**. 게이트는 *도구 id의 실재*까지만 보고 실제로 재는지는 못 보므로(선언이 거짓일 수 있는 자리 — 게이트의 정직한 한계) 사람이 되돌렸다. 이유와 함께 대기로 내렸다.
-- **아직 등록만 하고 안 만든 것 9건**(전부 `pendingReason` 있음): updated_at 트리거 실측(쓰기 필요 — 왕복 시험에 단계 추가) · 파일 실재 전수 · 복원 왕복 · 기기별 현황 승격 · 세션·로그인(6개월 유지·로그아웃 잠금·딥링크 가드). 게이트가 이 목록을 지키므로 조용히 사라지지 않는다.
+- **신설 도구 「세션·로그인」**: 사각지대 3건을 한 번에 덮는다(로그아웃 잠금·딥링크 가드·6개월 유지) — 셋 다 로그인 상태를 읽어야 답하므로 따로 두면 사용자가 같은 것을 세 번 묻는다. 🔴 **잠금은 선언이 아니라 실행으로 확인한다**: `canViewLocalRecords`에 알려진 입력 4갈래를 먹여 기대한 답이 나오는지 그 자리에서 돌린다(§4 — 대조군 있는 검사). 유지 기간은 **「180일 보장」이라 말하지 않는다** — 자동 갱신이 켜져 있으면 실제 상한은 서버 정책이 정하고 앱은 모른다(§8).
+- 🔴 **곁가지로 M-0102의 근본형을 구조로 막았다**: 「기록을 볼 자격」 판정이 `home.ts`와 `main.ts`에 **손으로 두 벌** 있었다 — 그게 M-0102가 난 자리다(목록은 잠갔는데 딥링크는 열림). `domain/authGate.ts`의 `canViewLocalRecords` **한 곳**으로 모아 두 호출부가 그것을 통과할 수밖에 없게 했다(§7 2층). 이제 판정이 깨지면 유닛과 **사용자 기기의 진단**이 동시에 빨개진다.
+- **아직 등록만 하고 안 만든 것 6건**(전부 `pendingReason` 있음): updated_at 트리거 실측(쓰기 필요 — 왕복 시험에 단계 추가) · 파일 실재 전수 · 복원 왕복 · 기기별 현황 승격 · 세션·로그인(6개월 유지·로그아웃 잠금·딥링크 가드). 게이트가 이 목록을 지키므로 조용히 사라지지 않는다.
 
 ## HANDOFF-0089 · **릴리스 대기 — 「저장·삭제·휴지통」 진단도구 + 오프라인 복귀 배선 검사** (2026-08-05)
 
@@ -280,7 +282,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.76<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->176<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->98<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.76<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->176<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->99<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

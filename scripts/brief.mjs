@@ -126,6 +126,12 @@ export const SKILL_ROUTES = [
   { match: /^src\/domain\/serverContractVerdict/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/serverContract/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/serverContract/, skill: 'supabase-security-dev' },
+  // 세션·로그인 관측과 「기록을 볼 자격」 판정 — 인증 경계라 Supabase 보안 헌장이 함께 걸린다.
+  // 🔴 authGate는 **홈 잠금과 딥링크 가드가 공유하는 단일 판정**이다(두 곳에 손으로 두면 우회로가 생긴다).
+  { match: /^src\/domain\/authGate/, skill: 'supabase-security-dev' },
+  { match: /^src\/domain\/sessionVerdict/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/sessionState/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/sessionState/, skill: 'supabase-security-dev' },
   { match: /^src\/services\/(sync|canonicalSync|autoSync|purge|trips|moments|media|expenses|trash)\.ts/, skill: 'sync-offline-dev' },
   { match: /^src\/(sync|offline)\//, skill: 'sync-offline-dev' },
   { match: /^src\/domain\/\w+\/rowmap/, skill: 'sync-offline-dev' },

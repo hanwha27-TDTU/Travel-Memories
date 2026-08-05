@@ -3,6 +3,7 @@
 // 자유 텍스트(이메일 등)는 textContent만 사용(innerHTML 금지).
 
 import { isConfigured } from '../../services/supabase/client';
+import { canViewLocalRecords } from '../../domain/authGate';
 import {
   createTripLocalFirst,
   listTrips,
@@ -283,6 +284,13 @@ export function signedOutLockState(): HTMLElement {
 /**
  * 로그아웃 잠금을 화면에 적용한다 — refresh()에서 분리(함수 크기 래칫, §7 구조적 강제).
  * 잠갔으면 true를 돌려 refresh()가 나머지(목록 렌더)를 건너뛰게 한다.
+ *
+ * 무엇을 가리나: 목록·새 여행 폼·기간 트리. **Dexie는 손대지 않는다** — 다음 refresh(로그인
+ * 뒤)가 같은 데이터를 그대로 보여준다(가리는 것과 지우는 것은 다른 일 — 비타협 원칙 #1).
+ *
+ * 🔴 **잠글지 말지의 판정은 여기 있지 않다.** `domain/authGate.ts`의 `canViewLocalRecords`
+ * 한 곳이 정하고, 딥링크 가드(main.ts)도 **같은 함수**를 쓴다. 손으로 두 번 쓰면 한쪽만
+ * 고쳐져 다른 쪽이 우회로가 된다 — M-0102가 정확히 그 형태였다(목록은 잠갔는데 딥링크는 열림).
  */
 export function applySignedOutLock(
   locked: boolean,
@@ -585,10 +593,8 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
       pendingSyncCount(),
     ]);
 
-    // 클라우드 모드에서 로그아웃 상태면 목록·폼·기간 트리를 통째로 가린다(signedOutLockState).
-    // Dexie는 손대지 않는다 — 다음 refresh(로그인 뒤)가 같은 데이터를 그대로 보여준다.
     const lockUi = { viewBar, fold: periodUi.fold, form, filterNow: periodUi.filterNow, list, clearPeriod: periodUi.clear };
-    const locked = applySignedOutLock(isConfigured() && !user, lockUi);
+    const locked = applySignedOutLock(!canViewLocalRecords(isConfigured(), Boolean(user)), lockUi);
     if (locked) {
       renderSyncNote(status, pending, user);
       return;

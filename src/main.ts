@@ -11,6 +11,7 @@ import { installErrorLog } from './app/errorLog';
 import { installAutoSync } from './services/autoSync';
 import { wireShellAuthReturn, currentUser } from './services/auth';
 import { isConfigured } from './services/supabase/client';
+import { canViewLocalRecords } from './domain/authGate';
 
 // 런타임 오류를 앱이 스스로 모은다 — 개발자가 볼 수 없는 영역에 낸 창(진단 도구).
 // 가장 먼저 설치해야 이후 초기화에서 나는 오류도 잡힌다.
@@ -62,8 +63,10 @@ db().open().catch((e) => console.warn('IndexedDB 열기 실패:', e));
  * 이 라우트가 그대로 열려 있으면 그 자체로 우회로가 된다.
  */
 async function guardTripDetail(): Promise<boolean> {
-  if (!isConfigured()) return true; // 진짜 로컬 전용 빌드엔 "다른 계정" 개념이 없다
-  return (await currentUser()) !== null;
+  // 🔴 홈 화면 잠금과 **같은 함수**로 판정한다(domain/authGate.ts). 손으로 두 번 쓰면
+  //    한쪽만 고쳐져 다른 쪽이 우회로가 된다 — M-0102가 정확히 그 형태였다.
+  if (!isConfigured()) return canViewLocalRecords(false, false);
+  return canViewLocalRecords(true, (await currentUser()) !== null);
 }
 
 const router: ReturnType<typeof createRouter> = createRouter((route: Route, param?: string) => {

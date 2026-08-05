@@ -89,22 +89,19 @@ export const BLIND_SPOTS: BlindSpot[] = [
     what: '로그아웃하면 이 기기의 기록이 실제로 가려지는가(M-0102 수정)',
     whyDevCannot: '개발 빌드에 Supabase 시크릿이 없어 isConfigured()===false — 잠금 경로 자체가 안 돈다',
     group: 'device',
-    coveredBy: null,
-    pendingReason: '「세션·로그인」 도구에서 함께 만든다(같은 인증 상태를 읽으므로 따로 두면 두 번 묻는다)',
+    coveredBy: 'session',
   },
   {
     what: '딥링크(/trip/<id>)로 들어와도 로그아웃 잠금이 걸리는가',
     whyDevCannot: '위와 같음 — 로그인 상태를 만들 수 없어 가드가 발화하지 않는다',
     group: 'device',
-    coveredBy: null,
-    pendingReason: '「세션·로그인」 도구에서 함께 만든다',
+    coveredBy: 'session',
   },
   {
     what: '로그인 세션이 얼마나 유지되는가(사용자 요청: 6개월)',
     whyDevCannot: '실제 토큰이 없어 만료 시각을 읽을 수 없다. 서버 정책은 Supabase 대시보드가 정한다',
     group: 'device',
-    coveredBy: null,
-    pendingReason: '「세션·로그인」 도구에서 함께 만든다',
+    coveredBy: 'session',
   },
   // ── 기기가 하나뿐이라 못 재는 것 ──
   {

@@ -63,6 +63,9 @@ import { trashMetrics, trashHeadline, TRASH_ITEM_CAP } from '../../domain/trashV
 import { lastRoundTrip, runRoundTrip, cleanupRoundTripLeftovers } from '../../services/roundTrip';
 import { collectServerContract } from '../../services/serverContract';
 import { serverContractMetrics, serverContractHeadline } from '../../domain/serverContractVerdict';
+import { collectSessionState } from '../../services/sessionState';
+import { sessionMetrics, sessionHeadline, WANTED_SESSION_DAYS } from '../../domain/sessionVerdict';
+import { AUTH_GATE_CASES } from '../../domain/authGate';
 import {
   roundTripView,
   ROUND_TRIP_STEPS,
@@ -1930,6 +1933,51 @@ export async function serverContractProbe(): Promise<Verdict> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// ⑪ 세션·로그인 — 로그인이 유지되고, 로그아웃하면 기록이 가려지는가
+// ────────────────────────────────────────────────────────────────────────────
+//
+// 사각지대 3건을 한 번에 덮는다(BLIND_SPOTS의 device 그룹) — 셋 다 로그인 상태를 읽어야
+// 답할 수 있어 따로 두면 사용자가 같은 것을 세 번 묻게 된다.
+//
+// 🔴 잠금은 **선언이 아니라 실행으로** 확인한다: `canViewLocalRecords`에 알려진 입력 4갈래를
+//    먹여 기대한 답이 나오는지 그 자리에서 돌린다. 「그 함수가 있다」는 아무것도 보장하지 않고,
+//    「옳은 답을 준다」가 질문이다(§4 — 대조군이 있는 검사).
+export async function sessionProbe(): Promise<Verdict> {
+  const o = await collectSessionState();
+  const views = sessionMetrics(o);
+  const labels = ['로그인 유지', '로그아웃하면 가려짐'];
+  const metrics: Metric[] = views.map((v, i) => ({
+    label: labels[i] ?? '',
+    actual: v.actual,
+    expected: v.expected,
+    level: v.level,
+    ...(v.meaning ? { meaning: v.meaning } : {}),
+  }));
+  return {
+    level: levelFromMetrics(metrics),
+    headline: sessionHeadline(o),
+    because:
+      '가리는 것과 지우는 것은 다릅니다 — 로그아웃해도 이 기기의 기록은 그대로 남고, 다시 로그인하면 보입니다.',
+    actions: [],
+    metrics,
+    evidence: [
+      {
+        label: `잠금 판정 갈래 ${AUTH_GATE_CASES.length}가지`,
+        build: () =>
+          table(
+            AUTH_GATE_CASES.map((c): [string, string] => [
+              `${c.cloudConfigured ? '클라우드 씀' : '클라우드 안 씀'} · ${c.signedIn ? '로그인됨' : '로그아웃'}`,
+              `${c.expected ? '보임' : '가려짐'} — ${c.why}`,
+            ]),
+            '갈래 정의를 읽지 못했어요(등록부 이상)',
+          ),
+      },
+    ],
+    context: [{ label: '바라는 유지 기간', value: `${WANTED_SESSION_DAYS}일` }],
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // 도구 등록부 — 허브와 패널이 **같은 목록**을 본다
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1991,6 +2039,14 @@ export const CORE_TOOLS: DiagTool[] = [
     hint: '이 세션에서 생긴 오류',
     lead: '앱이 도는 동안 생긴 오류를 모아 둡니다. 새로고침하면 사라져요.',
     probe: errorProbe,
+  },
+  {
+    id: 'session',
+    icon: '🔑',
+    label: '세션·로그인',
+    hint: '로그인이 유지되나 · 로그아웃하면 가려지나',
+    lead: '로그인이 얼마나 유지되는지, 그리고 로그아웃했을 때 이 기기의 기록을 가리는 배선이 실제로 도는지 확인합니다.',
+    probe: sessionProbe,
   },
   {
     id: 'contract',
