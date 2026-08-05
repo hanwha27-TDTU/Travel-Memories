@@ -135,16 +135,31 @@ export function classifyError(status: number | undefined): 'retryable' | 'perman
  *   경로 기억이 없을 때 「올라간 적 없다」로 볼 수 있는가. **소리는 true**(키 형식이 하나),
  *   **사진은 false**(옛 형식이 있어 그렇게 볼 수 없다). 기본값을 두지 않는다 — 기본값이 있으면
  *   새 형제가 안 넘겨도 컴파일되고, 그게 이 규율이 조용히 빠지는 길이다(§7 2층).
+ *
+ * ── 🔴 M-0100(2026-08-05, 실사용자 계정) — 「옛 키 형식」 보호가 **한 번도 push된 적
+ * 없는 새 사진**까지 삼켰다 ───────────────────────────────────────────
+ * 사진을 만들고 첫 push가 돌기 전에(같은 배치 안에서) 지우면, 그 시점의 `storagePath` 없음은
+ * 「옛 키 형식」과 겉모습이 같지만 뜻이 정반대다 — **이 기기가 서버에 단 한 번도 착지시킨 적이
+ * 없다.** 그런데도 `unknownPathMeansNeverUploaded=false`(사진)가 업로드를 건너뛰게 했고,
+ * push는 (건너뛴 채로) storage_path를 서버에 적었다 — 그 경로엔 영원히 바이트가 없다. 다른
+ * 기기의 동기화는 그 사진을 R2 GET 404로 영원히 실패한다. 정상 사용자 행동(빨리 만들고 빨리
+ * 지움)이 결함처럼 보이면 안 된다(§7 「형제에게 대칭·공정을 기본값으로」의 시간축 버전 —
+ * 「지금 막 태어난 나」도 형제다).
+ *
+ * 구분선은 `baseVersion`이다: 0이면 push 성공·pull 어느 쪽으로도 서버에 착지한 적이 없다는
+ * 뜻이고(둘 다 baseVersion을 서버 version으로 전진시킨다 — `services/sync.ts`), 그때는 사진도
+ * 「경로 기억 없음 = 올라간 적 없음」이 소리와 같은 근거로 성립한다.
  */
 export function mustUploadBytes(
-  e: { deletedAt: string | null; bytesMissing?: true; storagePath?: string },
+  e: { deletedAt: string | null; bytesMissing?: true; storagePath?: string; baseVersion?: number },
   unknownPathMeansNeverUploaded: boolean,
 ): boolean {
   if (e.deletedAt === null) return true; // 살아 있는 자료는 언제나 서버에 있어야 한다
   // 🔴 tombstone이어도 올린다 — ADR-0029: **휴지통에 있는 동안에도 바이트는 서버에 있어야**
   // 사본 없는 다른 기기에서 복원할 수 있다. "지운 건 안 올린다"는 규칙이었던 적이 없다.
   if (e.bytesMissing === true) return true; // 서버에 없음을 **확인**했다(추측이 아니다)
-  return unknownPathMeansNeverUploaded && !e.storagePath;
+  const neverLanded = e.baseVersion === 0; // 이 기기가 서버에 단 한 번도 착지시킨 적 없음(M-0100)
+  return (unknownPathMeansNeverUploaded || neverLanded) && !e.storagePath;
 }
 
 /**

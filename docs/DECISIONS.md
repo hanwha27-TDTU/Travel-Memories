@@ -5,6 +5,31 @@
 
 ---
 
+## ADR-0049 · **휴지통 "무엇이 보이는가"는 온라인이면 서버가 정본이고, "쓰기"는 여전히 로컬 우선이다**
+- 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-08-05
+- **배경**: 사용자가 같은 계정, 같은 태블릿의 Android 앱과 Chrome에서 휴지통 내용이 서로 다른 것을 발견(WebView와 브라우저가 별도 저장소 파티션을 쓰는 플랫폼 사실 — 버그 아님을 확인). 이 발견 뒤 사용자가 결론을 냈다: *"휴지통 개념을 아예 서버로 확정짓자..로컬은 그냥 업로드하는 창구일뿐"* → Claude가 "쓰기는 로컬 우선 유지, 목록 표시만 서버 정본 + 오프라인 폴백"을 역제안 → 사용자 승인: **"니 추천대로 진행하자... 절대절대절대 기기끼리 내용이 다르면 안됩니다."**
+- **결정**: 휴지통(여행 + 5개 자식 도메인) **목록 표시**는 온라인이면 항상 서버를 조회해 보여준다 — 로컬 Dexie가 그 항목을 한 번도 본 적 없어도 서버가 알면 화면에 뜬다. **쓰기(생성·수정·일반 삭제)는 계속 로컬 우선**이다 — durable Dexie commit이 여전히 "저장됨"의 기준이고(비타협 원칙 #1), 서버는 그 사실을 받아 적을 뿐 관문이 아니다. 서버 조회가 둘 다(여행 + 자식) 성공했을 때만 `fromServer:true`로 그 결과를 쓰고, 하나라도 실패하면 **전부** 로컬 폴백으로 내려가며 화면에 "📴 오프라인 — 이 기기의 기록 기준(다른 기기와 다를 수 있어요)"라고 밝힌다(§8 — 모르는 걸 아는 척하지 않는다).
+- **왜 전부-아니면-폴백인가**: 여행은 서버 기준, 자식은 로컬 기준으로 섞어 보여주면 "서버 기준"이라는 말 자체가 거짓이 된다 — 부분 성공을 전체 성공처럼 보이는 게 M-0101이 이미 겪은 실패 형태다.
+- **행동 가능성 격차**: 서버 조회로만 아는 항목(다른 기기가 지운 것)은 이 기기 Dexie에 없으므로 복원·영구삭제 버튼을 누르면 즉시 실패한다. `ensureLocalTombstone`(→ `prepareTripForAction`/`prepareChildForAction`)을 액션 직전에 호출해 그 특정 항목만 서버에서 가져와 로컬에 tombstone으로 채운 뒤 기존 로컬 우선 함수를 그대로 호출한다 — "보인다"와 "행동할 수 있다"를 같은 말로 만든다. ACTIVE(삭제 안 된) 행은 이 경로로 절대 채우지 않는다(정상 pull의 불변식 #8을 건드리지 않는다 — `deleted_at == null`이면 거부).
+- **일반 pull과 다른 점**: 불변식 #8 "로컬에 없는 tombstone을 만들지 않는다"는 **정상 동기화**(백그라운드 병합)에는 그대로 유지된다. 이 기능은 **표시 소스**만 서버로 바꾸고, **materialize는 사용자가 명시적으로 액션(복원/영구삭제)을 누른 그 항목 하나에 한해서만** 일어난다 — 다른 기기의 지운 흔적이 이 기기 로컬 DB를 조용히 채우지 않는다.
+- **비공허·검증**: `tests/unit/serverTrashAuthority.test.ts`(15건) — `fetchServerDomainEntities`(전체/일부 실패 시 null) · `ensureLocalTombstone`(ACTIVE 행 거부, tombstone만 materialize, read-back 확인) · **로컬 경로와 서버 경로가 동일 시드 데이터에서 바이트 단위로 같은 `TrashedChild[]`를 만드는지** SSOT 대조 · `listDeletedTripsFromServer` · end-to-end materialize→restore 통합. 전체 유닛 1184건, `npm run harness`(정적 47종 + unit + `verify-editor-live` + `verify-diagnostics-live`) 전부 PASS.
+- **기각**: 쓰기까지 서버 관문화(오프라인 기록 불가 — 비타협 원칙 #1 위반) · 로컬-서버 목록을 병합해서 보여줌(합집합을 보여주면 "다른 기기가 이미 지운 걸 여긴 아직 안 지운 것"처럼 보여 거짓 안도감을 줌).
+
+## ADR-0048 · **GitHub Pages를 유지하고 커스텀 보안 헤더(frame-ancestors 등)는 지금 적용하지 않는다**
+- 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-08-05
+- **배경**: T-008(BACKLOG)은 GitHub Pages가 `frame-ancestors 'none'`·HSTS·X-Content-Type-Options 같은 커스텀 응답 헤더를 지원하지 않는다는 실측(저장소 전수감사, 2026-08-04)에서 열렸다. 적용하려면 Cloudflare Pages·Netlify·Vercel 등 헤더 지원 호스팅으로 이전해야 한다.
+- **결정**: 사용자가 호스팅 이전을 기각하고 **GitHub Pages 유지·헤더 미적용**으로 확정했다.
+- **근거**: 이 헤더들은 인증(Google OAuth)·RLS·초대제로 이미 보호되는 앱 위에 얹는 **추가 방어층**(클릭재킹 등)이지 현재 뚫려 있는 구멍이 아니다. 배포 파이프라인 재작성·도메인 이전 비용이 그 이득보다 크다고 판단했다.
+- **잔여 완화**: HTML `<meta>` CSP + `no-referrer`는 GitHub Pages 안에서 가능한 범위까지 이미 적용돼 있다(`check-csp`). `frame-ancestors`는 meta 태그로 지정 불가한 지시어라 이 방식으로는 못 채운다 — 알려진 한계로 남긴다.
+- **기각**: 헤더 지원 호스팅으로 이전(배포 파이프라인·도메인 변경 비용 대비 이득 낮음).
+
+## ADR-0047 · **비공개 저장소를 유지하고 GitHub Advanced Security는 구매하지 않는다**
+- 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-08-05
+- **배경**: T-009(BACKLOG)는 비공개 저장소에서 CodeQL·Secret Scanning API가 `Advanced security has not been purchased`(422)로 거절된다는 실측(저장소 전수감사, 2026-08-04)에서 열렸다. 선택지는 둘이었다: ① GitHub Advanced Security 구매 ② 저장소를 공개로 전환.
+- **결정**: 사용자가 두 선택지를 모두 기각하고 **비공개 유지·미구매**를 확정했다. 개인 여행기록(사진·GPS·비용 등 §0 비공개 기본 원칙)을 다루는 저장소라 공개 전환은 북극성과 어긋나고, 유료 기능 구매도 하지 않는다.
+- **잔여 위험·완화**: CodeQL·Secret Scanning 없이도 기존 방어층은 유지한다 — custom secret-leak 게이트(`check-secret-leak`), Dependabot(취약점+보안 업데이트), `npm audit --audit-level=high`(CI 필수), 모든 GitHub Action commit SHA 고정(`check-workflow-pins`). 이 넷이 미구매의 대가를 완화하는 층이다.
+- **기각**: 저장소 공개 전환(개인정보 저장소라 §0 위반) · Advanced Security 구매(사용자 결정으로 배제).
+
 ## ADR-0046 · **태블릿 감상용 WebP를 사진의 클라우드 정본으로 삼고 로컬 원본 복사본은 검증 뒤 정리한다**
 - 유형: `[user-decided]` · AI: Codex · 날짜: 2026-08-04
 - **사용자 현실**: 사진을 앱에 넣은 직후 갤러리 원본을 삭제한다. 인화·TV 감상은 하지 않고 최대 태블릿 감상이므로 동일 입력 파일 보존보다 앱 클라우드에 안전하게 남는 표시본과 로컬 용량 회수가 중요하다.

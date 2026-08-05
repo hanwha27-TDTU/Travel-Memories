@@ -128,3 +128,97 @@ describe('돌 수 없는 상황은 실패가 아니다 — 정직하게 구분�
     expect(runSyncMock).not.toHaveBeenCalled();
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// 🔴 오프라인에 쌓인 것이 **연결되자마자 올라가는가** (사용자 확인 요청 2026-08-05)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// 사용자: *"인터넷이 안되는 지역에서 저장한 것들은 인터넷이 연결되자마자 자동으로 업로드
+// 되도록 설계해야 의미가 있는데 그렇게 했겠지요? 당연히..."*
+//
+// 설계는 그렇게 돼 있었다 — `installAutoSync()`가 `online` 이벤트에 `requestSync`를 건다.
+// 그런데 **그게 실제로 도는지 재는 검사가 없었다.** 이 저장소는 정확히 그 형태로 한 번
+// 넘어졌다(M-0015: 전파 기능을 만들어 놓고 화면에서 부르지 않아 영구삭제가 큐에 앉아만 있었다).
+//
+// 이 층이 조용히 깨지면 **오프라인에서 적은 여행 기록이 영영 안 올라간다** — 비타협 원칙 #1이
+// 지키는 것은 "로컬에 남는다"까지이고, "서버까지 간다"는 이 리스너가 지킨다. 그래서 잰다.
+describe('오프라인 → 온라인 복귀 (사용자 확인 요청)', () => {
+  /**
+   * 유닛은 node 환경이라 `window`/`document`가 없다. jsdom을 통째로 끌어오는 대신 **이 검사가
+   * 쓰는 것만** 세운다(`storeState.test.ts`가 localStorage에 쓴 것과 같은 규율).
+   * 가짜라도 **진짜 EventTarget**이라 리스너 등록·해제·발화가 실제로 도는 것을 잰다 —
+   * 여기서 `addEventListener`를 mock 함수로 두면 "불렸다"만 재고 **실제 배선은 못 잰다**.
+   */
+  const fakeHost = (): { target: EventTarget; dispose: () => void } => {
+    const target = new EventTarget();
+    const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' as const });
+    vi.stubGlobal('window', target);
+    vi.stubGlobal('document', doc);
+    return { target, dispose: () => vi.unstubAllGlobals() };
+  };
+
+  it('🔴 `online` 이벤트가 오면 **스스로** 동기화한다(사람이 버튼을 안 눌러도)', async () => {
+    const host = fakeHost();
+    vi.stubGlobal('navigator', { onLine: true });
+    const uninstall = mod.installAutoSync();
+    try {
+      // 연결이 돌아왔다.
+      host.target.dispatchEvent(new Event('online'));
+      await flush();
+      expect(runSyncMock).toHaveBeenCalledTimes(1);
+      // 사유가 남아야 진단에서 "왜 돌았는지"를 읽을 수 있다(§8 — 관측 가능성).
+      expect(syncStatus().lastReason).toBe('온라인 복귀');
+    } finally {
+      uninstall();
+      host.dispose();
+    }
+  });
+
+  it('🔴 오프라인 동안에는 안 돌고, 복귀하면 그때 돈다 (한 흐름으로 잰다)', async () => {
+    // 오프라인: 저장이 동기화를 요청해도 서버로 가지 않는다 — 기록은 로컬에 남는다.
+    const host = fakeHost();
+    vi.stubGlobal('navigator', { onLine: false });
+    const uninstall = mod.installAutoSync();
+    try {
+      await requestSync('저장');
+      expect(runSyncMock).not.toHaveBeenCalled();
+      expect(syncStatus().phase).toBe('offline');
+
+      // 연결 복귀 — 아무도 버튼을 누르지 않았는데 올라가야 한다.
+      vi.stubGlobal('navigator', { onLine: true });
+      host.target.dispatchEvent(new Event('online'));
+      await flush();
+      expect(runSyncMock).toHaveBeenCalledTimes(1);
+      expect(syncStatus().phase).toBe('ok');
+    } finally {
+      uninstall();
+      host.dispose();
+    }
+  });
+
+  it('화면으로 돌아올 때도 동기화한다(다른 기기의 변경을 받는 유일한 계기)', async () => {
+    const host = fakeHost();
+    vi.stubGlobal('navigator', { onLine: true });
+    const uninstall = mod.installAutoSync();
+    try {
+      (globalThis.document as unknown as EventTarget).dispatchEvent(new Event('visibilitychange'));
+      await flush();
+      expect(runSyncMock).toHaveBeenCalledTimes(1);
+      expect(syncStatus().lastReason).toBe('화면 복귀');
+    } finally {
+      uninstall();
+      host.dispose();
+    }
+  });
+
+  it('🔴 해제하면 더 이상 안 돈다 — 리스너가 쌓이면 한 번의 복귀가 여러 번 돈다', async () => {
+    const host = fakeHost();
+    vi.stubGlobal('navigator', { onLine: true });
+    const uninstall = mod.installAutoSync();
+    uninstall();
+    host.target.dispatchEvent(new Event('online'));
+    await flush();
+    expect(runSyncMock).not.toHaveBeenCalled();
+    host.dispose();
+  });
+});

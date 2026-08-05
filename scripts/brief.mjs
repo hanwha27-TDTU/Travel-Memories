@@ -108,6 +108,31 @@ export const SKILL_ROUTES = [
   // 동시에 걸리는 이음매라 두 헌장을 모두 읽는다(M-0095).
   { match: /^src\/domain\/syncTombstoneVerdict/, skill: 'diagnostics-dev' },
   { match: /^src\/domain\/syncTombstoneVerdict/, skill: 'sync-offline-dev' },
+  // 휴지통 판정 + 그 관측 수집. `syncTombstoneVerdict`와 **같은 이음매**라 두 헌장을 모두 읽는다:
+  // 판정 문장은 진단 규율(§8 · §10 ③), 「무엇을 휴지통으로 볼 것인가」는 삭제·tombstone 규율이다.
+  { match: /^src\/domain\/trashVerdict/, skill: 'diagnostics-dev' },
+  { match: /^src\/domain\/trashVerdict/, skill: 'sync-offline-dev' },
+  { match: /^src\/services\/trashState/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/trashState/, skill: 'sync-offline-dev' },
+  // 진단 분류 축·사각지대 등록부 — 「무엇을 도구로 만들 것인가」의 정본이라 진단 헌장이다.
+  { match: /^src\/domain\/diagGroups/, skill: 'diagnostics-dev' },
+  // 🔴 왕복 시험은 **쓰기**다. 판정은 진단 규율이지만, 실제로 만들고 지우고 영구삭제하는
+  // 경로라 삭제·tombstone·원장 규율이 그대로 걸린다 — 두 헌장을 모두 읽는다.
+  { match: /^src\/domain\/roundTripVerdict/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/roundTrip\.ts/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/roundTrip\.ts/, skill: 'sync-offline-dev' },
+  // 서버 계약 실측 — 판정은 진단 규율이고, 익명 클라이언트·RLS·페이지네이션을 만지므로
+  // Supabase 보안 헌장도 함께 읽는다(잘못 만들면 **검사가 내 세션을 물고 가 공허해진다**).
+  { match: /^src\/domain\/serverContractVerdict/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/serverContract/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/serverContract/, skill: 'supabase-security-dev' },
+  // 세션·로그인 관측과 「기록을 볼 자격」 판정 — 인증 경계라 Supabase 보안 헌장이 함께 걸린다.
+  // 🔴 authGate는 **홈 잠금과 딥링크 가드가 공유하는 단일 판정**이다(두 곳에 손으로 두면 우회로가 생긴다).
+  { match: /^src\/domain\/authGate/, skill: 'supabase-security-dev' },
+  { match: /^src\/domain\/sessionVerdict/, skill: 'diagnostics-dev' },
+  { match: /^src\/domain\/deviceFleetVerdict/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/sessionState/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/sessionState/, skill: 'supabase-security-dev' },
   { match: /^src\/services\/(sync|canonicalSync|autoSync|purge|trips|moments|media|expenses|trash)\.ts/, skill: 'sync-offline-dev' },
   { match: /^src\/(sync|offline)\//, skill: 'sync-offline-dev' },
   { match: /^src\/domain\/\w+\/rowmap/, skill: 'sync-offline-dev' },

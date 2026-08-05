@@ -3,6 +3,7 @@
 // 자유 텍스트(이메일 등)는 textContent만 사용(innerHTML 금지).
 
 import { isConfigured } from '../../services/supabase/client';
+import { canViewLocalRecords } from '../../domain/authGate';
 import {
   createTripLocalFirst,
   listTrips,
@@ -21,7 +22,7 @@ import {
   isAllowedUser,
   type SessionUser,
 } from '../../services/auth';
-import { requestSync } from '../../services/autoSync';
+import { requestSync, syncStatus as syncEngineStatus } from '../../services/autoSync';
 import { el, setNote, type NoteAction } from '../dom';
 // 보조 화면은 반드시 lazyScreens를 거친다(정적 import 금지 — check-lazy-screens).
 import { openDiagnosticsHub, openDataManager, openAboutApp } from '../lazyScreens';
@@ -61,14 +62,18 @@ const STATUS_LABEL: Record<LocalTrip['status'], string> = {
   archived: '보관',
 };
 
-// 활성 여행 카드 — div(role=button)로 만들어 내부에 '삭제' 버튼을 중첩 허용(button 중첩 불가 회피).
-function tripCard(
-  t: LocalTrip,
-  index: number,
-  navigate: Navigate,
-  onDelete: (t: LocalTrip) => void,
-): HTMLElement {
-  const card = el('div', `trip-card cover--${index % 3}`);
+/**
+ * 카드 껍데기 — 활성·보관함 **두 카드가 이 한 곳**을 쓴다(§7 구조적 강제).
+ *
+ * 🔴 예전엔 두 함수가 각자 `cover--${index % 3}`·베일·노이즈를 손으로 붙였다. 그래서
+ * 「목록 카드에서 커버를 걷어낸다」는 결정이 **두 곳을 다 고쳐야만** 지켜졌다 — 한쪽만
+ * 고치면 보관함만 조용히 옛 모양으로 남는다. 껍데기를 하나로 모아 그 선택지를 없앤다.
+ *
+ * `index`를 더는 받지 않는다: 순번으로 색을 돌리던 유일한 쓸모가 사라졌고(사용자 결정
+ * 2026-08-05 — 뜻 없는 색은 소음), 남겨 두면 다음 사람이 다시 색을 걸 자리가 된다.
+ */
+function tripCardShell(t: LocalTrip, navigate: Navigate): HTMLElement {
+  const card = el('div', 'trip-card');
   card.setAttribute('role', 'button');
   card.tabIndex = 0;
   card.setAttribute('aria-label', `${t.title} 여행 열기`);
@@ -80,7 +85,22 @@ function tripCard(
       go();
     }
   });
-  card.append(el('div', 'cover-veil'), el('div', 'cover-grain'));
+  return card;
+}
+
+/** 배지·제목·날짜 — 두 카드가 **같은 자리에 같은 어휘**로 말한다(§7 사용자 대면 대칭). */
+function tripCardInfo(t: LocalTrip): HTMLElement {
+  const info = el('div', 'cover-info');
+  // 상태를 클래스로도 준다 — 색이 **순번이 아니라 뜻**을 따르게(CSS의 .trip-badge--*).
+  info.appendChild(el('span', `trip-badge trip-badge--${t.status}`, STATUS_LABEL[t.status]));
+  info.appendChild(el('h3', 'trip-title', t.title));
+  info.appendChild(el('p', 'trip-meta', formatTripPeriod(t.startDate, t.endDate)));
+  return info;
+}
+
+// 활성 여행 카드 — div(role=button)로 만들어 내부에 '삭제' 버튼을 중첩 허용(button 중첩 불가 회피).
+function tripCard(t: LocalTrip, navigate: Navigate, onDelete: (t: LocalTrip) => void): HTMLElement {
+  const card = tripCardShell(t, navigate);
   // 삭제(🗑) — 카드 열기와 겹치지 않게 stopPropagation. 실제 삭제는 확인 + 실행취소 + 휴지통(복구 가능).
   const del = el('button', 'trip-delete', '🗑') as HTMLButtonElement;
   del.type = 'button';
@@ -90,35 +110,13 @@ function tripCard(
     e.stopPropagation();
     onDelete(t);
   });
-  card.appendChild(del);
-  const info = el('div', 'cover-info');
-  info.appendChild(el('span', 'trip-badge', STATUS_LABEL[t.status]));
-  info.appendChild(el('h3', 'trip-title', t.title));
-  info.appendChild(el('p', 'trip-meta', formatTripPeriod(t.startDate, t.endDate)));
-  card.appendChild(info);
+  card.append(del, tripCardInfo(t));
   return card;
 }
 
 /** 보관함 카드 — 카드는 div(role=button)로 만들어 내부에 '복원' 버튼을 중첩 허용. */
-function archivedCard(
-  t: LocalTrip,
-  index: number,
-  navigate: Navigate,
-  onRestore: (id: string) => void,
-): HTMLElement {
-  const card = el('div', `trip-card cover--${index % 3}`);
-  card.setAttribute('role', 'button');
-  card.tabIndex = 0;
-  card.setAttribute('aria-label', `${t.title} 여행 열기`);
-  const go = (): void => navigate('trip-detail', t.id);
-  card.addEventListener('click', go);
-  card.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      go();
-    }
-  });
-  card.append(el('div', 'cover-veil'), el('div', 'cover-grain'));
+function archivedCard(t: LocalTrip, navigate: Navigate, onRestore: (id: string) => void): HTMLElement {
+  const card = tripCardShell(t, navigate);
   const restore = el('button', 'trip-restore', '↩ 복원') as HTMLButtonElement;
   restore.type = 'button';
   restore.setAttribute('aria-label', `${t.title} 여행 복원`);
@@ -126,12 +124,7 @@ function archivedCard(
     e.stopPropagation();
     onRestore(t.id);
   });
-  card.appendChild(restore);
-  const info = el('div', 'cover-info');
-  info.appendChild(el('span', 'trip-badge', STATUS_LABEL[t.status]));
-  info.appendChild(el('h3', 'trip-title', t.title));
-  info.appendChild(el('p', 'trip-meta', formatTripPeriod(t.startDate, t.endDate)));
-  card.appendChild(info);
+  card.append(restore, tripCardInfo(t));
   return card;
 }
 
@@ -271,6 +264,70 @@ function emptyListState(view: 'active' | 'archived'): HTMLElement {
   return empty;
 }
 
+/**
+ * 로그아웃(또는 아직 로그인 전) 상태에서 다른 계정의 이 기기 로컬 기록을 가리는 화면.
+ *
+ * 🔴 클라우드 모드(isConfigured())에서는 로그인 여부가 "이 계정의 여행을 볼 자격"의 경계다
+ * (사용자 요청 2026-08-05: "로그아웃하면 사진 데이터가 보이지 않아야 하는데"). **가리는 것과
+ * 지우는 것은 다르다** — 비타협 원칙 #1은 그대로 지킨다. Dexie 데이터는 그대로 남고, 로그인하면
+ * 다시 보인다. `isConfigured()===false`(진짜 로컬 전용 빌드)에서는 이 화면을 아예 안 쓴다 —
+ * 그 빌드엔 "다른 계정"이라는 개념 자체가 없다.
+ */
+export function signedOutLockState(): HTMLElement {
+  const empty = el('div', 'empty-state');
+  empty.appendChild(el('p', 'empty-emoji', '🔒'));
+  empty.appendChild(el('h2', undefined, '로그인하면 볼 수 있어요'));
+  empty.appendChild(el('p', 'muted', '이 기기에 저장된 여행은 로그아웃 중엔 가려져요. 지워지지 않았어요 — 로그인하면 다시 보여요.'));
+  return empty;
+}
+
+/**
+ * 로그아웃 잠금을 화면에 적용한다 — refresh()에서 분리(함수 크기 래칫, §7 구조적 강제).
+ * 잠갔으면 true를 돌려 refresh()가 나머지(목록 렌더)를 건너뛰게 한다.
+ *
+ * 무엇을 가리나: 목록·새 여행 폼·기간 트리. **Dexie는 손대지 않는다** — 다음 refresh(로그인
+ * 뒤)가 같은 데이터를 그대로 보여준다(가리는 것과 지우는 것은 다른 일 — 비타협 원칙 #1).
+ *
+ * 🔴 **잠글지 말지의 판정은 여기 있지 않다.** `domain/authGate.ts`의 `canViewLocalRecords`
+ * 한 곳이 정하고, 딥링크 가드(main.ts)도 **같은 함수**를 쓴다. 손으로 두 번 쓰면 한쪽만
+ * 고쳐져 다른 쪽이 우회로가 된다 — M-0102가 정확히 그 형태였다(목록은 잠갔는데 딥링크는 열림).
+ */
+export function applySignedOutLock(
+  locked: boolean,
+  ui: {
+    viewBar: HTMLElement;
+    fold: HTMLDetailsElement;
+    form: HTMLFormElement;
+    filterNow: HTMLElement;
+    list: HTMLElement;
+    clearPeriod: () => void;
+  },
+): boolean {
+  ui.viewBar.hidden = locked;
+  ui.fold.hidden = locked;
+  ui.form.hidden = locked;
+  if (!locked) return false;
+  ui.clearPeriod();
+  ui.filterNow.hidden = true;
+  ui.list.innerHTML = '';
+  ui.list.appendChild(signedOutLockState());
+  return true;
+}
+
+/**
+ * 초대제 잠금 게이트(ADR-0021): 허용 목록에 없는 사용자는 자동 로그아웃 안내.
+ * DB RLS가 실제 방어이며 이건 UX용. 통과하면 그대로, 아니면 null 반환.
+ * top-level로 뽑음(함수 크기 래칫, §7 구조적 강제) — `status` 줄만 클로저 대신 인자로 받는다.
+ */
+async function gateAccess(u: SessionUser | null, status: HTMLElement): Promise<SessionUser | null> {
+  if (!u) return null;
+  const ok = await isAllowedUser();
+  if (ok) return u;
+  status.textContent = '🔒 이 앱은 초대된 사용자만 사용할 수 있어요. 접근이 필요하면 관리자에게 문의하세요.';
+  await signOut();
+  return null;
+}
+
 /** 기간 필터가 다 걸러낸 상태 — 막다른 문장으로 끝내지 않는다(§13): 되돌아갈 버튼을 준다. */
 function filteredEmptyState(onReset: () => void): HTMLElement {
   const empty = el('div', 'empty-state');
@@ -370,6 +427,42 @@ function buildPeriodUi(): PeriodUi {
       sel = {};
     },
   };
+}
+
+// 정상(동기화됨)은 조용하게, 알아둘 것·문제는 눈에 띄게(setNote 위계).
+//
+// 목적지(§7 — 갈 곳이 있는 상태에 전부 걸었는가):
+//  · 실패           → 「동기화 상태」. 진짜 에러 메시지가 거기 있다.
+//  · 대기 N건       → 「동기화 상태」. 거기에 [지금 동기화]가 있다. 사용자가 요청한 자리.
+//  · 로컬 저장 모드 → 「환경·기능」. 왜 서버로 안 가는지는 환경이 답한다.
+//  · 로그인 안내    → **목적지 없음.** 조치 버튼([로그인])이 이 화면 헤더에 이미 있다 —
+//                    진단으로 보내면 오히려 멀어진다.
+//  · 동기화됨(ok)   → **목적지 없음.** 정상은 침묵이어야 한다(진단 §5.1). 여기에 알약과
+//                    셰브론을 붙이면 아무 할 일 없는 상태가 화면에서 제일 시끄러워진다.
+//
+// 🔴 M-0101(2026-08-05) — 예전엔 여기가 `pending > 0`만 봤다. 그러면 **보낼 게 없어서
+// 조용한 것**과 **최근 동기화가 실제로 실패했지만 보낼 것도 없어서 조용한 것**이 같은
+// "☁️ 동기화됨"으로 보였다 — 로그인은 됐는데 pull이 계속 실패하는 계정이 정상처럼
+// 표시됐다. 실패는 pending 여부와 무관하게 먼저 본다.
+function renderSyncNote(status: HTMLElement, pending: number, user: SessionUser | null): void {
+  const toSync: NoteAction = { go: () => void openDiagnosticsHub('sync'), label: '동기화 상태 열기' };
+  const engine = syncEngineStatus();
+  if (!isConfigured()) {
+    setNote(status, `📴 로컬 저장 모드 · 대기 ${pending}건`, 'info', {
+      go: () => void openDiagnosticsHub('environment'),
+      label: '환경·기능 열기',
+    });
+  } else if (user) {
+    if (engine.phase === 'failed') {
+      setNote(status, `⚠️ 최근 동기화 실패: ${engine.lastError ?? '원인 미상'}`, 'error', toSync);
+    } else if (pending > 0) {
+      setNote(status, `☁️ 동기화 대기 ${pending}건`, 'info', toSync);
+    } else {
+      setNote(status, '☁️ 동기화됨', 'ok', null);
+    }
+  } else {
+    setNote(status, `🔒 로그인하면 기기 간 동기화 · 로컬 대기 ${pending}건`, 'info', null);
+  }
 }
 
 export function renderHome(mount: HTMLElement, navigate: Navigate): void {
@@ -493,25 +586,19 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
     }
   }
 
-  /**
-   * 초대제 잠금 게이트(ADR-0021): 허용 목록에 없는 사용자는 자동 로그아웃 안내.
-   * DB RLS가 실제 방어이며 이건 UX용. 통과하면 그대로, 아니면 null 반환.
-   */
-  async function gateAccess(u: SessionUser | null): Promise<SessionUser | null> {
-    if (!u) return null;
-    const ok = await isAllowedUser();
-    if (ok) return u;
-    status.textContent = '🔒 이 앱은 초대된 사용자만 사용할 수 있어요. 접근이 필요하면 관리자에게 문의하세요.';
-    await signOut();
-    return null;
-  }
-
   async function refresh(): Promise<void> {
     const [trips, archived, pending] = await Promise.all([
       listTrips(),
       listArchivedTrips(),
       pendingSyncCount(),
     ]);
+
+    const lockUi = { viewBar, fold: periodUi.fold, form, filterNow: periodUi.filterNow, list, clearPeriod: periodUi.clear };
+    const locked = applySignedOutLock(!canViewLocalRecords(isConfigured(), Boolean(user)), lockUi);
+    if (locked) {
+      renderSyncNote(status, pending, user);
+      return;
+    }
 
     // 보관함 토글: 활성 뷰에선 보관이 있을 때만 노출, 보관 뷰에선 되돌아가기.
     if (view === 'archived') {
@@ -521,7 +608,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
       archiveToggle.textContent = `📦 보관함 ${archived.length}`;
       archiveToggle.hidden = archived.length === 0;
     }
-    form.hidden = view === 'archived'; // 보관함에선 새 여행 폼 숨김
+    form.hidden = view === 'archived'; // 보관함에선 새 여행 폼 숨김(locked 분기는 위에서 이미 처리)
 
     const items = view === 'archived' ? archived : trips;
     // 기간 필터: 트리는 현재 뷰(홈/보관함)의 여행에서 파생되고, 목록도 같은 선택으로 걸러진다(§7 대칭).
@@ -537,31 +624,11 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
         }),
       );
     } else if (view === 'archived') {
-      shown.forEach((t, i) => list.appendChild(archivedCard(t, i, navigate, restoreTrip)));
+      for (const t of shown) list.appendChild(archivedCard(t, navigate, restoreTrip));
     } else {
-      shown.forEach((t, i) => list.appendChild(tripCard(t, i, navigate, deleteTrip)));
+      for (const t of shown) list.appendChild(tripCard(t, navigate, deleteTrip));
     }
-    // 정상(동기화됨)은 조용하게, 알아둘 것·문제는 눈에 띄게(setNote 위계).
-    //
-    // 목적지(§7 — 갈 곳이 있는 상태에 전부 걸었는가):
-    //  · 대기 N건      → 「동기화 상태」. 거기에 [지금 동기화]가 있다. 사용자가 요청한 자리.
-    //  · 로컬 저장 모드 → 「환경·기능」. 왜 서버로 안 가는지는 환경이 답한다.
-    //  · 로그인 안내    → **목적지 없음.** 조치 버튼([로그인])이 이 화면 헤더에 이미 있다 —
-    //                    진단으로 보내면 오히려 멀어진다.
-    //  · 동기화됨(ok)  → **목적지 없음.** 정상은 침묵이어야 한다(진단 §5.1). 여기에 알약과
-    //                    셰브론을 붙이면 아무 할 일 없는 상태가 화면에서 제일 시끄러워진다.
-    const toSync: NoteAction = { go: () => void openDiagnosticsHub('sync'), label: '동기화 상태 열기' };
-    if (!isConfigured()) {
-      setNote(status, `📴 로컬 저장 모드 · 대기 ${pending}건`, 'info', {
-        go: () => void openDiagnosticsHub('environment'),
-        label: '환경·기능 열기',
-      });
-    } else if (user) {
-      if (pending > 0) setNote(status, `☁️ 동기화 대기 ${pending}건`, 'info', toSync);
-      else setNote(status, '☁️ 동기화됨', 'ok', null);
-    } else {
-      setNote(status, `🔒 로그인하면 기기 간 동기화 · 로컬 대기 ${pending}건`, 'info', null);
-    }
+    renderSyncNote(status, pending, user);
   }
 
   // 2단 몸통: 왼쪽 기간 트리 | 오른쪽 목록. DOM 순서 = 논리 순서(입력 → 필터 → 목록)라
@@ -577,7 +644,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   // 인증 상태 구독: 로그인되면 동기화 후 갱신.
   unsubscribeAuth = onAuthChange((u) => {
     void (async () => {
-      user = await gateAccess(u);
+      user = await gateAccess(u, status);
       renderAuth();
       await trySync(user);
       await refresh();
@@ -589,7 +656,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
 
   // 초기값: 현재 세션 확인(구독이 늦게 올 수 있으므로 즉시 1회).
   void (async () => {
-    user = await gateAccess(await currentUser());
+    user = await gateAccess(await currentUser(), status);
     renderAuth();
     await refresh();
     await trySync(user);

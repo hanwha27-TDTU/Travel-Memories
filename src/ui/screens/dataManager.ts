@@ -2,19 +2,24 @@
 // 비타협 원칙 #1(기억을 잃지 않는다)의 사용자 도구. 가이드 모달과 같은 시각 시스템(.guide-*) 재사용.
 // 모든 자유 텍스트는 textContent로만(innerHTML 금지 — CSP·XSS 게이트).
 
-import { el, setNote } from '../dom';
+import { el, setNote, downloadBlob } from '../dom';
+import type { LocalTrip } from '../../offline/db';
 import { openDiagnosticsHub } from './diagnosticsHub';
 import { openGuide } from './guide';
 import {
   listTrashedChildren,
+  listTrashedChildrenFromServer,
   purgeChildPermanently,
   restoreTrashedChild,
+  prepareChildForAction,
   CHILD_LABEL,
   type TrashedChild,
 } from '../../services/trash';
 import { assertBackupImportSize, exportBackup, exportBackupZip, importBackupAuto, type BackupStats } from '../../services/backup';
 import { recordBackupNow, getLastBackupAt, backupFreshness } from '../../services/backupMeta';
-import { listDeletedTrips, restoreTripFromTrash, purgeTripPermanently } from '../../services/trips';
+import {
+  listDeletedTrips, listDeletedTripsFromServer, restoreTripFromTrash, purgeTripPermanently, prepareTripForAction,
+} from '../../services/trips';
 import { requestSync } from '../../services/autoSync';
 import { computeStorageUsage, formatBytes } from '../../services/storage';
 import { fxBase, setFxBase } from '../../services/fx';
@@ -106,17 +111,6 @@ function fmtDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = el('a') as HTMLAnchorElement;
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // ── 상세 패널: 백업(내보내기) ────────────────────────────────────────
@@ -275,6 +269,162 @@ function restorePanel(onChanged: () => void): HTMLElement {
 }
 
 // ── 상세 패널: 휴지통 ────────────────────────────────────────────────
+/**
+ * 🔴 휴지통 목록의 원천(2026-08-05 · 사용자 결정): **온라인이면 서버가 정본**이다 — 로그인된
+ * 모든 기기가 항상 같은 것을 봐야 한다("절대절대절대 기기끼리 내용이 다르면 안 됩니다"). 서버
+ * 조회가 실패(오프라인 등)할 때만 이 기기의 로컬 기록으로 내려가고, 그 사실을 화면에 밝힌다 —
+ * "로컬 기준"과 "서버 기준"을 같은 문구로 보여주면 §8이 금지하는 「모르는 걸 아는 척」이 된다.
+ */
+async function fetchTrashLists(): Promise<{ trips: LocalTrip[]; kids: TrashedChild[]; fromServer: boolean }> {
+  const client = supabase();
+  if (client) {
+    const [serverTrips, serverKids] = await Promise.all([
+      listDeletedTripsFromServer(client),
+      listTrashedChildrenFromServer(client),
+    ]);
+    if (serverTrips !== null && serverKids !== null) return { trips: serverTrips, kids: serverKids, fromServer: true };
+  }
+  const [trips, kids] = await Promise.all([listDeletedTrips(), listTrashedChildren()]);
+  return { trips, kids, fromServer: false };
+}
+
+/** 여행/자식 줄이 공유하는 동작 컨텍스트 — trashPanel의 클로저를 top-level 행 함수로 넘긴다. */
+interface TrashRowCtx {
+  purgeNote: HTMLElement;
+  toSync: { go: () => void; label: string };
+  onChanged: () => void;
+  render: () => void;
+}
+
+/** 여행 한 줄 — 자식 줄과 **같은 자리·같은 어휘**(§7 사용자 대면 대칭). */
+function tripRow(t: LocalTrip, ctx: TrashRowCtx): HTMLElement {
+  const row = el('div', 'dm-trash-row');
+  const info = el('div', 'dm-trash-info');
+  info.append(
+    el('b', undefined, t.title),
+    el('span', 'dm-trash-meta', t.deletedAt ? `삭제 ${fmtDate(t.deletedAt)}` : ''),
+  );
+  const actions = el('div', 'dm-trash-actions');
+  const restore = el('button', 'btn-ghost', '↩ 복원') as HTMLButtonElement;
+  restore.type = 'button';
+  restore.addEventListener('click', () => {
+    restore.disabled = true;
+    void (async () => {
+      try {
+        // 서버 조회로만 알던 여행이면(다른 기기가 지운 것) 먼저 이 기기에 채운다 —
+        // 「보인다」와 「행동할 수 있다」를 같은 말로 만든다(사용자 결정 2026-08-05).
+        const client = supabase();
+        if (client) await prepareTripForAction(t.id, client);
+        await restoreTripFromTrash(t.id);
+        void requestSync('휴지통 복원');
+        ctx.onChanged();
+        ctx.render();
+      } catch {
+        restore.disabled = false;
+      }
+    })();
+  });
+  // 영구삭제: 2단계 확인(실수 방지).
+  const purge = el('button', 'btn-danger', '영구삭제') as HTMLButtonElement;
+  purge.type = 'button';
+  const confirmBtn = el('button', 'btn-danger', '정말 지움') as HTMLButtonElement;
+  confirmBtn.type = 'button';
+  confirmBtn.hidden = true;
+  purge.addEventListener('click', () => {
+    purge.hidden = true;
+    confirmBtn.hidden = false;
+  });
+  confirmBtn.addEventListener('click', () => {
+    confirmBtn.disabled = true;
+    void (async () => {
+      try {
+        const client = supabase();
+        if (client) await prepareTripForAction(t.id, client);
+        await purgeTripPermanently(t.id);
+        // 영구삭제 전파(ADR-0027)를 **즉시** 올린다. 이게 없으면 표식이 큐에 앉아만 있고
+        // 다른 기기는 영영 모른다 — 실제로 그 상태였다(2026-07-26).
+        void requestSync('영구삭제');
+        setNote(ctx.purgeNote, '', 'ok', null); // 빈 문자열 = 숨김. 보여줄 것도 갈 곳도 없다.
+        ctx.onChanged();
+        ctx.render();
+      } catch (e) {
+        // 조용히 삼키지 않는다 — 특히 "먼저 동기화" 같은 **행동 가능한** 이유는 반드시 보여준다.
+        setNote(ctx.purgeNote, (e as Error).message || '영구삭제에 실패했어요.', 'error', ctx.toSync);
+        confirmBtn.disabled = false;
+      }
+    })();
+  });
+  actions.append(restore, purge, confirmBtn);
+  row.append(info, actions);
+  return row;
+}
+
+/** 자식 한 줄 — 여행 줄과 **같은 자리·같은 어휘**(§7 사용자 대면 대칭). */
+function childRow(c: TrashedChild, ctx: TrashRowCtx): HTMLElement {
+  const row = el('div', 'dm-trash-row');
+  const info = el('div', 'dm-trash-info');
+  info.append(
+    el('b', undefined, `${CHILD_LABEL[c.domain]} · ${c.label}`),
+    el('span', 'dm-trash-meta', `삭제 ${fmtDate(c.deletedAt)}`),
+  );
+  const actions = el('div', 'dm-trash-actions');
+
+  const restore = el('button', 'btn-ghost', '↩ 복원') as HTMLButtonElement;
+  restore.type = 'button';
+  restore.addEventListener('click', () => {
+    restore.disabled = true;
+    void (async () => {
+      try {
+        // 서버 조회로만 알던 항목이면(다른 기기가 지운 것) 먼저 이 기기에 채운다 — 여행과
+        // 같은 규율(사용자 결정 2026-08-05).
+        const client = supabase();
+        if (client) await prepareChildForAction(c.domain, c.id, client);
+        // 도메인 분기와 **딸린 것 모으기는 서비스가 한다** — 화면이 목록을 만지면
+        // 언젠가 하나를 빠뜨린다(M-0007이 정확히 그 형태였다).
+        await restoreTrashedChild(c.domain, c.id);
+        void requestSync('휴지통 복원');
+        ctx.onChanged();
+        ctx.render();
+      } catch (e) {
+        setNote(ctx.purgeNote, (e as Error).message || '복원에 실패했어요.', 'error', ctx.toSync);
+        restore.disabled = false;
+      }
+    })();
+  });
+
+  // 영구삭제: 여행과 **같은 2단계 확인**. 규율이 화면마다 다르면 사용자가 매번 배워야 한다.
+  const purge = el('button', 'btn-danger', '영구삭제') as HTMLButtonElement;
+  purge.type = 'button';
+  const confirmBtn = el('button', 'btn-danger', '정말 지움') as HTMLButtonElement;
+  confirmBtn.type = 'button';
+  confirmBtn.hidden = true;
+  purge.addEventListener('click', () => {
+    purge.hidden = true;
+    confirmBtn.hidden = false;
+  });
+  confirmBtn.addEventListener('click', () => {
+    confirmBtn.disabled = true;
+    void (async () => {
+      try {
+        const client = supabase();
+        if (client) await prepareChildForAction(c.domain, c.id, client);
+        await purgeChildPermanently(c.domain, c.id);
+        void requestSync('영구삭제');
+        setNote(ctx.purgeNote, '', 'ok', null); // 빈 문자열 = 숨김. 보여줄 것도 갈 곳도 없다.
+        ctx.onChanged();
+        ctx.render();
+      } catch (e) {
+        setNote(ctx.purgeNote, (e as Error).message || '영구삭제에 실패했어요.', 'error', ctx.toSync);
+        confirmBtn.disabled = false;
+      }
+    })();
+  });
+
+  actions.append(restore, purge, confirmBtn);
+  row.append(info, actions);
+  return row;
+}
+
 function trashPanel(onChanged: () => void, closeHub: () => void): HTMLElement {
   const box = el('div', 'guide-detail-body');
   // 제목을 다시 적지 않는다 — 바로 위 상세 바가 이미 「🗑 휴지통」이라고 말한다.
@@ -289,18 +439,32 @@ function trashPanel(onChanged: () => void, closeHub: () => void): HTMLElement {
    * 화면의 가로 줄**을 위한 것이라 `flex: 1 1 240px`을 갖는데, 이 패널은 **세로 flex**라 그
    * 240px이 **높이**가 되어 화면 절반을 먹는 분홍 덩어리가 됐다. 다른 화면의 클래스를 빌려오면
    * 그 화면의 레이아웃 가정까지 따라온다 — 상태 줄의 공용 계약은 `sync-note` 하나다.
+   *
+   * 🔴 `.guide-overlay .sync-note`(단수) 셀렉터로 이 요소를 잰다(라이브 검사). `sourceNote`가
+   * DOM에서 **이보다 앞에 오면 안 된다** — 먼저 오면 그 검사가 조용히 엉뚱한 요소를 잰다.
+   * (이후 `render()`가 끝나도 이 요소를 다시 append하지 않는다 — 다시 append하면 그 순간
+   * DOM 마지막으로 옮겨져 sourceNote 뒤로 밀린다. 옛 코드가 그 실수였다.)
    */
   const purgeNote = el('p', 'sync-note');
   purgeNote.setAttribute('role', 'status');
   purgeNote.hidden = true;
+  box.appendChild(purgeNote);
+
+  // 서버 조회로 못 내려가 로컬 기록으로 대신 보여줄 때만 뜬다(§8 — 침묵이 정상, 모르는 걸
+  // 아는 척하지 않는다). purgeNote **다음**에 둔다 — 위 주석 참조.
+  const sourceNote = el('p', 'sync-note');
+  sourceNote.setAttribute('role', 'status');
+  sourceNote.hidden = true;
+  box.appendChild(sourceNote);
 
   /** 실패 사유는 대개 "먼저 동기화"다 — 말만 하지 말고 **거기로 데려간다**(사용자 요청 2026-07-26). */
   const toSync = { go: (): void => { closeHub(); openDiagnosticsHub('sync'); }, label: '동기화 상태 열기' };
 
   const render = (): void => {
     void (async () => {
-      const trips = await listDeletedTrips();
-      const kids = await listTrashedChildren();
+      const { trips, kids, fromServer } = await fetchTrashLists();
+      if (fromServer) setNote(sourceNote, '', 'ok', null);
+      else setNote(sourceNote, '📴 오프라인 — 이 기기의 기록 기준(다른 기기와 다를 수 있어요)', 'info', null);
       list.innerHTML = '';
       // **둘 다 없어야 비었다.** 여행만 보고 "비어 있어요"라고 말하던 것이 2026-07-26에
       // 사용자를 헷갈리게 했다 — 서버엔 지운 것이 있는데 화면은 비었다고 했다.
@@ -309,140 +473,24 @@ function trashPanel(onChanged: () => void, closeHub: () => void): HTMLElement {
         return;
       }
       if (trips.length) list.appendChild(el('h4', 'dm-trash-subhead', `삭제한 여행 ${trips.length}개`));
-      for (const t of trips) {
-        const row = el('div', 'dm-trash-row');
-        const info = el('div', 'dm-trash-info');
-        info.append(
-          el('b', undefined, t.title),
-          el('span', 'dm-trash-meta', t.deletedAt ? `삭제 ${fmtDate(t.deletedAt)}` : ''),
-        );
-        const actions = el('div', 'dm-trash-actions');
-        const restore = el('button', 'btn-ghost', '↩ 복원') as HTMLButtonElement;
-        restore.type = 'button';
-        restore.addEventListener('click', () => {
-          restore.disabled = true;
-          void (async () => {
-            try {
-              await restoreTripFromTrash(t.id);
-              void requestSync('휴지통 복원');
-              onChanged();
-              render();
-            } catch {
-              restore.disabled = false;
-            }
-          })();
-        });
-        // 영구삭제: 2단계 확인(실수 방지).
-        const purge = el('button', 'btn-danger', '영구삭제') as HTMLButtonElement;
-        purge.type = 'button';
-        const confirmBtn = el('button', 'btn-danger', '정말 지움') as HTMLButtonElement;
-        confirmBtn.type = 'button';
-        confirmBtn.hidden = true;
-        purge.addEventListener('click', () => {
-          purge.hidden = true;
-          confirmBtn.hidden = false;
-        });
-        confirmBtn.addEventListener('click', () => {
-          confirmBtn.disabled = true;
-          void (async () => {
-            try {
-              await purgeTripPermanently(t.id);
-              // 영구삭제 전파(ADR-0027)를 **즉시** 올린다. 이게 없으면 표식이 큐에 앉아만 있고
-              // 다른 기기는 영영 모른다 — 실제로 그 상태였다(2026-07-26).
-              void requestSync('영구삭제');
-              setNote(purgeNote, '', 'ok', null); // 빈 문자열 = 숨김. 보여줄 것도 갈 곳도 없다.
-              onChanged();
-              render();
-            } catch (e) {
-              // 조용히 삼키지 않는다 — 특히 "먼저 동기화" 같은 **행동 가능한** 이유는 반드시 보여준다.
-              // 허브를 **닫고** 연다 — 오버레이를 겹치지 않는다. 겹치면 Escape 한 번에 둘 다
-              // 닫혀(문서 수준 핸들러가 둘 다 반응) 사용자가 자리를 잃는다. 같은 이유로
-              // [R2 저장소 설정]·[진단 도구] 카드도 예전부터 close() 먼저 한다(§7 같은 규율).
-              setNote(purgeNote, (e as Error).message || '영구삭제에 실패했어요.', 'error', toSync);
-              confirmBtn.disabled = false;
-            }
-          })();
-        });
-        actions.append(restore, purge, confirmBtn);
-        row.append(info, actions);
-        list.appendChild(row);
-      }
+      for (const t of trips) list.appendChild(tripRow(t, ctx));
 
       // ── 여행이 아닌 것들(순간·사진·비용·소리) ────────────────────────
       // 부모가 살아 있는데 혼자 지워진 것들. **여기 말고는 어디에도 안 보인다** — 실행취소
       // 토스트가 사라지면 복구 경로가 통째로 없었다(F5). 2026-07-26에 그게 실제 문제가 됐다:
       // 진단이 「파일이 없는 사진 기록 2건」을 가리키는데 사용자가 손댈 곳이 없었다.
-      const children = await listTrashedChildren();
-      if (children.length) {
-        list.appendChild(el('h4', 'dm-trash-subhead', `개별로 지운 항목 ${children.length}개`));
-        for (const c of children) list.appendChild(childRow(c));
-      } else if (trips.length) {
-        // 여행이 있을 때만 침묵한다. 둘 다 없으면 위의 "휴지통이 비어 있어요"가 이미 말했다.
+      // 🔴 위에서 이미 받아 온 `kids`를 쓴다 — 다시 `listTrashedChildren()`을 부르면 여기만
+      // 로컬 기준으로 되돌아가 trips와 다른 정본을 보여주는 결함이 된다(§7 — 이 기능이 막으려던 형태).
+      if (kids.length) {
+        list.appendChild(el('h4', 'dm-trash-subhead', `개별로 지운 항목 ${kids.length}개`));
+        for (const c of kids) list.appendChild(childRow(c, ctx));
       }
     })();
   };
 
-  /** 자식 한 줄 — 여행 줄과 **같은 자리·같은 어휘**(§7 사용자 대면 대칭). */
-  function childRow(c: TrashedChild): HTMLElement {
-    const row = el('div', 'dm-trash-row');
-    const info = el('div', 'dm-trash-info');
-    info.append(
-      el('b', undefined, `${CHILD_LABEL[c.domain]} · ${c.label}`),
-      el('span', 'dm-trash-meta', `삭제 ${fmtDate(c.deletedAt)}`),
-    );
-    const actions = el('div', 'dm-trash-actions');
+  const ctx: TrashRowCtx = { purgeNote, toSync, onChanged, render: () => render() };
 
-    const restore = el('button', 'btn-ghost', '↩ 복원') as HTMLButtonElement;
-    restore.type = 'button';
-    restore.addEventListener('click', () => {
-      restore.disabled = true;
-      void (async () => {
-        try {
-          // 도메인 분기와 **딸린 것 모으기는 서비스가 한다** — 화면이 목록을 만지면
-          // 언젠가 하나를 빠뜨린다(M-0007이 정확히 그 형태였다).
-          await restoreTrashedChild(c.domain, c.id);
-          void requestSync('휴지통 복원');
-          onChanged();
-          render();
-        } catch (e) {
-          setNote(purgeNote, (e as Error).message || '복원에 실패했어요.', 'error', toSync);
-          restore.disabled = false;
-        }
-      })();
-    });
-
-    // 영구삭제: 여행과 **같은 2단계 확인**. 규율이 화면마다 다르면 사용자가 매번 배워야 한다.
-    const purge = el('button', 'btn-danger', '영구삭제') as HTMLButtonElement;
-    purge.type = 'button';
-    const confirmBtn = el('button', 'btn-danger', '정말 지움') as HTMLButtonElement;
-    confirmBtn.type = 'button';
-    confirmBtn.hidden = true;
-    purge.addEventListener('click', () => {
-      purge.hidden = true;
-      confirmBtn.hidden = false;
-    });
-    confirmBtn.addEventListener('click', () => {
-      confirmBtn.disabled = true;
-      void (async () => {
-        try {
-          await purgeChildPermanently(c.domain, c.id);
-          void requestSync('영구삭제');
-          setNote(purgeNote, '', 'ok', null); // 빈 문자열 = 숨김. 보여줄 것도 갈 곳도 없다.
-          onChanged();
-          render();
-        } catch (e) {
-          setNote(purgeNote, (e as Error).message || '영구삭제에 실패했어요.', 'error', toSync);
-          confirmBtn.disabled = false;
-        }
-      })();
-    });
-
-    actions.append(restore, purge, confirmBtn);
-    row.append(info, actions);
-    return row;
-  }
   render();
-  box.appendChild(purgeNote);
   box.appendChild(
     el(
       'p',

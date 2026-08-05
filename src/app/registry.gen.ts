@@ -33,6 +33,9 @@ export const REGISTRY = {
   'check-constitution-gen',
   'check-adapter-parity',
   'check-doc-governance',
+  'check-gate-integrity',
+  'check-diag-blindspots',
+  'check-page-size-parity',
   'check-current-doc-facts',
   'check-platform-map',
   'check-lazy-screens',
@@ -56,9 +59,9 @@ export const REGISTRY = {
   'verify-editor-live',
   'verify-diagnostics-live',
   ] as const,
-  gateCount: 50,
+  gateCount: 53,
   /** 최신 앱 버전(정본: src/app/changelog.ts의 첫 항목). 첫 로드 화면은 이걸 읽는다. */
-  appVersion: '1.75',
+  appVersion: '1.76',
   /** 에이전트 정의 이름(정본: .claude/agents/ — frontmatter가 있는 파일만). */
   agents: [
   'accessibility-design-auditor',
@@ -95,6 +98,6 @@ export const REGISTRY = {
   skillCount: 11,
   screenCount: 11,
   migrationCount: 28,
-  changelogCount: 175,
-  researchCount: 91,
+  changelogCount: 176,
+  researchCount: 100,
 } as const;

@@ -134,3 +134,19 @@ export function setNote(node: HTMLElement, text: string, state: NoteState, go: N
   node.appendChild(btn);
   node.onclick = () => go.go();
 }
+
+/**
+ * 만든 Blob을 파일로 내려받는다(임시 `<a download>` 클릭). 백업 내보내기(데이터 관리·진단
+ * 도구 양쪽)가 같은 절차를 쓴다 — 손으로 두 벌 두면 한쪽만 URL을 못 revoke하는 결함이 조용히
+ * 갈라진다(§7 SSOT).
+ */
+export function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = el('a') as HTMLAnchorElement;
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

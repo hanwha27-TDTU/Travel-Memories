@@ -78,6 +78,16 @@ const gates = [
   // 새 `docs/*.md`가 지도에 없거나(실측 25개 중 4개가 그랬다), 새 AI 지시문이 어댑터로
   // 등록되지 않으면 그 도구만 다른 계약을 읽는다(CONSTITUTION 「지시·계약 문서를 바꿀 때」).
   { name: 'check-doc-governance', cmd: 'node scripts/check-doc-governance.mjs' },
+  // §11의 메타 게이트 — "게이트가 목적에 맞게 작동하는가? 대조군이 있는가?"(사용자 질문
+  // 2026-08-05)를 기계로 되묻는다: check-*.mjs 전부가 harness에 배선됐는가 + 셀프테스트
+  // (알려진 실패 주입) 흔적을 갖고 있는가. 새 게이트가 이 둘 없이 조용히 태어나는 것을 막는다.
+  { name: 'check-gate-integrity', cmd: 'node scripts/check-gate-integrity.mjs' },
+  // 「내가 못 보는 것」 등록부가 조용히 비지 않게(사용자 지시 2026-08-05: *"빼면 안 됨"*).
+  // 이유 없는 미구현 · 없는 도구를 가리키는 coveredBy를 RED로 잡는다.
+  { name: 'check-diag-blindspots', cmd: 'node scripts/check-diag-blindspots.mjs' },
+  // 진단이 「서버가 한 번에 주는 행수」를 판정할 때 쓰는 **가정값**이 실제 페이지네이션 코드와
+  // 갈라지지 않게. 갈라지면 진단이 틀린 기준으로 초록을 낸다(§7 SSOT).
+  { name: 'check-page-size-parity', cmd: 'node scripts/check-page-size-parity.mjs' },
   { name: 'check-current-doc-facts', cmd: 'node scripts/check-current-doc-facts.mjs' },
   { name: 'check-platform-map', cmd: 'node scripts/check-platform-map.mjs' },
   { name: 'check-lazy-screens', cmd: 'node scripts/check-lazy-screens.mjs' },

@@ -17,7 +17,7 @@
 //   ○ 맥락(context) = 상태가 아닌 환경 사실. (앱 버전·시간대·사진 저장소 …)
 // 옛 동기화 진단 5줄 중 최상위 자격이 있는 것은 사실상 하나뿐이었다.
 
-import { el } from '../dom';
+import { el, downloadBlob } from '../dom';
 import {
   auditOpLessTombstones,
   diagnoseSync,
@@ -55,7 +55,25 @@ import {
   requestUnpurge,
   pendingUnpurgeIds,
 } from '../../services/purge';
-import { supabase } from '../../services/supabase/client';
+import { supabase, isConfigured } from '../../services/supabase/client';
+import { exportBackup } from '../../services/backup';
+import { recordBackupNow, getLastBackupAt, backupFreshness, STALE_DAYS } from '../../services/backupMeta';
+import { collectTrashState } from '../../services/trashState';
+import { trashMetrics, trashHeadline, TRASH_ITEM_CAP } from '../../domain/trashVerdict';
+import { lastRoundTrip, runRoundTrip, cleanupRoundTripLeftovers } from '../../services/roundTrip';
+import { collectServerContract } from '../../services/serverContract';
+import { serverContractMetrics, serverContractHeadline } from '../../domain/serverContractVerdict';
+import { collectSessionState } from '../../services/sessionState';
+import { fleetMetrics, fleetHeadline, daysSince, type FleetObservation } from '../../domain/deviceFleetVerdict';
+import { sessionMetrics, sessionHeadline, WANTED_SESSION_DAYS } from '../../domain/sessionVerdict';
+import { AUTH_GATE_CASES } from '../../domain/authGate';
+import {
+  roundTripView,
+  ROUND_TRIP_STEPS,
+  ROUND_TRIP_TITLE_PREFIX,
+  STEP_LABEL,
+  STEP_PROVES,
+} from '../../domain/roundTripVerdict';
 import {
   deviceLabel,
   shortDeviceId,
@@ -1662,6 +1680,370 @@ export async function summaryProbe(): Promise<Verdict> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// ⑦ 백업 신선도 — 클라우드와 독립된, 이 손에 있는 사본이 있는가
+// ────────────────────────────────────────────────────────────────────────────
+//
+// 왜(사용자 제안 2026-08-05): "백업 진단도구가 없다면 추가하면 좋을 거 같아요." 실측해 보니
+// `backupMeta.ts`(마지막 백업 시각·신선도 판정)는 이미 있었지만 [데이터 관리 › 백업] 패널
+// 안에서만 조용히 쓰였다 — **판정 도구**로 진단 허브에 없었다. §8("진단 도구는 판정을 한다")
+// 대상에서 이 조각만 빠져 있었다.
+//
+// 클라우드 동기화는 백업의 대체물이 아니다 — 계정 잠김·서버 사고·사용자 실수(영구삭제)에도
+// 살아남는 것은 **이 기기 밖으로 나간 파일**뿐이다. 그래서 로컬 전용 모드(`!isConfigured()`)
+// 에서 오래됐거나 없으면 '문제'(다른 사본이 전혀 없음), 클라우드 모드에서는 '할 일'(클라우드가
+// 있지만 독립 사본도 있으면 더 안전함)로 급을 가른다 — §7: 같은 "없음"도 사정에 따라 다르다.
+export function backupProbe(): Promise<Verdict> {
+  const last = getLastBackupAt();
+  const fresh = backupFreshness(last);
+  const cloud = isConfigured();
+  const noOtherCopy = !cloud && fresh.stale; // 클라우드도 없고 백업도 없거나 낡음 = 사본이 전혀 없다
+  const metrics: Metric[] = [
+    {
+      label: '마지막 백업',
+      actual: fresh.text,
+      expected: `${STALE_DAYS}일 이내`,
+      level: fresh.stale ? (noOtherCopy ? 'problem' : 'todo') : 'ok',
+      ...(fresh.stale
+        ? {
+            meaning: noOtherCopy
+              ? '클라우드 동기화도 꺼져 있고 백업 파일도 없어요 — 이 기기가 사라지면 기록도 함께 사라집니다. 아래 [지금 백업 만들기]를 눌러 주세요.'
+              : '클라우드 동기화는 되고 있지만, 계정 문제나 실수(영구삭제)에서도 살아남는 건 이 기기 밖으로 받아 둔 파일뿐이에요. 가끔 받아 두세요.',
+          }
+        : {}),
+    },
+  ];
+  const level = levelFromMetrics(metrics);
+  const v: Verdict = {
+    level,
+    headline:
+      level === 'problem'
+        ? '백업 파일이 없어요 — 이 기기가 유일한 사본입니다'
+        : level === 'todo'
+          ? '백업을 받아 두면 더 안전해요'
+          : '최근 백업 파일이 있습니다',
+    because: cloud ? '클라우드 동기화와 별개로, 이 기기 밖으로 받아 둔 파일만이 계정·서버 사고에서도 살아남습니다.' : '이 배포는 클라우드 동기화가 꺼져 있어요 — 백업 파일이 유일한 사본입니다.',
+    metrics,
+    actions: [
+      {
+        label: '지금 백업 만들기',
+        primary: fresh.stale,
+        hook: 'data-backup-now',
+        run: async () => {
+          const { blob, stats } = await exportBackup(true);
+          const now = new Date();
+          const p = (n: number) => String(n).padStart(2, '0');
+          const stamp = `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}`;
+          downloadBlob(blob, `bugeon-journey_${stamp}.json`);
+          recordBackupNow();
+          return `내려받았어요 · 여행 ${stats.trips} · 순간 ${stats.moments} · 사진 ${stats.media} · 비용 ${stats.expenses} · 소리 ${stats.audio}`;
+        },
+      },
+    ],
+    evidence: [],
+    context: [{ label: '이 기기의 자료 사본 경로', value: cloud ? '클라우드 동기화 + 백업 파일(선택)' : '백업 파일뿐(로컬 전용 배포)' }],
+  };
+  return Promise.resolve(v);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ⑧ 저장·삭제·휴지통 — 지운 것을 되살릴 수 있는가, 모든 기기가 같은 휴지통을 보는가
+// ────────────────────────────────────────────────────────────────────────────
+//
+// 사용자 요청(2026-08-05): *"저장/삭제/휴지통 진단도구 등이 없다면 추가하면 좋을 거 같아요."*
+// 기존 도구가 덮는 부분을 **실측해서 빼고** 남은 빈칸만 잰다(겹치는 지표는 만들지 않는다):
+//   · 「동기화 상태」가 이미 재는 것 = 삭제가 서버까지 **갔는가**. 이 도구는 **간 뒤**를 본다.
+//   · 「저장 상태」가 이미 재는 것 = 개수 대조. 이 도구는 개수를 대조하지 **않는다**(아래 참조).
+//   · 「ID 무결성」이 못 보는 것 = 🔴 그 검사는 **살아 있는 행만** 본다. 휴지통 항목은 지금까지
+//     어느 도구의 시야에도 없었다 — 이 도구가 그 자리다.
+//
+// 판정과 문장은 전부 `domain/trashVerdict.ts`(순수 함수)가 만든다. 여기서는 Metric으로 옮기고
+// 접힌 출처만 붙인다 — 화면에 나가는 문장 자체가 결함일 수 있어서다(§10 ③).
+export async function trashProbe(): Promise<Verdict> {
+  const o = await collectTrashState();
+  const views = trashMetrics(o);
+  const labels = ['휴지통 목록의 기준', '되살려도 자료가 비는 항목', '되살릴 곳이 없는 항목'];
+  const metrics: Metric[] = views.map((v, i) => ({
+    label: labels[i] ?? '',
+    actual: v.actual,
+    expected: v.expected,
+    level: v.level,
+    ...(v.meaning ? { meaning: v.meaning } : {}),
+  }));
+
+  const cap = (rows: { label: string }[]): [string, string][] => {
+    const shown: [string, string][] = rows.slice(0, TRASH_ITEM_CAP).map((r) => [r.label, '']);
+    const omitted = rows.length - shown.length;
+    // 조용히 자르지 않는다 — 자른 사실을 **적는다**(§5 3항).
+    if (omitted > 0) shown.push([`외 ${omitted}건 생략`, '']);
+    return shown;
+  };
+
+  const evidence: Verdict['evidence'] = [];
+  if (o.emptyOnRestore.length) {
+    evidence.push({
+      label: `되살려도 자료가 비는 항목 ${o.emptyOnRestore.length}건`,
+      build: () => table(cap(o.emptyOnRestore), '해당 항목이 없어요'),
+    });
+  }
+  if (o.orphans.length) {
+    evidence.push({
+      label: `되살릴 곳이 없는 항목 ${o.orphans.length}건`,
+      build: () => table(cap(o.orphans), '해당 항목이 없어요'),
+    });
+  }
+
+  return {
+    level: levelFromMetrics(metrics),
+    headline: trashHeadline(o),
+    // 🔴 「휴지통이 비었다」와 「이 기기 기준으로 비어 보인다」는 다른 말이다(§7-C 한정 생략).
+    //    그리고 클라우드가 없는 배포에는 「다른 기기」 자체가 없다 — 셋을 구분해 말한다.
+    because: !o.cloudConfigured
+      ? `이 배포는 클라우드를 쓰지 않아 이 기기의 기록 ${o.localTrashCount}건이 전부입니다.`
+      : o.serverTrashCount === null
+        ? `이 기기에 남은 휴지통 기록 ${o.localTrashCount}건을 기준으로 본 결과예요 — 다른 기기가 지운 것은 여기 안 보일 수 있습니다.`
+        : '온라인이면 휴지통은 서버가 정본이라 어느 기기에서 열어도 같은 목록입니다(ADR-0049).',
+    metrics,
+    // 🔴 파괴적 행동(영구삭제·정리)을 여기 두지 않는다. 이 도구는 **관측과 판정**만 하고,
+    // 지우는 일은 [데이터 관리 › 휴지통]에서 2단계 확인을 거쳐야 한다(§0 · §13 4항).
+    actions: [],
+    evidence,
+    context: [{ label: '이 기기의 휴지통 기록', value: `${o.localTrashCount}건` }],
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ⑨ 왕복 시험 — 저장한 것이 서버까지 갔다가 지운 흔적까지 남기고 사라지는가 (쓰기 시험)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// 사용자 결정(2026-08-05): 진단 범위를 *"쓰기 시험까지"*로 확장. 읽기 전용 관측은 **지금
+// 상태**만 말한다 — 「저장이 실제로 도착하는가」는 한 번 보내 봐야 안다. 이 저장소의 결함
+// 셋(M-0100·M-0101·M-0015)이 전부 *"코드는 맞는데 실제로는 안 갔다"*였고, 그때마다 사용자의
+// 실기기가 유일한 검출기였다.
+//
+// 🔴 `probe()`는 **읽기 전용**이다 — 지난 결과만 보여준다. 실제 왕복은 사용자가 버튼을 눌러야
+//    돈다. 진단 도구가 열릴 때마다 서버에 쓰면 그건 관측이 아니라 부작용이다(§8).
+export function roundTripProbe(): Promise<Verdict> {
+  const run = lastRoundTrip();
+  const v = roundTripView(run);
+  const metrics: Metric[] = [
+    {
+      label: '왕복 시험',
+      actual: v.actual,
+      expected: v.expected,
+      level: v.level,
+      ...(v.meaning ? { meaning: v.meaning } : {}),
+    },
+  ];
+  const evidence: Verdict['evidence'] = [];
+  if (run) {
+    evidence.push({
+      label: `단계별 결과 ${run.steps.length}단계`,
+      build: () =>
+        table(
+          run.steps.map((s): [string, string] => {
+            const mark = s.state === 'pass' ? '통과' : s.state === 'fail' ? '실패' : '안 쟀음';
+            const time = s.ms === null ? '' : ` · ${s.ms}ms`;
+            const why = s.error ? ` — ${s.error}` : '';
+            return [`${STEP_LABEL[s.step]}`, `${mark}${time}${why}`];
+          }),
+          '단계 기록이 없어요',
+        ),
+    });
+    evidence.push({
+      label: '각 단계가 무엇을 증명하나',
+      build: () =>
+        table(
+          ROUND_TRIP_STEPS.map((s): [string, string] => [STEP_LABEL[s], STEP_PROVES[s]]),
+          // 단계 목록은 상수라 비는 일이 없다. 그래도 문구를 적는다 — 비었다면 그건
+          // 「단계가 없다」가 아니라 **등록부가 깨진 것**이고, 그 사실이 화면에 나와야 한다.
+          '단계 정의를 읽지 못했어요(등록부 이상)',
+        ),
+    });
+  }
+
+  const actions: Action[] = [
+    {
+      label: run ? '다시 시험' : '시험 실행',
+      primary: true,
+      hook: 'data-roundtrip-run',
+      run: async () => {
+        const r = await runRoundTrip();
+        const view = roundTripView(r);
+        return view.level === 'ok' ? `통과 — ${view.actual}` : `${view.headline} (${view.actual})`;
+      },
+    },
+  ];
+  // 잔재가 있을 때만 치우는 버튼을 준다 — 지울 것이 없는데 「정리」를 띄우면 사용자가
+  // 자기 자료가 지워지는 줄 안다(§8 침묵이 정상 · M-0046의 교훈).
+  if (run?.leftover) {
+    actions.push({
+      label: '남은 시험용 기록 치우기',
+      hook: 'data-roundtrip-cleanup',
+      run: async () => {
+        const stuck = await cleanupRoundTripLeftovers();
+        return stuck.length ? `${stuck.length}건을 아직 치우지 못했어요.` : '치웠어요.';
+      },
+    });
+  }
+
+  return Promise.resolve({
+    level: v.level,
+    headline: v.headline,
+    because:
+      '시험용 여행 하나를 만들었다가 스스로 지웁니다. 제목이 「' +
+      ROUND_TRIP_TITLE_PREFIX +
+      '」로 시작하며, 기존 기록은 읽지도 쓰지도 않아요.',
+    metrics,
+    actions,
+    evidence,
+    context: run ? [{ label: '마지막 시험', value: run.at.slice(0, 19).replace('T', ' ') }] : [],
+  });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ⑩ 서버 계약 — 서버가 앱이 가정한 대로 행동하는가 (읽기 전용 실측)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// 오늘 고친 결함 셋(M-0100·M-0101·M-0102)이 전부 *"서버가 내 가정과 다르게 행동한다"*였고,
+// 그걸 좁히려고 **운영 DB에 직접 SQL을 질의**해야 했다(개발 컨테이너의 프록시가 막는다).
+// 사용자의 앱은 진짜 서버에 붙어 있으므로 그 자리에서 재면 다음 고장이 훨씬 싸다.
+export async function serverContractProbe(): Promise<Verdict> {
+  const o = await collectServerContract();
+  const views = serverContractMetrics(o);
+  const labels = ['로그인 없는 접근', '한 번에 받는 행수', '페이지 경계'];
+  const metrics: Metric[] = views.map((v, i) => ({
+    label: labels[i] ?? '',
+    actual: v.actual,
+    expected: v.expected,
+    level: v.level,
+    ...(v.meaning ? { meaning: v.meaning } : {}),
+  }));
+  return {
+    level: levelFromMetrics(metrics),
+    headline: serverContractHeadline(o),
+    because:
+      '전부 읽기 전용입니다 — 서버에 아무것도 쓰지 않아요. 쓰기 쪽 계약은 [왕복 시험]이 따로 봅니다.',
+    actions: [],
+    metrics,
+    evidence: [],
+    context: [
+      { label: '앱이 쓰는 페이지 크기', value: `${o.assumedPageSize}행` },
+      { label: '로그인 상태', value: o.signedIn ? '로그인됨' : '로그인 전' },
+    ],
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ⑪ 세션·로그인 — 로그인이 유지되고, 로그아웃하면 기록이 가려지는가
+// ────────────────────────────────────────────────────────────────────────────
+//
+// 사각지대 3건을 한 번에 덮는다(BLIND_SPOTS의 device 그룹) — 셋 다 로그인 상태를 읽어야
+// 답할 수 있어 따로 두면 사용자가 같은 것을 세 번 묻게 된다.
+//
+// 🔴 잠금은 **선언이 아니라 실행으로** 확인한다: `canViewLocalRecords`에 알려진 입력 4갈래를
+//    먹여 기대한 답이 나오는지 그 자리에서 돌린다. 「그 함수가 있다」는 아무것도 보장하지 않고,
+//    「옳은 답을 준다」가 질문이다(§4 — 대조군이 있는 검사).
+export async function sessionProbe(): Promise<Verdict> {
+  const o = await collectSessionState();
+  const views = sessionMetrics(o);
+  const labels = ['로그인 유지', '로그아웃하면 가려짐'];
+  const metrics: Metric[] = views.map((v, i) => ({
+    label: labels[i] ?? '',
+    actual: v.actual,
+    expected: v.expected,
+    level: v.level,
+    ...(v.meaning ? { meaning: v.meaning } : {}),
+  }));
+  return {
+    level: levelFromMetrics(metrics),
+    headline: sessionHeadline(o),
+    because:
+      '가리는 것과 지우는 것은 다릅니다 — 로그아웃해도 이 기기의 기록은 그대로 남고, 다시 로그인하면 보입니다.',
+    actions: [],
+    metrics,
+    evidence: [
+      {
+        label: `잠금 판정 갈래 ${AUTH_GATE_CASES.length}가지`,
+        build: () =>
+          table(
+            AUTH_GATE_CASES.map((c): [string, string] => [
+              `${c.cloudConfigured ? '클라우드 씀' : '클라우드 안 씀'} · ${c.signedIn ? '로그인됨' : '로그아웃'}`,
+              `${c.expected ? '보임' : '가려짐'} — ${c.why}`,
+            ]),
+            '갈래 정의를 읽지 못했어요(등록부 이상)',
+          ),
+      },
+    ],
+    context: [{ label: '바라는 유지 기간', value: `${WANTED_SESSION_DAYS}일` }],
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ⑫ 기기별 현황 — 내 기기들이 서로 뒤처지지 않았는가
+// ────────────────────────────────────────────────────────────────────────────
+//
+// 접힌 출처에서 **도구로 승격**했다. 「내 기기들 N대」는 M-0048에서 판정을 뒤집은 결정적
+// 근거였는데(다른 기기가 있으면 파괴적 정리를 권하면 안 된다) 펼쳐야 보였다 — 판정을 뒤집는
+// 정보가 접혀 있는 것은 §8 위반이다. 그리고 사용자가 여러 날 겪은 문제가 정확히 이 축이었다.
+export async function deviceFleetProbe(): Promise<Verdict> {
+  const c = supabase();
+  const u = c ? await currentUserSafe() : null;
+  let devices: FleetObservation['devices'] = null;
+  let reason: string | null = null;
+  if (!c) reason = '서버 연결이 설정되지 않았습니다';
+  else if (!u) reason = '로그인 상태가 아닙니다';
+  else {
+    try {
+      const cmp = await compareStore(storeStateRemote(c));
+      devices = cmp.devices.map((d) => ({ label: d.label, id: d.id, lastPushAt: d.lastPushAt, isThis: d.isThis }));
+    } catch (e) {
+      reason = (e as Error).message || '기기 목록 조회에 실패했습니다';
+    }
+  }
+  const o: FleetObservation = {
+    cloudConfigured: isConfigured(),
+    signedIn: Boolean(u),
+    devices,
+    unavailableReason: reason,
+    now: new Date().toISOString(),
+  };
+  const views = fleetMetrics(o);
+  const labels = ['이 계정의 기기', '오래 안 올린 기기'];
+  const metrics: Metric[] = views.map((v, i) => ({
+    label: labels[i] ?? '',
+    actual: v.actual,
+    expected: v.expected,
+    level: v.level,
+    ...(v.meaning ? { meaning: v.meaning } : {}),
+  }));
+  return {
+    level: levelFromMetrics(metrics),
+    headline: fleetHeadline(o),
+    // 🔴 라벨이 말할 수 있는 것만 말한다(§5 9항) — 이 목록은 **올린 기록**에서 나온다.
+    because: '이 목록은 서버에 무언가를 올린 기기만 보여줍니다. 받아만 간 기기는 흔적이 남지 않아요.',
+    actions: [],
+    metrics,
+    evidence: devices?.length
+      ? [
+          {
+            label: `기기 ${devices.length}대 — 마지막으로 올린 시각`,
+            build: () =>
+              table(
+                devices.map((d): [string, string] => {
+                  const days = daysSince(d.lastPushAt, o.now);
+                  const ago = days === null ? '' : days === 0 ? '오늘' : `${days}일 전`;
+                  return [`${d.label}${d.isThis ? ' (지금 이 기기)' : ''}`, ago];
+                }),
+                '올린 기기가 없어요',
+              ),
+          },
+        ]
+      : [],
+    context: [],
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // 도구 등록부 — 허브와 패널이 **같은 목록**을 본다
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1723,6 +2105,54 @@ export const CORE_TOOLS: DiagTool[] = [
     hint: '이 세션에서 생긴 오류',
     lead: '앱이 도는 동안 생긴 오류를 모아 둡니다. 새로고침하면 사라져요.',
     probe: errorProbe,
+  },
+  {
+    id: 'fleet',
+    icon: '📱',
+    label: '기기별 현황',
+    hint: '내 기기들이 뒤처지지 않았나',
+    lead: '이 계정에서 서버에 올린 적 있는 기기들과, 각 기기가 마지막으로 올린 시각을 봅니다.',
+    probe: deviceFleetProbe,
+  },
+  {
+    id: 'session',
+    icon: '🔑',
+    label: '세션·로그인',
+    hint: '로그인이 유지되나 · 로그아웃하면 가려지나',
+    lead: '로그인이 얼마나 유지되는지, 그리고 로그아웃했을 때 이 기기의 기록을 가리는 배선이 실제로 도는지 확인합니다.',
+    probe: sessionProbe,
+  },
+  {
+    id: 'contract',
+    icon: '📡',
+    label: '서버 계약',
+    hint: '서버가 가정대로 행동하나',
+    lead: '로그인 없는 접근이 실제로 막히는지, 서버가 한 번에 주는 행수가 앱의 가정과 맞는지 실제로 물어봅니다. 읽기 전용이에요.',
+    probe: serverContractProbe,
+  },
+  {
+    id: 'roundtrip',
+    icon: '🔁',
+    label: '왕복 시험',
+    hint: '저장한 게 서버까지 갔다 오나',
+    lead: '시험용 여행 하나를 만들어 서버까지 보냈다가 지우고 흔적까지 확인한 뒤 스스로 치웁니다. 기존 기록은 건드리지 않아요.',
+    probe: roundTripProbe,
+  },
+  {
+    id: 'trash',
+    icon: '🗑️',
+    label: '저장·삭제·휴지통',
+    hint: '지운 것을 되살릴 수 있나',
+    lead: '휴지통을 모든 기기가 같이 보는지, 되살렸을 때 자료가 온전히 돌아오는지 봅니다. 읽기 전용이라 아무것도 지우지 않아요.',
+    probe: trashProbe,
+  },
+  {
+    id: 'backup',
+    icon: '🗄️',
+    label: '백업 신선도',
+    hint: '이 손에 있는 사본이 있나',
+    lead: '클라우드와 별개로, 이 기기 밖으로 받아 둔 백업 파일이 얼마나 최근인지 봅니다.',
+    probe: backupProbe,
   },
 ];
 

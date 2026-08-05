@@ -9,7 +9,9 @@ import { initTheme } from './ui/theme';
 import { db } from './offline/db';
 import { installErrorLog } from './app/errorLog';
 import { installAutoSync } from './services/autoSync';
-import { wireShellAuthReturn } from './services/auth';
+import { wireShellAuthReturn, currentUser } from './services/auth';
+import { isConfigured } from './services/supabase/client';
+import { canViewLocalRecords } from './domain/authGate';
 
 // 런타임 오류를 앱이 스스로 모은다 — 개발자가 볼 수 없는 영역에 낸 창(진단 도구).
 // 가장 먼저 설치해야 이후 초기화에서 나는 오류도 잡힌다.
@@ -55,10 +57,25 @@ const root: HTMLElement = appEl;
 // 로컬 DB 오픈(오프라인 우선). 실패해도 앱은 뜬다.
 db().open().catch((e) => console.warn('IndexedDB 열기 실패:', e));
 
+/**
+ * 로그아웃(클라우드 모드) 중엔 딥링크(`/trip/<id>` 북마크·뒤로가기)로도 이 기기의 로컬 여행이
+ * 안 보이게 한다 — 홈 화면 잠금(signedOutLockState, home.ts)과 **같은 경계**다. 홈만 가려도
+ * 이 라우트가 그대로 열려 있으면 그 자체로 우회로가 된다.
+ */
+async function guardTripDetail(): Promise<boolean> {
+  // 🔴 홈 화면 잠금과 **같은 함수**로 판정한다(domain/authGate.ts). 손으로 두 번 쓰면
+  //    한쪽만 고쳐져 다른 쪽이 우회로가 된다 — M-0102가 정확히 그 형태였다.
+  if (!isConfigured()) return canViewLocalRecords(false, false);
+  return canViewLocalRecords(true, (await currentUser()) !== null);
+}
+
 const router: ReturnType<typeof createRouter> = createRouter((route: Route, param?: string) => {
   switch (route) {
     case 'trip-detail':
-      renderTripDetail(root, param ?? '', router.navigate);
+      void guardTripDetail().then((allowed) => {
+        if (allowed) renderTripDetail(root, param ?? '', router.navigate);
+        else router.navigate('home');
+      });
       break;
     case 'home':
     default:

@@ -5,7 +5,9 @@
 // sync_queue가 그 대기열이며, 유실되지 않는다.
 
 import { db, type LocalTrip, type SyncQueueItem, type PurgedId } from '../offline/db';
-import { purgeMarks, purgeOpType, type PurgeDomain } from './purge';
+import { purgeMarks, purgeOpType, ensureLocalTombstone, fetchServerDomainEntities, type PurgeDomain } from './purge';
+import type { JourneyClient } from './supabase/client';
+import { compareInstants } from '../domain/time';
 
 function uuid(): string {
   return crypto.randomUUID();
@@ -317,11 +319,31 @@ export async function restoreTripLocalFirst(id: string, children: TripChildren):
   return back;
 }
 
-/** 휴지통 — 삭제(tombstone)된 여행 목록. 최근 삭제 먼저. */
+/** 휴지통 — 삭제(tombstone)된 여행 목록. 최근 삭제 먼저. 이 기기의 로컬 기록 기준(오프라인 폴백). */
 export async function listDeletedTrips(): Promise<LocalTrip[]> {
   const d = db();
   const all = await d.localTrips.orderBy('updatedAt').reverse().toArray();
   return all.filter((t) => t.deletedAt !== null);
+}
+
+/**
+ * 🔴 **서버가 지금 아는 삭제된 여행을 그대로 보여준다**(2026-08-05 · 사용자 결정 —
+ * "휴지통 개념을 아예 서버로 확정짓자, 절대절대절대 기기끼리 내용이 다르면 안 됩니다").
+ * `services/trash.ts`의 `listTrashedChildrenFromServer`와 **같은 계약**: 로컬 Dexie에
+ * 아무것도 쓰지 않는 표시 전용 조회이고, 실패(오프라인 등)하면 `null`을 돌려 호출부가
+ * `listDeletedTrips()`(로컬)로 내려가되 그 사실을 사용자에게 밝히게 한다.
+ */
+export async function listDeletedTripsFromServer(client: JourneyClient): Promise<LocalTrip[] | null> {
+  const rows = await fetchServerDomainEntities<LocalTrip>('trip', client);
+  if (!rows) return null;
+  return rows
+    .filter((t) => t.deletedAt !== null)
+    .sort((a, b) => compareInstants(b.updatedAt, a.updatedAt) ?? 0);
+}
+
+/** 서버판 목록의 여행을 복원·영구삭제하려면 먼저 이 기기에 채운다(멱등 — 이미 있으면 그대로 둔다). */
+export async function prepareTripForAction(id: string, client: JourneyClient): Promise<boolean> {
+  return ensureLocalTombstone('trip', id, client);
 }
 
 /**
