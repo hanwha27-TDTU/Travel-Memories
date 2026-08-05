@@ -103,6 +103,16 @@ describe('판정 문장 — 한정을 생략하지 않는다(§7-C)', () => {
     expect(fileRealityHeadline(IN())).toContain('이 기기');
   });
 
+  it('🔴 조사가 맞는다 — 실기기에 「71개**이** 모두 성해요」가 나갔다(M-0110)', () => {
+    // 🔴 **문장 전체를 잠근다.** 옛 검사는 `toContain('모두 성해요')`만 봐서 조사 오류를
+    //    통째로 지나쳤다 — 조각만 재면 그 조각 밖은 안 재는 것이다(§4).
+    expect(fileRealityHeadline(IN())).toBe('이 기기의 사진·소리 12개가 모두 성해요');
+  });
+
+  it('개수가 바뀌어도 조사는 「가」다(단위가 「개」인 한)', () => {
+    expect(fileRealityHeadline(IN({ photo: K({ rows: 69 }) }))).toBe('이 기기의 사진·소리 71개가 모두 성해요');
+  });
+
   it('비어 있는 것과 열리지 않는 것을 **나눠** 말한다', () => {
     const s = fileRealityHeadline(IN({ photo: K({ empty: 2 }), sweep: { at: 'x', checked: 12, failed: ['z'], totalAtRun: 12 } }));
     expect(s).toContain('비어 있는 것 2개');
