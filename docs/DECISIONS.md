@@ -5,6 +5,13 @@
 
 ---
 
+## ADR-0047 · **비공개 저장소를 유지하고 GitHub Advanced Security는 구매하지 않는다**
+- 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-08-05
+- **배경**: T-009(BACKLOG)는 비공개 저장소에서 CodeQL·Secret Scanning API가 `Advanced security has not been purchased`(422)로 거절된다는 실측(저장소 전수감사, 2026-08-04)에서 열렸다. 선택지는 둘이었다: ① GitHub Advanced Security 구매 ② 저장소를 공개로 전환.
+- **결정**: 사용자가 두 선택지를 모두 기각하고 **비공개 유지·미구매**를 확정했다. 개인 여행기록(사진·GPS·비용 등 §0 비공개 기본 원칙)을 다루는 저장소라 공개 전환은 북극성과 어긋나고, 유료 기능 구매도 하지 않는다.
+- **잔여 위험·완화**: CodeQL·Secret Scanning 없이도 기존 방어층은 유지한다 — custom secret-leak 게이트(`check-secret-leak`), Dependabot(취약점+보안 업데이트), `npm audit --audit-level=high`(CI 필수), 모든 GitHub Action commit SHA 고정(`check-workflow-pins`). 이 넷이 미구매의 대가를 완화하는 층이다.
+- **기각**: 저장소 공개 전환(개인정보 저장소라 §0 위반) · Advanced Security 구매(사용자 결정으로 배제).
+
 ## ADR-0046 · **태블릿 감상용 WebP를 사진의 클라우드 정본으로 삼고 로컬 원본 복사본은 검증 뒤 정리한다**
 - 유형: `[user-decided]` · AI: Codex · 날짜: 2026-08-04
 - **사용자 현실**: 사진을 앱에 넣은 직후 갤러리 원본을 삭제한다. 인화·TV 감상은 하지 않고 최대 태블릿 감상이므로 동일 입력 파일 보존보다 앱 클라우드에 안전하게 남는 표시본과 로컬 용량 회수가 중요하다.
