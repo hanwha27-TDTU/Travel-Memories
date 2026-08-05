@@ -238,6 +238,34 @@ describe('canonical 소비 기기', () => {
     expect(await local?.displayBlob.text()).toBe('server-bytes');
     expect(local?.storagePath).toBe(`${USER}/new.webp`);
   });
+
+  // 🔴 M-0101(2026-08-05, 실사용자 계정) — 죽은 휴지통 사진 하나가 **새 기기 전체를 0건으로
+  // 만들었다.** M-0100(첫 push 전 삭제)이 서버에 남긴 storage_path-없는-바이트 tombstone
+  // 행이, 이 소비 경로(`materializeMedia`)에서는 활성/휴지통 구분 없이 다운로드 실패 시
+  // 무조건 throw했다. 그 결과 `replaceLocalSnapshot` 전체가 시작도 못 하고, 완전히 새로
+  // 로그인한 기기가 트립 8개짜리 계정에서 **0개**를 받았다 — "동기화됨"이라고 표시하면서.
+  it('🔴 M-0101 — tombstone 사진의 바이트가 없어도 최종본 전체를 막지 않는다', async () => {
+    const deadMediaId = '88888888-8888-4888-8888-888888888888';
+    const deadMedia: MediaRow = {
+      id: deadMediaId, user_id: USER, moment_id: MOMENT_ID, trip_id: SERVER_ID,
+      storage_path: `${USER}/trip/dead__88888888888848888888888888888888.webp`, gps_lat: null, gps_lng: null,
+      width: 100, height: 100, taken_at: null, bytes_display: 10, source: 'user', version: 2, base_version: 2,
+      base_canonical_version: VERSION, created_at: '2026-08-01T00:00:00.000Z',
+      updated_at: '2026-08-02T00:00:00.000Z', deleted_at: '2026-08-02T00:00:00.000Z', client_operation_id: null,
+    };
+
+    await ensureCanonicalBeforeSync(
+      fakeRemote({ version: VERSION, trips: [tripRow()], media: [deadMedia], downloadError: 'R2 GET 404' }),
+      USER,
+    );
+
+    // 트립은 정상적으로 최종본에 반영됐다(옛 코드는 여기가 db().localTrips.count() === 0이었다).
+    expect(await db().localTrips.get(SERVER_ID)).toBeDefined();
+    const local = await db().localMedia.get(deadMediaId);
+    expect(local).toBeDefined();
+    expect(local?.bytesMissing).toBe(true);
+    expect(local?.displayBlob.size).toBe(0);
+  });
 });
 
 describe('canonical 게시 기기', () => {

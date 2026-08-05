@@ -4,6 +4,16 @@
 
 ---
 
+## HANDOFF-0084 · **릴리스 대기 — M-0101 죽은 tombstone 사진이 신규 기기 온보딩을 전멸시킴** (2026-08-05)
+
+- **사용자 신고**: 같은 기기의 Android 앱(8개 여행)과 Chrome 브라우저(5개 여행)가 서로 다른 개수를 보였다. 로그아웃·재로그인·사이트 데이터 완전 삭제까지 시켜 재현했다.
+- **결정적 시험**: 사용자가 직접 Chrome 사이트 데이터를 지우고 재로그인 — 완전히 새 기기 상태에서 서버의 활성 여행 8개 중 **0개**를 받았다("동기화됨" 표시와 함께). 서버는 8개 모두 정상 보유(SQL로 직접 확인, 데이터 손실 아님).
+- **근본 원인(M-0101)**: `ensureCanonicalBeforeSync`의 신규 기기 최초 진입 경로(`replaceLocalSnapshot`)가 모든 미디어 바이트를 먼저 전부 받아야 하는데, M-0100이 서버에 남긴 tombstone 사진 하나의 죽은 R2 경로가 `materializeMedia`에서 throw해 트립·순간·장소·비용을 포함한 전체 최종본 반영을 막았다. 홈 화면 배지는 `pendingSyncCount()===0`만 보고 실제 동기화 실패 상태(`syncStatus().phase`)를 확인하지 않아 실패가 완전히 숨었다.
+- **수정**: `materializeMedia`/`materializeAudio`가 활성/휴지통을 구분한다 — 활성 자료는 여전히 실패 시 전체를 멈추고(기존 계약 유지), tombstone은 `bytesMissing:true`로 정직하게 적고 계속 진행한다(ADR-0029). 홈 배지는 동기화 실패를 pending 여부보다 먼저 확인해 실제 에러를 보여준다.
+- **비공허·검증**: `tests/unit/canonicalSync.test.ts`에 실사용 사고를 그대로 재현하는 유닛을 추가해 수정 전 RED(트립도 0건으로 죽음)를 확인한 뒤 고쳤다. 기존 "활성 사진 실패 시 전체 중단" 유닛은 그대로 통과(회귀 없음). build·전체 harness 49종(함수 길이 래칫 조정 포함)·유닛·editor live·diagnostics live 모두 PASS.
+- **아직 남은 것**: 서버에 M-0100이 남긴 tombstone 사진 13장(바이트 없음)이 여전히 존재한다. 이번 수정으로 더 이상 온보딩을 막지 않지만, 사용자가 휴지통에서 두 임시 순간을 완전삭제하면 깔끔해진다(사용자 결정 대기).
+- **릴리스 상태**: 비긴급 수정이나 심각도가 높아 우선 커밋한다. v1.75를 유지하고 다음 기능 릴리스 묶음에 포함한다.
+
 ## HANDOFF-0083 · **릴리스 대기 — M-0100 첫 push 전 삭제 사진 바이트 누락 수정** (2026-08-05)
 
 - **사용자 신고**: 실사용 계정에서 「동기화 상태」 진단이 특정 사진의 R2 내려받기 실패(404)를 반복 보고했다. `hanwha27@gmail.com` 계정의 Supabase(Travel&Accounting) 서버 행을 읽기 전용으로 대조해 원인을 좁혔다.
@@ -198,7 +208,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.75<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->175<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->92<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.75<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->175<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->93<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

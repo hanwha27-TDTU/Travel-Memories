@@ -744,4 +744,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '서버 데이터를 읽기 전용으로 대조해, 문제의 사진이 사용자가 PC에서 순간을 만든 지 16~33초 만에 그 순간째 지운 임시 순간(총 14장)의 것이고 최종 남긴 사진은 태블릿에서 만든 별개 사진이라 정상임을 확인했다. 근본 원인은 `mustUploadBytes`가 「옛 키 형식 행 보호」를 브랜드뉴 미착지 행에도 똑같이 적용해, 첫 push 전에 지워지면 R2 PUT은 건너뛰면서도 서버에 바이트 없는 storage_path를 적히는 것이었다(M-0100).',
     decision: '**`baseVersion===0`(서버 착지 이력 없음)일 때는 사진도 「경로 기억 없음=올라간 적 없음」으로 해석해 업로드한다.** 사용자가 휴지통에서 두 임시 순간을 직접 완전삭제했다. 수정 전 RED 3건(순수 판정 2 + 통합 1)을 확인한 뒤 고쳤고, 전체 harness 49종·유닛·editor live·diagnostics live 모두 PASS. 비긴급 수정이라 v1.75를 유지하고 다음 기능 릴리스에 묶는다.',
   },
+  {
+    seq: 93,
+    date: '2026-08-05',
+    topic: '같은 기기, 두 표면, 다른 여행 개수 — 신규 기기 온보딩이 조용히 전멸했다',
+    human: '같은 기기의 Android 앱은 여행 8개, Chrome 브라우저는 5개를 보였다. 재로그인해도 그대로였고, "동기화 버튼을 이미 눌러봤는데 결과가 같다"고 알렸다. 사이트 데이터를 지우고 재로그인하는 결정적 시험도 직접 수행했다.',
+    ai: '서버는 8개 모두 정상 보유함을 SQL로 확인했다. 완전히 새 기기 상태로 재로그인한 결과 0개를 받는 것을 확인해 재현 가능한 코드 결함으로 확정했다. `ensureCanonicalBeforeSync`의 신규 기기 최초 진입 경로가 미디어 바이트를 전부 받아야 하는데, M-0100이 남긴 tombstone 사진 하나의 죽은 경로가 `materializeMedia`에서 throw해 트립을 포함한 전체 최종본 반영을 막았다(M-0101). 홈 배지는 pending count만 보고 실제 실패 상태를 확인하지 않아 "동기화됨"으로 거짓 표시됐다.',
+    decision: '**활성 자료는 바이트 실패 시 여전히 전체를 멈추고, tombstone은 `bytesMissing:true`로 최선노력 진행한다.** 홈 배지는 `syncStatus().phase===\'failed\'`를 pending 여부보다 먼저 확인한다. 수정 전 RED(트립도 0건)를 재현한 유닛을 추가한 뒤 고쳤다. build·전체 harness 49종·유닛·editor live·diagnostics live 모두 PASS.',
+  },
 ];

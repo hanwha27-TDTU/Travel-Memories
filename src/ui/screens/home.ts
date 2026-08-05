@@ -21,7 +21,7 @@ import {
   isAllowedUser,
   type SessionUser,
 } from '../../services/auth';
-import { requestSync } from '../../services/autoSync';
+import { requestSync, syncStatus as syncEngineStatus } from '../../services/autoSync';
 import { el, setNote, type NoteAction } from '../dom';
 // 보조 화면은 반드시 lazyScreens를 거친다(정적 import 금지 — check-lazy-screens).
 import { openDiagnosticsHub, openDataManager, openAboutApp } from '../lazyScreens';
@@ -372,6 +372,42 @@ function buildPeriodUi(): PeriodUi {
   };
 }
 
+// 정상(동기화됨)은 조용하게, 알아둘 것·문제는 눈에 띄게(setNote 위계).
+//
+// 목적지(§7 — 갈 곳이 있는 상태에 전부 걸었는가):
+//  · 실패           → 「동기화 상태」. 진짜 에러 메시지가 거기 있다.
+//  · 대기 N건       → 「동기화 상태」. 거기에 [지금 동기화]가 있다. 사용자가 요청한 자리.
+//  · 로컬 저장 모드 → 「환경·기능」. 왜 서버로 안 가는지는 환경이 답한다.
+//  · 로그인 안내    → **목적지 없음.** 조치 버튼([로그인])이 이 화면 헤더에 이미 있다 —
+//                    진단으로 보내면 오히려 멀어진다.
+//  · 동기화됨(ok)   → **목적지 없음.** 정상은 침묵이어야 한다(진단 §5.1). 여기에 알약과
+//                    셰브론을 붙이면 아무 할 일 없는 상태가 화면에서 제일 시끄러워진다.
+//
+// 🔴 M-0101(2026-08-05) — 예전엔 여기가 `pending > 0`만 봤다. 그러면 **보낼 게 없어서
+// 조용한 것**과 **최근 동기화가 실제로 실패했지만 보낼 것도 없어서 조용한 것**이 같은
+// "☁️ 동기화됨"으로 보였다 — 로그인은 됐는데 pull이 계속 실패하는 계정이 정상처럼
+// 표시됐다. 실패는 pending 여부와 무관하게 먼저 본다.
+function renderSyncNote(status: HTMLElement, pending: number, user: SessionUser | null): void {
+  const toSync: NoteAction = { go: () => void openDiagnosticsHub('sync'), label: '동기화 상태 열기' };
+  const engine = syncEngineStatus();
+  if (!isConfigured()) {
+    setNote(status, `📴 로컬 저장 모드 · 대기 ${pending}건`, 'info', {
+      go: () => void openDiagnosticsHub('environment'),
+      label: '환경·기능 열기',
+    });
+  } else if (user) {
+    if (engine.phase === 'failed') {
+      setNote(status, `⚠️ 최근 동기화 실패: ${engine.lastError ?? '원인 미상'}`, 'error', toSync);
+    } else if (pending > 0) {
+      setNote(status, `☁️ 동기화 대기 ${pending}건`, 'info', toSync);
+    } else {
+      setNote(status, '☁️ 동기화됨', 'ok', null);
+    }
+  } else {
+    setNote(status, `🔒 로그인하면 기기 간 동기화 · 로컬 대기 ${pending}건`, 'info', null);
+  }
+}
+
 export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   if (unsubscribeAuth) {
     unsubscribeAuth();
@@ -541,27 +577,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
     } else {
       shown.forEach((t, i) => list.appendChild(tripCard(t, i, navigate, deleteTrip)));
     }
-    // 정상(동기화됨)은 조용하게, 알아둘 것·문제는 눈에 띄게(setNote 위계).
-    //
-    // 목적지(§7 — 갈 곳이 있는 상태에 전부 걸었는가):
-    //  · 대기 N건      → 「동기화 상태」. 거기에 [지금 동기화]가 있다. 사용자가 요청한 자리.
-    //  · 로컬 저장 모드 → 「환경·기능」. 왜 서버로 안 가는지는 환경이 답한다.
-    //  · 로그인 안내    → **목적지 없음.** 조치 버튼([로그인])이 이 화면 헤더에 이미 있다 —
-    //                    진단으로 보내면 오히려 멀어진다.
-    //  · 동기화됨(ok)  → **목적지 없음.** 정상은 침묵이어야 한다(진단 §5.1). 여기에 알약과
-    //                    셰브론을 붙이면 아무 할 일 없는 상태가 화면에서 제일 시끄러워진다.
-    const toSync: NoteAction = { go: () => void openDiagnosticsHub('sync'), label: '동기화 상태 열기' };
-    if (!isConfigured()) {
-      setNote(status, `📴 로컬 저장 모드 · 대기 ${pending}건`, 'info', {
-        go: () => void openDiagnosticsHub('environment'),
-        label: '환경·기능 열기',
-      });
-    } else if (user) {
-      if (pending > 0) setNote(status, `☁️ 동기화 대기 ${pending}건`, 'info', toSync);
-      else setNote(status, '☁️ 동기화됨', 'ok', null);
-    } else {
-      setNote(status, `🔒 로그인하면 기기 간 동기화 · 로컬 대기 ${pending}건`, 'info', null);
-    }
+    renderSyncNote(status, pending, user);
   }
 
   // 2단 몸통: 왼쪽 기간 트리 | 오른쪽 목록. DOM 순서 = 논리 순서(입력 → 필터 → 목록)라

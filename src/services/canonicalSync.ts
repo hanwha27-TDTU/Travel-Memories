@@ -247,6 +247,35 @@ async function readStableSnapshot(remote: CanonicalRemote, expected: string): Pr
   return snapshot;
 }
 
+/**
+ * 🔴 M-0101(2026-08-05) — 죽은 tombstone 사진 하나가 새 기기 전체 최종본 소비를 막았다.
+ * `materializeMedia`/`materializeAudio`가 바이트 다운로드 실패를 활성/휴지통 구분 없이
+ * throw했고, `replaceLocalSnapshot`은 모든 미디어를 먼저 다 받아야 트립 하나라도 반영한다
+ * (line 383+ 트랜잭션). M-0100이 서버에 남긴 storage_path-없는-바이트 tombstone 행 하나가
+ * 계정 전체(트립 8개)를 새 기기에서 0건으로 만들었다 — "동기화됨"이라 표시하면서.
+ *
+ * 활성 자료는 여전히 막는다(기존 계약 유지 — 활성 사진이 안 보이는 채로 최종본을 받으면
+ * 그게 더 나쁜 거짓이다). tombstone만 최선노력으로 낮춘다: ADR-0029가 이미 "휴지통 바이트는
+ * 있으면 좋고 없어도 자료구조는 온전해야 한다"고 정했으므로, 빈 자리를 `bytesMissing`으로
+ * **정직하게 적고**(추측이 아니라 확인한 사실 — M-0059와 같은 규율) 계속 진행한다.
+ */
+async function fetchOrMissing(
+  remote: CanonicalRemote,
+  storagePath: string | null | undefined,
+  deletedAt: string | null,
+  entityLabel: string,
+  id: string,
+): Promise<{ data: Blob | null; missing: boolean }> {
+  if (storagePath) {
+    const dl = await remote.download(storagePath);
+    if (!dl.error && dl.data) return { data: dl.data, missing: false };
+    if (deletedAt === null) throw new Error(`${entityLabel} ${id} 다운로드 실패: ${dl.error ?? '빈 응답'}`);
+    return { data: null, missing: true };
+  }
+  if (deletedAt === null) throw new Error(`${entityLabel} ${id}: 최종본에 바이트 경로가 없습니다.`);
+  return { data: null, missing: true };
+}
+
 async function materializeMedia(rows: MediaRow[], remote: CanonicalRemote, version: string): Promise<LocalMedia[]> {
   const d = db();
   const local = new Map((await d.localMedia.toArray()).map((x) => [x.id, x]));
@@ -255,14 +284,16 @@ async function materializeMedia(rows: MediaRow[], remote: CanonicalRemote, versi
     const server = fromMediaRow(row);
     const old = local.get(server.id);
     let display = old?.storagePath === server.storagePath ? old.displayBlob : undefined;
+    let bytesMissing = false;
     if (!display || display.size === 0) {
-      if (!server.storagePath) throw new Error(`사진 ${server.id}: 최종본에 표시본 경로가 없습니다.`);
-      const dl = await remote.download(server.storagePath);
-      if (dl.error || !dl.data) throw new Error(`사진 ${server.id} 다운로드 실패: ${dl.error ?? '빈 응답'}`);
-      display = dl.data;
+      const fetched = await fetchOrMissing(remote, server.storagePath, server.deletedAt, '사진', server.id);
+      bytesMissing = fetched.missing;
+      display = fetched.data ?? new Blob([], { type: 'image/webp' });
     }
     let thumb = display;
-    try { thumb = (await compressForStorage(display)).thumb.blob; } catch { /* 표시본 폴백 */ }
+    if (!bytesMissing) {
+      try { thumb = (await compressForStorage(display)).thumb.blob; } catch { /* 표시본 폴백 */ }
+    }
     const sameObject = old?.storagePath === server.storagePath;
     out.push({
       id: server.id,
@@ -285,6 +316,7 @@ async function materializeMedia(rows: MediaRow[], remote: CanonicalRemote, versi
       createdAt: server.createdAt,
       updatedAt: server.updatedAt,
       deletedAt: server.deletedAt,
+      ...(bytesMissing ? { bytesMissing: true as const } : {}),
       // canonical 소비 뒤 표시본이 편집 기준이다. 옛 원본 좌표계의 editState는 승계하지 않는다.
       ...(server.clientOperationId ? { clientOperationId: server.clientOperationId } : {}),
     });
@@ -300,11 +332,11 @@ async function materializeAudio(rows: AudioRow[], remote: CanonicalRemote, versi
     const server = fromAudioRow(row);
     const old = local.get(server.id);
     let blob = old?.storagePath === server.storagePath ? old.blob : undefined;
+    let bytesMissing = false;
     if (!blob || blob.size === 0) {
-      if (!server.storagePath) throw new Error(`소리 ${server.id}: 최종본에 바이트 경로가 없습니다.`);
-      const dl = await remote.download(server.storagePath);
-      if (dl.error || !dl.data) throw new Error(`소리 ${server.id} 다운로드 실패: ${dl.error ?? '빈 응답'}`);
-      blob = dl.data;
+      const fetched = await fetchOrMissing(remote, server.storagePath, server.deletedAt, '소리', server.id);
+      bytesMissing = fetched.missing;
+      blob = fetched.data ?? new Blob([], { type: 'audio/webm' });
     }
     out.push({
       id: server.id,
@@ -321,6 +353,7 @@ async function materializeAudio(rows: AudioRow[], remote: CanonicalRemote, versi
       createdAt: server.createdAt,
       updatedAt: server.updatedAt,
       deletedAt: server.deletedAt,
+      ...(bytesMissing ? { bytesMissing: true as const } : {}),
       ...(server.clientOperationId ? { clientOperationId: server.clientOperationId } : {}),
     });
   }
