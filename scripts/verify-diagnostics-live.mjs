@@ -424,12 +424,32 @@ if (toolNames.length === 0) {
     grouping.asks === grouping.groups.length,
     `설명 ${grouping.asks}/${grouping.groups.length}`,
   );
-  // 🔴 「없어야 할 때 없는가」가 아니라 **「있어야 할 때 있는가」**다: 지금 「파일 실물」은
-  // 도구가 없고, 그 자리가 조용히 사라지면 사용자도 다음 개발자도 검사된 줄 안다.
+  // 🔴 **이 케이스는 뒤집혔다**(v1.81 · §11 ②). 처음엔 *"빈 단계가 하나 이상 있고 설명이 붙는다"*를
+  // 잠갔는데, 그건 **「파일 실물」이 비어 있던 그때의 사실**이었다. T-010·T-011로 그 구멍을 메우자
+  // 빈 단계가 0이 되어 검사가 RED로 떴다 — 앱은 옳고 검사가 옛 전제를 들고 있었다.
+  // **통과시키려고 코드를 되돌리지 않는다. 케이스를 뒤집는다.**
+  //
+  // 지금 잠그는 것은 **불변식**이다: *모든 단계는 도구 카드를 갖거나, 왜 비었는지 말한다.*
+  // 빈 단계가 다시 생겨도(새 단계 추가·도구 제거) 이 문장은 그대로 참이고, 그때 설명이 없으면
+  // 잡힌다. 단계 0개면 공허하므로 그것도 함께 막는다(§4 — 검사는 대상 확보를 먼저 판정한다).
+  const stageShape = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-diag-group]')].map((h) => {
+      let cards = 0;
+      let note = '';
+      for (let el = h.nextElementSibling; el && !el.hasAttribute('data-diag-group'); el = el.nextElementSibling) {
+        cards += el.querySelectorAll('.guide-card-diag').length;
+        if (el.classList.contains('diag-group-empty')) note = el.textContent ?? '';
+      }
+      return { group: h.getAttribute('data-diag-group'), cards, note };
+    }),
+  );
+  const silentHoles = stageShape.filter((s) => s.cards === 0 && !s.note.includes('도구가 없어요'));
   check(
-    '🔴 A⑧ 도구가 없는 단계는 **자리를 남기고 왜 비었는지** 말한다(§8 — 빈 자리를 지우지 않는다)',
-    grouping.empty.length > 0 && grouping.empty.every((t) => t.includes('도구가 없어요')),
-    grouping.empty.join(' | ') || '(빈 단계 설명 없음)',
+    '🔴 A⑧ 모든 단계가 **도구를 갖거나, 왜 비었는지 말한다**(§8 — 빈 자리를 조용히 지우지 않는다)',
+    stageShape.length >= 8 && silentHoles.length === 0,
+    silentHoles.length
+      ? `설명 없는 빈 단계: ${silentHoles.map((s) => s.group).join(', ')}`
+      : `단계 ${stageShape.length}개 · 빈 단계 ${stageShape.filter((s) => s.cards === 0).length}개(전부 이유 있음)`,
   );
 }
 
@@ -601,6 +621,124 @@ if (firstTool) {
 } else {
   check('C⑥ 이하 — 도구를 못 열어 재지 못함(공허 통과 방지)', false, '허브에서 도구를 찾지 못했다');
 }
+
+// ── E층 v1.81: 🖼️ 「파일 실물」의 [열어 보기]를 **실제 앱에서 진짜로 누른다**(§13 4항) ──
+//
+// 🔴 이 버튼을 실제로 누르는 것이 안전한 이유: **읽기 전용**이다. 바이트를 디코드해 보기만
+// 하고 Dexie에 쓰지 않는다 — 사용자의 실제 기억을 담은 기기에서 돌아도 아무것도 잃지 않는다.
+// (파괴적 버튼이면 §13 4항에 따라 「행동 목록이 만들어지는지」까지만 재야 한다.)
+//
+// 「그리는 것」과 「도는 것」은 다른 층이다 — M-0046·M-0048은 둘 다 **버튼이 결함**이었는데
+// 그때 라이브는 라벨만 읽고 있었다.
+// 🔴 **진짜 파일을 심는다.** 첫 판은 빈 브라우저에서 눌러 「0개를 열어 봤고 전부 열렸어요」가
+// 나왔다 — 버튼은 돌았지만 **디코드 로직은 한 번도 안 돌았다.** 그건 공허한 검사다(§4).
+// 성한 사진 하나와 **일부러 깨뜨린** 사진 하나를 넣어 「깨진 것을 실제로 잡는가」를 잰다.
+const seeded = await page.evaluate(async () => {
+  // 성한 바이트는 캔버스로 만든다 — 브라우저가 스스로 인코딩하므로 반드시 디코드된다.
+  const cv = document.createElement('canvas');
+  cv.width = 8;
+  cv.height = 8;
+  const good = await new Promise((r) => cv.toBlob((b) => r(b), 'image/webp'));
+  // 깨진 바이트: 형식은 사진이라고 주장하지만 내용이 사진이 아니다. 크기는 0이 아니므로
+  // **크기만 보는 검사로는 못 잡는다** — 그게 이 도구가 존재하는 이유다.
+  const bad = new Blob([new Uint8Array([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4])], { type: 'image/webp' });
+  const now = new Date().toISOString();
+  const row = (id, blob) => ({
+    id, momentId: 'fr-live-moment', tripId: 'fr-live-trip',
+    displayBlob: blob, thumbBlob: blob, width: 8, height: 8,
+    takenAt: now, gpsLat: null, gpsLng: null, bytesOriginal: blob.size, bytesDisplay: blob.size,
+    version: 1, baseVersion: 0, createdAt: now, updatedAt: now, deletedAt: null,
+    clientOperationId: `fr-live-${id}`,
+  });
+  await new Promise((ok, no) => {
+    const q = indexedDB.open('journey-archive');
+    q.onsuccess = () => {
+      const tx = q.result.transaction('localMedia', 'readwrite');
+      tx.objectStore('localMedia').put(row('fr-live-good', good));
+      tx.objectStore('localMedia').put(row('fr-live-bad', bad));
+      tx.oncomplete = ok;
+      tx.onerror = () => no(tx.error);
+    };
+    q.onerror = () => no(q.error);
+  });
+  return good.size > 0;
+});
+check('E⓪ 픽스처 주입(성한 사진 1 · 깨진 사진 1) — 크기는 둘 다 0이 아니다', seeded, `good.size>0=${seeded}`);
+
+await openDiagnosticsHub(page);
+const fileCard = page.locator('.guide-card-diag[data-tool="파일 실물"]');
+const hasFileTool = (await fileCard.count()) === 1;
+check('E① 🖼️ 「파일 실물」 도구가 허브에 있다(T-010·T-011로 빈 단계를 메웠다)', hasFileTool, `카드 ${await fileCard.count()}개`);
+if (hasFileTool) {
+  await fileCard.click();
+  await page.waitForSelector('.vd-metric-top', { timeout: 10000 }).catch(() => {});
+  const before = await page.evaluate(() => document.body.innerText);
+  check(
+    '🔴 E② 안 열어 봤으면 **정상이라고 하지 않는다**(안 해 본 것을 ok로 반올림 금지 · §8)',
+    before.includes('아직 안 열어 봤어요') || before.includes('열어 봄'),
+    before.includes('아직 안 열어 봤어요') ? '아직 안 열어 봤어요' : '(이미 스윕 기록이 있음)',
+  );
+  check(
+    '🔴 E③ 시야의 경계를 **판정 옆에서** 말한다(§7-C 한정 생략 — 「이 기기」라고 못박는가)',
+    before.includes('이 기기에 내려받은 바이트') && before.includes('다른 기기'),
+    before.includes('이 기기에 내려받은 바이트') ? 'ok' : '(경계 문장 없음)',
+  );
+  const sweepBtn = page.locator('[file-open-sweep]');
+  const hasBtn = (await sweepBtn.count()) === 1;
+  check('E④ [사진·소리 실제로 열어 보기] 버튼이 있다', hasBtn, `버튼 ${await sweepBtn.count()}개`);
+  if (hasBtn) {
+    await sweepBtn.click();
+    await page.waitForTimeout(2500);
+    const after = await page.evaluate(() => ({
+      text: document.body.innerText,
+      enabled: !document.querySelector('[file-open-sweep]')?.disabled,
+    }));
+    // 🔴 누른 뒤 네 가지를 잰다(§13 4항): 결과가 화면에 나오는가 · 재판정이 도는가 ·
+    //    실패를 삼키지 않는가 · 버튼이 잠기지 않는가.
+    check(
+      '🔴 E⑤ 누르면 **결과 문장이 화면에 나온다**(자료구조에만 있으면 M-0022의 행동판)',
+      /열어 봤고|열리지 않았어요/.test(after.text),
+      after.text.match(/[^\n]*열어 봤고[^\n]*|[^\n]*열리지 않았어요[^\n]*/)?.[0] ?? '(결과 문장 없음)',
+    );
+    check(
+      '🔴 E⑥ 누른 뒤 **재판정이 돈다** — 「아직 안 열어 봤어요」가 사라진다(§8)',
+      !after.text.includes('아직 안 열어 봤어요'),
+      after.text.includes('아직 안 열어 봤어요') ? '옛 판정이 그대로 남음' : '재판정됨',
+    );
+    check('E⑦ 누른 뒤에도 버튼이 다시 눌린다(잠기지 않는다)', after.enabled, `enabled=${after.enabled}`);
+    // 🔴 **여기가 이 층의 본론이다**: 크기가 0이 아닌 **깨진** 사진을 실제 디코더가 잡았는가.
+    //    「전부 열렸어요」가 나오면 이 도구는 아무것도 안 재는 것이다.
+    check(
+      '🔴 E⑧ **깨진 사진을 실제로 잡는다**(크기만 보는 검사로는 못 잡는 자리 · §4 비공허)',
+      /1개가 열리지 않았어요/.test(after.text),
+      after.text.match(/[^\n]*열리지 않았어요[^\n]*|[^\n]*전부 열렸어요[^\n]*/)?.[0] ?? '(결과 문장 없음)',
+    );
+    check(
+      '🔴 E⑨ 성한 사진은 **문제로 몰지 않는다**(오탐 차단 — 2개 중 1개만 실패)',
+      /2개 중 1개가/.test(after.text),
+      after.text.match(/\d+개 중 \d+개가/)?.[0] ?? '(개수 문장 없음)',
+    );
+    check(
+      '🔴 E⑩ 깨진 파일을 두고 **지우라고 하지 않는다**(다른 기기에 사본이 있을 수 있다 · M-0048)',
+      after.text.includes('지우지 마') && !/정리|삭제하세요/.test(after.text),
+      after.text.includes('지우지 마') ? 'ok' : '(지우지 말라는 안내 없음)',
+    );
+  }
+}
+// 뒷정리 — 심은 픽스처를 지운다(§3-C, 내 상태를 남기지 않는다).
+await page.evaluate(async () => {
+  await new Promise((ok) => {
+    const q = indexedDB.open('journey-archive');
+    q.onsuccess = () => {
+      const tx = q.result.transaction('localMedia', 'readwrite');
+      for (const id of ['fr-live-good', 'fr-live-bad']) tx.objectStore('localMedia').delete(id);
+      tx.oncomplete = ok;
+      tx.onerror = ok;
+    };
+    q.onerror = ok;
+  });
+  try { localStorage.removeItem('journey.fileReality.sweep'); } catch { /* 접근 불가 환경 */ }
+});
 
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 

@@ -18,6 +18,13 @@
 // 옛 동기화 진단 5줄 중 최상위 자격이 있는 것은 사실상 하나뿐이었다.
 
 import type { DiagGroup } from '../../domain/diagGroups';
+import {
+  fileRealityMetrics,
+  fileRealityHeadline,
+  fileRealityScopeNote,
+  type FileRealityInput,
+} from '../../domain/fileRealityVerdict';
+import { tallyLocalFiles, lastSweep, sweepOpenFiles } from '../../services/fileReality';
 import { el, downloadBlob } from '../dom';
 import {
   auditOpLessTombstones,
@@ -1999,6 +2006,74 @@ export async function sessionProbe(): Promise<Verdict> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// 🖼️ 파일 실물 — 기록이 가리키는 바이트가 **있고, 실제로 열리는가**
+// ────────────────────────────────────────────────────────────────────────────
+//
+// 경로축의 `files` 단계는 v1.76에 이름만 생기고 **도구가 하나도 없었다.** 허브가 그 자리에
+// 「아직 이 단계를 보는 도구가 없어요」를 띄우고 있었다 — 빈 자리를 숨기지 않은 덕에 이 구멍이
+// 계속 보였고(§8), 사각지대 등록부(T-010·T-011)가 이유를 들고 있었다. 이 도구가 그걸 닫는다.
+//
+// 🔴 **디코드는 probe가 아니라 행동이 한다.** 허브를 열면 `rollup()`이 모든 probe를 도는데,
+// 전수 디코드를 여기 넣으면 진단 도구가 **자기 자신을 느리게 만든다.** 존재 검사(크기만 본다)만
+// 매번 돌고, 실제로 열어 보는 것은 [열어 보기]가 하고 결과를 기억한다.
+export async function fileRealityProbe(): Promise<Verdict> {
+  const { photo, audio } = await tallyLocalFiles();
+  const input: FileRealityInput = { photo, audio, sweep: lastSweep() };
+  const metrics: Metric[] = fileRealityMetrics(input).map((m) => ({
+    label: m.label,
+    actual: m.actual,
+    expected: m.expected,
+    level: m.level,
+    ...(m.meaning ? { meaning: m.meaning } : {}),
+  }));
+  const sweep = input.sweep;
+  return {
+    level: levelFromMetrics(metrics),
+    headline: fileRealityHeadline(input),
+    // 🔴 시야의 경계를 **판정 바로 아래**에서 말한다 — 「같습니다」류 문장이 무엇을 안 봤는지
+    //    빠뜨리는 것이 이 저장소의 반복 결함이다(§7-C 한정 생략).
+    because: fileRealityScopeNote(),
+    actions: [
+      {
+        label: '사진·소리 실제로 열어 보기',
+        primary: true,
+        hook: 'file-open-sweep',
+        // 🔴 **읽기 전용이다.** 여는 것은 지우거나 고치는 것이 아니므로 라이브가 실제로 눌러도
+        //    사용자의 기억이 위험하지 않다(§13 4항의 파괴적 행동 예외에 해당하지 않는다).
+        run: async () => {
+          const s = await sweepOpenFiles();
+          return s.failed.length === 0
+            ? `${s.checked}개를 열어 봤고 전부 열렸어요.`
+            : `${s.checked}개 중 ${s.failed.length}개가 열리지 않았어요. 지우지 마시고 다른 기기를 확인해 주세요.`;
+        },
+      },
+    ],
+    metrics,
+    evidence: sweep
+      ? [
+          {
+            label: `마지막으로 열어 본 결과 (${sweep.checked}개)`,
+            build: () =>
+              table(
+                sweep.failed.length
+                  ? sweep.failed.map((id): [string, string] => [id, '열리지 않음'])
+                  : [['열리지 않은 파일', '없음']],
+                '결과를 읽지 못했어요',
+              ),
+          },
+        ]
+      : [],
+    context: [
+      { label: '이 기기의 사진 기록', value: `${photo.rows}개` },
+      { label: '이 기기의 소리 기록', value: `${audio.rows}개` },
+      // 「서버에 바이트 없음」은 **아는 사실**이지 결함이 아니다 — 지표로 또 세지 않고 맥락에 둔다.
+      { label: '서버에 바이트가 없다고 확인된 것', value: `${photo.serverMissing + audio.serverMissing}개` },
+      { label: '마지막으로 열어 본 때', value: sweep ? sweep.at : '아직 없음' },
+    ],
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // ⑫ 기기별 현황 — 내 기기들이 서로 뒤처지지 않았는가
 // ────────────────────────────────────────────────────────────────────────────
 //
@@ -2168,6 +2243,15 @@ export const CORE_TOOLS: DiagTool[] = [
     hint: '서버가 가정대로 행동하나',
     lead: '로그인 없는 접근이 실제로 막히는지, 서버가 한 번에 주는 행수가 앱의 가정과 맞는지 실제로 물어봅니다. 읽기 전용이에요.',
     probe: serverContractProbe,
+  },
+  {
+    id: 'files',
+    group: 'files',
+    icon: '🖼️',
+    label: '파일 실물',
+    hint: '사진·소리가 실제로 열리나',
+    lead: '기록이 가리키는 바이트가 이 기기에 있고, 실제로 열리는지 하나씩 확인합니다.',
+    probe: fileRealityProbe,
   },
   {
     id: 'roundtrip',
