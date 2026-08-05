@@ -1091,6 +1091,15 @@ select.zone-input { text-overflow: ellipsis; }
 .guide-group-title { font-size: 0.95rem; font-weight: 850; color: var(--ink); }
 .guide-group-hint { font-size: 0.78rem; color: var(--ink-soft); margin: 2px 0 var(--space-3); }
 .guide-card-grid { display: flex; flex-direction: column; gap: var(--space-2); }
+
+/* 진단 허브의 경로축 단계 머리 — 「어디서 끊겼나」를 위에서부터 좁히게 하는 이정표.
+   🔴 장식이 아니라 **질문**이다: 제목 아래 한 줄이 그 단계가 무엇을 묻는지 말한다. */
+.diag-group-head { margin: var(--space-3) 0 var(--space-1); }
+.diag-group-head:first-of-type { margin-top: var(--space-1); }
+.diag-group-title { margin: 0; font-size: 0.92rem; font-weight: 700; word-break: keep-all; }
+.diag-group-asks { margin: 2px 0 0; word-break: keep-all; }
+/* 도구가 아직 없는 단계 — 자리를 남기되 조용히 둔다(경고가 아니라 사실이다). */
+.diag-group-empty { margin-top: 0; word-break: keep-all; }
 .guide-card {
   display: grid; grid-template-columns: 40px minmax(0, 1fr) 16px; align-items: center; gap: var(--space-3);
   width: 100%; text-align: left; min-height: 60px; padding: var(--space-2) var(--space-3);

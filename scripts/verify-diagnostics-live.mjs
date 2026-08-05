@@ -361,6 +361,43 @@ if (toolNames.length === 0) {
   check('A③ 판정 뱃지가 **글리프와 함께** 나온다(색만으로 말하지 않는다)', noGlyph.length === 0, noGlyph.join(', '));
   check('A④ 판정 문장이 지표보다 **위**에 있다(§7 사용자 대면 대칭)', headlineBelow.length === 0, headlineBelow.join(', '));
   check('A⑤ 가로 넘침 0 (375px)', overflowed.length === 0, overflowed.join(', '));
+
+  // ── A⑥~A⑧ v1.79: **경로축 분류가 화면까지 닿았는가** ──────────────────────
+  //
+  // 🔴 이 검사가 생긴 이유: v1.76이 경로축 8단계를 만들고 인계에 「재분류했다」고 적었는데
+  // **도구에는 안 걸려 있었다.** `DIAG_GROUPS`를 src 전체에서 찾으면 자기 파일 밖에서 쓰는
+  // 곳이 하나도 없었고, 허브는 도구를 평평하게 나열하고 있었다 — M-0015의 재발이다.
+  // 게이트가 「도구마다 group이 있는가」를 묻지만, **화면에 그려지는가는 게이트가 못 본다.**
+  // 위 반복이 마지막에 [‹ 뒤로]를 눌러 **이미 허브 홈**이다 — 새로고침하면 허브가 닫혀
+  // 아무것도 못 잰다(첫 판에서 그렇게 헛디뎠다). 열려 있는 화면을 그대로 잰다.
+  await page.waitForSelector('[data-diag-group]', { timeout: 15000 });
+  const grouping = await page.evaluate(() => {
+    const heads = [...document.querySelectorAll('[data-diag-group]')];
+    return {
+      groups: heads.map((h) => h.getAttribute('data-diag-group')),
+      titles: heads.map((h) => h.querySelector('.diag-group-title')?.textContent ?? ''),
+      asks: heads.filter((h) => (h.querySelector('.diag-group-asks')?.textContent ?? '').length > 0).length,
+      // 비어 있는 단계가 **왜** 비었는지 말하는가(§8 — 빈 자리를 조용히 지우지 않는다)
+      empty: [...document.querySelectorAll('.diag-group-empty')].map((p) => p.textContent ?? ''),
+    };
+  });
+  check(
+    '🔴 A⑥ 도구가 **경로축 단계로 묶여** 그려진다(v1.76은 분류를 만들고 화면에 안 걸었다 · M-0015)',
+    grouping.groups.length >= 8 && grouping.titles.every((t) => t.length > 0),
+    `단계 ${grouping.groups.length}개: ${grouping.groups.join(' → ')}`,
+  );
+  check(
+    'A⑦ 단계마다 **무엇을 묻는 단계인지** 한 줄로 말한다(이정표가 장식이 아니다)',
+    grouping.asks === grouping.groups.length,
+    `설명 ${grouping.asks}/${grouping.groups.length}`,
+  );
+  // 🔴 「없어야 할 때 없는가」가 아니라 **「있어야 할 때 있는가」**다: 지금 「파일 실물」은
+  // 도구가 없고, 그 자리가 조용히 사라지면 사용자도 다음 개발자도 검사된 줄 안다.
+  check(
+    '🔴 A⑧ 도구가 없는 단계는 **자리를 남기고 왜 비었는지** 말한다(§8 — 빈 자리를 지우지 않는다)',
+    grouping.empty.length > 0 && grouping.empty.every((t) => t.includes('도구가 없어요')),
+    grouping.empty.join(' | ') || '(빈 단계 설명 없음)',
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

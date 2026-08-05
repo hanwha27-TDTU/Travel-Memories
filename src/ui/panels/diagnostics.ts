@@ -17,6 +17,7 @@
 //   ○ 맥락(context) = 상태가 아닌 환경 사실. (앱 버전·시간대·사진 저장소 …)
 // 옛 동기화 진단 5줄 중 최상위 자격이 있는 것은 사실상 하나뿐이었다.
 
+import type { DiagGroup } from '../../domain/diagGroups';
 import { el, downloadBlob } from '../dom';
 import {
   auditOpLessTombstones,
@@ -2054,12 +2055,23 @@ export interface DiagTool {
   hint: string;
   lead: string;
   probe: () => Promise<Verdict>;
+  /**
+   * 🔴 **기억이 지나는 길의 어느 단계인가**(`domain/diagGroups.ts`).
+   *
+   * 왜 **필수**인가: v1.76에서 경로축 8단계를 만들어 놓고 **도구에는 안 걸었다.** 분류는
+   * 사각지대 등록부에만 붙었고 사용자가 보는 목록은 평평한 채로 남았다 — M-0015
+   * (*"전파 기능을 만들어 놓고 화면에서 부르지 않음"*)의 재발이고, 인계 문서는
+   * 「재분류했다」고 적혀 있었다. 선택 필드로 뒀으면 다음 도구도 조용히 빠졌을 것이다.
+   * 필수로 두면 **누락이 컴파일 오류**가 된다(§7 2층).
+   */
+  group: DiagGroup;
 }
 
 /** 판정 롤업에 참여하는 도구 — 요약 자신은 롤업 대상이 아니다(자기참조가 된다). */
 export const CORE_TOOLS: DiagTool[] = [
   {
     id: 'storage',
+    group: 'safety',
     icon: '💾',
     label: '저장소 안전',
     hint: '브라우저가 데이터를 지울 위험',
@@ -2068,6 +2080,7 @@ export const CORE_TOOLS: DiagTool[] = [
   },
   {
     id: 'sync',
+    group: 'upload',
     icon: '🔄',
     label: '동기화 상태',
     hint: '서버와 얼마나 어긋나 있나',
@@ -2076,6 +2089,7 @@ export const CORE_TOOLS: DiagTool[] = [
   },
   {
     id: 'integrity',
+    group: 'local',
     icon: '🧷',
     label: 'ID 무결성',
     hint: '기록이 서로 앞뒤가 맞나',
@@ -2084,6 +2098,7 @@ export const CORE_TOOLS: DiagTool[] = [
   },
   {
     id: 'environment',
+    group: 'device',
     icon: '🧩',
     label: '환경·기능',
     hint: '이 기기가 갖춘 기능',
@@ -2092,6 +2107,7 @@ export const CORE_TOOLS: DiagTool[] = [
   },
   {
     id: 'store',
+    group: 'compare',
     icon: '☁️',
     label: '저장 상태 · 기기별 현황',
     hint: '클라우드와 같은가 · 어느 기기가 뒤처졌나',
@@ -2100,6 +2116,7 @@ export const CORE_TOOLS: DiagTool[] = [
   },
   {
     id: 'errors',
+    group: 'meta',
     icon: '📄',
     label: '오류 기록',
     hint: '이 세션에서 생긴 오류',
@@ -2108,6 +2125,7 @@ export const CORE_TOOLS: DiagTool[] = [
   },
   {
     id: 'fleet',
+    group: 'device',
     icon: '📱',
     label: '기기별 현황',
     hint: '내 기기들이 뒤처지지 않았나',
@@ -2116,6 +2134,7 @@ export const CORE_TOOLS: DiagTool[] = [
   },
   {
     id: 'session',
+    group: 'device',
     icon: '🔑',
     label: '세션·로그인',
     hint: '로그인이 유지되나 · 로그아웃하면 가려지나',
@@ -2124,6 +2143,7 @@ export const CORE_TOOLS: DiagTool[] = [
   },
   {
     id: 'contract',
+    group: 'contract',
     icon: '📡',
     label: '서버 계약',
     hint: '서버가 가정대로 행동하나',
@@ -2132,6 +2152,7 @@ export const CORE_TOOLS: DiagTool[] = [
   },
   {
     id: 'roundtrip',
+    group: 'upload',
     icon: '🔁',
     label: '왕복 시험',
     hint: '저장한 게 서버까지 갔다 오나',
@@ -2140,6 +2161,7 @@ export const CORE_TOOLS: DiagTool[] = [
   },
   {
     id: 'trash',
+    group: 'safety',
     icon: '🗑️',
     label: '저장·삭제·휴지통',
     hint: '지운 것을 되살릴 수 있나',
@@ -2148,6 +2170,7 @@ export const CORE_TOOLS: DiagTool[] = [
   },
   {
     id: 'backup',
+    group: 'safety',
     icon: '🗄️',
     label: '백업 신선도',
     hint: '이 손에 있는 사본이 있나',
@@ -2158,6 +2181,7 @@ export const CORE_TOOLS: DiagTool[] = [
 
 export const SUMMARY_TOOL: DiagTool = {
   id: 'summary',
+  group: 'meta',
   icon: '📋',
   label: '진단 요약 복사',
   hint: '앞의 결과를 한 번에 전달',
