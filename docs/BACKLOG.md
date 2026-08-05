@@ -18,7 +18,6 @@
 
 | ID | 과제 | 상태 | 무엇이 필요한가 | 추가일 | 근거 |
 |---|---|---|---|---|---|
-| T-008 | 운영 응답에 `frame-ancestors 'none'` 등 보안 헤더 적용 | 대기 | GitHub Pages는 사용자 지정 응답 헤더를 지원하지 않음. 헤더 지원 정적 호스트로 이전할 때 CSP 헤더·HSTS·X-Content-Type-Options를 함께 적용 | 2026-08-04 | 저장소 전수감사 · 현재는 meta CSP + no-referrer로 가능한 범위 적용 |
 | T-004 | Supabase leaked-password 보호 켜기 | 막힘-사용자 | 대시보드 Auth 설정 1회 (Google OAuth 전용·초대제라 위험 낮음) | 2026-08-03 | HANDOFF-0057 · advisor WARN |
 | T-005 | 태블릿 저장소 보호(persist) 적용 | 막힘-사용자 | 앱의 [저장소 보호 요청] 버튼 (선택 사항 — 결함 아님) | 2026-08-03 | HANDOFF-0056 진단 실측 |
 | T-007 | Phase 7 — AI 확장(요약·태그·검색·OCR, `ai_artifacts` 테이블) | 대기 | MVP 안정화 후 별도 branch (계획된 미착수) | 2026-07-22 | ROADMAP Phase 7 · 비타협 원칙 #2 |
@@ -27,6 +26,7 @@
 
 | ID | 과제 | 완료일 | 증거 |
 |---|---|---|---|
+| T-008 | 운영 응답에 `frame-ancestors 'none'` 등 보안 헤더 적용 | 2026-08-05 | **사용자 결정(ADR-0048)**: GitHub Pages 유지·헤더 지원 호스팅 이전 안 함으로 확정 — 적용 자체를 하지 않기로 종결. 잔여 완화는 meta CSP + no-referrer 유지 |
 | T-009 | 비공개 저장소 GitHub CodeQL·Secret Scanning 활성화 | 2026-08-05 | **사용자 결정(ADR-0047)**: 비공개 유지·Advanced Security 미구매로 확정 — 활성화 자체를 하지 않기로 종결. 잔여 방어층은 custom secret gate+Dependabot+npm audit+SHA pinning 유지 |
 | T-006 | 개발자 정보 표기값 확정 | 2026-08-03 | HANDOFF-0065 · **사용자 확정**("김부건 (Kim Bugeon) · Tashkent State Medical University" 채택). 화면의 값이 이미 같아 코드 변경 없음 · ASSUMPTIONS A-015/Q6 반영 |
 | T-003 | hook 기반 강제 규칙(S-09) 구현 | 2026-08-03 | HANDOFF-0064 · PreToolUse 2종(파괴적 SQL·자격증명 쓰기) + `check-hooks-wired` 게이트. 파이프 테스트 차단/통과 양방향 · 빈 hooks·죽은 참조 주입 각각 RED |

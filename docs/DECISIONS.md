@@ -5,6 +5,14 @@
 
 ---
 
+## ADR-0048 · **GitHub Pages를 유지하고 커스텀 보안 헤더(frame-ancestors 등)는 지금 적용하지 않는다**
+- 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-08-05
+- **배경**: T-008(BACKLOG)은 GitHub Pages가 `frame-ancestors 'none'`·HSTS·X-Content-Type-Options 같은 커스텀 응답 헤더를 지원하지 않는다는 실측(저장소 전수감사, 2026-08-04)에서 열렸다. 적용하려면 Cloudflare Pages·Netlify·Vercel 등 헤더 지원 호스팅으로 이전해야 한다.
+- **결정**: 사용자가 호스팅 이전을 기각하고 **GitHub Pages 유지·헤더 미적용**으로 확정했다.
+- **근거**: 이 헤더들은 인증(Google OAuth)·RLS·초대제로 이미 보호되는 앱 위에 얹는 **추가 방어층**(클릭재킹 등)이지 현재 뚫려 있는 구멍이 아니다. 배포 파이프라인 재작성·도메인 이전 비용이 그 이득보다 크다고 판단했다.
+- **잔여 완화**: HTML `<meta>` CSP + `no-referrer`는 GitHub Pages 안에서 가능한 범위까지 이미 적용돼 있다(`check-csp`). `frame-ancestors`는 meta 태그로 지정 불가한 지시어라 이 방식으로는 못 채운다 — 알려진 한계로 남긴다.
+- **기각**: 헤더 지원 호스팅으로 이전(배포 파이프라인·도메인 변경 비용 대비 이득 낮음).
+
 ## ADR-0047 · **비공개 저장소를 유지하고 GitHub Advanced Security는 구매하지 않는다**
 - 유형: `[user-decided]` · AI: Claude Code · 날짜: 2026-08-05
 - **배경**: T-009(BACKLOG)는 비공개 저장소에서 CodeQL·Secret Scanning API가 `Advanced security has not been purchased`(422)로 거절된다는 실측(저장소 전수감사, 2026-08-04)에서 열렸다. 선택지는 둘이었다: ① GitHub Advanced Security 구매 ② 저장소를 공개로 전환.
