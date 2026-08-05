@@ -131,6 +131,15 @@ export const SKILL_ROUTES = [
   { match: /^src\/domain\/authGate/, skill: 'supabase-security-dev' },
   { match: /^src\/domain\/sessionVerdict/, skill: 'diagnostics-dev' },
   { match: /^src\/domain\/deviceFleetVerdict/, skill: 'diagnostics-dev' },
+  // 🔴 첫 화면 배지 — 사용자가 앱을 열 때 **가장 먼저 읽는 문장**이다. 여기가 거짓말하면
+  // 나머지 진단은 열어 보지도 않는다(M-0101이 그 형태였다). 판정 규율은 진단 헌장,
+  // 「서버와 같은가」의 대조는 동기화 헌장이 정본이라 둘 다 읽는다.
+  { match: /^src\/domain\/syncBadgeVerdict/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/syncParity/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/syncParity/, skill: 'sync-offline-dev' },
+  // 위치관리대장 — 좌표 순서·역지오코딩은 장소 헌장 소관이다.
+  { match: /^src\/domain\/place\/registry/, skill: 'map-place-dev' },
+  { match: /^src\/ui\/screens\/placeRegistry/, skill: 'map-place-dev' },
   { match: /^src\/services\/sessionState/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/sessionState/, skill: 'supabase-security-dev' },
   { match: /^src\/services\/(sync|canonicalSync|autoSync|purge|trips|moments|media|expenses|trash)\.ts/, skill: 'sync-offline-dev' },

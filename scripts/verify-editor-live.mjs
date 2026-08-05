@@ -6,6 +6,7 @@
 //
 // @live-covers: screens/home.ts, screens/tripDetail.ts, screens/mapView.ts, screens/dataManager.ts,
 // @live-covers: screens/guide.ts, screens/mechChecks.ts, screens/designOverview.ts
+// @live-covers: screens/placeRegistry.ts
 // ↑ `check-live-coverage`가 읽는다. **여기 적은 화면은 이 스크립트가 실제로 연다** — 선언과
 //   실제가 어긋나면 게이트는 못 잡는다(정직한 한계). 화면을 더 열면 여기도 늘려라.
 // (Playwright는 devDependency가 아니므로 전역 설치본을 폴백으로 찾는다.)
@@ -250,6 +251,108 @@ while ((await page.locator('.guide-overlay').count()) > 0) {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
 }
+
+// ── v1.77: 위치관리대장 — 검색·좌표 뒤집기 미리보기가 **실제로 도는가** ──────────
+//
+// 왜 이 층인가: 좌표 순서를 틀리면 **기억이 엉뚱한 곳에 찍힌다**(M-0057에서 실제로 기니만
+// 앞바다에 찍혔다). 그 사고를 막는 장치가 「뒤집으면 여기」 미리보기인데, 그건 **화면에
+// 그려져야만** 사용자를 구한다 — 자료구조에만 있으면 M-0022의 형태다(§10 ③).
+//
+// 픽스처를 Dexie에 직접 심는다(§13 1항 — 앱에서 그 상태를 못 만들면 데이터를 넣어 실제
+// 렌더러로 그린다). 두 장소를 넣는다:
+//   · 모호한 좌표(41.3, 69.2 타슈켄트) — 뒤집어도 말이 되므로 [이걸로 바꾸기]가 **나와야** 한다
+//   · 모호하지 않은 좌표(37.5, 127.0 서울) — 뒤집으면 위도 127로 불가능하므로 **안 나와야** 한다
+// 🔴 "있어야 할 때 있는가"만 재면 절반이다. **"없어야 할 때 없는가"**를 함께 재야 공허하지 않다(§4).
+const prSeed = await page.evaluate(async () => {
+  const now = new Date().toISOString();
+  const rows = [
+    { id: 'pr-live-amb', name: '라이브검사 모호좌표', latitude: 41.3111, longitude: 69.2797 },
+    { id: 'pr-live-clear', name: '라이브검사 명확좌표', latitude: 37.5665, longitude: 127.0016 },
+  ].map((r) => ({
+    ...r, formattedAddress: null, provider: null, providerPlaceId: null,
+    countryCode: null, country: null, region: null, city: null, district: null, postcode: null,
+    category: null, memo: null, precision: null, spanMeters: null, mapPicked: false,
+    version: 1, baseVersion: 0, createdAt: now, updatedAt: now, deletedAt: null,
+    clientOperationId: `pr-live-${r.id}`,
+  }));
+  await new Promise((resolve, reject) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction('localPlaces', 'readwrite');
+      for (const r of rows) tx.objectStore('localPlaces').put(r);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+  return rows.length;
+});
+check('위치관리대장: 픽스처 주입(장소 2건)', prSeed === 2, String(prSeed));
+
+await page.locator('.data-open').click();
+await page.waitForSelector('.guide-overlay');
+await page.getByRole('button', { name: /위치관리대장/ }).click();
+await page.waitForSelector('.pr-list .pr-row', { timeout: 10000 });
+const prRows = await page.locator('.pr-row').count();
+check('위치관리대장: 목록이 그려진다', prRows >= 2, `행 ${prRows}개`);
+
+// 검색 — 한 글자로도 걸러지는가(사용자 요청: "한글자라도 동일하면")
+await page.fill('.pr-search', '모호');
+await page.waitForTimeout(200);
+const prFiltered = await page.locator('.pr-row').count();
+const prCountText = await page.locator('.pr-count').textContent();
+check('위치관리대장: 검색이 실제로 거른다', prFiltered === 1, `행 ${prFiltered}개`);
+// 🔴 「N개 찾음」만 보면 전체가 N개인 줄 안다 — 전체 수를 **함께** 말하는가(§7-C 한정 생략).
+check('위치관리대장: 찾은 수와 전체 수를 함께 말한다', /찾음.*전체/.test(prCountText ?? ''), prCountText ?? '');
+
+// 모호한 좌표 → [이걸로 바꾸기]가 **있어야** 한다
+await page.locator('.pr-row').first().locator('.pr-sum').click();
+await page.waitForTimeout(250);
+const ambSwap = await page.locator('.pr-row').first().locator('.pr-preview-swap button').count();
+const ambWhy = await page.locator('.pr-row').first().locator('.pr-preview-why').count();
+check('위치관리대장: 모호한 좌표면 [이걸로 바꾸기]가 나온다', ambSwap === 1, `버튼 ${ambSwap}개`);
+check('위치관리대장: 왜 모호한지 화면에 말한다(자료구조에만 있으면 M-0022)', ambWhy === 1, `설명 ${ambWhy}개`);
+
+// 눌러 본다 — 그리는 것과 도는 것은 다른 층이다(§13 4항). 저장은 안 누른다(읽기 전용 유지).
+const beforeSwap = await page.locator('.pr-row').first().locator('.pr-coord-input').inputValue();
+await page.locator('.pr-row').first().locator('.pr-preview-swap button').click();
+await page.waitForTimeout(200);
+const afterSwap = await page.locator('.pr-row').first().locator('.pr-coord-input').inputValue();
+check('위치관리대장: [이걸로 바꾸기]를 누르면 실제로 뒤집힌다', beforeSwap !== afterSwap && afterSwap.startsWith('69.2797'), `${beforeSwap} → ${afterSwap}`);
+// 뒤집은 뒤에는 더 이상 모호하지 않다고 말해야 하는가? — 69.2797, 41.3111도 둘 다 유효하므로
+// 여전히 모호하다. 즉 **버튼이 남아 있는 것이 옳다**(뒤집기를 되돌릴 수 있어야 한다).
+const afterSwapBtn = await page.locator('.pr-row').first().locator('.pr-preview-swap button').count();
+check('위치관리대장: 뒤집은 뒤에도 되돌릴 수단이 남는다', afterSwapBtn === 1, `버튼 ${afterSwapBtn}개`);
+
+// 🔴 없어야 할 때 없는가 — 명확한 좌표(서울)에는 [이걸로 바꾸기]가 **없어야** 한다
+await page.fill('.pr-search', '명확');
+await page.waitForTimeout(250);
+await page.locator('.pr-row').first().locator('.pr-sum').click();
+await page.waitForTimeout(250);
+const clearSwap = await page.locator('.pr-row').first().locator('.pr-preview-swap button').count();
+check('위치관리대장: 🔴 명확한 좌표면 [이걸로 바꾸기]가 **없다**(오탐 차단)', clearSwap === 0, `버튼 ${clearSwap}개`);
+
+// 뒷정리 — 심은 픽스처를 지운다(§3-C, 내 상태를 남기지 않는다)
+await page.keyboard.press('Escape');
+await page.waitForTimeout(250);
+while ((await page.locator('.guide-overlay').count()) > 0) {
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+}
+await page.evaluate(async () => {
+  await new Promise((resolve) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction('localPlaces', 'readwrite');
+      for (const id of ['pr-live-amb', 'pr-live-clear']) tx.objectStore('localPlaces').delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    };
+    req.onerror = () => resolve();
+  });
+});
 
 // v1.60: canonical 최종본은 일반 병합과 다른 위험 작업 — 경고와 2단계 확인까지만 누른다.
 // 실제 두 번째 버튼은 클라우드 전체 교체이므로 라이브 픽스처에서 실행하지 않는다.
