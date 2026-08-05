@@ -18,7 +18,6 @@
 
 | ID | 과제 | 상태 | 무엇이 필요한가 | 추가일 | 근거 |
 |---|---|---|---|---|---|
-| T-004 | Supabase leaked-password 보호 켜기 | 막힘-사용자 | 대시보드 Auth 설정 1회 (Google OAuth 전용·초대제라 위험 낮음) | 2026-08-03 | HANDOFF-0057 · advisor WARN |
 | T-005 | 태블릿 저장소 보호(persist) 적용 | 막힘-사용자 | 앱의 [저장소 보호 요청] 버튼 (선택 사항 — 결함 아님) | 2026-08-03 | HANDOFF-0056 진단 실측 |
 | T-007 | Phase 7 — AI 확장(요약·태그·검색·OCR, `ai_artifacts` 테이블) | 대기 | MVP 안정화 후 별도 branch (계획된 미착수) | 2026-07-22 | ROADMAP Phase 7 · 비타협 원칙 #2 |
 
@@ -26,6 +25,7 @@
 
 | ID | 과제 | 완료일 | 증거 |
 |---|---|---|---|
+| T-004 | Supabase leaked-password 보호 켜기 | 2026-08-05 | 사용자가 대시보드 Auth Providers → Email → "Prevent use of leaked passwords" 토글을 켜고 저장. `get_advisors(security)` 재조회로 `auth_leaked_password_protection` WARN 소멸을 확인(읽기 전용, 무변경) |
 | T-008 | 운영 응답에 `frame-ancestors 'none'` 등 보안 헤더 적용 | 2026-08-05 | **사용자 결정(ADR-0048)**: GitHub Pages 유지·헤더 지원 호스팅 이전 안 함으로 확정 — 적용 자체를 하지 않기로 종결. 잔여 완화는 meta CSP + no-referrer 유지 |
 | T-009 | 비공개 저장소 GitHub CodeQL·Secret Scanning 활성화 | 2026-08-05 | **사용자 결정(ADR-0047)**: 비공개 유지·Advanced Security 미구매로 확정 — 활성화 자체를 하지 않기로 종결. 잔여 방어층은 custom secret gate+Dependabot+npm audit+SHA pinning 유지 |
 | T-006 | 개발자 정보 표기값 확정 | 2026-08-03 | HANDOFF-0065 · **사용자 확정**("김부건 (Kim Bugeon) · Tashkent State Medical University" 채택). 화면의 값이 이미 같아 코드 변경 없음 · ASSUMPTIONS A-015/Q6 반영 |
