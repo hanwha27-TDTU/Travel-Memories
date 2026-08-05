@@ -78,6 +78,10 @@ const gates = [
   // 새 `docs/*.md`가 지도에 없거나(실측 25개 중 4개가 그랬다), 새 AI 지시문이 어댑터로
   // 등록되지 않으면 그 도구만 다른 계약을 읽는다(CONSTITUTION 「지시·계약 문서를 바꿀 때」).
   { name: 'check-doc-governance', cmd: 'node scripts/check-doc-governance.mjs' },
+  // §11의 메타 게이트 — "게이트가 목적에 맞게 작동하는가? 대조군이 있는가?"(사용자 질문
+  // 2026-08-05)를 기계로 되묻는다: check-*.mjs 전부가 harness에 배선됐는가 + 셀프테스트
+  // (알려진 실패 주입) 흔적을 갖고 있는가. 새 게이트가 이 둘 없이 조용히 태어나는 것을 막는다.
+  { name: 'check-gate-integrity', cmd: 'node scripts/check-gate-integrity.mjs' },
   { name: 'check-current-doc-facts', cmd: 'node scripts/check-current-doc-facts.mjs' },
   { name: 'check-platform-map', cmd: 'node scripts/check-platform-map.mjs' },
   { name: 'check-lazy-screens', cmd: 'node scripts/check-lazy-screens.mjs' },

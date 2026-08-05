@@ -2,7 +2,7 @@
 // 비타협 원칙 #1(기억을 잃지 않는다)의 사용자 도구. 가이드 모달과 같은 시각 시스템(.guide-*) 재사용.
 // 모든 자유 텍스트는 textContent로만(innerHTML 금지 — CSP·XSS 게이트).
 
-import { el, setNote } from '../dom';
+import { el, setNote, downloadBlob } from '../dom';
 import type { LocalTrip } from '../../offline/db';
 import { openDiagnosticsHub } from './diagnosticsHub';
 import { openGuide } from './guide';
@@ -111,17 +111,6 @@ function fmtDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = el('a') as HTMLAnchorElement;
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // ── 상세 패널: 백업(내보내기) ────────────────────────────────────────

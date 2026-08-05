@@ -17,7 +17,7 @@
 //   ○ 맥락(context) = 상태가 아닌 환경 사실. (앱 버전·시간대·사진 저장소 …)
 // 옛 동기화 진단 5줄 중 최상위 자격이 있는 것은 사실상 하나뿐이었다.
 
-import { el } from '../dom';
+import { el, downloadBlob } from '../dom';
 import {
   auditOpLessTombstones,
   diagnoseSync,
@@ -55,7 +55,9 @@ import {
   requestUnpurge,
   pendingUnpurgeIds,
 } from '../../services/purge';
-import { supabase } from '../../services/supabase/client';
+import { supabase, isConfigured } from '../../services/supabase/client';
+import { exportBackup } from '../../services/backup';
+import { recordBackupNow, getLastBackupAt, backupFreshness, STALE_DAYS } from '../../services/backupMeta';
 import {
   deviceLabel,
   shortDeviceId,
@@ -1662,6 +1664,72 @@ export async function summaryProbe(): Promise<Verdict> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// ⑦ 백업 신선도 — 클라우드와 독립된, 이 손에 있는 사본이 있는가
+// ────────────────────────────────────────────────────────────────────────────
+//
+// 왜(사용자 제안 2026-08-05): "백업 진단도구가 없다면 추가하면 좋을 거 같아요." 실측해 보니
+// `backupMeta.ts`(마지막 백업 시각·신선도 판정)는 이미 있었지만 [데이터 관리 › 백업] 패널
+// 안에서만 조용히 쓰였다 — **판정 도구**로 진단 허브에 없었다. §8("진단 도구는 판정을 한다")
+// 대상에서 이 조각만 빠져 있었다.
+//
+// 클라우드 동기화는 백업의 대체물이 아니다 — 계정 잠김·서버 사고·사용자 실수(영구삭제)에도
+// 살아남는 것은 **이 기기 밖으로 나간 파일**뿐이다. 그래서 로컬 전용 모드(`!isConfigured()`)
+// 에서 오래됐거나 없으면 '문제'(다른 사본이 전혀 없음), 클라우드 모드에서는 '할 일'(클라우드가
+// 있지만 독립 사본도 있으면 더 안전함)로 급을 가른다 — §7: 같은 "없음"도 사정에 따라 다르다.
+export function backupProbe(): Promise<Verdict> {
+  const last = getLastBackupAt();
+  const fresh = backupFreshness(last);
+  const cloud = isConfigured();
+  const noOtherCopy = !cloud && fresh.stale; // 클라우드도 없고 백업도 없거나 낡음 = 사본이 전혀 없다
+  const metrics: Metric[] = [
+    {
+      label: '마지막 백업',
+      actual: fresh.text,
+      expected: `${STALE_DAYS}일 이내`,
+      level: fresh.stale ? (noOtherCopy ? 'problem' : 'todo') : 'ok',
+      ...(fresh.stale
+        ? {
+            meaning: noOtherCopy
+              ? '클라우드 동기화도 꺼져 있고 백업 파일도 없어요 — 이 기기가 사라지면 기록도 함께 사라집니다. 아래 [지금 백업 만들기]를 눌러 주세요.'
+              : '클라우드 동기화는 되고 있지만, 계정 문제나 실수(영구삭제)에서도 살아남는 건 이 기기 밖으로 받아 둔 파일뿐이에요. 가끔 받아 두세요.',
+          }
+        : {}),
+    },
+  ];
+  const level = levelFromMetrics(metrics);
+  const v: Verdict = {
+    level,
+    headline:
+      level === 'problem'
+        ? '백업 파일이 없어요 — 이 기기가 유일한 사본입니다'
+        : level === 'todo'
+          ? '백업을 받아 두면 더 안전해요'
+          : '최근 백업 파일이 있습니다',
+    because: cloud ? '클라우드 동기화와 별개로, 이 기기 밖으로 받아 둔 파일만이 계정·서버 사고에서도 살아남습니다.' : '이 배포는 클라우드 동기화가 꺼져 있어요 — 백업 파일이 유일한 사본입니다.',
+    metrics,
+    actions: [
+      {
+        label: '지금 백업 만들기',
+        primary: fresh.stale,
+        hook: 'data-backup-now',
+        run: async () => {
+          const { blob, stats } = await exportBackup(true);
+          const now = new Date();
+          const p = (n: number) => String(n).padStart(2, '0');
+          const stamp = `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}`;
+          downloadBlob(blob, `bugeon-journey_${stamp}.json`);
+          recordBackupNow();
+          return `내려받았어요 · 여행 ${stats.trips} · 순간 ${stats.moments} · 사진 ${stats.media} · 비용 ${stats.expenses} · 소리 ${stats.audio}`;
+        },
+      },
+    ],
+    evidence: [],
+    context: [{ label: '이 기기의 자료 사본 경로', value: cloud ? '클라우드 동기화 + 백업 파일(선택)' : '백업 파일뿐(로컬 전용 배포)' }],
+  };
+  return Promise.resolve(v);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // 도구 등록부 — 허브와 패널이 **같은 목록**을 본다
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -1723,6 +1791,14 @@ export const CORE_TOOLS: DiagTool[] = [
     hint: '이 세션에서 생긴 오류',
     lead: '앱이 도는 동안 생긴 오류를 모아 둡니다. 새로고침하면 사라져요.',
     probe: errorProbe,
+  },
+  {
+    id: 'backup',
+    icon: '🗄️',
+    label: '백업 신선도',
+    hint: '이 손에 있는 사본이 있나',
+    lead: '클라우드와 별개로, 이 기기 밖으로 받아 둔 백업 파일이 얼마나 최근인지 봅니다.',
+    probe: backupProbe,
   },
 ];
 
