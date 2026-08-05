@@ -141,6 +141,23 @@ describe('mustUploadBytes — 사진·소리가 지나는 하나의 문', () => 
     // 소리: 키 형식이 하나뿐 → 「기억 없음 = 올라간 적 없음」이 성립
     expect(mustUploadBytes({ deletedAt: DEL }, true)).toBe(true);
   });
+
+  // 🔴 M-0100 — 「옛 키 형식」 보호가 **한 번도 push된 적 없는 새 사진**까지 삼켰다.
+  // 실측(2026-08-05, 실사용자 계정): 사진을 만들고 첫 push가 돌기 전에(같은 배치 안에서)
+  // 지우면, `collapseSyncAttempts`가 insert+delete를 delete 하나로 접는다. 그 시점에
+  // `storagePath`가 없는 건 「옛 키 형식」과 겉모습이 똑같지만, 실제로는 **서버에 바이트가
+  // 없다** — 그런데도 메타 행은 storage_path를 적어 서버에 upsert해, 그 뒤로 어떤 기기가
+  // 그 경로를 GET해도 영원히 404가 난다(정상 사용자 행동이 결함처럼 보이면 안 된다).
+  // 구분선은 `baseVersion`이다: 0이면 이 기기가 서버에 **단 한 번도** 착지시킨 적이 없다는
+  // 뜻이고(push 성공·pull 둘 다 baseVersion을 서버 version으로 전진시킨다), 그때는
+  // 「경로 기억 없음」이 곧 「올라간 적 없음」이다 — 소리와 같은 해석이 성립한다.
+  it('🔴 M-0100 — 한 번도 서버에 착지한 적 없는 사진은 경로가 없어도 올린다', () => {
+    expect(mustUploadBytes({ deletedAt: DEL, baseVersion: 0 }, false)).toBe(true);
+  });
+
+  it('이미 한 번 착지한 뒤라면(baseVersion>0) 옛 키 형식 보호가 여전히 적용된다', () => {
+    expect(mustUploadBytes({ deletedAt: DEL, baseVersion: 3 }, false)).toBe(false);
+  });
 });
 
 // ── ② 실제 push가 그 문을 지나는가 (이음매) ────────────────────────────────
@@ -179,6 +196,28 @@ describe('pushPendingMedia — 휴지통 사진의 바이트', () => {
     const remote = fakeRemote();
     await pushPendingMedia(remote, USER);
     expect(remote.uploads).toHaveLength(0);
+  });
+
+  // 🔴 M-0100(2026-08-05) — 실사용자 계정 실측. 사진을 만들고 몇십 초 안에 그 순간째 지우면
+  // 첫 push가 이미 tombstone 상태로 돈다(`baseVersion: 0` — 이 기기가 서버에 한 번도
+  // 착지시킨 적이 없다). 옛 코드는 이걸 「옛 키 형식이라 바이트가 이미 있다」로 오해해 업로드를
+  // 건너뛰고도 storage_path는 서버에 적었다 — 그 경로는 영원히 아무 바이트도 없는 채로
+  // 다른 기기의 동기화를 계속 실패시킨다(R2 GET 404). 정상적인 "빨리 만들고 빨리 지운" 행동이
+  // 사용자에게는 원인 모를 동기화 경고로 보였다.
+  it('🔴 M-0100 — 첫 push 전에 지워진 새 사진도 바이트를 올린다(경로만 적고 끝내지 않는다)', async () => {
+    const id = await seedPhoto({
+      deletedAt: '2026-08-01T00:00:00.000Z',
+      version: 2,
+      baseVersion: 0, // 이 기기가 서버에 한 번도 착지시킨 적 없음 — 진짜 「올라간 적 없음」
+    });
+    await enqueue(id);
+    const remote = fakeRemote();
+
+    const r = await pushPendingMedia(remote, USER);
+
+    expect(r).toEqual({ pushed: 1, failed: 0 });
+    expect(remote.uploads).toHaveLength(1); // ← 옛 코드는 여기서 0이라 경로만 적고 바이트는 없었다
+    expect(remote.rows.get(id)!.storage_path).toBe(remote.uploads[0]);
   });
 
   it('R2에서 같은 바이트를 되읽은 뒤에만 로컬 원본 임시본을 정리한다', async () => {

@@ -4,6 +4,16 @@
 
 ---
 
+## HANDOFF-0083 · **릴리스 대기 — M-0100 첫 push 전 삭제 사진 바이트 누락 수정** (2026-08-05)
+
+- **사용자 신고**: 실사용 계정에서 「동기화 상태」 진단이 특정 사진의 R2 내려받기 실패(404)를 반복 보고했다. `hanwha27@gmail.com` 계정의 Supabase(Travel&Accounting) 서버 행을 읽기 전용으로 대조해 원인을 좁혔다.
+- **판정**: 데이터 손실이 아니었다. 사용자가 PC에서 순간을 만든 지 16~33초 만에 그 순간째(사진 포함) 지운 두 임시 순간(총 14장)이 원인이었고, 최종적으로 남긴 순간은 태블릿에서 만든 별개 사진이라 정상이었다. 두 임시 순간은 사용자가 앱 휴지통에서 직접 완전삭제했다.
+- **근본 원인(M-0100)**: `mustUploadBytes(media, false)`가 「옛 키 형식 행 보호」(M-0059) 목적의 `false`를, 사진을 만들고 첫 push가 돌기도 전에 지운 **브랜드뉴 미착지 행**에도 똑같이 적용했다. 두 경우 모두 로컬에 `storagePath`가 없다는 겉모습이 같지만 뜻은 정반대다. 결과: R2 PUT은 건너뛰면서도 서버 메타 행에는 `storage_path`를 적어, 아무 기기도 채우지 못할 영구 404 경로가 서버에 남았다.
+- **수정**: `mustUploadBytes`에 `baseVersion === 0`(push 성공·pull 어느 쪽으로도 서버에 착지한 적 없음) 신호를 추가했다. 이때만 사진도 소리처럼 「경로 기억 없음 = 올라간 적 없음」으로 해석해 업로드한다. `docs/records/coding-mistakes.md` M-0100, `sync-offline-dev` SKILL §3 등록부에 반영.
+- **비공허·검증**: `tests/unit/reuploadMissingBytes.test.ts`에 순수 판정 2건 + `pushPendingMedia` 통합 1건을 추가했고, 수정 전 3건 모두 RED를 확인한 뒤 고쳤다. build PASS, 전체 harness 49종 PASS(SKIP 0), 유닛 전체·editor live·diagnostics live 포함.
+- **실사용 조치**: 사용자가 휴지통에서 두 임시 순간을 완전삭제해 진단 경고의 근원 자체도 함께 제거했다. T-004(Supabase leaked-password 보호)도 같은 세션에서 사용자가 대시보드에서 켰고, advisor 재조회로 확인했다.
+- **릴리스 상태**: 비긴급 수정(핵심 흐름 차단 아님)이므로 v1.75를 유지하고 전체 harness는 위에서 이미 통과 확인했으나 commit·push만 하고 merge·deploy는 하지 않는다. 다음 기능 릴리스 묶음에 포함한다.
+
 ## HANDOFF-0082 · v1.75 · **배포 완료 — 클라우드 사진 정본·깨끗한 Claude 인계** (2026-08-04)
 
 - **배포 증거**: PR [#200](https://github.com/hanwha27-TDTU/Travel-Memories/pull/200)의 Required CI가 성공한 뒤 squash 병합됐다. `main`·`origin/main`은 `df6fafe80d7471b3851f1bd941d10fafa87aad38`로 일치하고, 공개 Pages `version.json`에서 `1.75`를 되읽었다.
@@ -188,7 +198,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.75<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->175<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->91<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.75<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->175<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->92<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

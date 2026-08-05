@@ -261,6 +261,7 @@ const w = momentWhen(m.occurredAt, m.tzOffsetMin, clock);
 
 | 버전 | 결함 | 근본형 | 재발 방지 |
 |---|---|---|---|
+| 릴리스 대기 | 사진을 만들고 첫 push 전에 지우면(M-0100), `mustUploadBytes`가 「옛 키 형식」 보호를 오적용해 R2 PUT을 건너뛰고도 storage_path를 서버에 적어 영구 404를 남김 | 「경로 없음」이 「옛 형식이라 이미 있음」과 「아직 한 번도 안 올림」 두 뜻을 겉모습만으로 구별 못 함 — §7 비대칭이 공간축이 아니라 **시간축**(방금 태어난 행 vs 오래된 행)에서 남음 | `baseVersion===0`(push·pull 어느 쪽으로도 서버 착지 이력 없음)일 때만 사진도 「경로 없음=올라간 적 없음」으로 해석 · `reuploadMissingBytes.test.ts` 순수 2건+통합 1건 |
 | 1.64 | 서버에 정상 반영된 삭제 5건을 진단이 계속 경고했고, 로컬-only cascade/audio/GPS 복구가 확인된 행과 바이트를 다시 보낼 수 있었음(M-0095) | 성공한 push가 큐를 지우는데 큐 부재를 실패 판정 근거로 사용. 진단만 고쳐도 일반 sync의 옛 복구·백필이 같은 가정으로 판정을 뒤집음 | 여섯 도메인 서버 tombstone/version/operation+purged 원장+canonical 전후 감사, active는 `mergeDecision`, 부분 실패 fail-closed, cascade는 pull evidence, audio/GPS 백필도 서버 evidence, read-only 큐 불변, 동일 run 후행 push |
 | 1.63 | 앱 선배포 뒤 DB 0027 적용 전 `ensure_sync_meta` PGRST202가 runSync 전체를 막아 빈 기기에서 서버 5개 여행을 못 받음(M-0093) | “클라이언트 먼저”라는 배포 순서를 적었지만 새 서버 기능이 아직 없을 때의 실행 경로를 설계·검사하지 않음. 첫 수정도 PGRST202를 migration 미적용의 증명으로 오판해 purge/R2 파괴 경로를 열 뻔함 | RPC 실패 시 `sync_meta` read-only probe. capability 불명은 서버 read-only pull만 허용하고 큐·원장·DB·R2 변경 0. non-legacy/pending/다른 오류는 fail-closed. runSync 적대적 통합 유닛 |
 | 1.62 | canonical RPC가 NULL operation id와 행/영구삭제 원장 id 겹침을 받아들임(M-0092) | 정상 클라이언트가 먼저 검사한다는 이유로 SECURITY DEFINER 최종 경계의 독립 입력 검증을 생략 | 파괴적 DELETE 전 operation id 필수 + 여섯 snapshot 배열과 purged id 교집합 거부. SQL 공격검사 두 건과 guard 제거 RED, 운영 PostgreSQL rollback 사전검증 |
