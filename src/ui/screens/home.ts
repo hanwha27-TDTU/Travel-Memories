@@ -271,6 +271,63 @@ function emptyListState(view: 'active' | 'archived'): HTMLElement {
   return empty;
 }
 
+/**
+ * 로그아웃(또는 아직 로그인 전) 상태에서 다른 계정의 이 기기 로컬 기록을 가리는 화면.
+ *
+ * 🔴 클라우드 모드(isConfigured())에서는 로그인 여부가 "이 계정의 여행을 볼 자격"의 경계다
+ * (사용자 요청 2026-08-05: "로그아웃하면 사진 데이터가 보이지 않아야 하는데"). **가리는 것과
+ * 지우는 것은 다르다** — 비타협 원칙 #1은 그대로 지킨다. Dexie 데이터는 그대로 남고, 로그인하면
+ * 다시 보인다. `isConfigured()===false`(진짜 로컬 전용 빌드)에서는 이 화면을 아예 안 쓴다 —
+ * 그 빌드엔 "다른 계정"이라는 개념 자체가 없다.
+ */
+export function signedOutLockState(): HTMLElement {
+  const empty = el('div', 'empty-state');
+  empty.appendChild(el('p', 'empty-emoji', '🔒'));
+  empty.appendChild(el('h2', undefined, '로그인하면 볼 수 있어요'));
+  empty.appendChild(el('p', 'muted', '이 기기에 저장된 여행은 로그아웃 중엔 가려져요. 지워지지 않았어요 — 로그인하면 다시 보여요.'));
+  return empty;
+}
+
+/**
+ * 로그아웃 잠금을 화면에 적용한다 — refresh()에서 분리(함수 크기 래칫, §7 구조적 강제).
+ * 잠갔으면 true를 돌려 refresh()가 나머지(목록 렌더)를 건너뛰게 한다.
+ */
+export function applySignedOutLock(
+  locked: boolean,
+  ui: {
+    viewBar: HTMLElement;
+    fold: HTMLDetailsElement;
+    form: HTMLFormElement;
+    filterNow: HTMLElement;
+    list: HTMLElement;
+    clearPeriod: () => void;
+  },
+): boolean {
+  ui.viewBar.hidden = locked;
+  ui.fold.hidden = locked;
+  ui.form.hidden = locked;
+  if (!locked) return false;
+  ui.clearPeriod();
+  ui.filterNow.hidden = true;
+  ui.list.innerHTML = '';
+  ui.list.appendChild(signedOutLockState());
+  return true;
+}
+
+/**
+ * 초대제 잠금 게이트(ADR-0021): 허용 목록에 없는 사용자는 자동 로그아웃 안내.
+ * DB RLS가 실제 방어이며 이건 UX용. 통과하면 그대로, 아니면 null 반환.
+ * top-level로 뽑음(함수 크기 래칫, §7 구조적 강제) — `status` 줄만 클로저 대신 인자로 받는다.
+ */
+async function gateAccess(u: SessionUser | null, status: HTMLElement): Promise<SessionUser | null> {
+  if (!u) return null;
+  const ok = await isAllowedUser();
+  if (ok) return u;
+  status.textContent = '🔒 이 앱은 초대된 사용자만 사용할 수 있어요. 접근이 필요하면 관리자에게 문의하세요.';
+  await signOut();
+  return null;
+}
+
 /** 기간 필터가 다 걸러낸 상태 — 막다른 문장으로 끝내지 않는다(§13): 되돌아갈 버튼을 준다. */
 function filteredEmptyState(onReset: () => void): HTMLElement {
   const empty = el('div', 'empty-state');
@@ -529,25 +586,21 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
     }
   }
 
-  /**
-   * 초대제 잠금 게이트(ADR-0021): 허용 목록에 없는 사용자는 자동 로그아웃 안내.
-   * DB RLS가 실제 방어이며 이건 UX용. 통과하면 그대로, 아니면 null 반환.
-   */
-  async function gateAccess(u: SessionUser | null): Promise<SessionUser | null> {
-    if (!u) return null;
-    const ok = await isAllowedUser();
-    if (ok) return u;
-    status.textContent = '🔒 이 앱은 초대된 사용자만 사용할 수 있어요. 접근이 필요하면 관리자에게 문의하세요.';
-    await signOut();
-    return null;
-  }
-
   async function refresh(): Promise<void> {
     const [trips, archived, pending] = await Promise.all([
       listTrips(),
       listArchivedTrips(),
       pendingSyncCount(),
     ]);
+
+    // 클라우드 모드에서 로그아웃 상태면 목록·폼·기간 트리를 통째로 가린다(signedOutLockState).
+    // Dexie는 손대지 않는다 — 다음 refresh(로그인 뒤)가 같은 데이터를 그대로 보여준다.
+    const lockUi = { viewBar, fold: periodUi.fold, form, filterNow: periodUi.filterNow, list, clearPeriod: periodUi.clear };
+    const locked = applySignedOutLock(isConfigured() && !user, lockUi);
+    if (locked) {
+      renderSyncNote(status, pending, user);
+      return;
+    }
 
     // 보관함 토글: 활성 뷰에선 보관이 있을 때만 노출, 보관 뷰에선 되돌아가기.
     if (view === 'archived') {
@@ -557,7 +610,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
       archiveToggle.textContent = `📦 보관함 ${archived.length}`;
       archiveToggle.hidden = archived.length === 0;
     }
-    form.hidden = view === 'archived'; // 보관함에선 새 여행 폼 숨김
+    form.hidden = view === 'archived'; // 보관함에선 새 여행 폼 숨김(locked 분기는 위에서 이미 처리)
 
     const items = view === 'archived' ? archived : trips;
     // 기간 필터: 트리는 현재 뷰(홈/보관함)의 여행에서 파생되고, 목록도 같은 선택으로 걸러진다(§7 대칭).
@@ -593,7 +646,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   // 인증 상태 구독: 로그인되면 동기화 후 갱신.
   unsubscribeAuth = onAuthChange((u) => {
     void (async () => {
-      user = await gateAccess(u);
+      user = await gateAccess(u, status);
       renderAuth();
       await trySync(user);
       await refresh();
@@ -605,7 +658,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
 
   // 초기값: 현재 세션 확인(구독이 늦게 올 수 있으므로 즉시 1회).
   void (async () => {
-    user = await gateAccess(await currentUser());
+    user = await gateAccess(await currentUser(), status);
     renderAuth();
     await refresh();
     await trySync(user);

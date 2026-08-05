@@ -760,4 +760,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '휴지통(여행 + 순간·사진·비용·소리·장소 5도메인) 목록 표시를 서버 조회 우선으로 바꿨다. `fetchServerDomainEntities`(전체 도메인, purged_ids 제외)와 `ensureLocalTombstone`(액션 직전 on-demand materialize, ACTIVE 행 거부)을 만들고, 여행·자식 양쪽에 대칭으로 `listDeletedTripsFromServer`/`listTrashedChildrenFromServer` + `prepare*ForAction`을 배선했다. 서버 조회가 둘 다 성공했을 때만 서버 결과를 쓰고, 하나라도 실패하면 전부 로컬 폴백으로 내려간다(부분 정본 금지). `trashPanel` 리팩터 중 자식 목록 렌더링이 이미 받아온 서버/로컬 대칭 `kids`를 안 쓰고 `listTrashedChildren()`(로컬 전용)을 다시 부르던 결함을 발견해 함께 고쳤다 — 안 고쳤으면 여행은 서버, 자식은 로컬로 정본이 갈라져 있었을 것이다.',
     decision: 'ADR-0049로 확정: **표시는 온라인이면 서버 정본, 쓰기는 로컬 우선 유지.** `serverTrashAuthority.test.ts`(15건, 로컬/서버 경로 바이트 단위 SSOT 대조 포함) 추가, 전체 유닛 1184건 PASS. `check-fn-size` 래칫 위반(trashPanel 196>177)은 `tripRow`/`childRow`를 top-level로 추출해 75줄로 해소. `npm run build && npm run harness` — 정적 47종 + unit + editor live + diagnostics live 전부 PASS, SKIP 0. 비긴급이라 commit·push만 하고 다음 기능 릴리스 묶음에 포함한다.',
   },
+  {
+    seq: 95,
+    date: '2026-08-05',
+    topic: '로그아웃해도 이 기기의 데이터가 계속 보였다 — 가리는 것과 지우는 것을 가른다(M-0102)',
+    human: '"1. 그리고 로그인 한 번 해두면 6개월간 로그인을 유지하게끔 해주고 로그아웃하면 사진 데이터가 보이지 않아야 하는데 데이터가 보입니다. 2. 동기화, 저장, 복원, 휴지통 부분을 모든 발생가능한 경우의 수를 생각해서 직접 테스트해보고 검증 및 감사하는 건 어때? 당신 생각은 어떤가요?"',
+    ai: '`home.ts`의 `refresh()`가 로그인 상태를 동기화 안내 문구에만 반영하고 목록 데이터(`listTrips`/`listArchivedTrips`)에는 전혀 반영하지 않아, 로그아웃해도 이 기기 Dexie에 남은 여행·사진이 그대로 렌더되는 것을 확인했다(M-0102). `/trip/<id>` 딥링크 라우트는 인증 확인 자체가 없었다. 클라우드 모드에서 로그아웃 상태면 홈 화면 목록·폼·기간 트리를 가리고(`signedOutLockState`/`applySignedOutLock`) "로그인하면 볼 수 있어요"로 바꿨다 — Dexie는 손대지 않는다(비타협 원칙 #1, 가리는 것과 지우는 것은 다른 일). `main.ts` 라우터에 `guardTripDetail()`을 추가해 딥링크도 같은 경계를 통과하게 했다. 6개월 세션 유지는 코드(`persistSession`+`autoRefreshToken`)가 이미 만족하고, 실제 만료는 Supabase 대시보드 설정(기본 무기한)이 결정한다고 확인했다.',
+    decision: '`check-fn-size` 래칫 위반(renderHome 219>204)은 `gateAccess`를 top-level로 추출해 200으로 해소. 전체 유닛 1184건 회귀 없음, `npm run build && npm run harness`(47종+unit+editor live+diagnostics live) 전부 PASS. **정직한 한계**: 이 환경엔 Supabase 빌드 시크릿이 없어 잠금 화면 자체는 라이브 렌더 미실행 — 실제 배포에서 사용자 확인 필요. 비긴급이나 개인정보 노출 표면이라 우선 커밋한다.',
+  },
 ];

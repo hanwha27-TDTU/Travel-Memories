@@ -4,6 +4,15 @@
 
 ---
 
+## HANDOFF-0086 · **릴리스 대기 — M-0102 로그아웃해도 이 기기 데이터가 계속 보임 + 딥링크 잠금** (2026-08-05)
+
+- **사용자 신고**: "로그인 한 번 해두면 6개월간 로그인을 유지하게끔 해주고 로그아웃하면 사진 데이터가 보이지 않아야 하는데 데이터가 보입니다."
+- **근본 원인(M-0102)**: `home.ts`의 `refresh()`가 로그인 상태(`user`)를 동기화 안내 문구에만 반영하고 목록 데이터 조회에는 반영하지 않아, 로그아웃해도 이 기기 Dexie에 남은 여행·사진이 그대로 렌더됐다. `/trip/<id>` 딥링크(라우터)도 인증 확인이 아예 없었다.
+- **수정**: 클라우드 모드에서 로그아웃 상태면 `home.ts`가 목록·새 여행 폼·기간 트리를 가리고 "로그인하면 볼 수 있어요"(`signedOutLockState`)로 바꾼다 — **Dexie는 지우지 않는다**, 로그인하면 같은 데이터가 다시 보인다. `main.ts` 라우터에 `guardTripDetail()`을 추가해 딥링크도 같은 경계를 통과해야 열리게 했다. `check-fn-size` 래칫 위반(renderHome 219>204)은 `gateAccess`를 top-level로 추출해 200줄로 해소.
+- **6개월 세션 유지**: 코드는 이미 `persistSession:true`+`autoRefreshToken:true`(`src/services/supabase/client.ts`)로 세션을 계속 갱신한다. 실제 만료 기간은 Supabase 대시보드 Authentication → Sessions의 "Time-box user sessions"/"Inactivity timeout" 설정이 결정하며, 기본값은 꺼짐(=사실상 무기한, 갱신되는 한 유지)이다. 코드 변경 불필요 — 대시보드 설정만 확인하면 된다(사용자에게 확인 요청).
+- **정직한 한계**: 이 세션 환경엔 Supabase 빌드 시크릿이 없어(`isConfigured()===false`) 새 잠금 화면을 실제 Chromium으로 열어 보지 못했다. 타입검사·전체 유닛(1184건, 회귀 없음)·`npm run build && npm run harness`(47종+unit+editor live+diagnostics live 전부 PASS)까지 확인했지만, **잠금 화면 자체는 라이브 렌더 미실행**이다. 실제 배포 빌드(Supabase 키 있음)에서 사용자 확인 필요.
+- **릴리스 상태**: 비긴급이나 심각도 high(개인정보 노출 표면)로 우선 커밋한다. 다음 기능 릴리스 묶음에 포함.
+
 ## HANDOFF-0085 · **릴리스 대기 — 휴지통 서버 정본화(ADR-0049)** (2026-08-05)
 
 - **계기**: 같은 태블릿의 Android 앱과 Chrome이 서로 다른 휴지통을 보인다는 사용자 신고 → 원인은 버그가 아니라 WebView/브라우저의 별도 저장소 파티션(플랫폼 사실)이라고 설명했으나, 사용자가 근본적으로 다른 요구를 냈다: *"절대절대절대 기기끼리 내용이 다르면 안됩니다."*
@@ -218,7 +227,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.75<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->175<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->94<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.75<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->175<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->95<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
