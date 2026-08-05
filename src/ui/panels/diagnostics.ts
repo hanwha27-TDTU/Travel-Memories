@@ -25,6 +25,7 @@ import {
   type FileRealityInput,
 } from '../../domain/fileRealityVerdict';
 import { tallyLocalFiles, lastSweep, sweepOpenFiles } from '../../services/fileReality';
+import { localDateTime } from '../../domain/time';
 import { el, downloadBlob } from '../dom';
 import {
   auditOpLessTombstones,
@@ -2068,7 +2069,11 @@ export async function fileRealityProbe(): Promise<Verdict> {
       { label: '이 기기의 소리 기록', value: `${audio.rows}개` },
       // 「서버에 바이트 없음」은 **아는 사실**이지 결함이 아니다 — 지표로 또 세지 않고 맥락에 둔다.
       { label: '서버에 바이트가 없다고 확인된 것', value: `${photo.serverMissing + audio.serverMissing}개` },
-      { label: '마지막으로 열어 본 때', value: sweep ? sweep.at : '아직 없음' },
+      // 🔴 **원시 ISO(UTC)를 사용자에게 내보내지 않는다**(2026-08-05 실기기 캡처 · M-0110).
+      //    화면에 `2026-08-05T23:17:41.750Z`가 그대로 나갔다 — 기기 시계는 08:17이었다.
+      //    `check-timezone`이 `iso.slice(0,10)`을 금지하는 것과 **같은 이유**다: UTC는
+      //    사용자의 시각이 아니다. 로컬 파생은 `domain/time.ts` 한 곳에서만 한다.
+      { label: '마지막으로 열어 본 때', value: sweep ? localDateTime(sweep.at) : '아직 없음' },
     ],
   };
 }

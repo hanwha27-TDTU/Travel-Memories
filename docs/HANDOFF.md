@@ -4,6 +4,15 @@
 
 ---
 
+## HANDOFF-0096 · v1.82 · **실기기가 문장 두 개를 잡았다 — 조사와 UTC** (2026-08-05)
+
+- **발견**: v1.81 배포 직후 **사용자 실기기 캡처**(사진 71장 전수 열림 확인). 도구는 옳게 돌았고 **문장 두 곳이 틀렸다** — 「71개**이** 모두 성해요」(조사)와 맥락 줄의 **원시 UTC** `2026-08-05T23:17:41.750Z`(기기 시계는 08:17).
+- 🔴 **유닛 25건·라이브 38건이 전부 초록인 채로 나갔다.** 유닛이 `toContain('모두 성해요')`로 **조각만** 재고 있었고, 조각 검사는 그 조각만큼만 잠근다. 이제 **문장 전체를 `toBe`로** 잠근다.
+- 🔴 **규율을 「금지된 형태」로 기억한 대가**: `check-timezone`은 `iso.slice(0,10)`을 막는다. 그걸 *"자르지 마라"*로 기억해서 **「그대로 출력하지도 마라」로 확장하지 않았다.** 「UTC는 사용자의 시각이 아니다」로 기억했으면 둘 다 걸렸다. `localDateTime()`이 `domain/time.ts`에 **이미 있었다.**
+- **기계 층**: 라이브 **E⑪** 신설 — 진단 화면 **전체에서** ISO 꼴을 찾아 막는다(이 도구뿐 아니라 어디서든 잡힌다). 주입 2종 RED → 원복 GREEN.
+- 🔴 **주입이 컴파일에 막힌 자리**: ISO 수정을 되돌리는 주입은 `localDateTime`이 미사용이 되어 **빌드가 실패**했다 — 검사가 안 돌아 초록도 빨강도 아니었다. 원시 ISO context 줄을 하나 더 넣는 방식으로 다시 주입해 RED를 확인했다(M-0106과 같은 자리 — **주입이 통과하지 않는다고 검사가 산 것은 아니다**).
+- **기록**: M-0110.
+
 ## HANDOFF-0095 · v1.80 · **순간도 부모다 — 서버가 지우는 것을 앱이 몰랐다** (2026-08-05)
 
 - **사용자 신고**: *"윈도우 환경에서 문제가 있네요. PC... 다기기간 동기화가 아직 문제인듯 합니다."* + 진단 요약 붙여넣기(`막힌 작업 13건` · `설명할 수 없는 사진 파일 13개` · `되살릴 곳이 없는 항목 13건` · `휴지통 클라우드 1 · 이 기기 14`).
@@ -420,7 +429,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.81<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->181<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.82<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->182<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

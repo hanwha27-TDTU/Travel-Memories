@@ -723,6 +723,15 @@ if (hasFileTool) {
       after.text.includes('지우지 마') && !/정리|삭제하세요/.test(after.text),
       after.text.includes('지우지 마') ? 'ok' : '(지우지 말라는 안내 없음)',
     );
+    // 🔴 **원시 UTC를 사용자 화면에 내보내지 않는다**(M-0110). 실기기 캡처에
+    // `2026-08-05T23:17:41.750Z`가 그대로 나갔고 기기 시계는 08:17이었다 — `check-timezone`이
+    // `iso.slice(0,10)`을 금지하는 것과 같은 이유다. 화면 전체에서 ISO 꼴을 찾아 막는다.
+    const rawIso = after.text.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}[\d:.]*Z?/);
+    check(
+      '🔴 E⑪ 시각을 **원시 UTC ISO로 내보내지 않는다**(사용자 시계와 다르다 · M-0110)',
+      !rawIso,
+      rawIso ? `화면에 그대로: ${rawIso[0]}` : '로컬 표기만 나감',
+    );
   }
 }
 // 뒷정리 — 심은 픽스처를 지운다(§3-C, 내 상태를 남기지 않는다).

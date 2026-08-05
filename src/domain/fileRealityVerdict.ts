@@ -78,6 +78,16 @@ const KO = { photo: '사진', audio: '소리' } as const;
 /** 「N개」 — 숫자 0도 값이다(금액·개수에서 0을 falsy로 뭉개지 않는다). */
 const n = (v: number): string => `${v}개`;
 
+/**
+ * 🔴 **「개」 뒤에는 「가」다** — 실기기 화면에 「71개**이** 모두 성해요」가 그대로 나갔다
+ * (2026-08-05 사용자 캡처 · M-0110). 조사를 문자열에 손으로 박으면 앞말이 바뀔 때 어색해진다.
+ *
+ * 여기서는 앞말이 언제나 「개」(받침 없음)라 「가」로 고정이지만, **왜 고정인지**를 적어 둔다 —
+ * 다음 사람이 다른 단위(「장」·「건」)를 쓰면 받침이 생겨 「이」가 맞고, 그때 이 함수를 고쳐야
+ * 한다는 신호가 된다. 조사를 산문에 흩어 두면 그 신호가 사라진다.
+ */
+const gaOf = (unit: string): string => (/[가-힣]$/.test(unit) && (unit.charCodeAt(unit.length - 1) - 0xac00) % 28 > 0 ? '이' : '가');
+
 /** 한 종류의 「바이트가 비어 있는 기록」 지표. */
 function emptyMetric(kind: 'photo' | 'audio', t: KindTally): FileMetric {
   const bad = t.empty > 0;
@@ -169,7 +179,7 @@ export function fileRealityHeadline(i: FileRealityInput): string {
     return `이 기기의 파일에 확인할 것이 있어요 — ${parts.join(' · ')}`;
   }
   if (!i.sweep) return `이 기기의 사진·소리 ${n(total)}에 빈 파일은 없어요 — 실제로 열리는지는 아직 확인 전`;
-  return `이 기기의 사진·소리 ${n(total)}이 모두 성해요`;
+  return `이 기기의 사진·소리 ${n(total)}${gaOf(n(total))} 모두 성해요`;
 }
 
 /**
