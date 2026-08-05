@@ -732,6 +732,38 @@ if (hasFileTool) {
       !rawIso,
       rawIso ? `화면에 그대로: ${rawIso[0]}` : '로컬 표기만 나감',
     );
+
+    // ── E⑫ 🔴 **「모두 성해요」 갈래를 실제로 그려 본다** (M-0110 후속) ─────────────
+    //
+    // 사용자 지적: *"디자인의 문제는 니가 스크린샷으로 미리 확인가능하지않아?"* — 맞다.
+    // 그런데 파고들어 보니 더 큰 것이 있었다: **이 층은 그 문장을 한 번도 안 그렸다.**
+    // 픽스처에 깨진 파일이 늘 있어서 판정이 항상 「확인할 것이 있어요」로 끝났고,
+    // 조사가 들어 있는 **정상 문장 자체가 화면에 나온 적이 없었다.**
+    //
+    // 🔴 그래서 규율이 하나 늘어난다: **픽스처는 「편한 값」이 아니라 갈래를 드러내는 값으로
+    // 고른다.** 정상 갈래를 안 그리면 정상 화면의 결함은 영원히 안 보인다 — 그리고 사용자가
+    // 가장 자주 보는 화면이 바로 그 정상 화면이다.
+    await page.evaluate(async () => {
+      await new Promise((ok) => {
+        const q = indexedDB.open('journey-archive');
+        q.onsuccess = () => {
+          const tx = q.result.transaction('localMedia', 'readwrite');
+          tx.objectStore('localMedia').delete('fr-live-bad'); // 깨진 것만 치운다 → 전부 성한 상태
+          tx.oncomplete = ok;
+          tx.onerror = ok;
+        };
+        q.onerror = ok;
+      });
+    });
+    await page.locator('[file-open-sweep]').click();
+    await page.waitForTimeout(2000);
+    const allGood = await page.evaluate(() => document.body.innerText);
+    const headline = allGood.match(/이 기기의 사진·소리 [^\n]*/)?.[0] ?? '';
+    check(
+      '🔴 E⑫ 정상 갈래의 판정 문장이 **실제로 그려지고 조사가 맞는다**(「71개이」가 실기기로 나갔다 · M-0110)',
+      /^이 기기의 사진·소리 \d+개가 모두 성해요$/.test(headline.trim()),
+      headline.trim() || '(정상 판정 문장을 못 찾음)',
+    );
   }
 }
 // 뒷정리 — 심은 픽스처를 지운다(§3-C, 내 상태를 남기지 않는다).
