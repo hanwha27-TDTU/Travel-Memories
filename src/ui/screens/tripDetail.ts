@@ -55,6 +55,7 @@ import { ensureProviders, reverseGeocode, searchPlaces, type PlaceResult } from 
 import { providerLabel } from '../../domain/place/provider';
 import { coordInputLabel, parseCoordinateInput, swapCoord, isRealCoord, type ParsedCoord } from '../../domain/place/coordInput';
 import { listPlaces, savePlace } from '../../services/places';
+import { searchRegistry, sortRegistry } from '../../domain/place/registry';
 import { supabase } from '../../services/supabase/client';
 import { needsRefine, precisionGlyph, precisionLabel, verdictFromStored, type PrecisionVerdict } from '../../domain/place/precision';
 
@@ -190,8 +191,13 @@ async function runPlaceSearch(q: string, ctx: PlaceSearchContext): Promise<void>
     const client = supabase();
     const available = await ensureProviders(client);
     // **담아 둔 장소를 먼저 본다.** 네트워크보다 빠르고, 오프라인에서도 답이 나온다.
-    const needle = q.toLowerCase();
-    const saved = (await listPlaces()).filter((p) => p.name.toLowerCase().includes(needle)).slice(0, 5);
+    // 🔴 **상한을 두지 않는다**(사용자 요청 2026-08-05: *"한글자라도 동일하면 그 글자가 포함된
+    //    장소들은 다 나오게"*). 예전엔 `.slice(0, 5)`로 잘랐는데, 그러면 여섯 번째 장소는
+    //    사용자에게 **존재하지 않는 것과 같다.** 자를 거면 자른 사실을 말해야 하는데(§5 3항)
+    //    자동완성에서 「외 N건 생략」은 읽히지 않는다 — 그래서 아예 안 자른다.
+    //    검색·정렬 규칙은 위치관리대장과 **같은 함수**를 쓴다(§7 — 두 곳이 다르게 찾으면
+    //    대장에서 본 장소가 여기선 안 나온다).
+    const saved = sortRegistry(searchRegistry(await listPlaces(), q));
     const places = await searchPlaces(q, { client, available, near: ctx.near });
     results.innerHTML = '';
     renderSavedPlaces(results, saved, (p) =>

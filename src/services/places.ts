@@ -24,6 +24,7 @@ import { db, type LocalPlace, type SyncQueueItem } from '../offline/db';
 import { providerKeyOf } from '../domain/place/rowmap';
 import { roughDistanceMeters } from '../domain/place/provider';
 import { compareInstants } from '../domain/time';
+import { reverseGeocode } from './geocode';
 
 const uuid = (): string => crypto.randomUUID();
 
@@ -205,6 +206,22 @@ export interface PlacePatch {
   precision?: string | null;
   spanMeters?: number | null;
   mapPicked?: boolean;
+  /**
+   * 역지오코딩이 채우는 주소 칸(사용자 요청 ④ — 국가·도시까지).
+   *
+   * 🔴 사용자가 손으로 적은 이름은 **여기서 건드리지 않는다**(`name`은 별개 필드다).
+   * 지오코더가 준 것은 주소일 뿐이고, 그 장소를 뭐라 부를지는 사용자가 정한다
+   * (map-place-dev §1 3항 — 지오코더에 없는 곳도 담아야 한다).
+   */
+  formattedAddress?: string | null;
+  countryCode?: string | null;
+  country?: string | null;
+  region?: string | null;
+  city?: string | null;
+  district?: string | null;
+  postcode?: string | null;
+  /** 주소를 어느 지오코더가 줬는가. 사용자가 직접 고친 좌표면 다시 받을 때까지 낡은 값이다. */
+  provider?: string | null;
 }
 
 /**
@@ -230,6 +247,14 @@ export async function updatePlace(id: string, patch: PlacePatch): Promise<void> 
     ...(patch.precision !== undefined ? { precision: patch.precision } : {}),
     ...(patch.spanMeters !== undefined ? { spanMeters: patch.spanMeters } : {}),
     ...(patch.mapPicked !== undefined ? { mapPicked: patch.mapPicked } : {}),
+    ...(patch.formattedAddress !== undefined ? { formattedAddress: patch.formattedAddress } : {}),
+    ...(patch.countryCode !== undefined ? { countryCode: patch.countryCode } : {}),
+    ...(patch.country !== undefined ? { country: patch.country } : {}),
+    ...(patch.region !== undefined ? { region: patch.region } : {}),
+    ...(patch.city !== undefined ? { city: patch.city } : {}),
+    ...(patch.district !== undefined ? { district: patch.district } : {}),
+    ...(patch.postcode !== undefined ? { postcode: patch.postcode } : {}),
+    ...(patch.provider !== undefined ? { provider: patch.provider } : {}),
     updatedAt: now,
     version: cur.version + 1,
     baseVersion: cur.baseVersion ?? cur.version,
@@ -290,4 +315,73 @@ export async function restorePlace(id: string): Promise<void> {
   });
   const back = await d.localPlaces.get(id);
   if (!back || back.deletedAt !== null) throw new Error('내구성 커밋 확인 실패: 장소 되살리기 read-back 불일치');
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 주소 자동 채움 (사용자 결정 2026-08-05 — "자동으로 다")
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// 🔴 **좌표가 기기 밖으로 나간다.** 이 앱의 §0은 개인자료 기본 비공개이므로, 이건 사용자가
+//    명시적으로 승인한 예외다(2026-08-05: 주소 자동 입력을 "자동으로 다"로 결정).
+//    나가는 것: 위도·경도 한 쌍. 나가지 않는 것: 장소 이름·메모·사진·여행 제목.
+//    받는 것: 국가·도시 등 행정 라벨. `docs/PRIVACY.md`에 같은 내용을 적는다.
+//
+// 저트래픽 예의(map-place-dev §1 6항): **장소 하나당 필요할 때 1회**만 부른다. 목록을 그릴
+// 때마다 전수로 부르지 않는다 — Nominatim은 공용 서버다.
+
+/**
+ * 좌표로 주소를 받아 대장 항목에 채운다.
+ *
+ * 🔴 **이름은 건드리지 않는다.** 지오코더가 준 것은 주소일 뿐이고, 그 장소를 뭐라 부를지는
+ * 사용자가 정한다 — 사용자가 「집」이라 적은 곳을 「Yunusobod tumani」로 덮으면 안 된다.
+ *
+ * 실패는 **조용히 넘어간다**(throw하지 않는다). 이건 거들어 주는 기능이라, 주소를 못 받았다고
+ * 대장이 안 열리면 편의 기능이 사용자를 막는 셈이다(`reverseGeocode`와 같은 규율).
+ *
+ * @returns 채웠으면 true. 좌표가 이상하거나 조회 실패면 false.
+ */
+export async function fillAddressFromCoords(id: string): Promise<boolean> {
+  const d = db();
+  const cur = await d.localPlaces.get(id);
+  if (!cur || cur.deletedAt !== null) return false;
+  if (!Number.isFinite(cur.latitude) || !Number.isFinite(cur.longitude)) return false;
+  const r = await reverseGeocode(cur.latitude, cur.longitude);
+  if (!r) return false;
+  await updatePlace(id, {
+    formattedAddress: r.displayName,
+    countryCode: r.address.countryCode,
+    country: r.address.country,
+    region: r.address.region,
+    city: r.address.city,
+    district: r.address.district,
+    postcode: r.address.postcode,
+    provider: r.provider,
+  });
+  return true;
+}
+
+/**
+ * 이 장소를 쓰는 순간들 — 대장이 「고치기 전에 어디에 영향이 가나」를 보여줄 때 쓴다.
+ *
+ * 🔴 **전 여행을 훑는다.** 장소는 여행에 매이지 않으므로(같은 카페를 여러 여행에서 쓴다)
+ * `listMoments(tripId)`로는 답이 안 나온다. 지운 순간은 뺀다.
+ *
+ * 판정(무엇을 「이 장소」로 볼 것인가)은 `domain/place/registry.ts`가 한다 — 여기서는
+ * 모아 오기만 한다(§10 ③ — 사용자에게 나가는 문장을 만드는 로직은 순수 함수로).
+ */
+export async function allMomentsForPlaceLookup(): Promise<
+  { id: string; tripId: string; title: string; occurredAt: string; placeName: string; placeId?: string | null; deletedAt: string | null }[]
+> {
+  const d = db();
+  const rows = await d.localMoments.toArray();
+  return rows.map((m) => ({
+    id: m.id,
+    tripId: m.tripId,
+    title: m.title,
+    occurredAt: m.occurredAt,
+    placeName: m.placeName,
+    placeId: m.placeId ?? null,
+    deletedAt: m.deletedAt,
+  }));
 }

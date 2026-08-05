@@ -26,7 +26,7 @@ export async function openDiagnosticsHub(toolId?: string): Promise<void> {
 }
 
 /** '데이터 관리' 허브(백업·복원·휴지통·저장소 설정). */
-export async function openDataManager(opts: { onChanged: () => void }): Promise<void> {
+export async function openDataManager(opts: { onChanged: () => void; goToTrip: (tripId: string) => void }): Promise<void> {
   const m = await import('./screens/dataManager');
   m.openDataManager(opts);
 }

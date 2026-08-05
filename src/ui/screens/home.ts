@@ -22,7 +22,9 @@ import {
   isAllowedUser,
   type SessionUser,
 } from '../../services/auth';
-import { requestSync, syncStatus as syncEngineStatus } from '../../services/autoSync';
+import { requestSync, syncStatus as syncEngineStatus, onSyncStatus } from '../../services/autoSync';
+import { syncBadge, badgeActionLabel } from '../../domain/syncBadgeVerdict';
+import { lastParity, refreshParity, installParityWatch } from '../../services/syncParity';
 import { el, setNote, type NoteAction } from '../dom';
 // 보조 화면은 반드시 lazyScreens를 거친다(정적 import 금지 — check-lazy-screens).
 import { openDiagnosticsHub, openDataManager, openAboutApp } from '../lazyScreens';
@@ -54,6 +56,9 @@ import {
 type Navigate = (route: Route, param?: string) => void;
 
 let unsubscribeAuth: (() => void) | null = null;
+/** 동기화 상태·대조 구독 — 홈을 다시 그릴 때 겹치지 않게 모듈에 들고 있다가 해지한다. */
+let unsubscribeSync: (() => void) | null = null;
+let unsubscribeParity: (() => void) | null = null;
 
 const STATUS_LABEL: Record<LocalTrip['status'], string> = {
   planned: '계획 중',
@@ -445,24 +450,53 @@ function buildPeriodUi(): PeriodUi {
 // "☁️ 동기화됨"으로 보였다 — 로그인은 됐는데 pull이 계속 실패하는 계정이 정상처럼
 // 표시됐다. 실패는 pending 여부와 무관하게 먼저 본다.
 function renderSyncNote(status: HTMLElement, pending: number, user: SessionUser | null): void {
-  const toSync: NoteAction = { go: () => void openDiagnosticsHub('sync'), label: '동기화 상태 열기' };
+  // 🔴 판정과 문장은 `domain/syncBadgeVerdict.ts`가 한다 — 이 한 줄이 사용자가 앱을 열 때
+  //    **가장 먼저 읽는 문장**이라, 여기가 거짓말하면 나머지 진단은 열어 보지도 않는다.
+  //    순수 함수라 유닛이 갈래를 전부 돌린다(§10 ③).
   const engine = syncEngineStatus();
-  if (!isConfigured()) {
-    setNote(status, `📴 로컬 저장 모드 · 대기 ${pending}건`, 'info', {
-      go: () => void openDiagnosticsHub('environment'),
-      label: '환경·기능 열기',
-    });
-  } else if (user) {
-    if (engine.phase === 'failed') {
-      setNote(status, `⚠️ 최근 동기화 실패: ${engine.lastError ?? '원인 미상'}`, 'error', toSync);
-    } else if (pending > 0) {
-      setNote(status, `☁️ 동기화 대기 ${pending}건`, 'info', toSync);
-    } else {
-      setNote(status, '☁️ 동기화됨', 'ok', null);
-    }
-  } else {
-    setNote(status, `🔒 로그인하면 기기 간 동기화 · 로컬 대기 ${pending}건`, 'info', null);
-  }
+  const v = syncBadge({
+    cloudConfigured: isConfigured(),
+    signedIn: Boolean(user),
+    pending,
+    phase: engine.phase,
+    lastError: engine.lastError,
+    // **`null`은 「같다」가 아니라 「모른다」**다 — 만료된 대조는 lastParity가 null을 준다.
+    parity: lastParity(),
+  });
+  const label = badgeActionLabel(v);
+  const action: NoteAction | null =
+    v.go === null && !v.syncOnTap
+      ? null
+      : {
+          label,
+          go: () => {
+            // [동기화] 버튼을 없애고 그 일을 배지가 받았다(사용자 제안 2026-08-05).
+            // 「지금 확인」이 필요한 상태에서는 누르면 실제로 돌린다.
+            if (v.syncOnTap) void requestSync('배지');
+            if (v.go === 'sync') void openDiagnosticsHub('sync');
+            else if (v.go === 'store') void openDiagnosticsHub('store');
+            else if (v.go === 'env') void openDiagnosticsHub('environment');
+          },
+        };
+  setNote(status, v.text, v.level, action);
+}
+
+
+/**
+ * 배지가 스스로 최신을 유지하게 배선한다 — renderHome에서 분리(함수 크기 래칫, §7).
+ *
+ * 🔴 동기화가 끝나면 **배지를 다시 그린다.** 안 그러면 「동기화 중…」이나 「확인 전」이
+ * 화면에 박힌 채 남는다 — 판정을 고쳐도 그리지 않으면 사용자에게는 안 고친 것이다(M-0022).
+ * 대조 갱신 자체는 `installParityWatch`가 **같은 신호**로 건다(§7 — 주기를 두 곳에 두지 않는다).
+ *
+ * 🔴 이 배선이 [↻ 동기화] 버튼을 대신한다(사용자 제안 2026-08-05: *"동기화 버튼을 없애도
+ * 앱 접속 시마다 자동으로 동기화하도록"*). 자동 동기화는 이미 돌고 있었고(온라인 복귀·화면
+ * 복귀·주기 — `installAutoSync`), 「지금 확인」이 필요할 때는 **배지를 누르면** 된다.
+ * 버튼을 그냥 지우면 그 수단이 사라지므로 **일을 옮긴 것**이지 없앤 것이 아니다.
+ */
+function wireBadgeWatch(repaint: () => void): void {
+  unsubscribeSync = onSyncStatus(repaint);
+  unsubscribeParity = installParityWatch();
 }
 
 export function renderHome(mount: HTMLElement, navigate: Navigate): void {
@@ -470,16 +504,22 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
     unsubscribeAuth();
     unsubscribeAuth = null;
   }
+  unsubscribeSync?.();
+  unsubscribeSync = null;
+  unsubscribeParity?.();
+  unsubscribeParity = null;
   mount.innerHTML = '';
 
   let user: SessionUser | null = null;
+  /** 마지막으로 잰 대기 수 — 동기화 구독이 배지를 다시 그릴 때 쓴다. */
+  let lastPending = 0;
 
   const wrap = el('main', 'screen screen-home');
   const authArea = el('div', 'auth-area');
   const status = el('p', 'sync-note muted');
   status.setAttribute('role', 'status');
   // onChanged: 복원·휴지통 조작 후 홈 목록·통계를 즉시 갱신(refresh는 아래에서 선언·호이스팅).
-  wrap.appendChild(buildHeader(authArea, status, () => void openDataManager({ onChanged: () => void refresh() })));
+  wrap.appendChild(buildHeader(authArea, status, () => void openDataManager({ onChanged: () => void refresh(), goToTrip: (id: string) => navigate('trip-detail', id) })));
 
   const section = el('section', 'trip-section');
   const list = el('div', 'trip-list');
@@ -556,22 +596,12 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
       who.textContent = user.email ?? '로그인됨';
       // 좁은 화면에서는 CSS가 말줄임으로 자른다 — 잘린 값을 확인할 길을 남긴다.
       if (user.email) who.title = user.email;
-      const syncBtn = el('button', 'btn-ghost', '↻ 동기화') as HTMLButtonElement;
-      syncBtn.type = 'button';
-      syncBtn.addEventListener('click', () => {
-        syncBtn.disabled = true;
-        void (async () => {
-          await trySync(user);
-          await refresh();
-          syncBtn.disabled = false;
-        })();
-      });
       const out = el('button', 'btn-ghost', '로그아웃') as HTMLButtonElement;
       out.type = 'button';
       out.addEventListener('click', () => {
         void signOut();
       });
-      authArea.append(who, syncBtn, out);
+      authArea.append(who, out);
     } else {
       const inBtn = el('button', 'btn-primary', 'Google 로그인') as HTMLButtonElement;
       inBtn.type = 'button';
@@ -592,6 +622,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
       listArchivedTrips(),
       pendingSyncCount(),
     ]);
+    lastPending = pending;
 
     const lockUi = { viewBar, fold: periodUi.fold, form, filterNow: periodUi.filterNow, list, clearPeriod: periodUi.clear };
     const locked = applySignedOutLock(!canViewLocalRecords(isConfigured(), Boolean(user)), lockUi);
@@ -641,6 +672,8 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   wrap.appendChild(section);
   mount.appendChild(wrap);
 
+  wireBadgeWatch(() => renderSyncNote(status, lastPending, user));
+
   // 인증 상태 구독: 로그인되면 동기화 후 갱신.
   unsubscribeAuth = onAuthChange((u) => {
     void (async () => {
@@ -660,6 +693,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
     renderAuth();
     await refresh();
     await trySync(user);
+    if (user) await refreshParity(); // 안 뜨면 배지가 「확인 전」에 머문다(M-0101을 못 말한다)
     await refresh();
   })();
 }

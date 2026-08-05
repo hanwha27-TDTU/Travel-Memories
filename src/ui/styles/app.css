@@ -1468,6 +1468,56 @@ select.zone-input { text-overflow: ellipsis; }
 .dm-usage-bar-fill { height: 100%; background: linear-gradient(90deg, var(--a2), var(--a1)); border-radius: inherit; }
 .dm-usage-quota { line-height: 1.5; }
 .dm-trash-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
+
+/* ===== 위치관리대장 (사용자 요청 2026-08-05) =====
+   등록한 장소를 찾고 좌표·주소를 고치는 대장. 목록 화면이므로 **조용한 카드**의 규율을
+   따른다(§7 사용자 대면 대칭 — 같은 성격의 화면은 같은 어휘로 말한다). */
+.pr-search {
+  width: 100%; min-width: 0; margin-top: var(--space-2);
+  min-height: var(--touch-target-min); padding: 0 var(--space-3);
+  border: 1px solid var(--line); border-radius: var(--radius-medium);
+  background: var(--surface); color: var(--ink); font: inherit;
+}
+.pr-count { margin: var(--space-2) 0 0; }
+.pr-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
+.pr-row { border: 1px solid var(--line); border-radius: var(--radius-medium); background: var(--surface); }
+.pr-sum {
+  list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  min-height: var(--touch-target-min); padding: var(--space-2) var(--space-3);
+}
+.pr-sum::-webkit-details-marker { display: none; }
+.pr-sum::after { content: '▾'; margin-left: auto; color: var(--ink-soft); }
+.pr-row[open] .pr-sum::after { content: '▴'; }
+/* 이름은 낱말 중간에서 끊지 않는다(§3-H — 한글 줄바꿈). */
+.pr-name { word-break: keep-all; overflow-wrap: anywhere; }
+.pr-coord-label { font-variant-numeric: tabular-nums; }
+.pr-body { display: flex; flex-direction: column; gap: var(--space-2); padding: 0 var(--space-3) var(--space-3); }
+.pr-namerow { display: flex; gap: 8px; flex-wrap: wrap; }
+.pr-name-input, .pr-coord-input {
+  min-width: 0; padding: 0 var(--space-2);
+  /* 🔴 `flex: 1 1 200px`을 쓰지 않는다. 이름칸은 **가로** flex(.pr-namerow) 안이라 200px이
+     너비지만, 좌표칸은 **세로** flex(.pr-coord) 안이라 그 200px이 **높이**가 된다 — 실제로
+     입력칸 하나가 화면 3분의 1을 먹는 덩어리가 됐다(2026-08-05 육안 확인).
+     같은 결함군이 `.sync-note`에서 이미 한 번 났다(r2-probe-note의 flex 240px이 높이가 된 것).
+     **다른 축의 부모에 같은 flex 값을 물려주지 마라**(§3-E — 부품은 맥락과 함께 온다). */
+  height: var(--touch-target-min);
+  border: 1px solid var(--line); border-radius: var(--radius-small);
+  background: var(--bg); color: var(--ink); font: inherit;
+}
+/* 이름칸만 가로로 늘어난다 — 그 부모가 가로 flex이기 때문이다. */
+.pr-namerow .pr-name-input { flex: 1 1 200px; }
+.pr-coord-input { width: 100%; }
+.pr-coord-input { font-variant-numeric: tabular-nums; }
+.pr-coord { display: flex; flex-direction: column; gap: 8px; }
+.pr-preview { display: flex; flex-direction: column; gap: 4px; font-size: 0.84rem; }
+.pr-preview-now { margin: 0; color: var(--ink); font-variant-numeric: tabular-nums; }
+.pr-preview-swap { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+/* 순서를 확신 못 한다는 사실은 **눈에 띄어야** 한다 — 조용하면 사용자가 그냥 지나친다. */
+.pr-preview-why { margin: 0; color: var(--sem-pink-ink); font-size: 0.8rem; }
+.pr-preview-bad { margin: 0; color: var(--sem-pink-ink); }
+.pr-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.pr-full { margin: 0; word-break: keep-all; overflow-wrap: anywhere; }
+
 .dm-trash-row {
   display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap;
   padding: var(--space-2) var(--space-3); border: 1px solid var(--line);
