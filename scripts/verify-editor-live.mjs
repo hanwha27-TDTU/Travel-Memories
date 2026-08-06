@@ -169,6 +169,18 @@ const PNG_1X1 = Buffer.from(
  * 자료구조가 아니라 *앱이 실제로 한 일*을 재는 자리다(§10 ③).
  */
 const tileZooms = [];
+/**
+ * Node 쪽 조건이 참이 될 때까지 기다린다 — **못 채워도 던지지 않는다.**
+ *
+ * 던지지 않는 이유(§4): 이 함수를 쓰는 자리는 대개 「0건이면 아래 판정이 공허하다」를 재는
+ * 전제 검사다. 조건이 끝내 거짓이면 그건 **판정할 값**이지 사고가 아니다 — 검사가 그 사실을
+ * 화면에 적어야 한다. 시간으로 자면 그 0이 「없다」인지 「아직 안 봤다」인지 갈리지 않는다.
+ */
+async function waitUntil(fn, timeoutMs = 15000, stepMs = 100) {
+  const end = Date.now() + timeoutMs;
+  while (!fn() && Date.now() < end) await new Promise((r) => setTimeout(r, stepMs));
+  return fn();
+}
 await page.route('**://tile.openstreetmap.org/**', (route) => {
   const m = /\/(\d+)\/\d+\/\d+\.png/.exec(route.request().url());
   if (m) tileZooms.push(Number(m[1]));
@@ -2247,7 +2259,10 @@ check('좌표가 있으면 「이름으로 찾음」 단서를 달지 않는다'
 //
 // 지금 열려 있는 지도는 위치 칩에서 연 것이라 지점이 **하나**다. 그 상태에서 앱이 실제로
 // 요청한 타일의 z를 잰다. 자료구조가 아니라 **앱이 한 일**이다.
-await page.waitForTimeout(1200); // 타일 요청이 나갈 시간
+// 🔴 **자지 않고 기다린다**(T-014). 예전엔 `waitForTimeout(1200)`이었는데, 느린 순간에
+// 타일이 1.2초 안에 안 나가면 「타일 0건」이 찍혔다 — 그 0은 「안 나갔다」가 아니라
+// **「아직 안 봤다」**였다. 못 채워도 던지지 않는다: 진짜 0이면 아래 판정이 그 사실을 말한다(§4).
+await waitUntil(() => tileZooms.length > 0, 15000);
 const zoomSeen = { max: tileZooms.length ? Math.max(...tileZooms) : -1, n: tileZooms.length };
 check(
   '지도: 타일을 실제로 요청했다(0건이면 아래 판정이 공허하다 — §4)',
@@ -3577,19 +3592,66 @@ check(
 await page.evaluate(() => {
   document.querySelectorAll('.overlay-base').forEach((o) => o.remove());
 });
-await page.goto(`http://localhost:4173${BASE}`);
-await page.evaluate(() => document.querySelector('.data-open')?.click());
-await page.waitForTimeout(200);
-await page.evaluate(() => {
-  const cards = [...document.querySelectorAll('.guide-card')];
-  cards.find((c) => c.textContent?.includes('가이드'))?.click();
-});
-await page.waitForTimeout(300);
-await page.evaluate(() => {
-  const cards = [...document.querySelectorAll('.guide-card')];
-  cards.find((c) => c.textContent?.includes('무엇이 어디서 도나'))?.click();
-});
-await page.waitForTimeout(300);
+/**
+ * 🔴 가이드 카드 하나를 **실제로 열고, 열린 것을 확인한 뒤** 돌려준다 (T-014 · 2026-08-06).
+ *
+ * ── 왜 이 함수가 생겼나 ─────────────────────────────────────────────────────
+ * 같은 커밋에서 348/348과 341/348이 번갈아 나왔다. 원인은 「측정이 이르다」가 **아니었다**:
+ *
+ *     document.querySelector('.data-open')?.click()      // ← 없으면 **조용히 아무 일도 없다**
+ *     await page.waitForTimeout(200)                     // ← 그러고 200ms 자고
+ *     ... 빈 화면을 재서 rows=0 · dom=0 으로 보고
+ *
+ * **누르지 않았는데 아무도 그 사실을 말하지 않았다.** 놓친 행동이 측정값으로 반올림된 것이라,
+ * 화면은 「그려지지 않았다」가 아니라 **「열지도 못했다」**였다(§8 — 모르는 것을 반올림 금지 ·
+ * M-0106 「검사가 초록」과 「검사가 살아 있다」는 다른 말).
+ *
+ * 실증(2026-08-06): 첫 클릭 하나만 무산시키자 harness가 냈던 **그 7건이 같은 값으로** 재현됐다.
+ *
+ * ── 그래서 두 가지를 바꾼다 ─────────────────────────────────────────────────
+ *  ① **조용한 무산을 없앤다.** `?.click()`을 쓰지 않는다 — 대상이 없으면 기다리고, 끝내
+ *     없으면 **이름을 대며 크게 실패한다.**
+ *  ② **시간이 아니라 내용을 기다린다.** 「300ms 잤다」는 느린 순간에 거짓이 되지만
+ *     「본문에 자식이 생겼다」는 언제나 참이다.
+ *
+ * 🔴 그리고 **두 곳이 이 절차를 손으로 따로 적고 있었다**(플랫폼 지도 · 가이드 3종).
+ * 갈라질 수 있는 것은 갈라진다(§7 2층) — 그래서 여는 길은 여기 하나뿐이다.
+ */
+const clickGuideCard = async (needle) => {
+  const found = await page
+    .waitForFunction(
+      (t) => [...document.querySelectorAll('.guide-card')].some((c) => c.textContent?.includes(t)),
+      needle,
+      { timeout: 10000 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  if (!found) throw new Error(`가이드 카드를 찾지 못했습니다: 「${needle}」 — 조용히 넘어가지 않는다(T-014)`);
+  await page.evaluate((t) => {
+    const el = [...document.querySelectorAll('.guide-card')].find((c) => c.textContent?.includes(t));
+    if (!el) throw new Error(`가이드 카드가 사라졌습니다: ${t}`); // `?.`를 쓰지 않는 이유가 이것이다
+    el.click();
+  }, needle);
+};
+
+const openGuideCard = async (label) => {
+  await page.goto(`http://localhost:4173${BASE}`);
+  await page.click('.data-open', { timeout: 10000 }); // Playwright의 click은 없으면 **스스로 실패한다**
+  await clickGuideCard('가이드');
+  await clickGuideCard(label);
+  // 🔴 자는 게 아니라 **본문에 내용이 생기는 것**을 기다린다. 이 조건이 이 검사의 전제다.
+  const drawn = await page
+    .waitForFunction(
+      () => (document.querySelector('.guide-detail-body')?.childElementCount ?? 0) > 0,
+      null,
+      { timeout: 10000 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  check(`가이드 「${label}」 화면이 실제로 열렸다(전제 — 못 열면 아래 판정은 공허하다 · §4)`, drawn, drawn ? '' : '본문이 비어 있음');
+};
+
+await openGuideCard('무엇이 어디서 도나');
 
 const plat = await page.evaluate(() => {
   const rows = [...document.querySelectorAll('.guide-plat-row')];
@@ -3618,20 +3680,10 @@ check('플랫폼 지도: 화면에 마크다운 별표가 안 보인다', !plat.
 {
   const reg = collectRegistry();
   const con = collectConstitution();
-  const openGuideCard = async (label) => {
-    await page.goto(`http://localhost:4173${BASE}`);
-    await page.evaluate(() => document.querySelector('.data-open')?.click());
-    await page.waitForTimeout(200);
-    await page.evaluate(() => {
-      const cards = [...document.querySelectorAll('.guide-card')];
-      cards.find((c) => c.textContent?.includes('가이드'))?.click();
-    });
-    await page.waitForTimeout(300);
-    await page.evaluate((l) => {
-      const cards = [...document.querySelectorAll('.guide-card')];
-      cards.find((c) => c.textContent?.includes(l))?.click();
-    }, label);
-    await page.waitForTimeout(300);
+  // 🔴 여는 길은 위 `openGuideCard` 하나뿐이다 — 여기서 다시 적지 않는다(§7 2층).
+  //    예전엔 이 절차가 **두 벌 손으로** 적혀 있었고, 둘 다 조용히 무산되는 클릭을 갖고 있었다.
+  const readGuideCard = async (label) => {
+    await openGuideCard(label);
     return page.evaluate(() => {
       const body = document.querySelector('.guide-detail-body');
       return {
@@ -3645,7 +3697,7 @@ check('플랫폼 지도: 화면에 마크다운 별표가 안 보인다', !plat.
     });
   };
 
-  const ag = await openGuideCard('개발 에이전트 목록');
+  const ag = await readGuideCard('개발 에이전트 목록');
   check('가이드 에이전트: 정의 파일 수만큼 행이 그려진다', ag.keys.length === reg.agentCount, `dom=${ag.keys.length} ssot=${reg.agentCount}`);
   // 예전에 손으로 나열해 **빠져 있던** 형제가 화면에 실제로 나오는지(이게 이 기계화의 이유다).
   check('가이드 에이전트: 독립 감사 에이전트가 목록에 있다', ag.keys.includes('disaster-recovery-guardian'), '');
@@ -3653,12 +3705,12 @@ check('플랫폼 지도: 화면에 마크다운 별표가 안 보인다', !plat.
   check('가이드 에이전트: 분류 묶음 머리글이 그려진다', ag.heads.filter((h) => h.includes('—')).length >= 3, ag.heads.join('|'));
   check('가이드 에이전트: 논리 역할 수를 손으로 적지 않는다', ag.text.includes(`${reg.logicalRoleCount}개 논리 역할`), '');
 
-  const di = await openGuideCard('개발 규율 모음');
+  const di = await readGuideCard('개발 규율 모음');
   check('가이드 규율: 헌법의 실행 규율 수만큼 그려진다', di.keys.length === con.discipline.length, `dom=${di.keys.length} ssot=${con.discipline.length}`);
   check('가이드 규율: 헌법 문장이 그대로 나온다', di.vals.some((v) => v.includes('손편집 중복 자체가 결함이다')), '');
   check('가이드 규율: 마크다운 별표가 안 보인다', !di.text.includes('**'), '');
 
-  const gv = await openGuideCard('AI 개발 거버넌스');
+  const gv = await readGuideCard('AI 개발 거버넌스');
   check('가이드 거버넌스: 비타협 원칙이 전부 그려진다', gv.keys.length === con.principles.length, `dom=${gv.keys.length} ssot=${con.principles.length}`);
   // 예전엔 §0 아홉 중 **넷만** 옮겨 적혀 있었다 — 발췌를 전부인 것처럼 보여주던 자리다.
   check('가이드 거버넌스: §0 금지가 전부 그려진다(발췌 아님)', gv.lis.length === con.neverDo.length, `dom=${gv.lis.length} ssot=${con.neverDo.length}`);
