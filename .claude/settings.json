@@ -23,6 +23,17 @@
             "statusMessage": "자격증명 형태 검사"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/hook-verify-exit.mjs",
+            "timeout": 20,
+            "statusMessage": "검증 명령 종료코드 검사"
+          }
+        ]
       }
     ]
   },
