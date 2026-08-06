@@ -139,3 +139,30 @@ export async function requestPersist(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * 설치된 표면에서 **앱이 스스로 한 번** 저장소 보호를 요청한다(T-005 · §12).
+ *
+ * 조용하다: 성공해도 실패해도 화면에 아무것도 띄우지 않는다 — 사용자가 시작한 행동이 아니므로
+ * 결과를 들이밀지 않는다. 상태는 진단 「저장소 안전」이 언제든 말해 준다(그게 그 도구의 일이다).
+ *
+ * 🔴 시도했다는 사실만 남긴다. 「허락받았다」를 여기 적지 않는다 — 그건 **브라우저에게 물어야
+ * 아는 값**이고(`navigator.storage.persisted()`), 우리 기록은 낡을 수 있다. 성공하면 사라지는
+ * 것의 부재를 증거로 쓰지 않는다는 규율의 같은 형태다(M-0095).
+ */
+const AUTO_PERSIST_KEY = 'journey.persist.autoTried';
+
+export async function autoRequestPersistOnce(): Promise<void> {
+  try {
+    const { persistSurface } = await import('./capacitorShell');
+    const { shouldAutoRequestPersist } = await import('../domain/persistAdvice');
+    const canPersist = typeof navigator.storage?.persist === 'function';
+    const persisted = navigator.storage?.persisted ? await navigator.storage.persisted() : null;
+    const alreadyTried = localStorage.getItem(AUTO_PERSIST_KEY) !== null;
+    if (!shouldAutoRequestPersist({ surface: persistSurface(), canPersist, persisted, alreadyTried })) return;
+    localStorage.setItem(AUTO_PERSIST_KEY, '1'); // 요청 **전에** 적는다 — 예외로 무한 재시도 하지 않게
+    await requestPersist();
+  } catch {
+    // 저장소 보호는 **있으면 좋은 것**이다. 여기서 나는 오류가 앱 시작을 막아선 안 된다.
+  }
+}

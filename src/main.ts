@@ -50,6 +50,11 @@ if (import.meta.env.PROD) {
   void import('./services/shellUpdate').then((m) => m.wireShellUpdate());
 }
 
+// 저장소 보호 — 설치된 표면(APK·홈 화면 추가)에서는 앱이 **스스로 한 번** 요청한다(T-005).
+// 크롬은 이 요청에 프롬프트를 띄우지 않으므로 물어볼 것이 없고, 사용자를 진단 화면까지
+// 보낼 이유도 없다(§12). 브라우저 탭에서는 하지 않는다 — 거기선 파이어폭스가 대화상자를 띄운다.
+void import('./services/envReport').then((m) => m.autoRequestPersistOnce());
+
 const appEl = document.getElementById('app');
 if (!appEl) throw new Error('#app 마운트 지점을 찾을 수 없습니다.');
 const root: HTMLElement = appEl;

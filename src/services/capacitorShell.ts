@@ -7,6 +7,8 @@
 // 크롬(브리지 없음)에서는 모든 함수가 조용히 null/'browser'를 준다 — 웹 경로 무손대가
 // 셸 설계의 절반이다(ADR-0036).
 
+import type { PersistSurface } from '../domain/persistAdvice';
+
 export type ShellState = 'browser' | 'shell' | 'shell-no-plugin';
 
 interface CapacitorGlobal {
@@ -51,4 +53,23 @@ export interface IconSwitcher {
 
 export function iconSwitcher(): IconSwitcher | null {
   return shellPlugin<IconSwitcher>('IconSwitcher');
+}
+
+/**
+ * 🔎 **지금 어느 문으로 실행 중인가** — 셸/설치된 PWA/브라우저 탭(T-005).
+ *
+ * 왜 여기인가: 셸 감지가 이미 이 파일의 SSOT다(머리말). 「설치됐는가」를 다른 파일에서 따로
+ * 읽기 시작하면 감지 규칙이 손으로 두 벌이 되고, 그게 M-0060의 형태다 — **같은 판정을 두 번
+ * 쓰면 갈라진다.** 그래서 표면 판정 전체를 한 함수로 둔다.
+ *
+ * PWA 판정: `display-mode: standalone`. iOS Safari는 이 미디어 쿼리 대신 `navigator.standalone`을
+ * 쓰므로 둘 다 본다 — 한쪽만 보면 아이폰 사용자에게 「설치 안 됨」으로 보인다.
+ */
+export function persistSurface(): PersistSurface {
+  if (shellState() !== 'browser') return 'shell';
+  if (typeof window === 'undefined') return 'browser-tab'; // 유닛(Node) — 탭으로 읽는다
+  const standalone =
+    window.matchMedia?.('(display-mode: standalone)').matches === true ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  return standalone ? 'installed-pwa' : 'browser-tab';
 }
