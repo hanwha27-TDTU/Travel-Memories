@@ -4,6 +4,7 @@ import {
   persistIsMeaningful,
   surfaceLabel,
   shouldAutoRequestPersist,
+  storageHeadline,
   type PersistSurface,
 } from '../../src/domain/persistAdvice';
 
@@ -126,5 +127,41 @@ describe('shouldAutoRequestPersist — 앱이 스스로 물을 것인가(§12)',
   // persisted를 못 읽는 브라우저(null)를 「보호됨」으로 반올림하지 않는다(§8).
   it('보호 여부를 모르면(null) 설치 표면에서는 요청해 본다 — 모름을 ok로 읽지 않는다', () => {
     expect(shouldAutoRequestPersist({ ...base, surface: 'shell', persisted: null })).toBe(true);
+  });
+});
+
+describe('storageHeadline — unknown은 왜 모르는지 말해야 한다(§7-E · M-0113)', () => {
+  // 🔴 사용자 태블릿 실기기가 잡은 것: 판정문이 「용량을 알려주지 않아요」인데
+  // 바로 아래 줄은 「사용 0%」였다. 한 화면이 자기와 모순됐다.
+  it('용량을 아는데 「용량을 알려주지 않아요」라고 하지 않는다', () => {
+    const h = storageHeadline({ level: 'unknown', surface: 'shell', quotaKnown: true });
+    expect(h).not.toContain('저장 용량을 알려주지 않아요');
+    expect(h).toContain('설치된 앱');
+  });
+
+  it('용량을 정말 모를 때는 그렇게 말한다 — 그 갈래가 사라진 게 아니다', () => {
+    const h = storageHeadline({ level: 'unknown', surface: 'browser-tab', quotaKnown: false });
+    expect(h).toBe('이 브라우저는 저장 용량을 알려주지 않아요');
+  });
+
+  // 더 구체적인 이유가 이긴다: 용량도 모르고 셸이기도 하면 용량 쪽을 말한다.
+  it('이유가 겹치면 더 구체적인 쪽을 말한다', () => {
+    expect(storageHeadline({ level: 'unknown', surface: 'shell', quotaKnown: false })).toContain('저장 용량');
+  });
+
+  it('ok · todo · problem 갈래는 그대로다', () => {
+    expect(storageHeadline({ level: 'problem', surface: 'browser-tab', quotaKnown: true })).toContain('부족해요');
+    expect(storageHeadline({ level: 'todo', surface: 'browser-tab', quotaKnown: true })).toContain('켜면 더 안전');
+    expect(storageHeadline({ level: 'ok', surface: 'shell', quotaKnown: true })).toContain('임의로 지우지 않습니다');
+  });
+
+  it('어떤 갈래도 빈 문장을 내지 않는다(§4 — 모든 갈래에 값이 있다)', () => {
+    for (const level of ['ok', 'todo', 'problem', 'unknown'] as const) {
+      for (const surface of SURFACES) {
+        for (const quotaKnown of [true, false]) {
+          expect(storageHeadline({ level, surface, quotaKnown }).length).toBeGreaterThan(0);
+        }
+      }
+    }
   });
 });

@@ -18,7 +18,7 @@ import {
 const clean = (over: Partial<ServerContractObservation> = {}): ServerContractObservation => ({
   cloudConfigured: true,
   signedIn: true,
-  observedPageSize: 1000,
+  pageSize: { kind: 'measured', rows: 1000 },
   assumedPageSize: 1000,
   paginationSound: true,
   paginationNote: null,
@@ -58,18 +58,42 @@ describe('③ 로그인 없는 접근 — 가장 무거운 지표', () => {
 
 describe('① 한 번에 받는 행수', () => {
   it('가정 이상이면 정상 — 더 주는 것은 문제가 아니다', () => {
-    expect(pageSizeMetric(clean({ observedPageSize: 1000 })).level).toBe('ok');
-    expect(pageSizeMetric(clean({ observedPageSize: 2000 })).level).toBe('ok');
+    expect(pageSizeMetric(clean({ pageSize: { kind: 'measured', rows: 1000 } })).level).toBe('ok');
+    expect(pageSizeMetric(clean({ pageSize: { kind: 'measured', rows: 2000 } })).level).toBe('ok');
   });
 
-  it('🔴 가정보다 적으면 problem — 페이지 사이로 행이 조용히 빠진다', () => {
-    const m = pageSizeMetric(clean({ observedPageSize: 500 }));
+  // 🔴 M-0113의 본체: 「적게 왔다」가 두 가지를 뜻하는데 예전엔 한 덩어리였다.
+  it('🔴 전체보다 적게 왔으면 problem — 서버가 잘랐다(자료가 적은 게 아니다)', () => {
+    const m = pageSizeMetric(clean({ pageSize: { kind: 'truncated', rows: 500, total: 1200 } }));
     expect(m.level).toBe('problem');
     expect(m.meaning).toContain('조용히 빠질 수 있');
+    expect(m.actual).toContain('전체 1200건 중');
+  });
+
+  it('🔴 전체만큼 다 왔으면 정상이다 — 여행 9건에는 경계가 없다(과도한 unknown 금지 · §7-E)', () => {
+    const m = pageSizeMetric(clean({ pageSize: { kind: 'below-boundary', rows: 9, total: 9 } }));
+    expect(m.level).toBe('ok');
+    expect(m.actual).toContain('여행 9건');
+    // 아무것도 실패하지 않았다 — 연결을 의심하게 만들면 안 된다(태블릿 실기기 · M-0113).
+    expect(`${m.actual}${m.meaning ?? ''}`).not.toContain('연결');
+    expect(`${m.actual}${m.meaning ?? ''}`).not.toContain('물어보지 못');
+  });
+
+  it('전체 건수를 못 받으면 unknown이고 **왜 모르는지** 말한다(§7-E)', () => {
+    const m = pageSizeMetric(clean({ pageSize: { kind: 'unknown-total', rows: 9 } }));
+    expect(m.level).toBe('unknown');
+    expect(m.meaning).toContain('가르지 못했');
+  });
+
+  it('🔴 조회가 실패하면 원인을 단정하지 않는다(§8 · M-0056)', () => {
+    const m = pageSizeMetric(clean({ pageSize: { kind: 'query-failed', note: 'timeout' } }));
+    expect(m.level).toBe('unknown');
+    expect(m.meaning).toContain('timeout'); // 원문을 들고 간다
+    expect(m.meaning).not.toMatch(/연결이 돌아오면|때문입니다/);
   });
 
   it('못 쟀으면 unknown이고, 로그인 전이면 **그게 정상이라고** 말한다', () => {
-    const m = pageSizeMetric(clean({ observedPageSize: null, signedIn: false }));
+    const m = pageSizeMetric(clean({ pageSize: { kind: 'query-failed', note: 'x' }, signedIn: false }));
     expect(m.level).toBe('unknown');
     // 로그인 전에 0행이 오는 건 RLS가 제대로 도는 것이다 — 실패처럼 말하면 안 된다.
     expect(m.meaning).toContain('정상');
@@ -102,17 +126,17 @@ describe('판정 한 문장', () => {
   });
 
   it('🔴 접근이 뚫린 것은 나머지보다 **먼저** 말한다 — 급이 다르다', () => {
-    const o = clean({ anonBlocked: false, anonRowsSeen: 3, observedPageSize: 500 });
+    const o = clean({ anonBlocked: false, anonRowsSeen: 3, pageSize: { kind: 'truncated', rows: 500, total: 1200 } });
     expect(serverContractHeadline(o)).toContain('로그인 없이도');
   });
 
   it('접근은 멀쩡하고 다른 게 어긋나면 개수로 말한다(§7-C — 손으로 쓰지 않는다)', () => {
-    const o = clean({ observedPageSize: 500 });
+    const o = clean({ pageSize: { kind: 'truncated', rows: 500, total: 1200 } });
     expect(serverContractHeadline(o)).toContain('1가지');
   });
 
   it('로그인 전이면 그 사실을 말한다 — 실패처럼 보이지 않게', () => {
-    const o = clean({ signedIn: false, observedPageSize: null, paginationSound: null, anonBlocked: null });
+    const o = clean({ signedIn: false, pageSize: { kind: 'query-failed', note: 'x' }, paginationSound: null, anonBlocked: null });
     expect(serverContractHeadline(o)).toContain('로그인하면');
   });
 });
@@ -130,9 +154,11 @@ describe('지표 묶음 규율', () => {
       clean({ cloudConfigured: false }),
       clean({ anonBlocked: false, anonRowsSeen: 2 }),
       clean({ anonBlocked: null, anonNote: 'x' }),
-      clean({ observedPageSize: 500 }),
+      clean({ pageSize: { kind: 'truncated', rows: 500, total: 1200 } }),
+      clean({ pageSize: { kind: 'below-boundary', rows: 9, total: 9 } }),
+      clean({ pageSize: { kind: 'unknown-total', rows: 9 } }),
       clean({ paginationSound: false, paginationNote: 'y' }),
-      clean({ signedIn: false, observedPageSize: null, paginationSound: null, anonBlocked: null }),
+      clean({ signedIn: false, pageSize: { kind: 'query-failed', note: 'x' }, paginationSound: null, anonBlocked: null }),
     ];
     for (const o of cases) {
       for (const m of serverContractMetrics(o)) {

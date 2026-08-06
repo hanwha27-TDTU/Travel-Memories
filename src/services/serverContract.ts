@@ -8,7 +8,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { supabase, isConfigured, type JourneyClient } from './supabase/client';
 import { currentUser } from './auth';
-import type { ServerContractObservation } from '../domain/serverContractVerdict';
+import type { ServerContractObservation, PageSizeReading } from '../domain/serverContractVerdict';
 
 /**
  * 앱이 페이지네이션에 쓰는 크기. `canonicalSync.ts`의 `PAGE_SIZE`와 **같아야 한다** —
@@ -29,17 +29,25 @@ const PROBE_TABLE = 'trips';
  * 자료가 그보다 적으면 상한을 알 수 없으므로(요청보다 적게 온 것이 정상) `null`을 준다 —
  * 「자료가 적어서 못 쟀다」와 「서버가 잘라서 줬다」는 다른 말이다(§8).
  */
-async function measurePageSize(c: JourneyClient): Promise<number | null> {
-  const { data, error } = await c
+async function measurePageSize(c: JourneyClient): Promise<PageSizeReading> {
+  // 🔴 **전체 행수를 함께 묻는다.** 이게 이 함수의 핵심이다 — 받은 행이 가정보다 적을 때
+  // 「자료가 그만큼인 것」과 「서버가 잘라서 준 것」은 **똑같이 생겼다.** 총수를 모르면
+  // 두 상태를 가를 수 없고, 그러면 진짜 절단(자료가 조용히 빠지는 상태)을 영영 못 잡는다.
+  // 예전 판은 총수를 안 묻고 `null` 하나로 뭉갰고, 화면은 그 null을 「연결 실패」라고 말했다.
+  const { data, error, count } = await c
     .from(PROBE_TABLE)
-    .select('id')
+    .select('id', { count: 'exact' })
     .order('id', { ascending: true })
     .range(0, ASSUMED_PAGE_SIZE - 1);
-  if (error || !data) return null;
+  if (error || !data) return { kind: 'query-failed', note: error?.message ?? '서버가 답하지 않았어요' };
   const n = (data as unknown[]).length;
-  // 요청한 만큼 다 왔으면 상한은 그 이상이다. 덜 왔으면 **자료가 그만큼인 것**이라
-  // 상한을 알 수 없다 — 이때 「서버가 잘랐다」로 읽으면 정상을 문제라 부르게 된다.
-  return n >= ASSUMED_PAGE_SIZE ? n : null;
+  if (n >= ASSUMED_PAGE_SIZE) return { kind: 'measured', rows: n };
+  // 총수를 못 받았으면 **가르지 못한 것**이다 — 「자료가 적다」로 반올림하지 않는다(§8).
+  if (typeof count !== 'number') return { kind: 'unknown-total', rows: n };
+  // 총수보다 적게 왔다 = **서버가 잘랐다.** 자료가 적은 것이 아니다.
+  if (n < count) return { kind: 'truncated', rows: n, total: count };
+  // 총수만큼 다 왔다 = 이 계정의 자료가 그만큼인 것. 1000행 경계 자체가 아직 없다.
+  return { kind: 'below-boundary', rows: n, total: count };
 }
 
 /**
@@ -107,7 +115,7 @@ export async function collectServerContract(): Promise<ServerContractObservation
   const base: ServerContractObservation = {
     cloudConfigured: isConfigured(),
     signedIn: false,
-    observedPageSize: null,
+    pageSize: { kind: 'query-failed', note: '아직 재지 않았어요' },
     assumedPageSize: ASSUMED_PAGE_SIZE,
     paginationSound: null,
     paginationNote: null,
@@ -134,7 +142,7 @@ export async function collectServerContract(): Promise<ServerContractObservation
   return {
     ...base,
     signedIn: true,
-    observedPageSize: pageSize,
+    pageSize,
     paginationSound: seam.sound,
     paginationNote: seam.note,
     anonBlocked: anon.blocked,

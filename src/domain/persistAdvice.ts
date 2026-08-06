@@ -114,3 +114,31 @@ export function shouldAutoRequestPersist(
   if (ctx.alreadyTried) return false; // 조용한 한 번으로 끝낸다
   return ctx.surface !== 'browser-tab';
 }
+
+/**
+ * 🔴 「저장소 안전」의 **판정 한 문장**. `unknown`일 때 **왜 모르는지**가 문장에 담겨야 한다(§7-E).
+ *
+ * 왜 이 함수가 생겼나(M-0113 · 사용자 태블릿 캡처): 예전 판은 `unknown`이면 무조건
+ * **「이 브라우저는 저장 용량을 알려주지 않아요」**라고 말했다. 그런데 v1.84에서 셸의 persist를
+ * `unknown`으로 두자 **용량을 아는 기기에서도** 그 문장이 나갔다 — 바로 아래 줄이
+ * 「사용 0%」라고 적혀 있는데 위에서는 용량을 모른다고 했다. **한 화면이 자기와 모순됐다.**
+ *
+ * 근본형: `unknown`의 **이유가 여럿인데 문장은 하나**였다. 판정 등급은 이유를 안 들고 다닌다 —
+ * 그러니 문장을 등급이 아니라 **이유**에서 만든다.
+ */
+export interface StorageHeadlineInput {
+  level: 'ok' | 'todo' | 'problem' | 'unknown';
+  surface: PersistSurface;
+  /** 용량을 읽을 수 있었는가(usage·quota 둘 다). */
+  quotaKnown: boolean;
+}
+
+export function storageHeadline(i: StorageHeadlineInput): string {
+  if (i.level === 'problem') return '저장 공간이 부족해요 — 지금 백업을 받으세요';
+  if (i.level === 'todo') return '저장소 보호를 켜면 더 안전해요';
+  if (i.level === 'ok') return '브라우저가 이 기기의 기록을 임의로 지우지 않습니다';
+  // ── unknown: 이유를 순서대로 가른다. **더 구체적인 이유가 이긴다.** ──
+  if (!i.quotaKnown) return '이 브라우저는 저장 용량을 알려주지 않아요';
+  if (!persistIsMeaningful(i.surface)) return '설치된 앱이라 브라우저 보호 여부를 아직 재보지 못했어요';
+  return '지금은 저장소 상태를 판정할 수 없어요';
+}
