@@ -88,6 +88,8 @@ export const SKILL_ROUTES = [
   { match: /^android-shell\//, skill: 'android-apk-dev' },
   { match: /^\.github\/workflows\/android-apk\.yml/, skill: 'android-apk-dev' },
   { match: /^scripts\/(check-apk-release-link|check-update-signal|gen-version-file)\.mjs/, skill: 'android-apk-dev' },
+  // 훅은 「강제 수단」이라 게이트·프롬프트 거버넌스와 같은 규율을 받는다(S-09 · 헌법 §18).
+  { match: /^scripts\/hook-[\w-]+\.mjs/, skill: 'gates-mechanization-dev' },
   // 「접속하면 스스로 최신」 배선 — 재설치 없이 웹만 갱신되는 계약이라 셸 헌장이 정본이다.
   // 예전엔 NO_SKILL_REQUIRED였다(계약이 check-update-signal에만 있다고 봤음) — 이제 전용
   // 헌장이 생겼으니 그쪽으로 옮긴다(§7 — 새로 생긴 헌장이 형제의 규율을 물려받는 방향).
@@ -97,11 +99,6 @@ export const SKILL_ROUTES = [
   { match: /^src\/domain\/media\//, skill: 'photo-storage-dev' },
   // 순간 안의 사진 순서 — 사진 자료의 규율(photo-storage)과 동기화 필드(sync-offline)가
   // 동시에 걸리는 이음매다. sortOrder는 서버로 가는 **사용자 기록**이다(마이그레이션 0029).
-  { match: /^src\/domain\/media\/order/, skill: 'sync-offline-dev' },
-  // 꾹 눌러 끌기 배선 — 화면 상호작용이라 UI 헌장이 정본이다.
-  { match: /^src\/ui\/dragReorder/, skill: 'ui-responsive-dev' },
-  // 순간 안의 사진 순서 — 사진 자료의 규율(photo-storage)과 동기화 필드(sync-offline)가
-  // 동시에 걸리는 이음매다. 는 서버로 가는 사용자 기록이다(마이그레이션 0029).
   { match: /^src\/domain\/media\/order/, skill: 'sync-offline-dev' },
   // 꾹 눌러 끌기 배선 — 화면 상호작용이라 UI 헌장이 정본이다.
   { match: /^src\/ui\/dragReorder/, skill: 'ui-responsive-dev' },
