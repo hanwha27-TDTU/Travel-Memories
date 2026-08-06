@@ -152,6 +152,48 @@ export async function requestPersist(): Promise<boolean> {
  */
 const AUTO_PERSIST_KEY = 'journey.persist.autoTried';
 
+/**
+ * 🔴 **물어봤는가, 그리고 뭐라고 답했는가** (2026-08-06 · T-005 · 사용자 태블릿).
+ *
+ * 예전에는 「시도했다」만 남겼다. 그러니 화면이 「미적용」이라고만 말할 수 있었고, 사용자는
+ * *"앱이 물어보긴 한 건가?"*를 알 길이 없었다 — **앱이 아는 것을 안 말하던 자리**(§12).
+ * 그 상태로는 T-005가 영원히 「확인 불가」로 남는다.
+ *
+ * 값은 **시도의 기록**이지 현재 상태가 아니다. 「지금 보호되는가」는 언제나 브라우저에게
+ * 다시 물어야 한다(`navigator.storage.persisted()`) — 우리 기록은 낡을 수 있다(M-0095).
+ */
+export interface PersistAsk {
+  /** 언제 물었나(ISO). */
+  at: string;
+  /** 그때 브라우저가 뭐라고 했나. */
+  granted: boolean;
+  /** 앱이 스스로 물었나(true), 사용자가 버튼을 눌렀나(false). */
+  auto: boolean;
+}
+
+export function lastPersistAsk(): PersistAsk | null {
+  try {
+    const raw = localStorage.getItem(AUTO_PERSIST_KEY);
+    if (!raw) return null;
+    // 옛 판은 `'1'`만 적었다 — 그건 「물어봤다」까지만 아는 값이라 결과를 지어내지 않는다.
+    if (raw === '1') return null;
+    const v = JSON.parse(raw) as Partial<PersistAsk>;
+    return typeof v.at === 'string' && typeof v.granted === 'boolean'
+      ? { at: v.at, granted: v.granted, auto: v.auto === true }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function rememberPersistAsk(granted: boolean, auto: boolean): void {
+  try {
+    localStorage.setItem(AUTO_PERSIST_KEY, JSON.stringify({ at: new Date().toISOString(), granted, auto }));
+  } catch {
+    /* 기록 못 해도 기능은 돈다 — 다음에 한 번 더 물을 뿐이다 */
+  }
+}
+
 export async function autoRequestPersistOnce(): Promise<void> {
   try {
     const { persistSurface } = await import('./capacitorShell');
@@ -160,8 +202,9 @@ export async function autoRequestPersistOnce(): Promise<void> {
     const persisted = navigator.storage?.persisted ? await navigator.storage.persisted() : null;
     const alreadyTried = localStorage.getItem(AUTO_PERSIST_KEY) !== null;
     if (!shouldAutoRequestPersist({ surface: persistSurface(), canPersist, persisted, alreadyTried })) return;
-    localStorage.setItem(AUTO_PERSIST_KEY, '1'); // 요청 **전에** 적는다 — 예외로 무한 재시도 하지 않게
-    await requestPersist();
+    // 요청 **전에** 한 번 적는다 — 예외로 무한 재시도 하지 않게. 결과는 아래에서 덮어쓴다.
+    localStorage.setItem(AUTO_PERSIST_KEY, JSON.stringify({ at: new Date().toISOString(), granted: false, auto: true }));
+    rememberPersistAsk(await requestPersist(), true);
   } catch {
     // 저장소 보호는 **있으면 좋은 것**이다. 여기서 나는 오류가 앱 시작을 막아선 안 된다.
   }

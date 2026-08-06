@@ -142,3 +142,23 @@ export function storageHeadline(i: StorageHeadlineInput): string {
   if (!persistIsMeaningful(i.surface)) return '설치된 앱이라 브라우저 보호 여부를 아직 재보지 못했어요';
   return '지금은 저장소 상태를 판정할 수 없어요';
 }
+
+/**
+ * 🔴 **「왜 아직 미적용인가」에 답하는 한 줄** (T-005 · 사용자 태블릿 2026-08-06).
+ *
+ * 화면이 「미적용 · 확인 불가」라고만 말하면 사용자는 *"앱이 물어보긴 한 건가?"*에서 멈춘다.
+ * 그 상태로는 이 과제가 **영원히 열려 있다.** 앱은 물어본 사실을 알고 있으므로 말해야 한다(§12).
+ *
+ * 🔴 **거절을 「영영 안 된다」로 읽지 않는다**(§8). 크롬은 사용 빈도도 함께 보므로 나중에
+ * 허락할 수 있다 — 그래서 문장은 *그때 그랬다*로 적고, 다시 눌러 볼 길을 닫지 않는다.
+ */
+export function persistAskNote(ask: { granted: boolean; auto: boolean; when: string } | null, surface: PersistSurface): string {
+  if (!ask) {
+    return surface === 'browser-tab'
+      ? '아직 요청하지 않았어요 — [저장소 보호 요청]을 누르면 브라우저에 물어봅니다.'
+      : '아직 요청 기록이 없어요 — [저장소 보호 요청]을 누르면 물어봅니다.';
+  }
+  if (ask.granted) return `${ask.when}에 요청해 허락받았어요.`;
+  const who = ask.auto ? '앱이 시작할 때 한 번 요청했지만' : '요청했지만';
+  return `${ask.when}에 ${who} 브라우저가 허락하지 않았어요. 나중에 다시 눌러 보면 허락될 수도 있어요.`;
+}

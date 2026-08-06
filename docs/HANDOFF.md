@@ -4,6 +4,16 @@
 
 ---
 
+## HANDOFF-0106 · v1.89 · **T-005를 닫았다 — 과제가 아니라 「경계」였다** (2026-08-06 · M-0117)
+
+- **사용자 태블릿**: *"미완료 과제 5번입니다"* + 캡처(실행 표면 **설치된 앱(APK)** · persist **미적용** · 확인 불가).
+- **왜 안 닫혔나**: 화면이 「미적용」이라고만 말해 사용자가 *"앱이 물어보긴 한 건가?"*에서 멈췄다. v1.84가 시작 시 자동 요청을 넣으면서 **「시도했다」만** 남기고 **결과·시각을 안 남겼다** — 앱이 아는 것을 안 말한 자리(§12), 그리고 그 침묵이 백로그 행 하나를 영구화했다.
+- **고친 것**: ①요청 결과·시각을 남긴다(`{at, granted, auto}` — 사용자가 누른 것도 **같은 자리**에) ②`persistAskNote()`(순수)가 「언제·누가 물었고 뭐라 답했나」를 한 줄로 ③🔴 **거절을 「영영 안 된다」로 말하지 않는다**(§8 — 유닛이 `영영|절대|불가능`을 막는다).
+- 🔴 **T-005의 정체**: 안드로이드 WebView는 `persist()`에 허락을 주지 않고(실기기 실측), 그 표면에서 이 값이 무엇을 뜻하는지는 **잴 방법이 앱에 없다.** → `BLIND_SPOTS`에 **`coveredBy: null` + 이유**로 등록하고 백로그 → 완료 아카이브로 옮겼다. `docs/BACKLOG.md`가 스스로 적어 둔 규칙(*"경계는 등록부에만 두고 백로그에 올리지 않는다 — 올리면 영원히 안 끝나는 행이 된다"*)을 이제야 적용했다.
+- **덮였다고 적지 않았다**(M-0109): 도구는 *물어봤고 거절당했다*를 말할 뿐 *그 값의 뜻*에는 답하지 못한다.
+- **검증**: 유닛 27건(주입 2종 RED→GREEN) · 전체 harness 건너뜀 0 · 🔴 **셸 표면으로 그려 확인**(§13) — 「2026.08.06 07:23에 앱이 시작할 때 한 번 요청했지만 브라우저가 허락하지 않았어요…확실한 보호는 [데이터 관리 › 백업]입니다」.
+- **열린 과제 3건 남음**: T-012 · T-013 · T-007.
+
 ## HANDOFF-0105 · v1.88 · **손가락으로는 드래그가 안 됐다 — 검사가 마우스로 돌고 있었다** (2026-08-06 · M-0116)
 
 - **사용자 실기기**: *"눌러서 드래그 하려는데 안 되네요?"* — v1.87 배포 **직후**. 라이브 345/345·유닛 1451건이 전부 초록이었다.
@@ -545,7 +555,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.88<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->188<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.89<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->189<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->29<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

@@ -44,9 +44,9 @@ import {
   tombstoneSyncPresentation,
   type TombstoneSyncFinding,
 } from '../../domain/syncTombstoneVerdict';
-import { collectEnv, evictionRisk, requestPersist } from '../../services/envReport';
+import { collectEnv, evictionRisk, requestPersist, lastPersistAsk, rememberPersistAsk } from '../../services/envReport';
 import { persistSurface } from '../../services/capacitorShell';
-import { persistResultNote, persistIsMeaningful, surfaceLabel, storageHeadline } from '../../domain/persistAdvice';
+import { persistResultNote, persistIsMeaningful, surfaceLabel, storageHeadline, persistAskNote } from '../../domain/persistAdvice';
 import { recentErrors, clearErrors } from '../../app/errorLog';
 import { CHANGELOG } from '../../app/changelog';
 import { syncStatus, requestSync } from '../../services/autoSync';
@@ -184,6 +184,9 @@ export async function storageProbe(): Promise<Verdict> {
   // APK 사용자에게 「홈 화면에 추가」를, 이미 설치한 사용자에게 「설치하세요」를 말했다(M-0048의 형태).
   const surface = persistSurface();
   const meaningful = persistIsMeaningful(surface);
+  const ask = lastPersistAsk();
+  // 시각은 **로컬 표기**로 — 원시 UTC를 사용자 화면에 내보내지 않는다(M-0110).
+  const askNote = persistAskNote(ask ? { granted: ask.granted, auto: ask.auto, when: localDateTime(ask.at) } : null, surface);
 
   const metrics: Metric[] = [
     {
@@ -201,10 +204,12 @@ export async function storageProbe(): Promise<Verdict> {
         : persisted === null
           ? { level: 'unknown' as const, unknownKind: 'transient' as const }
           : { level: persisted ? ('ok' as const) : ('todo' as const) }),
+      // 🔴 **「왜 아직 미적용인가」에 답한다**(T-005) — 물어봤는지조차 안 말하면 사용자는
+      // *"앱이 물어보긴 한 건가?"*에서 멈추고, 그 과제는 영원히 열려 있다(§12).
       ...(!meaningful
-        ? { meaning: '설치된 앱으로 실행 중이에요. 이 값이 이 표면에서 무엇을 뜻하는지는 아직 재보지 못했으니, 백업을 받아 두는 것이 확실합니다.' }
+        ? { meaning: `설치된 앱으로 실행 중이에요. ${askNote} 이 값이 이 표면에서 무엇을 뜻하는지는 아직 재보지 못했으니, 확실한 보호는 [데이터 관리 › 백업]입니다.` }
         : persisted === false
-          ? { meaning: '보호가 없으면 브라우저가 공간이 부족할 때 이 앱의 기록을 지울 수 있어요. 아래 버튼으로 요청할 수 있습니다(브라우저가 거절할 수도 있어요).' }
+          ? { meaning: `보호가 없으면 브라우저가 공간이 부족할 때 이 앱의 기록을 지울 수 있어요. ${askNote}` }
           : {}),
     },
     {
@@ -249,7 +254,11 @@ export async function storageProbe(): Promise<Verdict> {
       //
       // 문장은 `persistResultNote()`가 만든다 — 표면마다 할 일이 다르고(APK엔 「홈 화면에 추가」
       // 메뉴가 없다), 그 갈래는 DOM 안에 두면 검사할 수 없다(§10 ③).
-      run: async () => persistResultNote({ surface, canPersist }, await requestPersist()),
+      run: async () => {
+        const granted = await requestPersist();
+        rememberPersistAsk(granted, false); // 사용자가 누른 것도 **같은 자리**에 남긴다(기록이 두 벌이면 갈라진다)
+        return persistResultNote({ surface, canPersist }, granted);
+      },
     });
   }
   return v;

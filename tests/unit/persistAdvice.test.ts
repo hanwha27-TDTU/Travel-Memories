@@ -5,6 +5,7 @@ import {
   surfaceLabel,
   shouldAutoRequestPersist,
   storageHeadline,
+  persistAskNote,
   type PersistSurface,
 } from '../../src/domain/persistAdvice';
 
@@ -160,6 +161,48 @@ describe('storageHeadline — unknown은 왜 모르는지 말해야 한다(§7-E
       for (const surface of SURFACES) {
         for (const quotaKnown of [true, false]) {
           expect(storageHeadline({ level, surface, quotaKnown }).length).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+});
+
+describe('persistAskNote — 「왜 아직 미적용인가」에 답한다(T-005 · 사용자 태블릿)', () => {
+  it('물어본 적이 없으면 그렇게 말한다 — 지어내지 않는다', () => {
+    expect(persistAskNote(null, 'shell')).toContain('아직 요청');
+    expect(persistAskNote(null, 'browser-tab')).toContain('아직 요청');
+  });
+
+  // 🔴 이게 이 함수의 존재 이유: 화면이 「미적용」이라고만 하면 사용자는
+  // "앱이 물어보긴 한 건가?"에서 멈추고, 그 과제는 영원히 열려 있다.
+  it('앱이 스스로 물었고 거절당했으면 **그 사실을** 말한다', () => {
+    const n = persistAskNote({ granted: false, auto: true, when: '8월 6일 16:23' }, 'shell');
+    expect(n).toContain('8월 6일 16:23');
+    expect(n).toContain('앱이 시작할 때');
+    expect(n).toContain('허락하지 않았어요');
+  });
+
+  it('사용자가 눌러서 거절당한 것과 앱이 물은 것을 구분한다', () => {
+    expect(persistAskNote({ granted: false, auto: false, when: 'x' }, 'shell')).not.toContain('앱이 시작할 때');
+  });
+
+  it('허락받았으면 짧게 사실만', () => {
+    expect(persistAskNote({ granted: true, auto: true, when: 'x' }, 'shell')).toContain('허락받았어요');
+  });
+
+  // 🔴 거절을 「영영 안 된다」로 읽지 않는다(§8) — 크롬은 사용 빈도도 함께 본다.
+  it('거절을 영구 결론으로 말하지 않는다 — 다시 눌러 볼 길을 남긴다', () => {
+    const n = persistAskNote({ granted: false, auto: true, when: 'x' }, 'shell');
+    expect(n).toContain('다시 눌러 보면');
+    expect(n).not.toMatch(/영영|절대|불가능/);
+  });
+
+  it('어느 갈래도 빈 문장을 내지 않는다', () => {
+    for (const surface of SURFACES) {
+      expect(persistAskNote(null, surface).length).toBeGreaterThan(0);
+      for (const granted of [true, false]) {
+        for (const auto of [true, false]) {
+          expect(persistAskNote({ granted, auto, when: 'x' }, surface).length).toBeGreaterThan(0);
         }
       }
     }
