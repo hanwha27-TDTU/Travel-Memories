@@ -1963,7 +1963,9 @@ export function roundTripProbe(): Promise<Verdict> {
           run.steps.map((s): [string, string] => {
             const mark = s.state === 'pass' ? '통과' : s.state === 'fail' ? '실패' : '안 쟀음';
             const time = s.ms === null ? '' : ` · ${s.ms}ms`;
-            const why = s.error ? ` — ${s.error}` : '';
+            // 🔴 통과한 단계도 **본 것이 있으면 말한다**(§12). 실패 사유만 보여주면
+            // 「서버가 시각을 바꿨는가」처럼 *결함은 아니지만 알아야 하는 사실*이 갈 곳이 없다.
+            const why = s.error ? ` — ${s.error}` : s.note ? ` — ${s.note}` : '';
             return [`${STEP_LABEL[s.step]}`, `${mark}${time}${why}`];
           }),
           '단계 기록이 없어요',

@@ -4,7 +4,7 @@
 // 기기마다 다를 수도 있었다. 「순서를 바꾸는 기능」보다 **순서가 있는 것**이 먼저였다.
 
 import { describe, it, expect } from 'vitest';
-import { orderPhotos, moveItem, renumber, dropIndex, type OrderableMedia } from '../../src/domain/media/order';
+import { orderPhotos, moveItem, renumber, dropIndex, shiftOffsets, type OrderableMedia } from '../../src/domain/media/order';
 
 const p = (id: string, takenAt: string, sortOrder: number | null = null): OrderableMedia => ({ id, takenAt, sortOrder });
 const ids = (rows: OrderableMedia[]): string[] => rows.map((r) => r.id);
@@ -134,5 +134,78 @@ describe('dropIndex — 지금 놓으면 몇 번째인가', () => {
 
   it('빈 목록이면 넘겨준 기본값을 그대로 돌려준다(지어내지 않는다)', () => {
     expect(dropIndex([], 10, 10, 7)).toBe(7);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// shiftOffsets — 끄는 동안 **다른 칸들이 비켜서는 자리**
+//
+// 사용자 요청 2026-08-06: *"이동하는 느낌이 나게 해줄 순 있나요?"* 예전 판은 놓일 칸에
+// 테두리만 그려서, 손을 떼기 전까지 무슨 일이 일어나는지 그림으로 알 수 없었다.
+//
+// 🔴 이 유닛이 지키는 계약은 하나다: **입력 `rects`는 「아무것도 밀지 않은 자리」다.**
+// 밀린 자리를 다시 넣으면 자기 출력이 자기 입력이 되어(피드백) 칸이 떨린다.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('shiftOffsets — 끄는 동안 비켜서기', () => {
+  const row = [0, 1, 2, 3].map((i) => ({ left: i * 100, right: i * 100 + 100, top: 0, bottom: 100 }));
+  const dxs = (offs: { dx: number; dy: number }[]): number[] => offs.map((o) => o.dx);
+
+  it('앞의 칸을 뒤로 보내면 사이 칸들이 **앞으로 한 칸씩** 당겨진다', () => {
+    // 0번을 2번 자리로 → 1·2번이 왼쪽으로 100px씩. 3번은 그대로.
+    expect(dxs(shiftOffsets(row, 0, 2))).toEqual([0, -100, -100, 0]);
+  });
+
+  it('뒤의 칸을 앞으로 보내면 사이 칸들이 **뒤로 한 칸씩** 밀린다', () => {
+    expect(dxs(shiftOffsets(row, 3, 1))).toEqual([0, 100, 100, 0]);
+  });
+
+  // 끌리는 칸은 손가락이 정한다 — 여기서 자리를 주면 손가락과 싸운다.
+  it('끌리는 칸 자신은 언제나 그대로다(0,0)', () => {
+    for (const to of [0, 1, 2, 3]) {
+      expect(shiftOffsets(row, 2, to)[2]).toEqual({ dx: 0, dy: 0 });
+    }
+  });
+
+  it('제자리면 아무도 안 움직인다 — 흔들리지 않는다', () => {
+    expect(dxs(shiftOffsets(row, 1, 1))).toEqual([0, 0, 0, 0]);
+  });
+
+  // 범위 밖을 「그럴듯한 결과」로 바꾸지 않는다(§8 — 모르는 것을 반올림하지 않는다).
+  it('범위 밖 인덱스는 아무것도 밀지 않는다', () => {
+    expect(dxs(shiftOffsets(row, -1, 2))).toEqual([0, 0, 0, 0]);
+    expect(dxs(shiftOffsets(row, 0, 9))).toEqual([0, 0, 0, 0]);
+    expect(shiftOffsets([], 0, 1)).toEqual([]);
+  });
+
+  // 격자가 접히면 **줄을 넘어 세로로도** 비켜서야 한다 — 가로만 밀면 두 칸이 겹친다.
+  it('줄이 접히면 세로로도 비켜선다', () => {
+    const grid = [
+      { left: 0, right: 100, top: 0, bottom: 100 },
+      { left: 100, right: 200, top: 0, bottom: 100 },
+      { left: 0, right: 100, top: 110, bottom: 210 },
+    ];
+    // 0번을 2번(둘째 줄) 자리로 → 1번은 0번 자리로(왼쪽), 2번은 1번 자리로(오른쪽+위로).
+    expect(shiftOffsets(grid, 0, 2)).toEqual([
+      { dx: 0, dy: 0 },
+      { dx: -100, dy: 0 },
+      { dx: 100, dy: -110 },
+    ]);
+  });
+
+  // 🔴 이게 이 함수의 존재 이유: 옮긴 뒤의 그림이 `moveItem`이 만들 배열과 **같아야** 한다.
+  // 두 함수가 서로 다른 뜻의 `to`를 쓰면 화면과 저장이 갈라진다(M-0060의 형태).
+  it('비켜선 자리가 moveItem의 결과와 같은 배열을 그린다', () => {
+    const list = ['a', 'b', 'c', 'd'];
+    for (const from of [0, 1, 2, 3]) {
+      for (const to of [0, 1, 2, 3]) {
+        const offs = shiftOffsets(row, from, to);
+        // 각 칸이 실제로 앉는 자리(왼쪽 좌표)를 계산해 그 순서로 이름을 늘어놓는다.
+        const drawn = list
+          .map((name, i) => ({ name, left: row[i]!.left + (i === from ? (row[to]!.left - row[from]!.left) : offs[i]!.dx) }))
+          .sort((p1, p2) => p1.left - p2.left)
+          .map((x) => x.name);
+        expect(drawn).toEqual(moveItem(list, from, to));
+      }
+    }
   });
 });

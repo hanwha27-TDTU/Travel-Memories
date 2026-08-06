@@ -17,6 +17,12 @@ export const ROUND_TRIP_STEPS = [
   'create', // 이 기기에 저장(내구성 로컬 커밋 — 비타협 원칙 #1이 보장하는 지점)
   'push', // 서버로 올림
   'serverRead', // 🔴 서버에서 **되읽어** 확인 — 성공 응답이 아니라 행이 실제로 있는가(§2-B)
+  // ── T-013: 여기 두 단계는 **고치기(UPDATE)**를 재려고 있다 ──────────────────
+  // 🔴 만들기만 재면 이 질문에 못 답한다. 서버의 `set_updated_at` 트리거는 **UPDATE에만**
+  //    붙어 있어서, 새로 넣는 길에서는 **문제가 날 수 없다**(§17 — 검사가 문제가 날 수 있는
+  //    자리에서 도는가). 그래서 이미 있는 행을 한 번 고쳐 본다.
+  'update', // 이미 있는 기록을 고친다 — 서버의 UPDATE 트리거가 도는 유일한 자리
+  'stampRead', // 그 수정 시각을 이 기기와 서버가 **같은 값**으로 들고 있는가(LWW의 기준)
   'delete', // 휴지통으로(tombstone)
   'tombstoneRead', // 그 삭제가 서버에도 반영됐는가 — 다른 기기가 이걸 보고 지운다
   'purge', // 영구삭제
@@ -31,6 +37,8 @@ export const STEP_LABEL: Record<RoundTripStep, string> = {
   create: '이 기기에 저장',
   push: '서버로 올림',
   serverRead: '서버에서 되읽기',
+  update: '이미 있는 기록 고치기',
+  stampRead: '수정 시각이 서버와 같음',
   delete: '휴지통으로 삭제',
   tombstoneRead: '삭제가 서버에 반영',
   purge: '영구삭제',
@@ -50,6 +58,8 @@ export const STEP_PROVES: Record<RoundTripStep, string> = {
   create: '네트워크가 없어도 기록이 남는다(오프라인 우선)',
   push: '보낼 것이 큐에 앉아만 있지 않는다',
   serverRead: '성공 응답이 아니라 실제 행이 서버에 있다',
+  update: '만들기만이 아니라 고치기도 서버까지 간다',
+  stampRead: '서버가 수정 시각을 자기 것으로 바꿔도 이 기기가 그 값을 받아 적어, 다음 판정이 어긋나지 않는다',
   delete: '삭제가 즉시 되돌릴 수 있는 형태(휴지통)로 남는다',
   tombstoneRead: '다른 기기도 이 삭제를 보게 된다',
   purge: '영구삭제가 2단계를 거쳐 실제로 실행된다',
@@ -66,6 +76,15 @@ export interface StepResult {
   ms: number | null;
   /** 실패했으면 그 사유. 성공이면 null. 조용히 삼키지 않는다. */
   error: string | null;
+  /**
+   * 🔴 **통과했어도 재면서 본 것**이 있으면 여기 적는다(§12 — 앱이 아는 것을 말하지 않으면
+   * 사람이 대신 나른다). 통과/실패만 남기면 「서버가 시각을 바꿨는가」처럼 *결함은 아니지만
+   * 알아야 하는 사실*이 갈 곳이 없다.
+   *
+   * 🔴 **필수 필드다.** 선택으로 두면 다음 단계가 조용히 빠지고, 그게 이 저장소의 최빈
+   * 결함군이다(§7 2층 — 누락이 컴파일 오류가 되게).
+   */
+  note: string | null;
 }
 
 export interface RoundTripRun {

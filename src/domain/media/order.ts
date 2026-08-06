@@ -102,6 +102,47 @@ export interface Rect {
   bottom: number;
 }
 
+/** 한 칸을 원래 자리에서 얼마나 밀어야 하는가(px). `{0,0}`이면 그대로 있는다. */
+export interface Offset {
+  dx: number;
+  dy: number;
+}
+
+/**
+ * 🔴 **끄는 동안 다른 칸들이 실제로 비켜서는 자리**(사용자 요청 2026-08-06:
+ * *"이동하는 느낌이 나게 해줄 순 있나요?"*).
+ *
+ * 예전 판은 놓일 칸에 **테두리만** 그렸다. 자리는 알려 주지만 *들고 가는 느낌*이 없어서,
+ * 사용자는 손을 떼기 전까지 「내가 지금 무엇을 하고 있는지」를 그림으로 확인할 수 없었다.
+ *
+ * ── 왜 순수 함수인가 ────────────────────────────────────────────────────────
+ * 🔴 이 계산이 이벤트 핸들러 안에 있으면 **좌표계가 섞이는 것을 아무도 못 본다.** 이 저장소는
+ * 정확히 그걸로 한 번 넘어졌다(M-0115의 곁가지 — `style.order`로 밀었더니 *화면 순서*와
+ * *DOM 순서*가 갈라졌다). 그래서 규칙을 한 줄로 못박는다:
+ *
+ *   **`rects`는 「아무것도 밀지 않은 상태」의 자리다. 그 좌표계는 드래그 내내 바뀌지 않는다.**
+ *
+ * 밀린 칸을 다시 재서 넣으면 자기 출력이 자기 입력이 되어(피드백) 칸이 떨린다. 호출자는
+ * 드래그가 **시작될 때 한 번** 잰 사각형을 끝까지 쓰고, `dropIndex`도 **같은 배열**로 판정한다.
+ *
+ * ── 규칙 ────────────────────────────────────────────────────────────────────
+ * `from`이 빠져나가고 `to`에 앉으면, 그 사이 칸들이 **한 칸씩 당겨지거나 밀린다.**
+ * 끌리는 칸(`from`) 자신은 `{0,0}`이다 — 그건 손가락이 정하지 여기서 정하지 않는다.
+ */
+export function shiftOffsets(rects: readonly Rect[], from: number, to: number): Offset[] {
+  const still = rects.map(() => ({ dx: 0, dy: 0 }));
+  const n = rects.length;
+  if (from < 0 || from >= n || to < 0 || to >= n || from === to) return still;
+  return rects.map((r, i) => {
+    // 끌리는 칸은 포인터를 따라간다 — 여기서 자리를 정하면 손가락과 싸운다.
+    if (i === from) return { dx: 0, dy: 0 };
+    const slot = i > from && i <= to ? i - 1 : i >= to && i < from ? i + 1 : i;
+    if (slot === i) return { dx: 0, dy: 0 };
+    const s = rects[slot]!;
+    return { dx: s.left - r.left, dy: s.top - r.top };
+  });
+}
+
 export function dropIndex(rects: readonly Rect[], x: number, y: number, fallback: number): number {
   if (!rects.length) return fallback;
   // 격자가 여러 줄로 접히므로 **같은 줄**부터 고른다 — 안 그러면 다른 줄의 칸과 x를 견준다.

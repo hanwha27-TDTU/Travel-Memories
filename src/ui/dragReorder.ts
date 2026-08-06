@@ -16,12 +16,25 @@
 // `domain/media/order.ts`에 있다. 좌표 계산이 이벤트 핸들러 안에 있으면 갈래를 검사할 수
 // 없고, 그게 이 저장소의 최빈 결함군이다(§10 ③).
 
-import { dropIndex, type Rect } from '../domain/media/order';
+import { dropIndex, shiftOffsets, type Rect } from '../domain/media/order';
 
 /** 꾹 누르기로 인정할 시간(ms). 짧으면 스크롤이 드래그로 오인되고, 길면 「반응이 없다」가 된다. */
 const HOLD_MS = 420;
 /** 누르는 동안 이만큼 넘게 움직이면 **스크롤 의도**로 보고 길게 누르기를 취소한다(px). */
 const SLOP_PX = 10;
+/**
+ * 들린 칸을 살짝 키운다 — 「이건 지금 내 손에 들려 있다」를 한눈에.
+ *
+ * 🔴 CSS가 아니라 여기서 정하는 이유: 들린 칸의 `transform`은 **손가락 위치**를 담아야 하고,
+ * 인라인 `transform`은 클래스의 것을 통째로 덮는다. 두 곳에서 같은 속성을 쓰면 하나가 조용히
+ * 사라진다 — 그래서 **한 곳(여기)에서 합쳐서** 쓴다.
+ */
+const LIFT_SCALE = 1.06;
+
+/** 움직임을 줄여 달라고 한 사용자인가 — 「비켜서기」는 남기되 **장식(확대)은 끈다**. */
+function prefersReducedMotion(): boolean {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true;
+}
 
 export interface DragReorderOptions {
   /** 끌 수 있는 칸들의 부모. 이 안에서만 자리를 잰다. */
@@ -34,8 +47,15 @@ export interface DragReorderOptions {
   onStart?: () => void;
 }
 
-/** 지금 컨테이너 안의 칸들과 그 사각형(뷰포트 기준) — 매 이동마다 다시 잰다(줄바꿈이 바뀐다). */
-function measure(container: HTMLElement, sel: string): { els: HTMLElement[]; rects: Rect[] } {
+/**
+ * 지금 컨테이너 안의 칸들과 그 사각형(뷰포트 기준).
+ *
+ * 🔴 **드래그가 시작될 때 한 번만 부른다.** 예전 주석은 *"매 이동마다 다시 잰다"*였는데
+ * 그 전제는 칸을 밀지 않던 시절의 것이다 — 지금은 `transform`으로 밀므로 다시 재면
+ * **밀린 자리**가 나와 판정이 자기 출력을 먹는다(화석 주석을 그대로 두면 다음 사람이
+ * 그 말을 믿는다 — M-0006).
+ */
+function measure(container: HTMLElement, sel: string): DragBase {
   const els = Array.from(container.querySelectorAll<HTMLElement>(sel));
   return { els, rects: els.map((e) => e.getBoundingClientRect()) };
 }
@@ -70,6 +90,41 @@ function blockPlatformClaims(container: HTMLElement, isDragging: () => boolean):
 }
 
 /**
+ * 🔴 드래그가 시작될 때 **한 번** 잰 자리. 이 묶음이 드래그 내내 **유일한 좌표계**다.
+ *
+ * 다시 재면 안 되는 이유: 아래에서 칸들을 `transform`으로 미는데, `getBoundingClientRect`는
+ * **밀린 뒤의** 자리를 준다. 그걸 다시 판정에 넣으면 자기 출력이 자기 입력이 되어(피드백)
+ * 칸이 떨리고, 「몇 번째 칸 위인가」가 매 프레임 달라진다 — 같은 이름이 두 좌표계를 뜻하는
+ * 순간 결함이 된다(M-0115의 곁가지가 정확히 그 형태였다).
+ */
+interface DragBase {
+  els: HTMLElement[];
+  rects: Rect[];
+}
+
+/**
+ * 드래그 중 **다른 칸들이 비켜선다** — 사용자 요청 2026-08-06(*"이동하는 느낌이 나게"*).
+ *
+ * 🔴 예전엔 `style.order`로 밀었다가 **좌표계가 갈라졌다**: `order`는 *화면 순서*를 바꾸는데
+ * 그때 다시 잰 배열은 *DOM 순서*라, 한 번 밀고 나면 「몇 번째 칸 위인가」와 「몇 번째로
+ * 옮기는가」가 서로 다른 것을 가리켰다(M-0060형). 그래서 이번엔 **DOM을 건드리지 않고**
+ * `transform`으로만 민다 — 자식의 순서도, 각 칸의 **원래 자리(`base.rects`)**도 그대로다.
+ * 판정은 끝까지 그 원래 자리로만 한다.
+ *
+ * 실제 배열은 여전히 **손을 뗄 때 한 번** 바뀐다(취소하면 자료가 안 움직인다).
+ *
+ * 들린 칸(`from`)은 여기서 건드리지 않는다 — 그건 손가락이 정한다.
+ */
+function applyShift(base: DragBase, from: number, to: number): void {
+  const offs = shiftOffsets(base.rects, from, to);
+  base.els.forEach((e, i) => {
+    if (i === from) return;
+    const o = offs[i];
+    e.style.transform = o && (o.dx !== 0 || o.dy !== 0) ? `translate(${o.dx}px, ${o.dy}px)` : '';
+  });
+}
+
+/**
  * 컨테이너에 「꾹 눌러 끌기」를 붙인다. 붙인 것을 떼는 함수를 돌려준다(다시 그릴 때 호출).
  *
  * 흐름: `pointerdown` → 420ms 버팀 → 드래그 시작 → `pointermove`로 미리보기 → `pointerup` 확정.
@@ -85,44 +140,41 @@ export function attachDragReorder(opts: DragReorderOptions): () => void {
   let dragging = false;
   let activeEl: HTMLElement | null = null;
   let lastTo = -1;
+  let liftScale = 1;
+  let base: DragBase | null = null; // 계약은 `DragBase`의 머리말에 있다 — 다시 재지 않는다
+  /** 잰 순간의 컨테이너 자리 — 끄는 중에 화면이 스크롤돼도 같은 좌표계로 되돌리기 위해. */
+  let originX = 0;
+  let originY = 0;
 
   const clearHold = (): void => {
     if (holdTimer !== null) clearTimeout(holdTimer);
     holdTimer = null;
   };
 
-  /**
-   * 드래그 중 **놓일 자리 표시** — 그 칸에 테두리를 준다.
-   *
-   * 🔴 처음엔 `style.order`로 칸을 실제로 밀어 미리보기를 했다가 **좌표가 어긋났다**:
-   * `order`는 *화면 순서*를 바꾸는데 `measure()`가 주는 배열은 *DOM 순서*라, 한 번 밀고 나면
-   * 「몇 번째 칸 위인가」와 「몇 번째로 옮기는가」가 서로 다른 것을 가리켰다. 같은 이름이 두
-   * 가지를 뜻하는 그 형태다(M-0060) — 라이브 검사가 잡았다.
-   *
-   * 그래서 **끌 때는 아무것도 밀지 않는다.** 자리만 표시하고, 실제 배열은 손을 뗄 때
-   * 한 번 바뀐다(취소해도 자료가 안 움직인다는 이점이 덤으로 따라온다).
-   */
+  /** 놓일 자리가 바뀌었을 때만 다시 민다 — 매 프레임 쓰면 전환이 계속 처음부터 시작한다. */
   const preview = (to: number): void => {
-    if (to === lastTo) return;
+    if (to === lastTo || !base) return;
     lastTo = to;
-    const { els } = measure(container, itemSelector);
-    els.forEach((e, i) => e.classList.toggle('drag-over', i === to && i !== fromIndex));
+    applyShift(base, fromIndex, to);
   };
 
+  /** 밀어 둔 것을 전부 원위치 — 취소·확정 어느 쪽으로 끝나도 인라인 스타일을 남기지 않는다. */
   const clearPreview = (): void => {
-    for (const e of measure(container, itemSelector).els) e.classList.remove('drag-over');
+    for (const e of base?.els ?? measure(container, itemSelector).els) e.style.transform = '';
   };
 
   const stop = (): void => {
     clearHold();
     if (activeEl) {
       activeEl.classList.remove('drag-lift');
+      activeEl.style.transform = '';
       activeEl = null;
     }
     container.classList.remove('drag-active');
     dragging = false;
     fromIndex = -1;
     lastTo = -1;
+    base = null;
   };
 
   const onDown = (e: PointerEvent): void => {
@@ -130,13 +182,20 @@ export function attachDragReorder(opts: DragReorderOptions): () => void {
     if ((e.target as HTMLElement).closest('button')) return;
     const item = (e.target as HTMLElement).closest<HTMLElement>(itemSelector);
     if (!item || !container.contains(item)) return;
-    const { els } = measure(container, itemSelector);
-    fromIndex = els.indexOf(item);
-    if (fromIndex < 0) return;
+    if (measure(container, itemSelector).els.indexOf(item) < 0) return;
     startX = e.clientX;
     startY = e.clientY;
     activeEl = item;
     holdTimer = setTimeout(() => {
+      // 🔴 좌표계는 **여기서 한 번** 굳는다 — 버티는 동안 화면이 바뀌었을 수도 있으므로
+      // `pointerdown` 때가 아니라 실제로 들리는 이 순간에 잰다.
+      base = measure(container, itemSelector);
+      fromIndex = base.els.indexOf(item);
+      if (fromIndex < 0) return; // 버티는 사이에 다시 그려졌다 — 조용히 없던 일로
+      const r = container.getBoundingClientRect();
+      originX = r.left;
+      originY = r.top;
+      liftScale = prefersReducedMotion() ? 1 : LIFT_SCALE;
       dragging = true;
       lastTo = fromIndex;
       item.classList.add('drag-lift');
@@ -146,13 +205,17 @@ export function attachDragReorder(opts: DragReorderOptions): () => void {
   };
 
   const onMove = (e: PointerEvent): void => {
-    if (!dragging) {
+    if (!dragging || !base) {
       // 아직 버티는 중 — 많이 움직였으면 **스크롤 의도**다.
       if (holdTimer !== null && Math.hypot(e.clientX - startX, e.clientY - startY) > SLOP_PX) clearHold();
       return;
     }
-    const { rects } = measure(container, itemSelector);
-    preview(dropIndex(rects, e.clientX, e.clientY, fromIndex));
+    // 잰 좌표계로 되돌린다 — 끄는 도중 화면이 스크롤돼도 판정이 어긋나지 않게.
+    const cr = container.getBoundingClientRect();
+    const p = { x: e.clientX - (cr.left - originX), y: e.clientY - (cr.top - originY) };
+    // 들린 칸은 **손가락을 그대로 따라간다.** 여기에 전환(transition)을 두면 손끝에서 뒤처진다.
+    if (activeEl) activeEl.style.transform = `translate(${p.x - startX}px, ${p.y - startY}px) scale(${liftScale})`;
+    preview(dropIndex(base.rects, p.x, p.y, fromIndex));
   };
 
 
@@ -160,7 +223,7 @@ export function attachDragReorder(opts: DragReorderOptions): () => void {
     if (dragging && lastTo >= 0 && lastTo !== fromIndex) {
       const from = fromIndex;
       const to = lastTo;
-      clearPreview(); // 화면은 호출자가 다시 그린다 — 표시가 남지 않게 먼저 지운다
+      clearPreview(); // 화면은 호출자가 다시 그린다 — 밀어 둔 것이 남지 않게 먼저 지운다
       stop();
       onReorder(from, to);
       return;

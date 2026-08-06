@@ -63,12 +63,25 @@ function isProse(line) {
   return false;
 }
 
-/** 명령 줄을 실행 단위로 쪼갠다 — `a; b && c`에서 각 조각이 **무엇으로 시작하는지** 본다. */
-function segments(head) {
-  return head
+/**
+ * **파이프에 실제로 물려 있는 명령** 하나를 뽑는다.
+ *
+ * 🔴 예전 판은 파이프 **앞의 조각을 전부** 검사했다. 그래서 이 형태가 막혔다:
+ *
+ *     node scripts/verify-x.mjs > run.log 2>&1; echo "EXIT=$?"; grep FAIL run.log | head -30
+ *
+ * 여기서 파이프에 물린 것은 `grep`이고, 검증 명령의 종료코드는 **바로 다음 줄에서 실제로
+ * 묻고 있다** — 즉 이 줄은 이 조항이 권장하는 바로 그 형태인데 조항이 그것을 막았다.
+ * **오탐은 「빡빡한 훅」이 아니라 틀린 훅**이고(§11 ③), 사람이 무시하기 시작하면 그 훅은 죽는다.
+ *
+ * 파이프라인의 종료코드를 삼키는 것은 **`|` 바로 왼쪽 명령**뿐이므로 그것만 본다.
+ */
+function pipedCommand(head) {
+  const parts = head
     .split(/;|&&|\|\||\(/)
     .map((x) => x.trim())
     .filter(Boolean);
+  return parts[parts.length - 1] ?? '';
 }
 
 /** 명령 문자열에서 「검증 명령을 파이프에 넣었는가」를 판정한다 — 순수 함수(자체검사가 부른다). */
@@ -82,10 +95,9 @@ export function pipesVerification(command) {
     const pipe = line.indexOf('|');
     if (pipe < 0) continue;
     if (SAFE_TAIL.some((re) => re.test(line))) continue;
-    for (const seg of segments(line.slice(0, pipe))) {
-      const hit = VERIFY.find((re) => re.test(seg));
-      if (hit) return { line, matched: String(hit) };
-    }
+    const seg = pipedCommand(line.slice(0, pipe));
+    const hit = VERIFY.find((re) => re.test(seg));
+    if (hit) return { line, matched: String(hit) };
   }
   return null;
 }
@@ -101,9 +113,16 @@ export function selfTest() {
     'npx vitest run tests/unit/x.test.ts 2>&1 | grep -E "Tests"',
     'node scripts/check-fn-size.mjs 2>&1 | tail -3',
     'npm run build 2>&1 | tail -1',
+    // 앞에 멀쩡한 조각이 있어도, **파이프에 물린 것**이 검증 명령이면 여전히 막는다.
+    // (`pipedCommand`가 마지막 조각만 보게 바꾼 뒤 이게 새어 나가지 않는지 확인한다 — §11 ①)
+    'npm run harness > h.log 2>&1; echo "EXIT=$?"; npm run gates | grep FAIL',
   ];
   const mustNot = [
     'npm run harness > run.log 2>&1; echo "EXIT=$?"; tail -20 run.log',
+    // 🔴 **실제 오탐**(2026-08-06): 종료코드를 바로 다음 조각에서 묻고 있는데도 막혔다.
+    //    파이프에 물린 것은 `grep`이지 검증 명령이 아니다 — 이 훅이 권장하는 바로 그 형태다.
+    'node scripts/verify-editor-live.mjs > live.log 2>&1; echo "EXIT=$?"; grep -n FAIL live.log | head -30',
+    'npm run gates > g.log 2>&1; echo "EXIT=$?"; cat g.log | tail -5',
     'git status --porcelain | wc -l', // 검증 명령이 아니다
     'grep -rn "x" src/ | head -5', // 조사용 파이프는 자유다
     'npm run harness && echo ok', // 종료코드를 본다
