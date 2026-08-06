@@ -416,5 +416,34 @@ console.log('  · 어떻게 — 검증 경로는? 알려진 실패를 주입해 
     console.log('\n⑦ ⚠️ docs/BACKLOG.md가 없습니다 — 미완료 과제 정본이 사라졌습니다(그 자체가 결함).');
   }
 }
+// ⑧ 미완성 작업(§16) — 조항만으로는 안 지켜진다는 것이 관측된 사실이라(§7 2층), 착수마다
+// 세어서 보여준다. 이 저장소는 squash 머지라 브랜치를 origin/main에서 다시 세우는 것이
+// 정례이고, 그 순간 안 물어본 미완성은 소리 없이 사라진다(M-0111).
+{
+  const count = (cmd) => {
+    try {
+      return execSync(cmd, { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean).length;
+    } catch {
+      return null; // 얕은 클론 등 — 0으로 반올림하지 않는다(§8: 모르는 것은 '확인 불가')
+    }
+  };
+  const dirty = count('git status --porcelain');
+  const stashed = count('git stash list');
+  const unmerged = count('git log --oneline origin/main..HEAD');
+  const unknown = [dirty, stashed, unmerged].some((n) => n === null);
+  const total = [dirty, stashed, unmerged].reduce((a, n) => a + (n ?? 0), 0);
+
+  console.log('\n⑧ 미완성 작업(§16) — 세션 시작·종료마다 확인:');
+  console.log(
+    `  · 커밋 안 됨 ${dirty ?? '확인 불가'} · 숨김 ${stashed ?? '확인 불가'} · 머지 안 됨 ${unmerged ?? '확인 불가'}`,
+  );
+  if (unknown) console.log('  ⚠️ 일부를 못 셌습니다 — 0으로 읽지 마세요(§8). 직접 확인하세요.');
+  if (total > 0) {
+    console.log('  🔴 미완성이 있습니다. **보존(chore(wip): … 미완성 · 머지 금지) → 재고 → 사용자에게 묻는다.**');
+    console.log('     "미완성 X가 있습니다. 이어서 마무리할까요?" — 안 물으면 그건 내가 만든 미완성이다(§16 ④).');
+  } else if (!unknown) {
+    console.log('  ✓ 없음 — 그래도 남이 두고 간 브랜치는 따로 본다: git branch -r → origin/main..origin/<브랜치>');
+  }
+}
 console.log('');
 }

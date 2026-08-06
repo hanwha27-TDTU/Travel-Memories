@@ -31,4 +31,16 @@ if ! printf '%s' "$first" | grep -Eq '^(feat|fix|security|refactor|test|docs|bui
   echo "  받은 제목: $first" >&2
   exit 1
 fi
+
+# 미완성 보존 커밋은 스스로를 표시해야 한다 (CONSTITUTION §16 ②·3층).
+# 왜: `chore(wip):`는 "잃지 않으려고 세워 둔 것"이지 "완성"이 아니다. 표식이 없으면
+# 다음 사람(사람이든 AI든)이 평범한 chore로 읽고 릴리스에 태운다. 표식은 형식이므로
+# 기계가 지킬 수 있다 — 반면 "사용자에게 물었는가"(§16 ④)는 대화라 기계 밖이다.
+if printf '%s' "$first" | grep -Eq '^chore\(wip\):'; then
+  if ! printf '%s' "$msg" | grep -q '머지 금지'; then
+    echo "commit-msg: chore(wip): 커밋에는 「미완성 · 머지 금지」 표식이 필요합니다(헌법 §16)." >&2
+    echo "  예) chore(wip): 홈 화면 상태별 보기 배선 도중 — 미완성 · 머지 금지" >&2
+    exit 1
+  fi
+fi
 exit 0
