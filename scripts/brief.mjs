@@ -120,6 +120,8 @@ export const SKILL_ROUTES = [
   // 경로라 삭제·tombstone·원장 규율이 그대로 걸린다 — 두 헌장을 모두 읽는다.
   { match: /^src\/domain\/roundTripVerdict/, skill: 'diagnostics-dev' },
   { match: /^src\/domain\/fileRealityVerdict/, skill: 'diagnostics-dev' },
+  // 「저장소 보호」 거절 뒤 문장 — 판정 문장 결함군(§10 ③)이라 진단 헌장이 정본이다(T-005).
+  { match: /^src\/domain\/persistAdvice/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/fileReality/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/roundTrip\.ts/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/roundTrip\.ts/, skill: 'sync-offline-dev' },

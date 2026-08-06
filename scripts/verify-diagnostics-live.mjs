@@ -766,6 +766,53 @@ if (hasFileTool) {
     );
   }
 }
+// ── F① ~ F⑤ 🔴 **저장소 보호: 거절 뒤에 무엇을 말하는가** (T-005) ─────────────
+//
+// 왜 라이브인가: 이 결함군은 **자료구조가 옳고 문장만 틀리는** 부류다(§10 ③). 그리고 이
+// 자리는 실제로 그 형태로 두 번 샜다 — M-0046(찾아보지도 않고 「없다」) · M-0048(「이 기기에
+// 없다」를 「없다」로 반올림). 옛 판은 표면과 무관하게 늘 *"메뉴(⋮) → 홈 화면에 추가"*라고
+// 말했는데, **APK엔 그 메뉴가 없고 이미 설치한 PWA에겐 막다른 문장**이다.
+//
+// 🔴 이 버튼은 **파괴적이지 않다**(브라우저에 보호를 요청할 뿐 아무것도 지우지 않는다).
+// 그래서 §13 4항대로 **실제로 누른다** — 헤드리스 크롬은 대개 거절하므로, 우리가 재려는
+// **거절 갈래**가 바로 그려진다.
+await openDiagnosticsHub(page);
+const storeCard = page.locator('.guide-card-diag[data-tool="저장소 안전"]');
+const hasStore = (await storeCard.count()) === 1;
+check('F① 💾 「저장소 안전」 도구가 허브에 있다', hasStore, `카드 ${await storeCard.count()}개`);
+if (hasStore) {
+  await storeCard.click();
+  await page.waitForSelector('.vd-metric-top', { timeout: 10000 }).catch(() => {});
+  const before = await page.evaluate(() => document.body.innerText);
+  // 🔴 앱이 아는 것을 화면에 내놓는가(§12) — 「설치는 했는데 왜 안 되지」에 답할 유일한 값이다.
+  check(
+    '🔴 F② **실행 표면**을 화면에 말한다(앱이 아는 것을 사람이 묻게 하지 않는다 · §12)',
+    /실행 표면/.test(before) && /브라우저 탭|홈 화면에 추가된 앱|설치된 앱\(APK\)/.test(before),
+    before.match(/실행 표면[^\n]*/)?.[0] ?? '(표면 줄 없음)',
+  );
+  const askBtn = page.locator('[data-ask-persist]');
+  if ((await askBtn.count()) === 1) {
+    await askBtn.click();
+    await page.waitForTimeout(1500);
+    const after = await page.evaluate(() => ({
+      text: document.body.innerText,
+      enabled: !document.querySelector('[data-ask-persist]')?.disabled,
+    }));
+    const note = after.text.match(/[^\n]*(보호가 적용됐어요|허락하지 않았어요|기능이 없어요|거절될 수 있습니다)[^\n]*/)?.[0] ?? '';
+    check('🔴 F③ 누르면 **결과 문장이 화면에 나온다**(삼키지 않는다 · §13 4항)', note !== '', note || '(결과 문장 없음)');
+    // 🔴 거절도 상태다 — "안 됐다"에서 멈추지 말고 그래서 무엇을 하면 되는지까지(§7-D).
+    check(
+      '🔴 F④ 거절 문장이 **막다른 곳에서 끝나지 않는다** — 백업 경로가 함께 나온다(§7-D)',
+      note.includes('보호가 적용됐어요') || after.text.includes('데이터 관리 › 백업'),
+      note.includes('보호가 적용됐어요') ? '허락됨(해당 없음)' : after.text.includes('데이터 관리 › 백업') ? '백업 경로 있음' : '(막다른 문장)',
+    );
+    check('F⑤ 누른 뒤에도 버튼이 다시 눌린다(잠기지 않는다)', after.enabled, `enabled=${after.enabled}`);
+  } else {
+    // 이미 보호가 적용된 브라우저 — 버튼이 **없어야** 맞다. 없는 것을 실패로 세지 않는다.
+    check('F③~F⑤ 보호가 이미 적용돼 요청 버튼이 없다(정상 — 침묵이 정상)', true, '버튼 없음');
+  }
+}
+
 // 뒷정리 — 심은 픽스처를 지운다(§3-C, 내 상태를 남기지 않는다).
 await page.evaluate(async () => {
   await new Promise((ok) => {

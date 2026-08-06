@@ -45,6 +45,8 @@ import {
   type TombstoneSyncFinding,
 } from '../../domain/syncTombstoneVerdict';
 import { collectEnv, evictionRisk, requestPersist } from '../../services/envReport';
+import { persistSurface } from '../../services/capacitorShell';
+import { persistResultNote, persistIsMeaningful, surfaceLabel } from '../../domain/persistAdvice';
 import { recentErrors, clearErrors } from '../../app/errorLog';
 import { CHANGELOG } from '../../app/changelog';
 import { syncStatus, requestSync } from '../../services/autoSync';
@@ -156,15 +158,24 @@ export async function storageProbe(): Promise<Verdict> {
   const { usage, quota, persisted, canPersist } = env.storage;
   const pct = usage !== null && quota ? Math.round((usage / quota) * 100) : null;
 
+  // T-005: 「어느 문으로 실행 중인가」를 **판정에 쓴다.** 옛 판은 이 값을 알 수 있는데도 안 써서
+  // APK 사용자에게 「홈 화면에 추가」를, 이미 설치한 사용자에게 「설치하세요」를 말했다(M-0048의 형태).
+  const surface = persistSurface();
+  const meaningful = persistIsMeaningful(surface);
+
   const metrics: Metric[] = [
     {
       label: '저장소 보호(persist)',
       actual: persisted === null ? '알 수 없음' : persisted ? '적용됨' : '미적용',
-      expected: '적용됨',
-      level: persisted === null ? 'unknown' : persisted ? 'ok' : 'todo',
-      ...(persisted === false
-        ? { meaning: '보호가 없으면 브라우저가 공간이 부족할 때 이 앱의 기록을 지울 수 있어요. 아래 버튼으로 요청할 수 있습니다(브라우저가 거절할 수도 있어요).' }
-        : {}),
+      expected: meaningful ? '적용됨' : '설치된 앱이라 브라우저 보호와 무관',
+      // 셸에서는 이 값이 무엇을 뜻하는지 **재본 적이 없다** — 정상으로도 문제로도 반올림하지
+      // 않는다(§8). 재는 방법이 생기면 `persistIsMeaningful`부터 고친다.
+      level: !meaningful ? 'unknown' : persisted === null ? 'unknown' : persisted ? 'ok' : 'todo',
+      ...(!meaningful
+        ? { meaning: '설치된 앱으로 실행 중이에요. 이 값이 이 표면에서 무엇을 뜻하는지는 아직 재보지 못했으니, 백업을 받아 두는 것이 확실합니다.' }
+        : persisted === false
+          ? { meaning: '보호가 없으면 브라우저가 공간이 부족할 때 이 앱의 기록을 지울 수 있어요. 아래 버튼으로 요청할 수 있습니다(브라우저가 거절할 수도 있어요).' }
+          : {}),
     },
     {
       label: '저장 공간 사용률',
@@ -195,29 +206,25 @@ export async function storageProbe(): Promise<Verdict> {
     // 같은 기기를 화면마다 다르게 부르지 않는다(§7 사용자 대면 대칭). `navigator.platform`은
     // 「Linux」처럼 사용자가 자기 태블릿을 못 알아보는 값을 준다 — 「저장 상태」가 쓰는 이름표와
     // **같은 것**을 쓴다(사용자가 지은 이름이 있으면 그게 이긴다).
-    context: [{ label: '기기', value: `${deviceLabel()} · ${shortDeviceId()}` }],
+    context: [
+      { label: '기기', value: `${deviceLabel()} · ${shortDeviceId()}` },
+      // 🔴 앱이 아는 것을 화면에 내놓는다(§12). 「설치는 했는데 왜 안 되지」를 사용자가 물을 때,
+      // 앱이 **자기가 무엇으로 보이는지**를 말하지 않으면 그 질문에 답할 길이 없다.
+      { label: '실행 표면', value: surfaceLabel(surface) },
+    ],
   };
   if (persisted !== true && canPersist) {
     v.actions.push({
       label: '저장소 보호 요청',
       primary: true,
       hook: 'data-ask-persist',
-      run: async () => {
-        const ok = await requestPersist();
-        if (ok) return '보호가 적용됐어요. 브라우저가 임의로 지우지 않습니다.';
-        // ⚠️ 2026-07-26 사용자 실기기: 여기서 멈추면 **판정만 하고 행동을 못 준 것**이다
-        // (근본형 D). 브라우저가 거절한 것은 우리 잘못이 아니지만, *어떻게 하면 허락하는지*는
-        // 알려줄 수 있다 — 그게 화면이 할 일이다.
-        //
-        // Chrome은 이 권한을 요청만으로 주지 않고 **"이 사이트를 중요하게 쓰고 있는가"**로
-        // 판단한다. 가장 확실한 신호가 **홈 화면에 추가(앱으로 설치)**다. 추측이 아니라
-        // 브라우저가 공개한 기준이고, 우리가 사용자에게 시킬 수 있는 유일한 행동이다.
-        return (
-          '브라우저가 아직 허락하지 않았어요. 크롬은 "이 사이트를 중요하게 쓴다"고 판단해야 허락합니다 — ' +
-          '메뉴(⋮) → **홈 화면에 추가**로 앱처럼 설치한 뒤 다시 눌러 보세요. ' +
-          '그래도 안 되면 괜찮습니다: 가장 확실한 보호는 [데이터 관리 › 백업]으로 파일을 받아두는 것입니다.'
-        );
-      },
+      // ⚠️ 2026-07-26 사용자 실기기: 거절에서 멈추면 **판정만 하고 행동을 못 준 것**이다
+      // (근본형 D). 브라우저가 거절한 것은 우리 잘못이 아니지만, *다음에 무엇을 하면 되는지*는
+      // 알려줄 수 있다 — 그게 화면이 할 일이다.
+      //
+      // 문장은 `persistResultNote()`가 만든다 — 표면마다 할 일이 다르고(APK엔 「홈 화면에 추가」
+      // 메뉴가 없다), 그 갈래는 DOM 안에 두면 검사할 수 없다(§10 ③).
+      run: async () => persistResultNote({ surface, canPersist }, await requestPersist()),
     });
   }
   return v;
