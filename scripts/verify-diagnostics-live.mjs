@@ -887,6 +887,68 @@ if (hasStore) {
   await shellPage.close();
 }
 
+// ── H① ~ H⑤ 🔴 **허브 상단과 닫기** (사용자 지적 2026-08-06) ──────────────────
+//
+// 셋 다 **한 화면에서만 보이는 계약**이라 유닛으로는 원리적으로 못 본다(§17 모순 검사):
+//   ① 닫기가 **온 곳으로** 돌려보내는가(자기를 닫고 연 화면이라 안 넘기면 첫 화면이 나온다)
+//   ② 상단 [일괄 점검]·[결과 복사]가 **눌리고 결과 문장을 화면에 내는가**(§13 4항)
+//   ③ **구조적 확인 불가가 총괄을 끌어내리지 않는가** — 셸 표면에서만 재현된다
+{
+  const hp = await browser.newPage({ viewport: { width: 412, height: 915 } });
+  await hp.addInitScript(() => {
+    Object.defineProperty(window, 'Capacitor', {
+      value: { isNativePlatform: () => true, Plugins: { OriginalPhotos: {} } },
+      configurable: true,
+    });
+  });
+  await hp.goto(`http://127.0.0.1:4184${BASE}`, { waitUntil: 'networkidle' });
+  await hp.waitForTimeout(400);
+  await hp.getByRole('button', { name: /데이터 관리/ }).first().click();
+  await hp.waitForTimeout(400);
+  await hp.getByRole('button', { name: /진단 도구/ }).first().click();
+  await hp.waitForSelector('[data-rollup]', { timeout: 10000 });
+  await hp.waitForTimeout(3000);
+
+  const line = await hp.locator('.vd-rollup-line').innerText();
+  // 🔴 여기가 이 판의 본론: 셸에서 persist는 **구조적** 확인 불가다. 예전 판은 이 하나가
+  // 총괄을 「확인하지 못한 항목이 있어요」로 끌어내려 멀쩡한 앱이 아파 보였다(§7-E).
+  check(
+    '🔴 H① 구조적 확인 불가가 **총괄을 끌어내리지 않는다**(사용자 지적 2026-08-06)',
+    !/^확인하지 못한 항목이 있어요/.test(line.trim()),
+    line.trim(),
+  );
+  // 그러나 **숨기지도 않는다** — 앱이 자기 시야의 경계를 개수로 말한다(§8 · §7-C).
+  check(
+    '🔴 H② 대신 **경계를 개수로 말한다**(판정을 숨기는 게 아니라 분류만 바꾼다)',
+    /잴 수 없는 항목 \d+개/.test(line),
+    line.match(/잴 수 없는 항목 \d+개/)?.[0] ?? '(경계 문구 없음)',
+  );
+
+  const recheck = hp.locator('[data-recheck-all]');
+  const copyBtn = hp.locator('[data-copy-all]');
+  const hasBar = (await recheck.count()) === 1 && (await copyBtn.count()) === 1;
+  check('H③ 상단에 [일괄 점검]·[결과 복사]가 나란히 있다', hasBar, `점검 ${await recheck.count()} · 복사 ${await copyBtn.count()}`);
+  if (hasBar) {
+    await recheck.click();
+    await hp.waitForTimeout(3000);
+    const msg = await hp.locator('.vd-msg').innerText();
+    check(
+      '🔴 H④ [일괄 점검]을 누르면 **결과 문장이 화면에 나오고** 버튼이 잠기지 않는다(§13 4항)',
+      /다시 쟀어요/.test(msg) && !(await hp.locator('[data-recheck-all]').isDisabled()),
+      msg.trim() || '(결과 문장 없음)',
+    );
+  }
+
+  // 🔴 닫기 → **온 곳(데이터 관리)** 으로. 「메인으로 튕긴다」가 사용자가 겪은 불편이다.
+  await hp.locator('.guide-close').first().click();
+  await hp.waitForTimeout(700);
+  const backTo = await hp.evaluate(() =>
+    document.querySelector('[aria-label="데이터 관리"]') ? '데이터 관리' : '(첫 화면)',
+  );
+  check('🔴 H⑤ 닫기가 **온 곳으로 돌려보낸다** — 첫 화면으로 튕기지 않는다', backTo === '데이터 관리', `닫은 뒤: ${backTo}`);
+  await hp.close();
+}
+
 // 뒷정리 — 심은 픽스처를 지운다(§3-C, 내 상태를 남기지 않는다).
 await page.evaluate(async () => {
   await new Promise((ok) => {

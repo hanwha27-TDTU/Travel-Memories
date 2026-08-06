@@ -57,21 +57,68 @@ export function worst(levels: Level[]): Level {
 }
 
 /**
- * 지표 하나 — **기대값이 필수다**.
+ * 🔴 `확인 불가`가 **왜** 확인 불가인가 — 두 가지는 사용자에게 뜻이 정반대다
+ * (사용자 지적 2026-08-06: *"구조적으로 확인불가이면 확인불가로 판정은 하되 **비정상으로
+ * 분류하면 안 될 거 같아요**"*).
  *
- * 선택 필드로 두면 빠뜨린 지표가 조용히 섞여 들어와 "값만 있고 기준은 없는" 옛 화면으로 되돌아간다.
- * 기대값을 못 쓰는 지표라면 그건 지표가 아니라 **맥락**이다 → `context`로 보낸다.
+ *  · `structural` — **이 기기·이 배포에서는 원리적으로 잴 수 없다.** 다시 눌러도 안 된다.
+ *    예: APK 셸에서 브라우저 persist가 무엇을 뜻하는지 · 클라우드를 안 쓰는 배포의 서버 계약.
+ *    이건 **잘못된 상태가 아니다.** 총괄 판정을 끌어내리면 멀쩡한 앱이 아파 보인다(§7-E).
+ *  · `transient` — **지금 못 쟀을 뿐, 재보면 알 수 있다.** 서버가 답을 안 했거나 로그인 전이거나.
+ *    이건 총괄에 그대로 반영한다 — 사용자가 다시 눌러 해소할 수 있는 상태다.
+ *
+ * 🔴 **기본값을 두지 않는다.** 기본값이 있으면 새 지표가 안 적어도 컴파일되고, 그게 이 규율이
+ * 조용히 빠지는 길이다(M-0060). 아래 유니온이 **누락을 컴파일 오류로** 만든다(§7 2층).
  */
-export interface Metric {
+export type UnknownKind = 'structural' | 'transient';
+
+/** 지표의 공통 부분 — 등급과 무관하게 언제나 필요한 것. */
+interface MetricBase {
   /** 대상만 말한다. 상태를 라벨에 넣지 않는다(옛 결함: "지움 + 보낼목록 없음  없음" 이중부정). */
   label: string;
   /** 지금 값(사람이 읽는 문자열). */
   actual: string;
   /** 정상이라면 이 값이어야 한다. */
   expected: string;
-  level: Level;
   /** level !== 'ok' 일 때 화면에 함께 뜨는 한 줄 — 무슨 뜻이고 무엇을 하면 되는지. */
   meaning?: string;
+}
+
+/**
+ * 지표 하나 — **기대값이 필수다**.
+ *
+ * 선택 필드로 두면 빠뜨린 지표가 조용히 섞여 들어와 "값만 있고 기준은 없는" 옛 화면으로 되돌아간다.
+ * 기대값을 못 쓰는 지표라면 그건 지표가 아니라 **맥락**이다 → `context`로 보낸다.
+ *
+ * 그리고 `unknown`이면 **왜 모르는지의 종류**(`unknownKind`)도 필수다 — 위 주석 참조.
+ */
+export type Metric =
+  | (MetricBase & { level: 'ok' | 'todo' | 'problem' })
+  | (MetricBase & { level: 'unknown'; unknownKind: UnknownKind });
+
+/**
+ * 이 도구의 `확인 불가`가 **전부 구조적인가** — 그렇다면 총괄 판정을 끌어내리지 않는다.
+ *
+ * 하나라도 `transient`가 섞여 있으면 false다: 재시도로 풀릴 수 있는 것이 하나라도 있으면
+ * 사용자에게 알려야 한다(모르는 것을 정상으로 반올림하지 않는다 · §8).
+ */
+/**
+ * 지표 리터럴에서 등급 부분만 만든다 — `...levelOr(조건, 종류, 아니면)`으로 펼쳐 쓴다.
+ *
+ * 왜: 유니온 때문에 손으로 쓰면 세 줄짜리 삼항이 지표마다 반복된다. 한 곳에 두면 짧아질 뿐
+ * 아니라, **`kind`를 안 넘기면 컴파일되지 않는다**는 계약이 그대로 유지된다(기본값 금지).
+ */
+export function levelOr(
+  isUnknown: boolean,
+  kind: UnknownKind,
+  otherwise: 'ok' | 'todo' | 'problem',
+): { level: 'unknown'; unknownKind: UnknownKind } | { level: 'ok' | 'todo' | 'problem' } {
+  return isUnknown ? { level: 'unknown', unknownKind: kind } : { level: otherwise };
+}
+
+export function unknownIsStructural(metrics: Metric[]): boolean {
+  const unknowns = metrics.filter((m) => m.level === 'unknown');
+  return unknowns.length > 0 && unknowns.every((m) => m.unknownKind === 'structural');
 }
 
 export interface Action {
