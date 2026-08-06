@@ -46,7 +46,7 @@ import {
 } from '../../domain/syncTombstoneVerdict';
 import { collectEnv, evictionRisk, requestPersist } from '../../services/envReport';
 import { persistSurface } from '../../services/capacitorShell';
-import { persistResultNote, persistIsMeaningful, surfaceLabel } from '../../domain/persistAdvice';
+import { persistResultNote, persistIsMeaningful, surfaceLabel, storageHeadline } from '../../domain/persistAdvice';
 import { recentErrors, clearErrors } from '../../app/errorLog';
 import { CHANGELOG } from '../../app/changelog';
 import { syncStatus, requestSync } from '../../services/autoSync';
@@ -191,14 +191,9 @@ export async function storageProbe(): Promise<Verdict> {
   const level = levelFromMetrics(metrics);
   const v: Verdict = {
     level,
-    headline:
-      level === 'problem'
-        ? '저장 공간이 부족해요 — 지금 백업을 받으세요'
-        : level === 'todo'
-          ? '저장소 보호를 켜면 더 안전해요'
-          : level === 'unknown'
-            ? '이 브라우저는 저장 용량을 알려주지 않아요'
-            : '브라우저가 이 기기의 기록을 임의로 지우지 않습니다',
+    // 🔴 판정문을 등급이 아니라 **이유**에서 만든다(M-0113) — `unknown`의 이유가 여럿인데
+    // 문장이 하나면 한 화면이 자기와 모순된다(「용량을 모른다」 위에 「사용 0%」).
+    headline: storageHeadline({ level, surface, quotaKnown: pct !== null }),
     because: risk.text,
     metrics,
     actions: [],

@@ -790,6 +790,23 @@ if (hasStore) {
     /실행 표면/.test(before) && /브라우저 탭|홈 화면에 추가된 앱|설치된 앱\(APK\)/.test(before),
     before.match(/실행 표면[^\n]*/)?.[0] ?? '(표면 줄 없음)',
   );
+  // 🔴 F⑥ **한 화면이 자기와 모순되지 않는가** (M-0113 · 사용자 태블릿 캡처가 잡았다).
+  //
+  // 실기기에서 판정문은 「이 브라우저는 **저장 용량을 알려주지 않아요**」인데 바로 아래 줄이
+  // 「**사용 0%**」였다. 자료구조는 옳았다 — `unknown`의 **이유가 여럿인데 문장이 하나**였다.
+  // 유닛은 함수 하나만 보므로 이 모순을 볼 수 없다: 두 문장은 **다른 함수**가 만든다.
+  // 그래서 이 층이 필요하다 — 화면은 그 둘이 만나는 유일한 자리다(§10 ③).
+  const saysNoQuota = /저장 용량을 알려주지 않아요/.test(before);
+  const showsPct = /사용 \d+%/.test(before);
+  check(
+    '🔴 F⑥ 판정문과 아래 줄이 **서로 모순되지 않는다**(용량을 모른다면서 사용률을 적지 않는다)',
+    !(saysNoQuota && showsPct),
+    saysNoQuota && showsPct
+      ? `모순: 판정문은 「용량을 알려주지 않아요」인데 ${before.match(/사용 \d+%/)?.[0]}가 함께 나감`
+      : saysNoQuota
+        ? '용량 미상 — 사용률도 안 적음(일관)'
+        : '용량을 알고 있음(일관)',
+  );
   const askBtn = page.locator('[data-ask-persist]');
   if ((await askBtn.count()) === 1) {
     await askBtn.click();
@@ -811,6 +828,63 @@ if (hasStore) {
     // 이미 보호가 적용된 브라우저 — 버튼이 **없어야** 맞다. 없는 것을 실패로 세지 않는다.
     check('F③~F⑤ 보호가 이미 적용돼 요청 버튼이 없다(정상 — 침묵이 정상)', true, '버튼 없음');
   }
+}
+
+// ── G① ~ G④ 🔴 **셸(APK) 표면을 실제로 그려 본다** (M-0113) ────────────────────
+//
+// 🔴 **F⑥은 이 층이 없으면 공허하다.** 그 결함은 **셸 표면에서만** 났는데 헤드리스 크롬은
+// 언제나 「브라우저 탭」이라, F⑥은 문제가 날 수 없는 자리에서 초록을 찍고 있었다 —
+// 검사가 대상 0에서 통과하는 M-0046의 형태다(§4).
+//
+// 그래서 앱이 **자기를 셸이라고 믿게** 만든다: `window.Capacitor`를 심으면
+// `persistSurface()`가 'shell'을 돌려주고, **실제 렌더러가 그 갈래를 그린다.**
+// (판정 함수에 값을 먹이는 것이 아니라 앱 전체가 그 상태로 도는 것이라 더 강한 층이다.)
+{
+  const shellPage = await browser.newPage({ viewport: { width: 800, height: 1280 } });
+  await shellPage.addInitScript(() => {
+    Object.defineProperty(window, 'Capacitor', {
+      value: { isNativePlatform: () => true, Plugins: { OriginalPhotos: {} } },
+      configurable: true,
+    });
+  });
+  await openDiagnosticsHub(shellPage);
+  await shellPage.locator('.guide-card-diag[data-tool="저장소 안전"]').click();
+  await shellPage.waitForSelector('.vd-metric-top', { timeout: 10000 }).catch(() => {});
+  const t = await shellPage.evaluate(() => document.body.innerText);
+
+  check(
+    'G① 셸로 인식된다 — 「실행 표면 설치된 앱(APK)」',
+    /실행 표면 설치된 앱\(APK\)/.test(t),
+    t.match(/실행 표면[^\n]*/)?.[0] ?? '(표면 줄 없음)',
+  );
+  // 🔴 여기가 사용자 태블릿이 잡은 바로 그 자리다.
+  check(
+    '🔴 G② 용량을 아는데 「용량을 알려주지 않아요」라고 하지 않는다(M-0113 · 화면이 자기와 모순)',
+    !(/저장 용량을 알려주지 않아요/.test(t) && /사용 \d+%/.test(t)),
+    /저장 용량을 알려주지 않아요/.test(t) && /사용 \d+%/.test(t)
+      ? `모순: 판정문 「용량을 알려주지 않아요」 + ${t.match(/사용 \d+%/)?.[0]}`
+      : t.split('\n').find((l) => /재보지 못했어요|용량을 알려주지|보호를 켜면|임의로 지우지/.test(l)) ?? '(판정문 못 찾음)',
+  );
+  const shellBtn = shellPage.locator('[data-ask-persist]');
+  if ((await shellBtn.count()) === 1) {
+    await shellBtn.click();
+    await shellPage.waitForTimeout(1500);
+    const after = await shellPage.evaluate(() => document.body.innerText);
+    // 🔴 APK에 「메뉴(⋮) → 홈 화면에 추가」를 말하면 사용자는 **없는 메뉴**를 찾아 헤맨다.
+    check(
+      '🔴 G③ 셸에게 「홈 화면에 추가」를 말하지 않는다(그 메뉴가 없다 · M-0048의 형태)',
+      !/홈 화면에 추가/.test(after),
+      /홈 화면에 추가/.test(after) ? '없는 메뉴를 안내함' : '표면에 맞는 안내',
+    );
+    check(
+      'G④ 셸에서도 백업 경로로 끝난다(막다른 문장 금지 · §7-D)',
+      after.includes('데이터 관리 › 백업') || after.includes('보호가 적용됐어요'),
+      after.includes('데이터 관리 › 백업') ? '백업 경로 있음' : '허락됨(해당 없음)',
+    );
+  } else {
+    check('G③~G④ 셸에서 보호가 이미 적용돼 요청 버튼이 없다(정상)', true, '버튼 없음');
+  }
+  await shellPage.close();
 }
 
 // 뒷정리 — 심은 픽스처를 지운다(§3-C, 내 상태를 남기지 않는다).

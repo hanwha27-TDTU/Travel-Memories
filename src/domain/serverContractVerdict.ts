@@ -19,6 +19,25 @@
 //    실측하지 않았다** — 마이그레이션 SQL 검사(`supabase/tests/`)는 CI에서 돌지만
 //    그건 *로컬 스택*이고, 운영 서버가 그대로인지는 다른 질문이다(§2-J ②).
 
+/**
+ * ① 「한 번에 받는 행수」 판독. **숫자 하나로 뭉개지 않는다**(§7-J — 부재는 한 방향으로만
+ * 재면 거짓이 될 수 있다).
+ *
+ * 갈래를 유니온으로 두면 **새 갈래가 생길 때 `switch`가 컴파일 오류로 끌려 나온다** —
+ * 누락이 조용히 지나가지 않는 구조다(§7 2층).
+ */
+export type PageSizeReading =
+  /** 가정만큼 다 왔다 — 상한이 그 이상임을 실측했다. */
+  | { kind: 'measured'; rows: number }
+  /** 전체 건수만큼 다 왔다 = 이 계정 자료가 그만큼. 1000행 경계가 **아직 없다**(정상). */
+  | { kind: 'below-boundary'; rows: number; total: number }
+  /** 🔴 전체보다 적게 왔다 = **서버가 잘랐다.** 자료가 적은 것이 아니다. */
+  | { kind: 'truncated'; rows: number; total: number }
+  /** 전체 건수를 못 받아 위 둘을 **가르지 못했다**. 어느 쪽으로도 반올림하지 않는다. */
+  | { kind: 'unknown-total'; rows: number }
+  /** 조회 자체가 실패했다. 원인은 단정하지 않고 원문만 들고 간다. */
+  | { kind: 'query-failed'; note: string };
+
 export type ContractLevel = 'ok' | 'todo' | 'problem' | 'unknown';
 
 export interface ContractMetricView {
@@ -41,7 +60,16 @@ export interface ServerContractObservation {
   signedIn: boolean;
 
   /** ① 한 번 요청에 서버가 실제로 준 최대 행수. 못 쟀으면 null. */
-  observedPageSize: number | null;
+  /**
+   * ① 판독 결과. 🔴 **숫자 하나가 아니라 갈래다.**
+   *
+   * 왜: 「받은 행이 가정보다 적다」가 **두 가지**를 뜻한다 — *자료가 그만큼이다*(정상)와
+   * *서버가 잘랐다*(즉시 문제). 예전엔 둘 다 `null`이었고, 화면은 그 null을
+   * **「연결이 돌아오면 다시 재집니다」**라고 말했다. 사용자는 LTE가 켜진 태블릿에서
+   * 그 문장을 읽었다 — 아무것도 실패하지 않았는데 네트워크를 의심하게 만든 것이다.
+   * 뜻이 두 개면 **표시를 하나 더 만든다**(헌법 §7-J · M-0060).
+   */
+  pageSize: PageSizeReading;
   /** 앱이 페이지네이션에 쓰는 크기 — 코드의 상수. 서버 상한이 이보다 작으면 결손이 난다. */
   assumedPageSize: number;
 
@@ -68,29 +96,54 @@ export function pageSizeMetric(o: ServerContractObservation): ContractMetricView
   if (!o.cloudConfigured) {
     return { actual: '해당 없음(클라우드를 쓰지 않는 배포)', expected: '해당 없음', level: 'ok' };
   }
-  if (o.observedPageSize === null) {
+  if (!o.signedIn) {
     return {
       actual: '못 쟀음',
       expected: `${o.assumedPageSize}행 이상`,
       level: 'unknown',
-      meaning: o.signedIn
-        ? '서버에 물어보지 못했어요. 연결이 돌아오면 다시 재집니다.'
-        : '로그인해야 잴 수 있어요 — 로그인 전에는 서버가 아무 행도 주지 않는 것이 정상입니다.',
+      meaning: '로그인해야 잴 수 있어요 — 로그인 전에는 서버가 아무 행도 주지 않는 것이 정상입니다.',
     };
   }
-  // 🔴 관측값이 가정보다 **작으면** 페이지 경계에서 행이 조용히 빠질 수 있다.
-  //    같거나 크면 정상 — 더 주는 것은 문제가 아니다.
-  if (o.observedPageSize < o.assumedPageSize) {
-    return {
-      actual: `${o.observedPageSize}행`,
-      expected: `${o.assumedPageSize}행 이상`,
-      level: 'problem',
-      meaning:
-        '서버가 앱의 가정보다 적게 줍니다. 이러면 자료가 많을 때 페이지 사이에서 조용히 빠질 수 있어요. ' +
-        '[진단 요약 복사]로 이 화면을 전달해 주세요.',
-    };
+  const r = o.pageSize;
+  switch (r.kind) {
+    case 'measured':
+      return { actual: `${r.rows}행`, expected: `${o.assumedPageSize}행 이상`, level: 'ok' };
+    case 'below-boundary':
+      // 🔴 정상이다. 「못 쟀다」가 아니라 **아직 잴 것이 없다** — 여행 N건에는 페이지 경계가
+      // 생기지 않는다. 이것을 `unknown`으로 두면 총괄 판정을 끌어내려 멀쩡한 화면을
+      // 이상하게 보이게 만든다(§7-E 과도한 unknown). 침묵이 정상이므로 ok로 접힌다.
+      return {
+        actual: `해당 없음(여행 ${r.total}건 — 경계가 아직 없어요)`,
+        expected: '해당 없음',
+        level: 'ok',
+      };
+    case 'truncated':
+      // 받은 행 < 전체 행 = **서버가 잘랐다.** 자료가 적은 것이 아니다 — 이건 즉시 문제다.
+      return {
+        actual: `${r.rows}행(전체 ${r.total}건 중)`,
+        expected: `${o.assumedPageSize}행 이상`,
+        level: 'problem',
+        meaning:
+          '서버가 앱의 가정보다 적게 줍니다. 이러면 자료가 많을 때 페이지 사이에서 조용히 빠질 수 있어요. ' +
+          '[진단 요약 복사]로 이 화면을 전달해 주세요.',
+      };
+    case 'unknown-total':
+      // 총수를 못 받아 **두 갈래를 가르지 못했다.** 모르는 것을 어느 쪽으로도 밀지 않는다(§8).
+      return {
+        actual: `${r.rows}행(전체 건수를 못 받음)`,
+        expected: `${o.assumedPageSize}행 이상`,
+        level: 'unknown',
+        meaning: '서버가 전체 건수를 알려주지 않아 「자료가 적은 것」과 「서버가 잘랐다」를 가르지 못했어요. [다시 확인]을 눌러 보세요.',
+      };
+    case 'query-failed':
+      // 🔴 원인을 단정하지 않는다(§8 · M-0056). 연결일 수도, 서버 쪽일 수도 있다.
+      return {
+        actual: '못 쟀음',
+        expected: `${o.assumedPageSize}행 이상`,
+        level: 'unknown',
+        meaning: `서버가 답하지 않아 못 쟀어요(${r.note}). [다시 확인]을 눌러 보세요 — 계속 같으면 연결이나 서버 쪽 상태입니다.`,
+      };
   }
-  return { actual: `${o.observedPageSize}행`, expected: `${o.assumedPageSize}행 이상`, level: 'ok' };
 }
 
 /** ② 페이지를 나눠 받을 때 사이가 빠지지 않는가. */

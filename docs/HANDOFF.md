@@ -4,6 +4,17 @@
 
 ---
 
+## HANDOFF-0102 · v1.85 · **사용자 태블릿이 두 장으로 두 결함을 잡았다** (2026-08-06 · M-0113)
+
+- **경위**: v1.84 배포 직후 사용자가 태블릿 캡처 2장과 함께 *"둘 다 문제없는거지?"* — **둘 다 문제였다.**
+- **① 저장소 안전 — 한 화면이 자기와 모순**: 판정문 「저장 용량을 알려주지 않아요」 + 바로 아래 「사용 0%」. 🔴 **v1.84에서 내가 만든 것**이다: 셸의 persist를 `unknown`으로 두자, 「용량 미상」 전용 문장이 **용량을 아는 기기에서** 나갔다. 근본형 — **`unknown`의 이유가 여럿인데 문장이 하나**였다(판정 등급은 이유를 안 들고 다닌다).
+- **② 서버 계약 — 아무것도 실패 안 했는데 「연결이 돌아오면」**: LTE 켜진 기기에서 서버는 정상 응답했고, 진짜 이유는 *여행이 1000건이 안 돼 상한을 못 잰다*였다. 사용자를 **네트워크를 의심하게** 보냈다(§8 · M-0056).
+- 🔴 **②를 파다가 더 큰 것이 나왔다**: `measurePageSize`가 「받은 행 < 가정」을 전부 `null`로 뭉갰는데, 그 `null`이 *자료가 적다*와 ***서버가 잘랐다*를 동시에** 뜻했다 — 즉 **진짜 절단(자료가 조용히 빠지는 상태)을 원리적으로 못 잡고 있었다.** 헌법 §7-J·M-0060이 정확히 금지하는 것이고, **주석은 그 사실을 알고 있었다.** `count: 'exact'`로 전체 건수를 함께 물어 5갈래 유니온(`measured`·`below-boundary`·`truncated`·`unknown-total`·`query-failed`)으로 갈랐다.
+- **여행 9건은 이제 `ok`(해당 없음)** — 경계가 없는 것은 「못 쟀다」가 아니다(§7-E 과도한 unknown 제거).
+- 🔴 **라이브 검사가 공허했던 자리를 메웠다**: F⑥(모순 검사)만 넣었더니 **문제가 날 수 없는 자리에서 초록**을 찍었다 — 그 결함은 셸 표면에서만 나는데 헤드리스 크롬은 언제나 브라우저 탭이다(M-0046의 형태). `window.Capacitor`를 심어 **앱이 자기를 셸이라고 믿게** 만들고 실제 렌더러로 그렸다(**G①~G④ 신설**).
+- **검증**: 유닛 40건(주입 2종 RED) · 라이브 **50/50**(주입 2종 RED — 둘 다 **사용자가 캡처에서 본 그 문장 그대로** 재현) · 전체 harness 통과(건너뜀 0).
+- 🔴 **또 사용자 실기기가 최초 검출자였다.** 게이트·유닛·라이브가 전부 초록인 채로 나갔다 — 오늘만 두 번째다(M-0110·M-0113).
+
 ## HANDOFF-0101 · v1.84 · **저장소 보호가 알아서 걸린다 — 표면을 판정에 쓴다** (2026-08-06 · T-005)
 
 - **사용자 지시**: *"태블릿 저장소 보호 진행하자"*
@@ -498,7 +509,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.84<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->184<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.85<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->185<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
