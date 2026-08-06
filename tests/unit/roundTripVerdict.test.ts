@@ -17,14 +17,14 @@ import {
   type StepResult,
 } from '../../src/domain/roundTripVerdict';
 
-const pass = (step: RoundTripStep): StepResult => ({ step, state: 'pass', ms: 12, error: null });
-const fail = (step: RoundTripStep, error: string): StepResult => ({ step, state: 'fail', ms: 9, error });
-const skip = (step: RoundTripStep): StepResult => ({ step, state: 'skipped', ms: null, error: null });
+const pass = (step: RoundTripStep, note: string | null = null): StepResult => ({ step, state: 'pass', ms: 12, error: null, note });
+const fail = (step: RoundTripStep, error: string): StepResult => ({ step, state: 'fail', ms: 9, error, note: null });
+const skip = (step: RoundTripStep): StepResult => ({ step, state: 'skipped', ms: null, error: null, note: null });
 
 /** 전부 통과한 한 판. */
 const allPass = (over: Partial<RoundTripRun> = {}): RoundTripRun => ({
   at: '2026-08-05T15:00:00.000Z',
-  steps: ROUND_TRIP_STEPS.map(pass),
+  steps: ROUND_TRIP_STEPS.map((s) => pass(s)),
   leftover: null,
   ...over,
 });
@@ -34,7 +34,7 @@ const failedAt = (step: RoundTripStep, error = '서버가 거절했어요'): Rou
   const i = ROUND_TRIP_STEPS.indexOf(step);
   return {
     at: '2026-08-05T15:00:00.000Z',
-    steps: [...ROUND_TRIP_STEPS.slice(0, i).map(pass), fail(step, error), ...ROUND_TRIP_STEPS.slice(i + 1).map(skip)],
+    steps: [...ROUND_TRIP_STEPS.slice(0, i).map((s) => pass(s)), fail(step, error), ...ROUND_TRIP_STEPS.slice(i + 1).map(skip)],
     leftover: null,
   };
 };
@@ -138,5 +138,51 @@ describe('화면 문장 규율', () => {
       expect(v.expected.length).toBeGreaterThan(0);
       expect(v.actual.length).toBeGreaterThan(0);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T-013 — 서버 트리거가 `updated_at`을 덮어써 LWW 판정을 흔들지 않는가
+//
+// 실측(운영 DB 2026-08-06): `journey.set_updated_at()`은 `new.updated_at := now()`로
+// **무조건 덮어쓴다.** 다만 트리거는 이름 순으로 돌아 `a_sync_write_guard`가 **먼저** 보므로
+// LWW·OCC 판정 자체는 **이 기기가 보낸 값**으로 내려진다. 그리고 push가 read-back으로
+// 서버 값을 받아 적어(`updatedAt: serverTrip.updatedAt`) 양쪽이 같아진다.
+//
+// 🔴 그 「같아짐」은 **코드가 아니라 실제 서버에서** 확인돼야 한다 — 그래서 단계가 생겼다.
+// 여기 유닛이 지키는 것은 그 단계가 **등록부에서 조용히 사라지지 않는 것**이다.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('T-013 — 수정 시각 단계', () => {
+  it('고치기와 시각 확인이 단계 목록에 있다 — 만들기만 재면 UPDATE 트리거를 못 본다', () => {
+    expect(ROUND_TRIP_STEPS).toContain('update');
+    expect(ROUND_TRIP_STEPS).toContain('stampRead');
+  });
+
+  // 🔴 순서가 계약이다: 고친 **다음에** 시각을 봐야 하고, 지우기 **전에** 봐야 한다
+  //    (지운 뒤엔 tombstone 쓰기가 시각을 또 바꾼다).
+  it('고치기 → 시각 확인 → 삭제 순서다', () => {
+    const i = (s: RoundTripStep): number => ROUND_TRIP_STEPS.indexOf(s);
+    expect(i('serverRead')).toBeLessThan(i('update'));
+    expect(i('update')).toBeLessThan(i('stampRead'));
+    expect(i('stampRead')).toBeLessThan(i('delete'));
+  });
+
+  it('시각이 어긋나면 그 단계를 지목한다 — 사용자가 엉뚱한 곳을 뒤지지 않게', () => {
+    const v = roundTripView(failedAt('stampRead', '이 기기와 서버가 서로 다른 수정 시각을 들고 있어요'));
+    expect(v.level).toBe('problem');
+    expect(v.headline).toContain(STEP_LABEL.stampRead);
+    expect(v.meaning).toContain('서로 다른 수정 시각');
+  });
+
+  // 🔴 §12: 통과했어도 **본 것**은 화면에 갈 수 있어야 한다. 서버가 시각을 바꾸는 것 자체는
+  //    결함이 아니지만, 그 사실을 앱만 알고 사용자는 모르면 다음에 또 사람이 DB를 뒤진다.
+  it('통과한 단계도 관측을 실을 자리가 있다(note)', () => {
+    const run = allPass();
+    const stamped = {
+      ...run,
+      steps: run.steps.map((s) => (s.step === 'stampRead' ? pass('stampRead', '서버가 자기 시각으로 바꿨습니다') : s)),
+    };
+    expect(roundTripView(stamped).level).toBe('ok'); // 관측이 있다고 판정이 내려가지 않는다
+    expect(stamped.steps.find((s) => s.step === 'stampRead')?.note).toContain('서버가 자기 시각으로');
   });
 });

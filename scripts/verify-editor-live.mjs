@@ -4017,6 +4017,36 @@ check('헤더: 가로 넘침 0', headM.overflow === 0, `overflow=${headM.overflo
     // 🔴 끄는 도중에 **드래그가 살아 있는가** — 브라우저가 스크롤로 가져가면 여기서 죽는다.
     const aliveMid = await grid.locator('.drag-lift').count();
     check('🔴 R③-B 끄는 **도중에도 드래그가 살아 있다**(브라우저가 스크롤로 가져가지 않는다)', aliveMid === 1, `들린 칸 ${aliveMid}개`);
+
+    // 🔴 R③-C·D — **「이동하는 느낌」**(사용자 요청 2026-08-06: *"이동하는 느낌이 나게 해줄 순 있나요?"*).
+    //
+    // 이건 유닛이 원리적으로 못 보는 층이다: `shiftOffsets`가 옳은 숫자를 내도 그 값이 화면에
+    // 안 걸리면 사용자는 아무 느낌도 못 받는다 — 계산은 맞고 화면만 틀린 그 부류다(§10 ③).
+    // 그래서 **실제로 그려진 `transform` 행렬**을 읽는다. 클래스 이름이 아니라 픽셀이 근거다.
+    const moved = await grid.evaluate((g) => {
+      const shift = (e) => {
+        const t = getComputedStyle(e).transform;
+        if (!t || t === 'none') return null;
+        const m = new DOMMatrixReadOnly(t);
+        return { x: Math.round(m.m41), y: Math.round(m.m42), scale: Number(m.a.toFixed(2)) };
+      };
+      const wraps = Array.from(g.querySelectorAll('.photo-thumb-wrap'));
+      const lift = wraps.find((e) => e.classList.contains('drag-lift'));
+      return {
+        lifted: lift ? shift(lift) : null,
+        others: wraps.filter((e) => e !== lift).map(shift).filter((s) => s && (s.x !== 0 || s.y !== 0)).length,
+      };
+    });
+    check(
+      '🔴 R③-C 끄는 칸이 **손가락을 따라 움직인다**(테두리만 바뀌는 게 아니다)',
+      Boolean(moved.lifted) && (Math.abs(moved.lifted.x) > 8 || Math.abs(moved.lifted.y) > 8),
+      JSON.stringify(moved.lifted),
+    );
+    check(
+      '🔴 R③-D **다른 칸들이 실제로 비켜선다** — 자리가 열리는 것이 보인다',
+      moved.others >= 1,
+      `비켜선 칸 ${moved.others}개`,
+    );
     await touch('touchEnd', toBox.x, toBox.y);
     await page.waitForTimeout(1200);
 

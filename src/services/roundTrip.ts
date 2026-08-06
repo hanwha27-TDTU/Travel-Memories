@@ -19,7 +19,9 @@ import { db } from '../offline/db';
 import { supabase } from './supabase/client';
 import { currentUser } from './auth';
 import { requestSync } from './autoSync';
-import { createTripLocalFirst, softDeleteTripLocalFirst, purgeTripPermanently } from './trips';
+import { createTripLocalFirst, updateTripLocalFirst, softDeleteTripLocalFirst, purgeTripPermanently } from './trips';
+// 시각 비교는 **표기가 아니라 의미 단위**로 — 서버와 로컬이 같은 순간을 다르게 적는다(M-0034).
+import { compareInstants } from '../domain/time';
 import {
   ROUND_TRIP_STEPS,
   ROUND_TRIP_TITLE_PREFIX,
@@ -54,24 +56,28 @@ function saveRun(run: RoundTripRun): void {
   }
 }
 
-/** 한 단계를 재고 결과를 기록한다. 던지지 않는다 — 실패도 **값**으로 흐른다. */
-async function runStep(step: RoundTripStep, fn: () => Promise<void>): Promise<StepResult> {
+/**
+ * 한 단계를 재고 결과를 기록한다. 던지지 않는다 — 실패도 **값**으로 흐른다.
+ *
+ * 문자열을 돌려주면 그건 「통과했지만 이런 걸 봤다」는 관측이다(`note`).
+ */
+async function runStep(step: RoundTripStep, fn: () => Promise<string | void>): Promise<StepResult> {
   const t0 = Date.now();
   try {
-    await fn();
-    return { step, state: 'pass', ms: Date.now() - t0, error: null };
+    const note = await fn();
+    return { step, state: 'pass', ms: Date.now() - t0, error: null, note: note ?? null };
   } catch (e) {
-    return { step, state: 'fail', ms: Date.now() - t0, error: (e as Error).message || '알 수 없는 오류' };
+    return { step, state: 'fail', ms: Date.now() - t0, error: (e as Error).message || '알 수 없는 오류', note: null };
   }
 }
 
 /** 서버에서 여행 한 건을 되읽는다. 없으면 null. */
-async function readServerTrip(id: string): Promise<{ deleted_at: string | null } | null> {
+async function readServerTrip(id: string): Promise<{ deleted_at: string | null; updated_at: string } | null> {
   const c = supabase();
   if (!c) throw new Error('서버 연결이 설정되지 않았습니다');
-  const { data, error } = await c.from('trips').select('id, deleted_at').eq('id', id).maybeSingle();
+  const { data, error } = await c.from('trips').select('id, deleted_at, updated_at').eq('id', id).maybeSingle();
   if (error) throw new Error(`서버 조회 실패: ${error.message}`);
-  return (data as { deleted_at: string | null } | null) ?? null;
+  return (data as { deleted_at: string | null; updated_at: string } | null) ?? null;
 }
 
 /** 영구삭제 원장에 id가 있는가 — 좀비 차단의 근거가 실제로 남았는지. */
@@ -117,20 +123,20 @@ export async function runRoundTrip(): Promise<RoundTripRun> {
   let tripId: string | null = null;
 
   const bail = (from: number): RoundTripRun => {
-    for (const s of ROUND_TRIP_STEPS.slice(from)) steps.push({ step: s, state: 'skipped', ms: null, error: null });
+    for (const s of ROUND_TRIP_STEPS.slice(from)) steps.push(skip(s));
     return { at, steps, leftover: null };
   };
 
   // 사전 조건 — 못 도는 상황은 **실패가 아니라 못 돈 것**이다. 그대로 사유를 적는다.
   const c = supabase();
   if (!c) {
-    steps.push({ step: 'create', state: 'fail', ms: null, error: '서버 연결이 설정되지 않았습니다(로컬 전용 배포)' });
+    steps.push({ step: 'create', state: 'fail', ms: null, note: null, error: '서버 연결이 설정되지 않았습니다(로컬 전용 배포)' });
     const run = bail(1);
     saveRun(run);
     return run;
   }
   if (!(await currentUser())) {
-    steps.push({ step: 'create', state: 'fail', ms: null, error: '로그인 상태가 아닙니다' });
+    steps.push({ step: 'create', state: 'fail', ms: null, note: null, error: '로그인 상태가 아닙니다' });
     const run = bail(1);
     saveRun(run);
     return run;
@@ -161,7 +167,9 @@ export async function runRoundTrip(): Promise<RoundTripRun> {
     }),
   );
 
-  // ④ 휴지통으로 → ⑤ 그 삭제가 서버에도 갔는가(다른 기기가 이걸 보고 지운다).
+  steps.push(...(await updateAndStamp(id, stamp))); // ④⑤ T-013 — 아래 함수의 머리말이 이유를 적는다
+
+  // ⑥ 휴지통으로 → ⑦ 그 삭제가 서버에도 갔는가(다른 기기가 이걸 보고 지운다).
   steps.push(await runStep('delete', async () => void (await softDeleteTripLocalFirst(id))));
   steps.push(
     await runStep('tombstoneRead', async () => {
@@ -172,7 +180,7 @@ export async function runRoundTrip(): Promise<RoundTripRun> {
     }),
   );
 
-  // ⑥ 영구삭제 → ⑦ 행 사라짐 + 원장에 남음(좀비 차단의 근거).
+  // ⑧ 영구삭제 → ⑨ 행 사라짐 + 원장에 남음(좀비 차단의 근거).
   steps.push(await runStep('purge', async () => void (await purgeTripPermanently(id))));
   steps.push(
     await runStep('purgeRead', async () => {
@@ -185,7 +193,7 @@ export async function runRoundTrip(): Promise<RoundTripRun> {
     }),
   );
 
-  // ⑧ 이 기기 뒷정리 — 시험이 자기 흔적을 남기지 않았는가(§3-C).
+  // ⑩ 이 기기 뒷정리 — 시험이 자기 흔적을 남기지 않았는가(§3-C).
   let leftover: string | null = null;
   steps.push(
     await runStep('cleanup', async () => {
@@ -206,6 +214,57 @@ export async function runRoundTrip(): Promise<RoundTripRun> {
   return run;
 }
 
+/**
+ * ④ **이미 있는 행을 고친다** → ⑤ 그 수정 시각을 이 기기와 서버가 같은 값으로 들고 있는가.
+ *
+ * ── 이 두 단계가 왜 있나 (T-013 · 2026-08-06) ────────────────────────────────
+ * 운영 DB 실측: `journey.set_updated_at()`은 `new.updated_at := now()`로 **무조건 덮어쓴다.**
+ * 다만 트리거는 이름 순으로 돌아 `a_sync_write_guard`가 **먼저** 보므로 LWW·OCC 판정 자체는
+ * **이 기기가 보낸 값**으로 내려지고, push의 read-back이 서버 값을 받아 적어 양쪽이 같아진다.
+ *
+ * 🔴 **그 「같아짐」은 코드를 읽어서가 아니라 실제 서버에서 확인돼야 한다.** 두 기기가 같은
+ * 기록을 고쳤을 때 어느 쪽이 최신인지 가리는 근거가 바로 그 값이기 때문이다.
+ *
+ * 🔴 **왜 「고치기」인가**: 그 트리거는 **UPDATE에만** 붙어 있다. 만들기(INSERT)만 재면 이
+ * 질문은 **문제가 날 수 없는 자리**에서 초록이 나고, 그 초록의 뜻은 「없다」가 아니라
+ * **「안 봤다」**이다(§17 — 검사가 모순이 날 수 있는 표면에서 도는가).
+ */
+async function updateAndStamp(id: string, stamp: string): Promise<StepResult[]> {
+  const sent = { at: null as string | null };
+  const update = await runStep('update', async () => {
+    await updateTripLocalFirst(id, { title: `${ROUND_TRIP_TITLE_PREFIX} ${stamp} (수정)` });
+    const local = await db().localTrips.get(id);
+    if (!local) throw new Error('고친 직후인데 이 기기에서 그 기록을 찾지 못했습니다');
+    sent.at = local.updatedAt; // 서버가 이 값을 그대로 둘지 바꿀지가 다음 단계의 관측이다
+  });
+  const stampRead = await runStep('stampRead', async () => {
+    if (!sent.at) throw new Error('고치기가 되지 않아 보낸 시각을 모릅니다');
+    await requestSync('왕복 시험 — 수정 반영');
+    const row = await readServerTrip(id);
+    if (!row) throw new Error('고쳤는데 서버에서 그 행을 찾지 못했습니다');
+    const local = await db().localTrips.get(id);
+    if (!local) throw new Error('이 기기에서 그 기록을 찾지 못했습니다');
+    // 🔴 문자열 대소가 아니라 **의미 단위**로 비교한다 — 서버는 `…+00:00`, 로컬은 `…Z`로
+    // 같은 순간을 다르게 적는다. 문자열로 비교하면 멀쩡한 것을 결함이라 부른다(M-0034).
+    const same = compareInstants(local.updatedAt, row.updated_at);
+    if (same === null) {
+      throw new Error(`시각 표기를 비교할 수 없습니다 — 이 기기 ${local.updatedAt} · 서버 ${row.updated_at}`);
+    }
+    if (same !== 0) {
+      throw new Error(
+        `이 기기와 서버가 서로 다른 수정 시각을 들고 있어요 — 이 기기 ${local.updatedAt} · 서버 ${row.updated_at}. ` +
+          '다음 동기화에서 어느 쪽이 최신인지 판정이 흔들릴 수 있습니다',
+      );
+    }
+    // 통과했어도 **무엇을 봤는지**는 말한다(§12). 서버가 바꾸는 것 자체는 결함이 아니다 —
+    // 이 기기가 그 값을 받아 적어 양쪽이 같아지는 것이 계약이고, 위에서 그걸 확인했다.
+    return compareInstants(sent.at, row.updated_at) === 0
+      ? `서버가 보낸 시각을 그대로 뒀고, 이 기기도 같은 값입니다(${row.updated_at})`
+      : `서버가 자기 시각으로 바꿨고(보낸 값 ${sent.at} → 서버 ${row.updated_at}), 이 기기도 그 값을 받아 적었습니다`;
+  });
+  return [update, stampRead];
+}
+
 function skip(step: RoundTripStep): StepResult {
-  return { step, state: 'skipped', ms: null, error: null };
+  return { step, state: 'skipped', ms: null, error: null, note: null };
 }
