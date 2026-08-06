@@ -47,6 +47,7 @@ import { CURRENCIES, DEFAULT_CURRENCY, currencyLabel, formatMoney, sumByCurrency
 import { convertAmount, formatRate, fxDateFor, fxKey, unitRate, type FxRateTable } from '../../domain/expense/fx';
 import { ensureTable, fxBase, todayDate } from '../../services/fx';
 import { momentCoord } from '../../domain/place/geojson';
+import { STATUS_LABEL, STATUS_ORDER } from '../../domain/trip/homeSections';
 import { isWindowsPlatform, partitionDroppedPhotos, photoDropIntent } from '../../domain/media/windowsDrop';
 // 보조 화면은 반드시 lazyScreens를 거친다(정적 import 금지 — check-lazy-screens).
 import { openMapView, openMapPicker, openDiagnosticsHub } from '../lazyScreens';
@@ -1427,13 +1428,11 @@ function currencySelect(current: string): HTMLSelectElement {
 
 type Navigate = (route: Route, param?: string) => void;
 
-const STATUS_LABELS: Record<LocalTrip['status'], string> = {
-  planned: '계획 중',
-  active: '진행 중',
-  completed: '완료',
-  archived: '보관',
-};
-const STATUS_ORDER: LocalTrip['status'][] = ['planned', 'active', 'completed', 'archived'];
+// 🔴 상태 라벨·순서는 `domain/trip/homeSections.ts` **한 곳**이 정한다. 예전엔 이 파일과
+// `home.ts`가 각자 손으로 같은 표를 갖고 있었다 — 한쪽만 고치면 같은 상태가 화면마다 다른
+// 낱말로 불린다(§2 SSOT · §7 사용자 대면 대칭). 실제로 홈이 「보관 중」으로 바뀔 때
+// 여기만 「보관」으로 남을 뻔했다.
+const STATUS_LABELS = STATUS_LABEL;
 
 /** 로그인·설정된 경우 백그라운드 동기화(순간 push/pull 포함). 실패는 다음 트리거에서 재시도. */
 /**

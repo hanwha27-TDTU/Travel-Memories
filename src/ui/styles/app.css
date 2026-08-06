@@ -201,21 +201,12 @@
    두 줄이 되는 순간 배지가 **위로 밀려 올라가** 같은 줄의 카드끼리 배지 높이가 달라졌다
    (사용자 지적: *"제목이 일관되지 않는 거 같아요"*). 위에서부터 흐르면 배지는 늘 같은 자리다. */
 .cover-info { position: relative; z-index: 2; }
-.trip-badge {
-  display: inline-block;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  padding: 3px 9px;
-  border-radius: var(--radius-pill);
-  background: var(--bg-2);
-  color: var(--ink-soft);
-}
-/* 상태별 색 — 순번이 아니라 **뜻**으로 칠한다. 색만으로 인코딩하지 않는다(글자가 늘 함께 있다). */
-.trip-badge--active { background: color-mix(in srgb, var(--sem-teal) 16%, transparent); color: var(--sem-teal-ink); }
-.trip-badge--planned { background: color-mix(in srgb, var(--sem-sky) 16%, transparent); color: var(--sem-sky-ink); }
+/* 🔴 `.trip-badge`가 여기 있었는데 **지웠다**(사용자 결정 2026-08-06: *"첫화면에 목록이 다
+   보이다보니 너무 산만해요"*). 실측 9장 중 7장에 똑같은 「완료」가 붙어 있었다 — 거의 모두에
+   붙는 표시는 정보가 아니라 소음이다(§8). 이제 상태는 **구획 제목과 눌린 칩**이 한 번만
+   말한다(`.home-section-title` / `.status-chip`). 다시 섞인 목록을 만들면 그때 되살린다. */
 .trip-title {
-  margin: var(--space-2) 0 4px;
+  margin: 0 0 4px;
   font-family: var(--font-disp);
   font-size: 1.05rem;
   font-weight: 700;
@@ -231,8 +222,43 @@
 }
 .trip-meta { margin: 0; font-size: 0.8rem; font-weight: 500; color: var(--ink-soft); }
 
-/* 보관함 토글 + 복원 */
-.view-bar { display: flex; justify-content: flex-end; }
+/* ── 상태 칩 줄 + 요약 구획 (2026-08-06 · 첫 화면 산만함) ───────────────────
+   예전엔 [📦 보관함] 토글 하나만 있었다(`.view-bar`). 보관만 전용 버튼을 갖고 나머지 셋은
+   못 갖던 비대칭을 없앤다 — 넷을 같은 자리에서 같은 어휘로 고른다(§7).
+   🔴 `.chip`(장소·소리 칩)을 재사용하지 **않는다**: 모양이 같다고 이름을 나눠 주면 다른
+   것이 하나의 이름 뒤에 숨고, 셀렉터로 세는 라이브 검사가 엉뚱한 것을 집는다(§3-E · M-0041). */
+.status-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.status-chips[hidden] { display: none; }
+.status-chip {
+  display: flex; align-items: center; gap: 8px;
+  /* 터치 목표는 줄이지 않는다 — 시각 부피만 줄인다(등록부 1.72). */
+  min-height: var(--touch-target-min); padding: 0 var(--space-3);
+  border: 1px solid var(--line); border-radius: var(--radius-pill);
+  background: var(--bg); color: var(--ink-soft);
+  font: inherit; font-size: 0.9rem; font-weight: 700;
+  /* 라벨이 「계획 중」에서 글자 단위로 접히지 않게. 눌러야 하는 것은 오그라들지 않는다(등록부 1.56). */
+  white-space: nowrap; flex-shrink: 0; cursor: pointer;
+}
+.status-chip:hover { background: color-mix(in srgb, var(--accent-strong) 10%, transparent); }
+/* 눌림은 `aria-pressed`가 정본이고 색은 거들 뿐 — 색만으로 인코딩하지 않는다. */
+.status-chip[aria-pressed='true'] { color: #fff; background: var(--accent-strong); border-color: var(--accent-strong); }
+.status-chip:focus-visible { outline: 3px solid var(--sem-sky); outline-offset: 2px; }
+.status-chip .chip-count {
+  /* 자릿수가 달라도(7 vs 12) 숫자 폭이 같아 칩 줄이 흔들리지 않는다. */
+  font-variant-numeric: tabular-nums; font-weight: 500; opacity: 0.75;
+}
+
+/* 목록 껍데기 — 격자가 아니다. 격자는 `.trip-list` 한 곳이고 구획마다 하나씩 갖는다. */
+.home-list { display: flex; flex-direction: column; gap: var(--space-4); }
+.home-section { display: flex; flex-direction: column; gap: var(--space-3); }
+.home-section-head { display: flex; align-items: baseline; gap: 8px; }
+.home-section-title {
+  /* 🔴 카드 제목(1.05rem)보다 **작다.** 구획 제목이 여행 제목보다 크면 화면에서 제일 먼저
+     읽히는 것이 분류명이 된다 — 주인공은 여행이다(북극성). 위계는 크기가 아니라 색·굵기로. */
+  margin: 0; font-size: 0.85rem; font-weight: 700; letter-spacing: 0.02em; color: var(--ink-soft);
+}
+.home-section-count { font-size: 0.85rem; font-variant-numeric: tabular-nums; color: var(--ink-soft); opacity: 0.7; }
+.section-more { align-self: flex-start; min-height: var(--touch-target-min); }
 
 /* ── 홈 기간 트리(연도▸월) — 여행 데이터에서 파생, 빈 달은 침묵 ──────────────
    좁은 화면: 접힌 필터(<details>). 넓은 화면(≥1100px): 왼쪽 고정 칸에 늘 펼침(아래 미디어 분기).
@@ -277,7 +303,6 @@
   display: grid; place-items: center; border-radius: var(--radius-small);
 }
 .filter-clear:hover { background: color-mix(in srgb, var(--accent-strong) 10%, transparent); }
-.archive-toggle[hidden] { display: none; }
 .trip-card[role="button"] { cursor: pointer; }
 .trip-card:focus-visible { outline: 3px solid var(--sem-sky); outline-offset: 2px; }
 /* 카드가 밝아졌으므로(조용한 카드) 이 두 버튼도 흰 반투명 → 표면색 계열로 따라온다.

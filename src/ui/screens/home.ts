@@ -52,6 +52,16 @@ import {
   type PeriodSel,
   type TimeTree,
 } from '../../domain/trip/timeTree';
+// 상태 라벨·순서·구획 판정의 SSOT. 예전엔 이 파일과 tripDetail이 **각자 손으로** 같은 표를
+// 갖고 있었다(§2 — 손편집 중복 자체가 결함).
+import {
+  STATUS_LABEL,
+  homeSections,
+  statusChips,
+  summaryPool,
+  type HomeSection,
+  type TripStatus,
+} from '../../domain/trip/homeSections';
 
 type Navigate = (route: Route, param?: string) => void;
 
@@ -59,13 +69,6 @@ let unsubscribeAuth: (() => void) | null = null;
 /** 동기화 상태·대조 구독 — 홈을 다시 그릴 때 겹치지 않게 모듈에 들고 있다가 해지한다. */
 let unsubscribeSync: (() => void) | null = null;
 let unsubscribeParity: (() => void) | null = null;
-
-const STATUS_LABEL: Record<LocalTrip['status'], string> = {
-  planned: '계획 중',
-  active: '진행 중',
-  completed: '완료',
-  archived: '보관',
-};
 
 /**
  * 카드 껍데기 — 활성·보관함 **두 카드가 이 한 곳**을 쓴다(§7 구조적 강제).
@@ -93,11 +96,20 @@ function tripCardShell(t: LocalTrip, navigate: Navigate): HTMLElement {
   return card;
 }
 
-/** 배지·제목·날짜 — 두 카드가 **같은 자리에 같은 어휘**로 말한다(§7 사용자 대면 대칭). */
+/**
+ * 제목·날짜 — 두 카드가 **같은 자리에 같은 어휘**로 말한다(§7 사용자 대면 대칭).
+ *
+ * 🔴 **상태 배지가 여기 있었는데 뺐다**(사용자 결정 2026-08-06). 실측하니 여행 9장 중
+ * 7장에 똑같은 「완료」가 붙어 있었다 — **거의 모두에 붙는 표시는 정보가 아니라 소음**이다
+ * (§8). 뜻 없는 색을 걷어낸 2026-08-05 결정과 같은 부류다.
+ *
+ * 그럼 상태는 이제 누가 말하나: **목록이 상태별로 갈렸으므로 구획 제목과 눌린 칩이 말한다.**
+ * 요약 화면의 구획도, 칩을 눌러 들어간 목록도 **한 상태만** 담기므로 카드마다 되풀이할
+ * 이유가 없다 — 말은 한 번만 한다. 다시 섞인 목록을 만들 일이 생기면 그때는 배지가
+ * 되살아나야 한다(그 목록은 스스로 상태를 말하지 못한다).
+ */
 function tripCardInfo(t: LocalTrip): HTMLElement {
   const info = el('div', 'cover-info');
-  // 상태를 클래스로도 준다 — 색이 **순번이 아니라 뜻**을 따르게(CSS의 .trip-badge--*).
-  info.appendChild(el('span', `trip-badge trip-badge--${t.status}`, STATUS_LABEL[t.status]));
   info.appendChild(el('h3', 'trip-title', t.title));
   info.appendChild(el('p', 'trip-meta', formatTripPeriod(t.startDate, t.endDate)));
   return info;
@@ -212,10 +224,66 @@ function buildHeader(authArea: HTMLElement, syncStatus: HTMLElement, onData: () 
   return header;
 }
 
-/** 로그인 상태면 서버 동기화 시도(실패는 다음 트리거에서 재시도). */
-/** 동기화 요청 — 규칙은 `services/autoSync.ts` 한 곳에 있다(§7). */
-async function trySync(_user: SessionUser | null): Promise<void> {
+/**
+ * 동기화 요청 — 규칙은 `services/autoSync.ts` **한 곳**에 있다(§7).
+ *
+ * 로그인 여부·온라인 여부를 여기서 다시 묻지 않으므로 인자를 받지 않는다. 예전엔 쓰지도
+ * 않는 `_user`를 받아 호출부마다 넘기고 있었다 — 안 쓰는 인자는 "이게 판단에 쓰인다"는
+ * **거짓 신호**라 다음 사람이 그 전제 위에 코드를 쌓는다.
+ */
+async function trySync(): Promise<void> {
   await requestSync('홈 저장/변경');
+}
+
+/**
+ * 카드의 삭제·복원 — `renderHome`에서 분리(길이 래칫 `check-fn-size`, §11).
+ *
+ * 두 행동이 한 곳에 있는 이유: 둘 다 **되돌릴 수 있어야 하고**(비타협 원칙 #5) 끝나면
+ * **다시 읽어야 한다**(§8 — 고쳤다고 말하지 말고 재판정). 그 규율을 형제가 각자 구현하면
+ * 한쪽만 조용히 빠진다 — 실제로 비용에만 `restore*`가 없던 적이 있다(§7).
+ */
+function tripActions(deps: { refresh: () => Promise<void>; fail: (msg: string) => void }): {
+  deleteTrip: (t: LocalTrip) => void;
+  restoreTrip: (id: string) => void;
+} {
+  const say = (err: unknown, what: string): void =>
+    deps.fail(`${what} 실패: ${err instanceof Error ? err.message : String(err)}`);
+  return {
+    // 여행 삭제(cascade tombstone) — 확인 → 소프트삭제 → 실행취소 토스트. 휴지통에서도 복구 가능.
+    deleteTrip(t) {
+      const ok = window.confirm(
+        `"${t.title}" 여행을 삭제할까요?\n순간·사진·비용·소리도 함께 삭제되지만, 실행취소나 [데이터 관리 › 휴지통]에서 되살릴 수 있어요.`,
+      );
+      if (!ok) return;
+      void (async () => {
+        try {
+          const children = await softDeleteTripLocalFirst(t.id);
+          void trySync();
+          await deps.refresh();
+          showUndoToast('여행을 삭제했어요', async () => {
+            await restoreTripLocalFirst(t.id, children);
+            void trySync();
+            await deps.refresh();
+          });
+        } catch (err) {
+          say(err, '삭제');
+        }
+      })();
+    },
+    // 보관 여행을 완료 상태로 복원(요약 화면으로 되돌림).
+    restoreTrip(id) {
+      void (async () => {
+        try {
+          await updateTripLocalFirst(id, { status: 'completed' });
+          await deps.refresh();
+          await trySync();
+          await deps.refresh();
+        } catch (err) {
+          say(err, '복원');
+        }
+      })();
+    },
+  };
 }
 
 /** 기간 트리 버튼 한 줄 — 라벨 + 개수. 눌림 상태는 aria-pressed(색만으로 인코딩하지 않는다). */
@@ -254,18 +322,32 @@ function renderPeriodTree(nav: HTMLElement, tree: TimeTree, sel: PeriodSel, onSe
   }
 }
 
-/** 목록이 아예 빌 때의 빈 상태(뷰별 문구). */
-function emptyListState(view: 'active' | 'archived'): HTMLElement {
+/**
+ * 목록이 아예 빌 때의 빈 상태.
+ *
+ * `sel`이 null이면 요약 화면(= 여행이 하나도 없음), 아니면 그 상태만 비어 있다는 뜻이다.
+ * 🔴 **막다른 문장으로 끝내지 않는다**(§13): 상태 칩을 눌러 들어왔다면 되돌아갈 길을 준다.
+ */
+function emptyListState(sel: TripStatus | null, onClear: () => void): HTMLElement {
   const empty = el('div', 'empty-state');
-  if (view === 'archived') {
+  if (sel === 'archived') {
     empty.appendChild(el('p', 'empty-emoji', '📦'));
-    empty.appendChild(el('h2', undefined, '보관함이 비어 있어요'));
+    empty.appendChild(el('h2', undefined, '보관 중인 여행이 없어요'));
     empty.appendChild(el('p', 'muted', '여행 편집에서 상태를 “보관”으로 바꾸면 여기로 들어와요.'));
+  } else if (sel) {
+    empty.appendChild(el('p', 'empty-emoji', '🧭'));
+    empty.appendChild(el('h2', undefined, `${STATUS_LABEL[sel]} 여행이 없어요`));
+    empty.appendChild(el('p', 'muted', '여행 편집에서 상태를 바꾸면 여기로 들어와요.'));
   } else {
     empty.appendChild(el('p', 'empty-emoji', '✈️'));
     empty.appendChild(el('h2', undefined, '첫 여행을 기록해보세요'));
     empty.appendChild(el('p', 'muted', '제목 하나면 충분해요. 이 기기에 안전하게 저장됩니다.'));
+    return empty; // 요약 화면엔 되돌아갈 곳이 없다 — 없는 버튼을 만들지 않는다
   }
+  const back = el('button', 'btn-ghost', '← 전체 보기') as HTMLButtonElement;
+  back.type = 'button';
+  back.addEventListener('click', onClear);
+  empty.appendChild(back);
   return empty;
 }
 
@@ -290,8 +372,13 @@ export function signedOutLockState(): HTMLElement {
  * 로그아웃 잠금을 화면에 적용한다 — refresh()에서 분리(함수 크기 래칫, §7 구조적 강제).
  * 잠갔으면 true를 돌려 refresh()가 나머지(목록 렌더)를 건너뛰게 한다.
  *
- * 무엇을 가리나: 목록·새 여행 폼·기간 트리. **Dexie는 손대지 않는다** — 다음 refresh(로그인
- * 뒤)가 같은 데이터를 그대로 보여준다(가리는 것과 지우는 것은 다른 일 — 비타협 원칙 #1).
+ * 무엇을 가리나: 목록·새 여행 폼·기간 트리·**상태 칩 줄**. **Dexie는 손대지 않는다** — 다음
+ * refresh(로그인 뒤)가 같은 데이터를 그대로 보여준다(가리는 것과 지우는 것은 다른 일 —
+ * 비타협 원칙 #1).
+ *
+ * 🔴 상태 칩도 반드시 가린다: 칩에는 **개수**가 적혀 있어서, 목록만 가리고 칩을 두면
+ * *"완료 7"*이 로그아웃 화면에 남아 이전 계정의 기록 규모를 그대로 알려준다(M-0102의
+ * 같은 형태 — 문구는 「로그인하세요」인데 화면은 이미 말하고 있다).
  *
  * 🔴 **잠글지 말지의 판정은 여기 있지 않다.** `domain/authGate.ts`의 `canViewLocalRecords`
  * 한 곳이 정하고, 딥링크 가드(main.ts)도 **같은 함수**를 쓴다. 손으로 두 번 쓰면 한쪽만
@@ -331,6 +418,106 @@ async function gateAccess(u: SessionUser | null, status: HTMLElement): Promise<S
   status.textContent = '🔒 이 앱은 초대된 사용자만 사용할 수 있어요. 접근이 필요하면 관리자에게 문의하세요.';
   await signOut();
   return null;
+}
+
+/**
+ * 상태 칩 줄 — 「계획 중·진행 중·완료·보관 중」(사용자 요청 2026-08-06).
+ *
+ * 예전 [📦 보관함] 토글이 하던 일을 이 줄이 그대로 받았다. **보관만 전용 버튼을 갖고 나머지
+ * 셋은 못 갖던 비대칭**이 이걸로 사라진다(§7 — 형제에게는 대칭을 기본값으로 준다).
+ *
+ * 눌림은 `aria-pressed`로 말한다(색만으로 인코딩하지 않는다). 같은 칩을 다시 누르면 해제 —
+ * **선택할 수 있으면 해제할 수 있다**(ui 계약 #9).
+ */
+function renderStatusChips(
+  bar: HTMLElement,
+  chips: ReadonlyArray<{ status: TripStatus; label: string; count: number }>,
+  sel: TripStatus | null,
+  onSelect: (next: TripStatus | null) => void,
+): void {
+  bar.innerHTML = '';
+  // 칩이 하나뿐이면 고를 것이 없다 — 고를 수 없는 선택지는 소음이다(§8).
+  bar.hidden = chips.length < 2;
+  for (const c of chips) {
+    const on = sel === c.status;
+    const b = el('button', `status-chip status-chip--${c.status}`) as HTMLButtonElement;
+    b.type = 'button';
+    b.setAttribute('aria-pressed', String(on));
+    b.setAttribute('aria-label', `${c.label} ${c.count}개${on ? ' — 다시 누르면 전체' : ''}`);
+    b.appendChild(el('span', undefined, c.label));
+    b.appendChild(el('span', 'chip-count', String(c.count)));
+    b.addEventListener('click', () => onSelect(on ? null : c.status));
+    bar.appendChild(b);
+  }
+}
+
+/**
+ * 요약 구획 하나 — 제목(+총 개수) · 카드 격자 · [모두 보기].
+ *
+ * 카드 격자를 `.trip-list`로 감싸는 이유: 넓은 화면의 2·3열 규칙이 **그 클래스 한 곳**에
+ * 있다(§7 구조적 강제). 구획마다 자기 격자를 쓰면 다음 구획이 조용히 갈라진다.
+ */
+function renderSection(
+  sec: HomeSection<LocalTrip>,
+  card: (t: LocalTrip) => HTMLElement,
+  onMore: (status: TripStatus) => void,
+): HTMLElement {
+  const box = el('section', 'home-section');
+  const head = el('div', 'home-section-head');
+  head.appendChild(el('h2', 'home-section-title', sec.title));
+  head.appendChild(el('span', 'home-section-count', String(sec.total)));
+  box.appendChild(head);
+  const grid = el('div', 'trip-list');
+  for (const t of sec.trips) grid.appendChild(card(t));
+  box.appendChild(grid);
+  // 접힌 게 없으면 버튼을 아예 그리지 않는다(§8 — 정상은 침묵).
+  if (sec.moreLabel) {
+    const more = el('button', 'btn-ghost section-more', sec.moreLabel) as HTMLButtonElement;
+    more.type = 'button';
+    more.addEventListener('click', () => onMore(sec.status));
+    box.appendChild(more);
+  }
+  return box;
+}
+
+/**
+ * 목록 자리를 그린다 — 빈 상태 / 요약 구획 / 평평한 목록 **셋 중 하나**.
+ *
+ * `refresh()`에서 뽑았다: 길이 래칫(`check-fn-size`)이 막았고, 래칫은 한 방향이라
+ * "늘린 만큼 덜어내라"고 말한다. 그 요구가 이 추출을 만들었고 결과적으로 **세 갈래가
+ * 한눈에 읽힌다** — 게이트가 설계를 밀어준 사례다(§11).
+ */
+function renderListArea(
+  list: HTMLElement,
+  ctx: {
+    /** 상태 필터까지만 적용한 대상(기간 필터 이전) — 「여행 자체가 없음」을 가른다. */
+    items: LocalTrip[];
+    /** 기간 필터까지 적용해 실제로 그릴 것 — 「기간이 다 걸러냄」을 가른다. */
+    shown: LocalTrip[];
+    statusSel: TripStatus | null;
+    card: (t: LocalTrip) => HTMLElement;
+    backToAll: () => void;
+    onMore: (s: TripStatus) => void;
+  },
+): void {
+  list.innerHTML = '';
+  if (ctx.items.length === 0) {
+    list.appendChild(emptyListState(ctx.statusSel, ctx.backToAll));
+    return;
+  }
+  if (ctx.shown.length === 0) {
+    list.appendChild(filteredEmptyState(ctx.backToAll));
+    return;
+  }
+  if (ctx.statusSel === null) {
+    // 요약: 상태별 구획. 완료만 최근 3개로 접히고 나머지는 [모두 보기] 뒤로 간다.
+    for (const sec of homeSections(ctx.shown)) list.appendChild(renderSection(sec, ctx.card, ctx.onMore));
+    return;
+  }
+  // 한 상태만 담긴 평평한 목록 — 상태는 눌린 칩이 말한다(카드에 배지를 되풀이하지 않는다).
+  const grid = el('div', 'trip-list');
+  for (const t of ctx.shown) grid.appendChild(ctx.card(t));
+  list.appendChild(grid);
 }
 
 /** 기간 필터가 다 걸러낸 상태 — 막다른 문장으로 끝내지 않는다(§13): 되돌아갈 버튼을 준다. */
@@ -380,6 +567,14 @@ interface PeriodUi {
   filterNow: HTMLElement;
   /** 현재 선택으로 items를 거르고 트리·요약·현재선택 줄을 다시 그린다. */
   apply(items: LocalTrip[], onChange: () => void): LocalTrip[];
+  /**
+   * 거르기만 한다(트리·문장은 그대로).
+   *
+   * 왜 따로 있나: **상태 칩의 개수도 기간 필터를 따라야 한다.** 칩이 「완료 7」이라 말하고
+   * 눌렀더니 2개가 나오면 그게 바로 사용자가 말한 산만함의 다른 얼굴이다. 다만 트리는
+   * 여전히 *현재 대상 목록*에서 파생돼야 하므로(§7 — 오늘의 계약) 그리기와 거르기를 나눈다.
+   */
+  match(items: LocalTrip[]): LocalTrip[];
   /** 선택 해제(전체로). [전체 보기]·✕가 부른다. */
   clear(): void;
 }
@@ -427,6 +622,9 @@ function buildPeriodUi(): PeriodUi {
         filterNow.appendChild(x);
       }
       return shown;
+    },
+    match(items) {
+      return items.filter((t) => matchesPeriod(t, sel));
     },
     clear() {
       sel = {};
@@ -522,62 +720,36 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   wrap.appendChild(buildHeader(authArea, status, () => void openDataManager({ onChanged: () => void refresh(), goToTrip: (id: string) => navigate('trip-detail', id) })));
 
   const section = el('section', 'trip-section');
-  const list = el('div', 'trip-list');
+  // 🔴 목록의 **껍데기**다(격자가 아니다). 격자 규칙은 `.trip-list` 한 곳에 있고, 요약 화면은
+  // 구획마다 그 격자를 하나씩 갖는다. 예전엔 이 요소가 곧 `.trip-list`라 빈 상태 문구까지
+  // 2열 격자의 한 칸으로 들어갔다.
+  const list = el('div', 'home-list');
   // 기간 트리(연도▸월): 넓은 화면에선 왼쪽 고정 칸, 좁은 화면에선 접힌 필터.
   const periodUi = buildPeriodUi();
 
-  // 목록 뷰: 활성(홈) ↔ 보관함. 보관 상태 여행은 홈에서 숨고 보관함에서 본다.
-  let view: 'active' | 'archived' = 'active';
-  const viewBar = el('div', 'view-bar');
-  const archiveToggle = el('button', 'btn-ghost archive-toggle') as HTMLButtonElement;
-  archiveToggle.type = 'button';
-  archiveToggle.addEventListener('click', () => {
-    view = view === 'active' ? 'archived' : 'active';
-    void refresh();
+  /**
+   * 목록 뷰 = 상태 선택. `null`이면 **요약 화면**(구획으로 묶고 완료는 최근 3개만).
+   *
+   * 예전엔 `'active' | 'archived'` 두 갈래였고 보관만 전용 토글을 갖고 있었다. 넷을 같은
+   * 자리에서 같은 어휘로 고르게 바꾼다(§7 사용자 대면 대칭).
+   */
+  let statusSel: TripStatus | null = null;
+  const chipBar = el('div', 'status-chips');
+  chipBar.setAttribute('role', 'group');
+  chipBar.setAttribute('aria-label', '상태별 보기');
+
+  const { deleteTrip, restoreTrip } = tripActions({
+    refresh: () => refresh(),
+    fail: (msg) => {
+      status.textContent = msg;
+    },
   });
-  viewBar.appendChild(archiveToggle);
-
-  /** 여행 삭제(cascade tombstone) — 확인 → 소프트삭제 → 실행취소 토스트. 휴지통에서도 복구 가능. */
-  function deleteTrip(t: LocalTrip): void {
-    const ok = window.confirm(
-      `"${t.title}" 여행을 삭제할까요?\n순간·사진·비용·소리도 함께 삭제되지만, 실행취소나 [데이터 관리 › 휴지통]에서 되살릴 수 있어요.`,
-    );
-    if (!ok) return;
-    void (async () => {
-      try {
-        const children = await softDeleteTripLocalFirst(t.id);
-        void trySync(user);
-        await refresh();
-        showUndoToast('여행을 삭제했어요', async () => {
-          await restoreTripLocalFirst(t.id, children);
-          void trySync(user);
-          await refresh();
-        });
-      } catch (err) {
-        status.textContent = `삭제 실패: ${err instanceof Error ? err.message : String(err)}`;
-      }
-    })();
-  }
-
-  /** 보관 여행을 완료 상태로 복원(홈으로 되돌림). */
-  function restoreTrip(id: string): void {
-    void (async () => {
-      try {
-        await updateTripLocalFirst(id, { status: 'completed' });
-        await refresh();
-        await trySync(user);
-        await refresh();
-      } catch (err) {
-        status.textContent = `복원 실패: ${err instanceof Error ? err.message : String(err)}`;
-      }
-    })();
-  }
 
   const form = buildTripForm(async (title) => {
     try {
       await createTripLocalFirst({ title });
       await refresh();
-      await trySync(user); // 저장 후 백그라운드 전송
+      await trySync(); // 저장 후 백그라운드 전송
       await refresh();
     } catch (err) {
       status.textContent = `저장 실패: ${err instanceof Error ? err.message : String(err)}`;
@@ -624,41 +796,50 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
     ]);
     lastPending = pending;
 
-    const lockUi = { viewBar, fold: periodUi.fold, form, filterNow: periodUi.filterNow, list, clearPeriod: periodUi.clear };
+    const lockUi = { viewBar: chipBar, fold: periodUi.fold, form, filterNow: periodUi.filterNow, list, clearPeriod: periodUi.clear };
     const locked = applySignedOutLock(!canViewLocalRecords(isConfigured(), Boolean(user)), lockUi);
     if (locked) {
       renderSyncNote(status, pending, user);
       return;
     }
 
-    // 보관함 토글: 활성 뷰에선 보관이 있을 때만 노출, 보관 뷰에선 되돌아가기.
-    if (view === 'archived') {
-      archiveToggle.textContent = '← 여행 목록으로';
-      archiveToggle.hidden = false;
-    } else {
-      archiveToggle.textContent = `📦 보관함 ${archived.length}`;
-      archiveToggle.hidden = archived.length === 0;
-    }
-    form.hidden = view === 'archived'; // 보관함에선 새 여행 폼 숨김(locked 분기는 위에서 이미 처리)
+    // 🔴 보관은 별도 질의로 들어오지만(services 계약) 화면에서는 **넷이 한 목록**이다.
+    // 여기서 합치지 않으면 「보관 중」 칩만 개수를 못 세고 형제와 갈라진다(§7).
+    const all = [...trips, ...archived];
+    // 새 여행 폼은 보관 목록에서만 숨긴다(locked 분기는 위에서 이미 처리).
+    form.hidden = statusSel === 'archived';
 
-    const items = view === 'archived' ? archived : trips;
-    // 기간 필터: 트리는 현재 뷰(홈/보관함)의 여행에서 파생되고, 목록도 같은 선택으로 걸러진다(§7 대칭).
+    // 대상 목록: 칩이 안 눌렸으면 요약(보관 제외), 눌렸으면 그 상태만.
+    const items = statusSel === null ? summaryPool(all) : all.filter((t) => t.status === statusSel);
+    // 기간 트리는 **현재 대상 목록**에서 파생되고 목록도 같은 선택으로 걸러진다(§7 대칭).
     const shown = periodUi.apply(items, () => void refresh());
-    list.innerHTML = '';
-    if (items.length === 0) {
-      list.appendChild(emptyListState(view));
-    } else if (shown.length === 0) {
-      list.appendChild(
-        filteredEmptyState(() => {
-          periodUi.clear();
-          void refresh();
-        }),
-      );
-    } else if (view === 'archived') {
-      for (const t of shown) list.appendChild(archivedCard(t, navigate, restoreTrip));
-    } else {
-      for (const t of shown) list.appendChild(tripCard(t, navigate, deleteTrip));
-    }
+    // 칩 개수는 기간 필터를 통과한 **전체**에서 센다 — 칩이 「완료 7」이라 말하고 눌렀더니
+    // 2개가 나오는 모순을 만들지 않는다.
+    renderStatusChips(chipBar, statusChips(periodUi.match(all)), statusSel, (next) => {
+      statusSel = next;
+      void refresh();
+    });
+
+    const backToAll = (): void => {
+      statusSel = null;
+      periodUi.clear();
+      void refresh();
+    };
+    const card = (t: LocalTrip): HTMLElement =>
+      // 보관 목록의 주행동은 [복원], 나머지는 [삭제]. 카드 껍데기는 한 곳을 쓴다(§7 구조적 강제).
+      statusSel === 'archived' ? archivedCard(t, navigate, restoreTrip) : tripCard(t, navigate, deleteTrip);
+
+    renderListArea(list, {
+      items,
+      shown,
+      statusSel,
+      card,
+      backToAll,
+      onMore: (s) => {
+        statusSel = s;
+        void refresh();
+      },
+    });
     renderSyncNote(status, pending, user);
   }
 
@@ -666,7 +847,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   // 화면읽기·키보드 탐색이 흔들리지 않고, 시각 배치는 CSS(≥1100px grid)만 바꾼다.
   const body = el('div', 'home-body');
   const main = el('div', 'home-main');
-  main.append(viewBar, periodUi.filterNow, list);
+  main.append(chipBar, periodUi.filterNow, list);
   body.append(periodUi.fold, main);
   section.append(form, body);
   wrap.appendChild(section);
@@ -679,20 +860,20 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
     void (async () => {
       user = await gateAccess(u, status);
       renderAuth();
-      await trySync(user);
+      await trySync();
       await refresh();
     })();
   });
 
   // 온라인 복귀 시 동기화 시도.
-  window.addEventListener('online', () => void trySync(user).then(refresh));
+  window.addEventListener('online', () => void trySync().then(refresh));
 
   // 초기값: 현재 세션 확인(구독이 늦게 올 수 있으므로 즉시 1회).
   void (async () => {
     user = await gateAccess(await currentUser(), status);
     renderAuth();
     await refresh();
-    await trySync(user);
+    await trySync();
     if (user) await refreshParity(); // 안 뜨면 배지가 「확인 전」에 머문다(M-0101을 못 말한다)
     await refresh();
   })();
