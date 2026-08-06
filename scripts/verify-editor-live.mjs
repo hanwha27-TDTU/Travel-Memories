@@ -139,6 +139,10 @@ try {
 const page = await browser.newPage({
   viewport: { width: 412, height: 915 },
   userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36',
+  // 🔴 **터치가 있는 기기로 연다**(2026-08-06). 사용자의 기기는 손가락이고, 터치에는 마우스에
+  // 없는 경로가 있다 — 브라우저가 제스처를 스크롤로 가져간다. 마우스로만 재던 검사가
+  // 「꾹 눌러 순서 바꾸기」의 실제 결함을 통째로 놓쳤다(헌법 §17).
+  hasTouch: true,
 });
 // 📍 「내 위치」를 **실제로 눌러** 재려면 브라우저가 위치를 줘야 한다(§13 4항 — 라벨만 읽는
 // 것과 눌러 보는 것은 다른 층이다). 실제 GPS는 이 환경에 없으므로 **결정적인 가짜 위치**를
@@ -3985,14 +3989,35 @@ check('헤더: 가로 넘침 0', headM.overflow === 0, `overflow=${headM.overflo
     const fromBox = await boxOf('ro-square');
     const toBox = await boxOf('ro-wide');
     check('R③-0 내가 심은 두 칸의 자리를 찾았다', Boolean(fromBox && toBox), JSON.stringify({ fromBox, toBox }));
-    await page.mouse.move(fromBox.x, fromBox.y);
-    await page.mouse.down();
+    // 🔴 **손가락으로 잰다 — 마우스가 아니다** (2026-08-06 · 사용자 실기기가 잡았다).
+    //
+    // 처음엔 `page.mouse`로 쟀고 초록이었다. 그런데 사용자의 태블릿에서는 안 됐다:
+    // 터치에는 **브라우저가 제스처를 스크롤로 가져가는 경로**가 있고 마우스에는 없다.
+    // 즉 검사가 **문제가 날 수 없는 입력**으로 돌고 있었다 — 헌법 §17이 말하는 그 자리다.
+    // (그 조항을 이 세션에 쓰고 같은 세션에 어겼다.)
+    //
+    // CDP `Input.dispatchTouchEvent`를 쓰는 이유: `page.touchscreen`은 탭만 되고, JS로 만든
+    // `TouchEvent`는 **브라우저의 스크롤 판정을 재현하지 못한다**(내가 만든 이벤트를 내가
+    // 재는 셈 — §3-E). 이건 브라우저 입력 파이프라인에 진짜로 넣는 길이다.
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type, x, y) =>
+      cdp.send('Input.dispatchTouchEvent', {
+        type,
+        touchPoints: type === 'touchEnd' ? [] : [{ x, y, radiusX: 12, radiusY: 12, force: 1 }],
+      });
+    await touch('touchStart', fromBox.x, fromBox.y);
     await page.waitForTimeout(600); // HOLD_MS(420) 보다 길게 — 여기서 드래그가 시작돼야 한다
     const lifted = await grid.locator('.drag-lift').count();
-    check('🔴 R③ 꾹 누르면 칸이 들린다(드래그가 시작된다)', lifted === 1, `들린 칸 ${lifted}개`);
-    await page.mouse.move(toBox.x, toBox.y, { steps: 8 });
-    await page.waitForTimeout(120);
-    await page.mouse.up();
+    check('🔴 R③ **손가락으로** 꾹 누르면 칸이 들린다(마우스가 아니다 · 사용자 실기기 2026-08-06)', lifted === 1, `들린 칸 ${lifted}개`);
+    const steps = 10;
+    for (let i = 1; i <= steps; i++) {
+      await touch('touchMove', fromBox.x + ((toBox.x - fromBox.x) * i) / steps, fromBox.y + ((toBox.y - fromBox.y) * i) / steps);
+      await page.waitForTimeout(30);
+    }
+    // 🔴 끄는 도중에 **드래그가 살아 있는가** — 브라우저가 스크롤로 가져가면 여기서 죽는다.
+    const aliveMid = await grid.locator('.drag-lift').count();
+    check('🔴 R③-B 끄는 **도중에도 드래그가 살아 있다**(브라우저가 스크롤로 가져가지 않는다)', aliveMid === 1, `들린 칸 ${aliveMid}개`);
+    await touch('touchEnd', toBox.x, toBox.y);
     await page.waitForTimeout(1200);
 
     // ④ 순서가 실제로 **저장**됐는가 — 화면이 아니라 저장소에 물어본다.

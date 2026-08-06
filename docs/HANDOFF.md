@@ -4,6 +4,17 @@
 
 ---
 
+## HANDOFF-0105 · v1.88 · **손가락으로는 드래그가 안 됐다 — 검사가 마우스로 돌고 있었다** (2026-08-06 · M-0116)
+
+- **사용자 실기기**: *"눌러서 드래그 하려는데 안 되네요?"* — v1.87 배포 **직후**. 라이브 345/345·유닛 1451건이 전부 초록이었다.
+- **원인**: `pointermove`에 `preventDefault()`를 걸었는데, **크롬에서 터치 스크롤을 막는 것은 비수동 `touchmove`의 `preventDefault()`뿐**이다. 손가락으로 끌면 브라우저가 제스처를 **스크롤로 가져가며 `pointercancel`**을 냈고 드래그가 첫 이동에서 죽었다. **마우스에는 이 경로가 없다.**
+- 🔴 **진짜 결함은 검사 쪽이었다**: 라이브가 `page.mouse`로 재고 있었다 — **터치에만 있는 갈래를 원리적으로 볼 수 없는 입력**으로 돌며 초록을 찍었다. 헌법 §17(*"그 검사가 「문제가 날 수 있는 자리」에서 도는지 물어라"*)의 정확한 위반이고, **그 조항을 같은 세션에 내가 쓰고 같은 세션에 어겼다.**
+- **고친 것**: ①비수동 `touchmove` 차단(드래그 중에만) ②안드로이드 롱프레스 메뉴 차단 ③플랫폼 차단을 `blockPlatformClaims()` 한 곳으로(래칫이 밀어 준 추출) ④라이브를 **CDP `Input.dispatchTouchEvent` + `hasTouch: true`**로 — `page.touchscreen`은 탭만 되고 JS로 만든 `TouchEvent`는 **브라우저의 스크롤 판정을 재현하지 못한다**(§3-E).
+- **새 검사 R③-B**: 「끄는 **도중에도** 드래그가 살아 있는가」. 이 결함은 **시작은 되고 중간에 죽는** 형태라 시작만 재면 못 잡는다.
+- **주입 확인(§4)**: `touchmove`를 `passive: true`로 되돌리자 **사용자가 겪은 증상이 그대로** 재현됐다(들린 칸 0개 · `sortOrder` 전부 `null`) → 원복 GREEN. 라이브 **346/346**.
+- **일반형**: 🔴 **입력 장치도 「표면」이다.** 마우스·손가락·펜을 브라우저가 다르게 취급한다. 그리고 M-0115와 한 줄기지만 **막는 이벤트가 달랐다**(`dragstart` vs `touchmove`) — **하나 막았다고 다 막은 것이 아니다.**
+- **헌장**: `ui-responsive-dev` §3-I에 「플랫폼이 가져가는 것 ↔ 막는 곳」 표와 「입력 장치도 표면이다」를 걸었다.
+
 ## HANDOFF-0104 · v1.87 · **사진 순서 — 꾹 눌러 바꾸기 + 정사각 썸네일** (2026-08-06 · migration 0029)
 
 - **사용자 지시**: *"①손가락으로 꾹 눌러서 순서를 변경할 수 있도록 ②썸네일 사진의 가로 세로 크기가 제각각이라 보기 불편함"* → A(정사각+정렬)와 B(드래그) **둘 다** 요청.
@@ -534,7 +545,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.87<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->187<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.88<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->188<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->29<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

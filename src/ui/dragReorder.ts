@@ -41,6 +41,35 @@ function measure(container: HTMLElement, sel: string): { els: HTMLElement[]; rec
 }
 
 /**
+ * 🔴 **플랫폼이 이 제스처를 가져가는 길을 전부 막는다** — 한 곳에 모아 둔다.
+ *
+ * 이 저장소는 여기서 **두 번** 넘어졌다(M-0115 · M-0116), 그리고 **막는 이벤트가 서로 달랐다**:
+ *
+ *  · `dragstart` — `<img>` 위에서 누르고 움직이면 크롬이 **네이티브 이미지 드래그**를 시작하며
+ *    포인터를 가로채 `pointercancel`을 낸다. (마우스에서 났다)
+ *  · 🔴 `touchmove`(**비수동**) — 크롬에서 **터치 스크롤을 막는 것은 이것뿐**이다.
+ *    `pointermove`의 `preventDefault()`로는 **안 막힌다.** 그래서 마우스로는 되고
+ *    **손가락으로는 안 되는** 상태가 배포됐다(사용자 실기기가 잡았다).
+ *  · `contextmenu` — 안드로이드는 길게 누르면 메뉴를 띄운다.
+ *
+ * **하나 막았다고 다 막은 것이 아니다.** 새 제스처를 만들면 이 표를 먼저 훑는다.
+ */
+function blockPlatformClaims(container: HTMLElement, isDragging: () => boolean): () => void {
+  const stopAlways = (e: Event): void => e.preventDefault();
+  const stopWhileDragging = (e: Event): void => {
+    if (isDragging()) e.preventDefault();
+  };
+  container.addEventListener('dragstart', stopAlways);
+  window.addEventListener('touchmove', stopWhileDragging, { passive: false });
+  window.addEventListener('contextmenu', stopWhileDragging);
+  return () => {
+    container.removeEventListener('dragstart', stopAlways);
+    window.removeEventListener('touchmove', stopWhileDragging);
+    window.removeEventListener('contextmenu', stopWhileDragging);
+  };
+}
+
+/**
  * 컨테이너에 「꾹 눌러 끌기」를 붙인다. 붙인 것을 떼는 함수를 돌려준다(다시 그릴 때 호출).
  *
  * 흐름: `pointerdown` → 420ms 버팀 → 드래그 시작 → `pointermove`로 미리보기 → `pointerup` 확정.
@@ -122,10 +151,10 @@ export function attachDragReorder(opts: DragReorderOptions): () => void {
       if (holdTimer !== null && Math.hypot(e.clientX - startX, e.clientY - startY) > SLOP_PX) clearHold();
       return;
     }
-    e.preventDefault(); // 드래그 중에는 스크롤을 막는다(CSS `touch-action`과 함께)
     const { rects } = measure(container, itemSelector);
     preview(dropIndex(rects, e.clientX, e.clientY, fromIndex));
   };
+
 
   const onUp = (): void => {
     if (dragging && lastTo >= 0 && lastTo !== fromIndex) {
@@ -140,21 +169,16 @@ export function attachDragReorder(opts: DragReorderOptions): () => void {
     stop();
   };
 
-  // 🔴 **브라우저 기본 이미지 드래그를 막는다.** `<img>` 위에서 누르고 움직이면 크롬이
-  // 네이티브 드래그를 시작하며 **포인터를 가로채 `pointercancel`을 낸다** — 그러면 우리 드래그가
-  // 첫 이동 직후 조용히 죽는다. 라이브 검사가 이걸 잡았다(`pointermove` 1회 뒤 상태 초기화).
-  // 유닛으로는 원리적으로 못 보는 층이다: 순수 함수는 전부 옳았다(§10 ③).
-  const onDragStart = (e: Event): void => e.preventDefault();
-  container.addEventListener('dragstart', onDragStart);
+  const offClaims = blockPlatformClaims(container, () => dragging);
   container.addEventListener('pointerdown', onDown);
   // 손가락이 컨테이너 밖으로 나가도 따라가야 하므로 창에 건다.
-  window.addEventListener('pointermove', onMove, { passive: false });
+  window.addEventListener('pointermove', onMove);
   window.addEventListener('pointerup', onUp);
   window.addEventListener('pointercancel', onUp);
 
   return () => {
     clearHold();
-    container.removeEventListener('dragstart', onDragStart);
+    offClaims();
     container.removeEventListener('pointerdown', onDown);
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);
