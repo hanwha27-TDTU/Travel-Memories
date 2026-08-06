@@ -860,20 +860,20 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
     void (async () => {
       user = await gateAccess(u, status);
       renderAuth();
-      await trySync(user);
+      await trySync();
       await refresh();
     })();
   });
 
   // 온라인 복귀 시 동기화 시도.
-  window.addEventListener('online', () => void trySync(user).then(refresh));
+  window.addEventListener('online', () => void trySync().then(refresh));
 
   // 초기값: 현재 세션 확인(구독이 늦게 올 수 있으므로 즉시 1회).
   void (async () => {
     user = await gateAccess(await currentUser(), status);
     renderAuth();
     await refresh();
-    await trySync(user);
+    await trySync();
     if (user) await refreshParity(); // 안 뜨면 배지가 「확인 전」에 머문다(M-0101을 못 말한다)
     await refresh();
   })();

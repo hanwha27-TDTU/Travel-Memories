@@ -4,6 +4,15 @@
 
 ---
 
+## HANDOFF-0098 · v1.83 · **다른 세션의 미완성 작업을 이어받아 마무리했다** (2026-08-06)
+
+- **경위**: 작업자 프로세스 재시작 뒤 작업트리에 **커밋 안 된 홈 화면 작업**이 남아 있었다(`homeSections.ts` 신규 + `home.ts` 369줄 수정). 내가 만든 것이 아니라 **잃지 않으려고 먼저 `wip` 커밋으로 보존**했고(`272cf8b` — 「머지 금지」 명시), 사용자 지시(*"중간상태인것들 확인해서 필요시 니가 마무리해줄수있어?"*)를 받고 마무리했다.
+- 🔴 **미완성의 정체**: 원저자가 `trySync(_user)`의 **안 쓰는 인자를 제거**하는 정리를 하다가 **호출부 8곳 중 5곳만 고치고 3곳을 빠뜨렸다**(`renderHome` 안쪽). §7의 전형 — *형제 일부만 고침*. `tsc`가 TS2554로 정확히 세 곳을 짚어 줬다.
+- **판단 근거를 실측으로 잡았다**: 커밋 전에 재 보니 `homeSections.test.ts` **16건 통과**(순수 로직은 섬) · `tsc` **3곳 실패**(배선 미완). 「완성본인가 중간인가」를 산문으로 추측하지 않고 두 층으로 갈랐다.
+- **래칫이 줄었다**: `renderHome` 198 → **181줄**(로직이 순수 모듈로 빠져나갔다). 기록을 낮췄다.
+- **설계는 원저자 것을 그대로 존중했다**: `homeSections.ts` 머리말에 *왜 이렇게 했는지*가 이미 적혀 있어(칩과 구획이 같은 순서를 쓰는 이유 · 완료만 접는 이유 · 보관이 구획을 갖지 않는 이유) **판단을 다시 하지 않았다.** 내가 한 것은 **배선 마무리와 릴리스 절차**뿐이다.
+- **검증**: build v1.83 · 전체 harness 통과(건너뜀 0) · 🔴 **홈 화면을 실제로 열어 캡처**(§13) — 칩 3개(보관 0건은 빠짐) · 구획 순서 계획→진행→완료 · 완료 3개만 펼침 + [완료 7개 모두 보기] · **콘솔 에러 0**.
+
 ## HANDOFF-0097 · **세션 교훈을 헌장 세 곳에 걸었다 — 실수 번호로 대조** (2026-08-06)
 
 - **사용자 지시**: *"교훈들 정리해서 스킬 업데이트 하고 마무리하자"*
@@ -443,7 +452,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.82<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->182<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.83<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->183<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
