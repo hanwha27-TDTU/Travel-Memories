@@ -26,7 +26,7 @@ function media(id: string): LocalMedia {
   return {
     id, momentId: 'm1', tripId: 't1', mime: 'image/jpeg', originalBlob: mkBlob([10, 20, 30]),
     displayBlob: mkBlob([1, 2, 3]), thumbBlob: mkBlob([9, 8]), width: 1600, height: 1200,
-    takenAt: '2024-05-02T03:00:00.000Z', gpsLat: 35.7, gpsLng: 139.7, bytesOriginal: 3, bytesDisplay: 3,
+    takenAt: '2024-05-02T03:00:00.000Z', gpsLat: 35.7, gpsLng: 139.7, sortOrder: null, bytesOriginal: 3, bytesDisplay: 3,
     version: 1, createdAt: '2024-05-02T03:00:00.000Z', updatedAt: '2024-05-02T03:00:00.000Z', deletedAt: null,
   };
 }

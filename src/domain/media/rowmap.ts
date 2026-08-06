@@ -23,6 +23,12 @@ export interface MediaRow {
   /** EXIF 촬영 위치. NULL = 위치 없음/미상 — **0으로 반올림하지 않는다**(M-0057). */
   gps_lat: number | null;
   gps_lng: number | null;
+  /**
+   * 한 순간 안에서 사용자가 정한 자리(0부터). 🔴 **NULL은 0이 아니다** — NULL은 *"아직 아무도
+   * 정하지 않았다"*(앱이 촬영시각 순으로 놓는다)이고 0은 *"사용자가 정한 첫 번째"*다.
+   * 둘을 뭉개면 첫 번째 사진이 「자리 없음」으로 읽힌다(M-0057의 형태).
+   */
+  sort_order: number | null;
   width: number;
   height: number;
   taken_at: string | null;
@@ -47,6 +53,7 @@ export interface MediaMeta {
   storagePath: string | null;
   gpsLat: number | null;
   gpsLng: number | null;
+  sortOrder: number | null;
   width: number;
   height: number;
   takenAt: string;
@@ -70,6 +77,7 @@ export function toMediaRow(m: LocalMedia, userId: string, storagePath: string | 
     storage_path: storagePath,
     gps_lat: m.gpsLat,
     gps_lng: m.gpsLng,
+    sort_order: m.sortOrder,
     width: m.width,
     height: m.height,
     taken_at: m.takenAt || null,
@@ -96,6 +104,9 @@ export function fromMediaRow(r: MediaRow): WithInstants<MediaMeta> {
     // 「모름」이 로컬의 진짜 값을 덮지 않게 하는 것은 pull의 몫이다(`pullMedia` 참조).
     gpsLat: r.gps_lat ?? null,
     gpsLng: r.gps_lng ?? null,
+    // 옛 서버 행에는 이 컬럼이 없다(`undefined`) — `null`(= 아직 안 정함)로 읽는다.
+    // 그 「모름」이 로컬의 진짜 순서를 덮지 않게 하는 것은 pull의 몫이다(gps와 같은 규율).
+    sortOrder: r.sort_order ?? null,
     width: r.width,
     height: r.height,
     // ⚠️ **촬영 시각도 서버에서 온다** — M-0034를 고칠 때 이 줄을 빠뜨렸다(자기점검 2026-07-27).

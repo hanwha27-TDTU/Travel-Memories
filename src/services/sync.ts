@@ -935,6 +935,9 @@ export async function pullMedia(remote: MediaRemote, mode: PullMode): Promise<{ 
       // 「그럼 사용자가 좌표를 지울 수는 있나?」 — 지금은 지우는 UI가 없다. 생기면 그때는
       // 「지웠음」을 null이 아니라 **명시적 표시**로 보내야 한다(§8 — 모름과 없음은 다르다).
       gpsLat: server.gpsLat ?? local?.gpsLat ?? null,
+      // 옛 서버 행에는 `sort_order`가 없다 → `null`(모름)이 **로컬의 진짜 순서를 덮지 않게** 한다.
+      // gps와 같은 규율이다(0024) — 「모름」과 「비었음」을 같게 읽으면 사용자 배열이 사라진다.
+      sortOrder: server.sortOrder ?? local?.sortOrder ?? null,
       gpsLng: server.gpsLng ?? local?.gpsLng ?? null,
       bytesOriginal: local?.bytesOriginal ?? display.size,
       bytesDisplay: display.size,

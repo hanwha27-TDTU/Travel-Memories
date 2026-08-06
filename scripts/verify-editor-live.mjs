@@ -3846,6 +3846,230 @@ check('헤더: 계정 영역이 제목과 **같은 줄**에 온다(넓은 화면
 check('헤더: 계정 영역이 **오른쪽 끝**에 붙는다', headM.afterTitle && headM.flushRight, JSON.stringify(headM));
 check('헤더: 가로 넘침 0', headM.overflow === 0, `overflow=${headM.overflow}`);
 
+// ── R① ~ R⑥ 🔴 **사진 썸네일: 정사각 + 꾹 눌러 순서 바꾸기** (사용자 지시 2026-08-06) ──
+//
+// 두 지시를 한 자리에서 잰다:
+//   ①*"썸네일 사진의 가로 세로 크기가 제각각이라 보기 불편함"* → 칸이 **같은 크기**인가
+//   ②*"손가락으로 꾹 눌러서 순서를 변경할 수 있도록"* → 실제로 **눌러 끌어** 순서가 바뀌는가
+//
+// 🔴 유닛은 `dropIndex`·`moveItem`·`orderPhotos`를 이미 전수로 잰다. 여기서 재는 것은
+// **배선**이다 — 길게 누르기가 실제로 걸리는가, 끌면 저장되는가, 다시 그려도 유지되는가.
+// 그 층이 없으면 순수 함수는 초록인데 화면은 안 움직이는 상태가 조용히 나간다(§10 ③).
+{
+  // 비율이 서로 다른 사진 3장을 심는다 — **가로·세로·정사각**. 같은 크기로만 심으면
+  // ①번 검사가 통과해도 아무것도 증명하지 못한다(픽스처가 갈래를 드러내야 한다 · E⑫의 교훈).
+  const seeded = await page.evaluate(async () => {
+    const blob = async (w, h, color) => {
+      const cv = document.createElement('canvas');
+      cv.width = w;
+      cv.height = h;
+      const ctx = cv.getContext('2d');
+      ctx.fillStyle = color;
+      ctx.fillRect(0, 0, w, h);
+      return await new Promise((r) => cv.toBlob(r, 'image/webp'));
+    };
+    const pick = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('journey-archive');
+      req.onsuccess = () => {
+        const tx = req.result.transaction('localMoments', 'readonly');
+        const all = tx.objectStore('localMoments').getAll();
+        all.onsuccess = () => resolve(all.result.filter((m) => m.deletedAt === null).pop());
+        all.onerror = () => reject(all.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+    if (!pick) return null;
+    const shapes = [
+      ['ro-wide', 160, 60, '#c33', '2026-08-06T03:00:00.000Z'],
+      ['ro-tall', 60, 160, '#3c3', '2026-08-06T02:00:00.000Z'],
+      ['ro-square', 100, 100, '#33c', '2026-08-06T01:00:00.000Z'],
+    ];
+    const rows = [];
+    for (const [id, w, h, color, takenAt] of shapes) {
+      const b = await blob(w, h, color);
+      rows.push({
+        id, momentId: pick.id, tripId: pick.tripId, mime: 'image/webp',
+        displayBlob: b, thumbBlob: b, width: w, height: h,
+        takenAt, gpsLat: null, gpsLng: null, sortOrder: null,
+        bytesOriginal: b.size, bytesDisplay: b.size,
+        version: 1, baseVersion: 0, createdAt: takenAt, updatedAt: takenAt,
+        deletedAt: null, clientOperationId: `ro-${id}`,
+      });
+    }
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.open('journey-archive');
+      req.onsuccess = () => {
+        const tx = req.result.transaction('localMedia', 'readwrite');
+        for (const r of rows) tx.objectStore('localMedia').put(r);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+    const trip = await new Promise((resolve) => {
+      const req = indexedDB.open('journey-archive');
+      req.onsuccess = () => {
+        const tx = req.result.transaction('localTrips', 'readonly');
+        const g = tx.objectStore('localTrips').get(pick.tripId);
+        g.onsuccess = () => resolve(g.result ?? null);
+        g.onerror = () => resolve(null);
+      };
+      req.onerror = () => resolve(null);
+    });
+    return { momentId: pick.id, title: pick.title ?? '', tripName: trip?.title ?? '' };
+  });
+  check('R⓪ 픽스처 주입(가로·세로·정사각 3장 — 비율이 서로 다르다)', Boolean(seeded?.momentId), JSON.stringify(seeded));
+
+  if (seeded?.momentId) {
+    // 🔴 **심은 순간이 있는 여행으로 들어간다.** 앞 블록이 홈으로 옮겨 뒀으므로 그냥 새로고침하면
+    // 썸네일이 없다 — 검사가 자기 화면을 확보하지 않으면 남이 남긴 화면을 자기 것으로 읽는다
+    // (이 파일이 M-0052 때 배운 그 규율이다).
+    const goToSeededTrip = async () => {
+      await page.goto(`http://localhost:4173${BASE}`, { waitUntil: 'networkidle' });
+      await page.getByLabel(`${seeded.tripName} 여행 열기`).first().click();
+      await page.waitForSelector('.moment-card', { timeout: 15000 });
+      await page.waitForSelector('.photo-thumbs .photo-thumb-wrap', { timeout: 15000 });
+    };
+    await goToSeededTrip();
+    // 🔴 화면의 **첫 격자**가 아니라 **심은 순간의 격자**를 본다. 첫 격자를 집으면 사진 1장짜리
+    // 다른 순간을 재게 되고, 그때 초록/빨강은 앱이 아니라 픽스처를 가리킨다(§3-E).
+    const seededCard = page.locator('.moment-card', { hasText: seeded.title }).first();
+    const grid = seededCard.locator('.photo-thumbs').first();
+
+    // ① 칸이 같은 크기인가 — 원본 비율이 제각각인데도.
+    const sizes = await grid.evaluate((g) =>
+      Array.from(g.querySelectorAll('.photo-thumb-wrap')).map((e) => {
+        const r = e.getBoundingClientRect();
+        return { w: Math.round(r.width), h: Math.round(r.height) };
+      }),
+    );
+    const allSame = sizes.length > 1 && sizes.every((s) => s.w === sizes[0].w && s.h === sizes[0].h);
+    check(
+      '🔴 R① 썸네일 칸이 **전부 같은 크기**다(원본 비율이 달라도 · 사용자 지적 2026-08-06)',
+      allSame,
+      JSON.stringify(sizes),
+    );
+
+    // ② 아무도 손대지 않았으면 **촬영시각 순**이다(square → tall → wide).
+    const orderBefore = await grid.evaluate((g) =>
+      Array.from(g.querySelectorAll('.photo-thumb')).map((i) => i.src.slice(-10)),
+    );
+    // 심은 셋이 **촬영시각 순**(square 01:00 → tall 02:00 → wide 03:00)으로 놓였는가.
+    // 🔴 개수만 세면 아무것도 증명하지 못한다 — 칸의 `data-media-id`로 **실제 순서**를 읽는다.
+    const beforeMine = await grid.evaluate((g) =>
+      Array.from(g.querySelectorAll('.photo-thumb-wrap'))
+        .map((e) => e.dataset.mediaId)
+        .filter((id) => id && id.startsWith('ro-')),
+    );
+    check(
+      '🔴 R② 손대기 전에는 **촬영시각 순**으로 놓인다(정렬이 아예 없던 자리 · 2026-08-06)',
+      beforeMine.join(',') === 'ro-square,ro-tall,ro-wide',
+      beforeMine.join(' → '),
+    );
+
+    // ③ 🔴 **실제로 꾹 눌러 끈다** — 내가 심은 첫 사진을 내가 심은 마지막 사진 자리로.
+    //
+    // 🔴 **인덱스로 집지 않는다.** 같은 순간에 다른 블록이 남긴 사진이 쌓일 수 있고, 실제로
+    // 그래서 이 검사가 헛디뎠다(첫 칸이 내 것이 아니었다). 검사는 **자기 픽스처만 소유**한다(§3-E).
+    // 먼저 화면 안으로 올린다: `getBoundingClientRect`는 뷰포트 기준이라, 격자가 아래에 있으면
+    // 좌표가 화면 밖을 가리키고 마우스가 엉뚱한 곳을 누른다(처음에 그렇게 헛돌았다).
+    await grid.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(250);
+    const boxOf = async (mediaId) =>
+      await grid.evaluate((g, id) => {
+        const e = g.querySelector(`.photo-thumb-wrap[data-media-id="${id}"]`);
+        if (!e) return null;
+        const r = e.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      }, mediaId);
+    const fromBox = await boxOf('ro-square');
+    const toBox = await boxOf('ro-wide');
+    check('R③-0 내가 심은 두 칸의 자리를 찾았다', Boolean(fromBox && toBox), JSON.stringify({ fromBox, toBox }));
+    await page.mouse.move(fromBox.x, fromBox.y);
+    await page.mouse.down();
+    await page.waitForTimeout(600); // HOLD_MS(420) 보다 길게 — 여기서 드래그가 시작돼야 한다
+    const lifted = await grid.locator('.drag-lift').count();
+    check('🔴 R③ 꾹 누르면 칸이 들린다(드래그가 시작된다)', lifted === 1, `들린 칸 ${lifted}개`);
+    await page.mouse.move(toBox.x, toBox.y, { steps: 8 });
+    await page.waitForTimeout(120);
+    await page.mouse.up();
+    await page.waitForTimeout(1200);
+
+    // ④ 순서가 실제로 **저장**됐는가 — 화면이 아니라 저장소에 물어본다.
+    const saved = await page.evaluate(
+      (momentId) =>
+        new Promise((resolve, reject) => {
+          const req = indexedDB.open('journey-archive');
+          req.onsuccess = () => {
+            const tx = req.result.transaction('localMedia', 'readonly');
+            const all = tx.objectStore('localMedia').getAll();
+            all.onsuccess = () =>
+              resolve(
+                all.result
+                  .filter((m) => m.momentId === momentId && m.deletedAt === null)
+                  .map((m) => ({ id: m.id, sortOrder: m.sortOrder }))
+                  .sort((a, b) => (a.sortOrder ?? 99) - (b.sortOrder ?? 99)),
+              );
+            all.onerror = () => reject(all.error);
+          };
+          req.onerror = () => reject(req.error);
+        }),
+      seeded.momentId,
+    );
+    const numbered = saved.filter((r) => typeof r.sortOrder === 'number');
+    // 🔴 **그 순간에 사진이 몇 장인지 가정하지 않는다.** 앞 블록들이 같은 순간에 사진을 남길 수
+    // 있고, 실제로 그래서 이 검사가 한 번 헛디뎠다 — 검사가 자기 픽스처만 소유해야 한다(§3-E).
+    check(
+      '🔴 R④ 끌어 놓으면 **그 순간 사진 전부에** 번호가 매겨진다(일부만 매기면 규칙이 섞인다)',
+      saved.length >= 3 && numbered.length === saved.length,
+      JSON.stringify(saved),
+    );
+    const mine = saved.filter((r) => r.id.startsWith('ro-')).map((r) => r.id);
+    check(
+      '🔴 R⑤ 첫 칸이 **뒤로** 갔다 — 끌어간 자리대로 저장된다',
+      mine.join(',') === 'ro-tall,ro-wide,ro-square',
+      saved.map((r) => `${r.id.slice(0, 8)}:${r.sortOrder}`).join(' '),
+    );
+
+    // ⑤ 다시 그려도 유지되는가 — 새로고침 뒤에도 같은 순서인가.
+    await goToSeededTrip();
+    const after = await page.evaluate(
+      () =>
+        new Promise((resolve, reject) => {
+          const req = indexedDB.open('journey-archive');
+          req.onsuccess = () => {
+            const tx = req.result.transaction('localMedia', 'readonly');
+            const all = tx.objectStore('localMedia').getAll();
+            all.onsuccess = () =>
+              resolve(
+                all.result
+                  .filter((m) => m.id.startsWith('ro-'))
+                  .sort((a, b) => (a.sortOrder ?? 99) - (b.sortOrder ?? 99))
+                  .map((m) => m.id),
+              );
+            all.onerror = () => reject(all.error);
+          };
+          req.onerror = () => reject(req.error);
+        }),
+    );
+    check('R⑥ 새로고침해도 순서가 유지된다', after.join(',') === 'ro-tall,ro-wide,ro-square', after.join(' → '));
+
+    // 뒷정리 — 심은 픽스처를 지운다(§3-C, 내 상태를 남기지 않는다).
+    await page.evaluate(() =>
+      new Promise((resolve) => {
+        const req = indexedDB.open('journey-archive');
+        req.onsuccess = () => {
+          const tx = req.result.transaction('localMedia', 'readwrite');
+          for (const id of ['ro-wide', 'ro-tall', 'ro-square']) tx.objectStore('localMedia').delete(id);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => resolve();
+        };
+        req.onerror = () => resolve();
+      }),
+    );
+  }
+}
+
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 
 await browser.close();

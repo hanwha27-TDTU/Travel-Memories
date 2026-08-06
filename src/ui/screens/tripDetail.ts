@@ -7,6 +7,8 @@ import { audioChip, recordButton } from '../audioNote';
 import { listAudioByTrip, addAudioToMoment, softDeleteAudio, restoreAudio } from '../../services/audio';
 import type { LocalAudio } from '../../offline/db';
 import { showUndoToast, showNoticeToast } from '../toast';
+import { attachDragReorder } from '../dragReorder';
+import { moveItem } from '../../domain/media/order';
 import {
   getTrip,
   updateTripLocalFirst,
@@ -32,6 +34,7 @@ import {
 import {
   addPhotoToMoment,
   listMediaByTrip,
+  reorderMomentPhotos,
   softDeleteMediaLocalFirst,
   restoreMediaLocalFirst,
   // 회전·재편집은 전체보기 뷰어(ui/photoViewer.ts)가 소유한다 — 여기선 부르지 않는다.
@@ -1900,6 +1903,92 @@ function groupByMoment<T extends { momentId: string }>(rows: T[]): Map<string, T
   return map;
 }
 
+/**
+ * 순간 카드의 사진 썸네일 줄 — 탭하면 크게 보고, **꾹 누르면 순서를 바꾼다**(2026-08-06).
+ *
+ * 왜 뽑았나: `renderTripDetail`은 이미 래칫이 걸린 큰 함수다. 여기 안에 드래그 배선까지
+ * 넣으면 그 함수가 또 커지고, 이 조각은 유닛이 못 보는 자리에 묻힌다. 래칫이 밀어 준 추출이다.
+ */
+function buildPhotoGrid(o: {
+  mediaList: LocalMedia[];
+  momentId: string;
+  objectUrls: string[];
+  detach: (() => void)[];
+  refresh: () => Promise<void>;
+  clock: TripClock;
+}): HTMLElement {
+  const { mediaList, momentId, objectUrls, detach, refresh, clock } = o;
+  const grid = el('div', 'photo-thumbs');
+  for (const [mdIdx, md] of mediaList.entries()) {
+    const url = URL.createObjectURL(md.thumbBlob);
+    objectUrls.push(url);
+    const cell = el('div', 'photo-thumb-wrap');
+    // 라이브 검사가 **어느 사진인지** 알 수 있게 표를 붙인다. 썸네일 src는 objectURL이라
+    // 정체를 말해 주지 않아, 이게 없으면 순서 검사가 「개수 세기」로 약해진다(§4).
+    cell.dataset.mediaId = md.id;
+    const img = el('img', 'photo-thumb') as HTMLImageElement;
+    img.src = url;
+    img.alt = '여행 사진';
+    img.loading = 'lazy';
+    img.addEventListener('click', () => openPhotoViewer(mediaList, mdIdx, refresh, clock));
+    const pdel = el('button', 'photo-del', '✕') as HTMLButtonElement;
+    pdel.type = 'button';
+    pdel.setAttribute('aria-label', '이 사진 삭제');
+    // 사진 삭제 → tombstone(원본 보존) + 실행취소.
+    pdel.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (pdel.disabled) return;
+      pdel.disabled = true;
+      void (async () => {
+        try {
+          await softDeleteMediaLocalFirst(md.id);
+          await refresh();
+          showUndoToast('사진을 삭제했어요', async () => {
+            await restoreMediaLocalFirst(md.id);
+            await refresh();
+          });
+        } catch {
+          pdel.disabled = false;
+        }
+      })();
+    });
+    cell.append(img, pdel);
+    grid.appendChild(cell);
+  }
+  // 🔴 **꾹 눌러 순서 바꾸기**. 배선은 `ui/dragReorder.ts` 한 곳, 판정(`dropIndex`·`moveItem`)은
+  // `domain/media/order.ts`의 순수 함수다(§10 ③ — 좌표 계산이 핸들러에 묻히면 검사할 수 없다).
+  //
+  // 사진이 둘 이상일 때만 건다: 하나뿐이면 옮길 곳이 없고, 그때 길게 누르기는
+  // **「아무 일도 안 일어나는 반응」**이 되어 사용자를 헷갈리게 한다.
+  if (mediaList.length > 1) {
+    detach.push(
+      attachDragReorder({
+        container: grid,
+        itemSelector: '.photo-thumb-wrap',
+        onStart: () => navigator.vibrate?.(12),
+        onReorder: (from, to) => {
+          const ids = moveItem(
+            mediaList.map((x) => x.id),
+            from,
+            to,
+          );
+          void (async () => {
+            try {
+              await reorderMomentPhotos(momentId, ids);
+              await refresh();
+            } catch {
+              // 실패를 조용히 삼키지 않는다(§7-D) — 화면이 옛 순서 그대로면 사용자는 모른다.
+              await refresh();
+              showNoticeToast('사진 순서를 저장하지 못했어요. 다시 시도해 주세요.');
+            }
+          })();
+        },
+      }),
+    );
+  }
+  return grid;
+}
+
 /** datetime-local 입력값(로컬시각) → ISO(UTC). 빈/무효는 undefined(변경 안 함). */
 function fromLocalInputValue(v: string, offsetMin: number): string | undefined {
   if (!v) return undefined;
@@ -2068,9 +2157,14 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
 
     // 썸네일 objectURL 관리(재렌더 시 이전 URL 회수).
     let objectUrls: string[] = [];
+    // 🔴 드래그 배선도 **같은 생명주기**로 관리한다 — 창(window)에 건 리스너라, 안 떼면
+    // 재렌더마다 쌓여 사라진 DOM을 재는 좀비가 된다(하네스가 이 부류를 잡은 적이 있다).
+    let detach: (() => void)[] = [];
     function resetUrls(): void {
       for (const u of objectUrls) URL.revokeObjectURL(u);
       objectUrls = [];
+      for (const off of detach) off();
+      detach = [];
     }
 
     // ── 환율 환산(보조 표시) ──
@@ -2360,41 +2454,9 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         card.appendChild(fxDetail);
       }
       if (mediaList.length) {
-        const grid = el('div', 'photo-thumbs');
-        for (const [mdIdx, md] of mediaList.entries()) {
-          const url = URL.createObjectURL(md.thumbBlob);
-          objectUrls.push(url);
-          const cell = el('div', 'photo-thumb-wrap');
-          const img = el('img', 'photo-thumb') as HTMLImageElement;
-          img.src = url;
-          img.alt = '여행 사진';
-          img.loading = 'lazy';
-          img.addEventListener('click', () => openPhotoViewer(mediaList, mdIdx, refresh, clock));
-          const pdel = el('button', 'photo-del', '✕') as HTMLButtonElement;
-          pdel.type = 'button';
-          pdel.setAttribute('aria-label', '이 사진 삭제');
-          // 사진 삭제 → tombstone(원본 보존) + 실행취소. 미디어는 로컬 전용이라 sync 불필요.
-          pdel.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (pdel.disabled) return;
-            pdel.disabled = true;
-            void (async () => {
-              try {
-                await softDeleteMediaLocalFirst(md.id);
-                await refresh();
-                showUndoToast('사진을 삭제했어요', async () => {
-                  await restoreMediaLocalFirst(md.id);
-                  await refresh();
-                });
-              } catch {
-                pdel.disabled = false;
-              }
-            })();
-          });
-          cell.append(img, pdel);
-          grid.appendChild(cell);
-        }
-        card.appendChild(grid);
+        card.appendChild(
+          buildPhotoGrid({ mediaList, momentId: m.id, objectUrls, detach, refresh, clock }),
+        );
       }
       card.append(addPhotoWrap, editForm);
       item.appendChild(card);

@@ -196,7 +196,7 @@ describe('canonical 소비 기기', () => {
   it('바이트를 다 받지 못하면 로컬 교체를 시작하지 않는다', async () => {
     const media: MediaRow = {
       id:'66666666-6666-4666-8666-666666666666',user_id:USER,moment_id:MOMENT_ID,trip_id:SERVER_ID,
-      storage_path:`${USER}/trip/photo__66666666666646668666666666666666.webp`,gps_lat:null,gps_lng:null,
+      storage_path:`${USER}/trip/photo__66666666666646668666666666666666.webp`,gps_lat:null,gps_lng:null,sort_order:null,
       width:100,height:100,taken_at:null,bytes_display:10,source:'user',version:1,base_version:1,
       base_canonical_version:VERSION,created_at:'2026-08-01T00:00:00.000Z',
       updated_at:'2026-08-02T00:00:00.000Z',deleted_at:null,client_operation_id:null,
@@ -219,14 +219,14 @@ describe('canonical 소비 기기', () => {
       id:mediaId,momentId:MOMENT_ID,tripId:SERVER_ID,mime:'image/jpeg',
       originalBlob:new Blob(['old-original'],{ type:'image/jpeg' }),displayBlob:oldDisplay,
       thumbBlob:oldDisplay,width:10,height:10,takenAt:'2026-08-01T00:00:00.000Z',
-      gpsLat:null,gpsLng:null,bytesOriginal:12,bytesDisplay:oldDisplay.size,
+      gpsLat:null,gpsLng:null,sortOrder:null,bytesOriginal:12,bytesDisplay:oldDisplay.size,
       storagePath:`${USER}/old.webp`,version:1,createdAt:'2026-08-01T00:00:00.000Z',
       updatedAt:'2026-08-01T00:00:00.000Z',deletedAt:null,
     });
     await db().syncState.put({ id:`canonical:${USER}`,userId:USER,canonicalVersion:'legacy',updatedAt:'2026-08-01T00:00:00.000Z' });
     const row: MediaRow = {
       id:mediaId,user_id:USER,moment_id:MOMENT_ID,trip_id:SERVER_ID,
-      storage_path:`${USER}/new.webp`,gps_lat:null,gps_lng:null,width:10,height:10,taken_at:null,
+      storage_path:`${USER}/new.webp`,gps_lat:null,gps_lng:null,sort_order:null,width:10,height:10,taken_at:null,
       bytes_display:12,source:'user',version:2,base_version:2,base_canonical_version:VERSION,
       created_at:'2026-08-01T00:00:00.000Z',updated_at:'2026-08-02T00:00:00.000Z',
       deleted_at:null,client_operation_id:null,
@@ -248,7 +248,7 @@ describe('canonical 소비 기기', () => {
     const deadMediaId = '88888888-8888-4888-8888-888888888888';
     const deadMedia: MediaRow = {
       id: deadMediaId, user_id: USER, moment_id: MOMENT_ID, trip_id: SERVER_ID,
-      storage_path: `${USER}/trip/dead__88888888888848888888888888888888.webp`, gps_lat: null, gps_lng: null,
+      storage_path: `${USER}/trip/dead__88888888888848888888888888888888.webp`, gps_lat: null, gps_lng: null, sort_order: null,
       width: 100, height: 100, taken_at: null, bytes_display: 10, source: 'user', version: 2, base_version: 2,
       base_canonical_version: VERSION, created_at: '2026-08-01T00:00:00.000Z',
       updated_at: '2026-08-02T00:00:00.000Z', deleted_at: '2026-08-02T00:00:00.000Z', client_operation_id: null,
@@ -290,7 +290,7 @@ describe('canonical 게시 기기', () => {
       id:mediaId,momentId:MOMENT_ID,tripId:LOCAL_ID,mime:'image/jpeg',
       originalBlob:new Blob(['original'],{ type:'image/jpeg' }),displayBlob,
       thumbBlob:new Blob(['thumb'],{ type:'image/webp' }),width:10,height:10,
-      takenAt:'2026-08-01T00:00:00.000Z',gpsLat:null,gpsLng:null,
+      takenAt:'2026-08-01T00:00:00.000Z',gpsLat:null,gpsLng:null,sortOrder:null,
       bytesOriginal:8,bytesDisplay:displayBlob.size,version:1,
       createdAt:'2026-08-01T00:00:00.000Z',updatedAt:'2026-08-01T00:00:00.000Z',deletedAt:null,
     };
@@ -347,7 +347,7 @@ describe('runSync 오케스트레이션 이음매', () => {
     const now = '2026-08-03T00:00:00.000Z';
     const media: MediaRow = {
       id:mediaId,user_id:USER,moment_id:MOMENT_ID,trip_id:purgedTripId,
-      storage_path:`${USER}/trip/photo__99999999999949998999999999999999.webp`,gps_lat:null,gps_lng:null,
+      storage_path:`${USER}/trip/photo__99999999999949998999999999999999.webp`,gps_lat:null,gps_lng:null,sort_order:null,
       width:100,height:100,taken_at:null,bytes_display:10,source:'user',version:2,base_version:1,
       base_canonical_version:VERSION,created_at:'2026-08-01T00:00:00.000Z',updated_at:now,
       deleted_at:null,client_operation_id:null,

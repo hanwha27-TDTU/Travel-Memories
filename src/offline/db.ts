@@ -118,6 +118,11 @@ export interface LocalMedia extends SyncMeta {
   takenAt: string; // EXIF 촬영시각 또는 파일 mtime(ISO)
   gpsLat: number | null; // EXIF GPS(기본 비공개 — 공유 시 제거)
   gpsLng: number | null;
+  /**
+   * 한 순간 안에서 **사용자가 정한 자리**(0부터). `null`이면 아직 안 정한 것이고, 그때는
+   * 촬영시각 순으로 놓는다(`domain/media/order.ts`). 🔴 `null`과 `0`은 다른 뜻이다.
+   */
+  sortOrder: number | null;
   bytesOriginal: number;
   bytesDisplay: number;
   /**

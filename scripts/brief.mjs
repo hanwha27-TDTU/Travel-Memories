@@ -95,6 +95,16 @@ export const SKILL_ROUTES = [
   // 셸 자기갱신 배너(ADR-0040) — 새 APK 감지·shell-version 마커·함정 D/E가 전부 셸 헌장 소관.
   { match: /^src\/services\/shellUpdate/, skill: 'android-apk-dev' },
   { match: /^src\/domain\/media\//, skill: 'photo-storage-dev' },
+  // 순간 안의 사진 순서 — 사진 자료의 규율(photo-storage)과 동기화 필드(sync-offline)가
+  // 동시에 걸리는 이음매다. sortOrder는 서버로 가는 **사용자 기록**이다(마이그레이션 0029).
+  { match: /^src\/domain\/media\/order/, skill: 'sync-offline-dev' },
+  // 꾹 눌러 끌기 배선 — 화면 상호작용이라 UI 헌장이 정본이다.
+  { match: /^src\/ui\/dragReorder/, skill: 'ui-responsive-dev' },
+  // 순간 안의 사진 순서 — 사진 자료의 규율(photo-storage)과 동기화 필드(sync-offline)가
+  // 동시에 걸리는 이음매다. 는 서버로 가는 사용자 기록이다(마이그레이션 0029).
+  { match: /^src\/domain\/media\/order/, skill: 'sync-offline-dev' },
+  // 꾹 눌러 끌기 배선 — 화면 상호작용이라 UI 헌장이 정본이다.
+  { match: /^src\/ui\/dragReorder/, skill: 'ui-responsive-dev' },
   { match: /^src\/ui\/panels\/(verdict|diagnostics)/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/(diagnostics|envReport|storeState)/, skill: 'diagnostics-dev' },
   // deviceId는 진단이 읽지만 **동기화 push 경로에 값을 찍는다** — 규율은 그쪽이 더 무겁다.

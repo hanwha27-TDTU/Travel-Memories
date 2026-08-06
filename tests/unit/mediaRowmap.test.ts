@@ -19,6 +19,7 @@ const media: LocalMedia = {
   takenAt: '2026-07-17T06:50:00.000Z',
   gpsLat: 37.5583,
   gpsLng: 126.7906,
+  sortOrder: null,
   bytesOriginal: 4000000,
   bytesDisplay: 660000,
   version: 2,
