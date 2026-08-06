@@ -67,6 +67,39 @@ export const STEP_PROVES: Record<RoundTripStep, string> = {
   cleanup: '시험이 자기 흔적을 남기지 않는다',
 };
 
+/**
+ * 🔴 판정 한 문장이 부르는 **단계 이름** — 없으면 앞 단계에 묻어간다(되읽기·뒷정리).
+ *
+ * ── 왜 이 표가 생겼나 (2026-08-06 · 사용자 태블릿 캡처) ──────────────────────
+ * T-013으로 단계를 8 → 10으로 늘렸는데 판정문은 **손으로 쓴 옛 문장** 그대로였다:
+ *
+ *   화면 위: 「저장 → 서버 → 삭제 → 영구삭제가 전부 확인됐어요」  ← 4단계
+ *   화면 아래: 「단계별 결과 **10단계**」                          ← 10단계
+ *
+ * **한 화면이 자기와 어긋났다**(§17 ① 판정문 ↔ 그 아래 값). 그리고 이건 이 저장소의
+ * 최빈 결함군이다 — **숫자를 합치면 이름이 사라진다**(§7-C · M-0048).
+ *
+ * 조항으로는 또 난다. 그래서 문장을 **이 표에서 만든다**: `Record`라 새 단계를 더하면
+ * **컴파일이 안 되고**, 「이 단계가 자기 이름을 갖는가」를 그 자리에서 답하게 된다(§7 2층).
+ */
+export const STEP_STAGE: Record<RoundTripStep, string | null> = {
+  create: '저장',
+  push: '서버',
+  serverRead: null, // 「서버」가 참인지 확인하는 자리 — 자기 이름을 갖지 않는다
+  update: '고치기',
+  stampRead: null, // 「고치기」가 제대로 앉았는지 확인하는 자리
+  delete: '삭제',
+  tombstoneRead: null,
+  purge: '영구삭제',
+  purgeRead: null,
+  cleanup: null, // 시험의 뒷정리 — 사용자가 시킨 일이 아니라 문장에 넣지 않는다
+};
+
+/** 판정문이 부를 단계 이름들 — 손으로 나열하지 않는다(위 표가 정본). */
+export function stageNames(): string[] {
+  return ROUND_TRIP_STEPS.map((s) => STEP_STAGE[s]).filter((n): n is string => n !== null);
+}
+
 export type StepState = 'pass' | 'fail' | 'skipped';
 
 export interface StepResult {
@@ -127,7 +160,7 @@ export function roundTripView(run: RoundTripRun | null): RoundTripView {
       actual: '해본 적 없음',
       expected: '최근에 통과',
       meaning:
-        '이 기기에서 저장한 것이 서버까지 갔다가 지운 흔적까지 남기는지를 실제로 한 번 보내 봅니다. ' +
+        '이 기기에서 저장한 것이 서버까지 갔다가, 고친 것이 제대로 앉고, 지운 흔적까지 남는지를 실제로 한 번 보내 봅니다. ' +
         '시험용 여행 하나를 만들었다가 스스로 지우며, 기존 기록은 건드리지 않아요.',
     };
   }
@@ -157,7 +190,8 @@ export function roundTripView(run: RoundTripRun | null): RoundTripView {
   }
   return {
     level: 'ok',
-    headline: '저장 → 서버 → 삭제 → 영구삭제가 전부 확인됐어요',
+    // 🔴 손으로 적지 않는다 — 단계를 늘리고 이 문장을 안 고쳐 화면이 자기와 어긋났다(§17).
+    headline: `${stageNames().join(' → ')}가 전부 확인됐어요`,
     actual: `${passed}/${total} 단계 통과`,
     expected: `${total}/${total} 단계 통과`,
   };

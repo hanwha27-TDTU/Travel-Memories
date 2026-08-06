@@ -2012,7 +2012,7 @@ export function roundTripProbe(): Promise<Verdict> {
     level: v.level,
     headline: v.headline,
     because:
-      '시험용 여행 하나를 만들었다가 스스로 지웁니다. 제목이 「' +
+      '시험용 여행 하나를 만들었다가 고쳐 보고 스스로 지웁니다. 제목이 「' +
       ROUND_TRIP_TITLE_PREFIX +
       '」로 시작하며, 기존 기록은 읽지도 쓰지도 않아요.',
     metrics,
@@ -2338,7 +2338,7 @@ export const CORE_TOOLS: DiagTool[] = [
     icon: '🔁',
     label: '왕복 시험',
     hint: '저장한 게 서버까지 갔다 오나',
-    lead: '시험용 여행 하나를 만들어 서버까지 보냈다가 지우고 흔적까지 확인한 뒤 스스로 치웁니다. 기존 기록은 건드리지 않아요.',
+    lead: '시험용 여행 하나를 만들어 서버까지 보냈다가 고쳐 보고, 지우고 흔적까지 확인한 뒤 스스로 치웁니다. 기존 기록은 건드리지 않아요.',
     probe: roundTripProbe,
   },
   {

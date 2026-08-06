@@ -4,6 +4,20 @@
 
 ---
 
+## HANDOFF-0109 · v1.91 · **판정문이 「고치기」를 빠뜨렸다 — 사용자 캡처가 §17로 잡았다** (2026-08-06)
+
+- **사용자 태블릿 캡처**(v1.90 배포 직후 · 왕복 시험 10/10 통과 화면)에서 **한 화면이 자기와 어긋나 있었다**:
+
+  | 화면 위 | 화면 아래 |
+  |---|---|
+  | 「저장 → **서버** → 삭제 → 영구삭제가 전부 확인됐어요」 (**4단계**) | 「단계별 결과 **10단계**」 |
+
+- **원인**: T-013으로 단계를 8 → 10으로 늘리면서 판정문은 **손으로 쓴 옛 문장** 그대로 뒀다. §7-C의 최빈형 — **숫자를 합치면 이름이 사라진다**(M-0048과 같은 형태). 각 조각은 자기 자리에서 참이라 **유닛 18건이 전부 통과했다**; 모순은 **둘이 만나는 자리**(화면)에서만 보인다.
+- 🔴 **조항이 아니라 구조로 막았다**(§7 2층): `STEP_STAGE: Record<RoundTripStep, string | null>`을 두고 판정문을 **그 표에서 만든다**. 새 단계를 더하면 **컴파일이 안 되고**, 「이 단계가 자기 이름을 갖는가」를 그 자리에서 답하게 된다. `null`은 「앞 단계에 묻어간다」(되읽기·뒷정리 — 열 개를 다 부르면 아무도 안 읽는다).
+- **문장 셋을 함께 고쳤다**: 판정문 · 도구 설명(`lead`) · 안전 경계 문장(`because`) 전부 「고치기」를 안 부르고 있었다. **한 곳만 고치면 나머지가 남는다.**
+- **검증**: 유닛 22건(§17 모순 검사 4건 신설) · `STEP_STAGE.update`를 `null`로 주입 → **RED** → 원복 GREEN · 전체 harness 모든 게이트 통과(건너뜀 0).
+- 🔴 **이 결함을 잡은 것은 사용자의 실기기 캡처다**(§10 — 이 앱에서 가장 강력한 검출기). 그리고 §17이 말하는 그 자리였다: *"판정문 ↔ 그 아래 값"*. 조항을 쓴 지 이틀 만에 같은 형태를 또 냈다.
+
 ## HANDOFF-0108 · v1.90 · **끄는 느낌 + T-013 종결(서버가 시각을 덮어쓰는가)** (2026-08-06)
 
 - **사용자 지시**: *"이동은 잘 됩니다. 혹시 **이동하는 느낌**이 나게 해줄 순 있나요? 뭔지 알죠? 그리고 **13번 트리거**도 진행하죠."*
@@ -607,7 +621,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.90<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->190<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.91<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->191<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->29<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

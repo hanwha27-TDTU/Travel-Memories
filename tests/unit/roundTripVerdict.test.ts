@@ -11,6 +11,8 @@ import {
   ROUND_TRIP_STEPS,
   STEP_LABEL,
   STEP_PROVES,
+  STEP_STAGE,
+  stageNames,
   ROUND_TRIP_TITLE_PREFIX,
   type RoundTripRun,
   type RoundTripStep,
@@ -184,5 +186,45 @@ describe('T-013 — 수정 시각 단계', () => {
     };
     expect(roundTripView(stamped).level).toBe('ok'); // 관측이 있다고 판정이 내려가지 않는다
     expect(stamped.steps.find((s) => s.step === 'stampRead')?.note).toContain('서버가 자기 시각으로');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴 §17 모순 검사 — 판정문 ↔ 그 아래 값
+//
+// 사용자 태블릿 캡처(2026-08-06)가 잡았다: 단계를 8 → 10으로 늘렸는데 판정문은
+// **손으로 쓴 옛 문장** 그대로였다.
+//
+//   화면 위: 「저장 → 서버 → 삭제 → 영구삭제가 전부 확인됐어요」  ← 4단계
+//   화면 아래: 「단계별 결과 10단계」                              ← 10단계
+//
+// 한 화면이 자기와 어긋났다. 각 조각은 자기 자리에서 참이라 유닛이 전부 통과했다 —
+// 모순은 **둘이 만나는 자리**에서만 보인다. 그래서 그 자리를 여기서 잰다.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('판정문이 단계 목록과 어긋나지 않는다(§17)', () => {
+  it('통과 문장이 부르는 단계 이름은 전부 실제 단계에서 나온다', () => {
+    const headline = roundTripView(allPass()).headline;
+    for (const name of stageNames()) expect(headline).toContain(name);
+  });
+
+  // 🔴 이게 이 검사의 본론: **고치기가 빠졌던 그 결함**을 이름으로 잡는다.
+  it('고치기 단계가 있으면 판정문도 그 이름을 부른다', () => {
+    expect(STEP_STAGE.update).not.toBeNull();
+    expect(roundTripView(allPass()).headline).toContain('고치기');
+  });
+
+  // 되읽기·뒷정리는 앞 단계에 묻어간다 — 문장이 열 개를 다 부르면 읽을 수 없다.
+  it('확인용 단계는 자기 이름을 갖지 않는다 — 문장이 길어지면 아무도 안 읽는다', () => {
+    for (const s of ['serverRead', 'stampRead', 'tombstoneRead', 'purgeRead', 'cleanup'] as const) {
+      expect(STEP_STAGE[s]).toBeNull();
+    }
+    expect(stageNames().length).toBeLessThan(ROUND_TRIP_STEPS.length);
+  });
+
+  // 🔴 조항이 아니라 구조로 막는다(§7 2층): `Record`라 새 단계는 **컴파일이 안 된다.**
+  // 이 유닛은 그 표가 조용히 비는 것까지 본다.
+  it('모든 단계가 이 표에 답을 갖는다 — 빠진 단계가 없다', () => {
+    for (const s of ROUND_TRIP_STEPS) expect(s in STEP_STAGE).toBe(true);
+    expect(stageNames().length).toBeGreaterThan(0);
   });
 });
