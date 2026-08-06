@@ -70,7 +70,7 @@ async function seedMedia(id: string, momentId = MOMENT, path?: string): Promise<
   const row: LocalMedia = {
     id, momentId, tripId: TRIP, mime: 'image/webp',
     displayBlob: blob, thumbBlob: blob, width: 1, height: 1,
-    takenAt: '2026-08-01T00:00:00.000Z', gpsLat: null, gpsLng: null,
+    takenAt: '2026-08-01T00:00:00.000Z', gpsLat: null, gpsLng: null, sortOrder: null,
     bytesOriginal: 1, bytesDisplay: 1,
     ...(path ? { storagePath: path } : {}),
     ...stamp('2026-08-02T00:00:00.000Z'),

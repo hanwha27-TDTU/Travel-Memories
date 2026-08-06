@@ -8,6 +8,7 @@ import { quotaVerdict, estimateLocalBytes, type StorageEstimateLike } from '../d
 import { readJpegExif, EXIF_HEAD_BYTES } from '../media/exif';
 import { wallClockToInstant, zoneOffsetAtWall, deviceZone } from '../domain/time';
 import { compressForStorage } from '../media/compress';
+import { orderPhotos, renumber } from '../domain/media/order';
 import type { EditState } from '../media/editor-core';
 
 function uuid(): string {
@@ -202,6 +203,9 @@ export async function addPhotoToMoment(
     momentId: target.momentId,
     tripId: target.tripId,
     mime: file.type || 'image/jpeg',
+    // 새 사진은 **자리를 안 정한 채** 태어난다 → `orderPhotos`가 맨 뒤에 붙인다.
+    // 중간에 끼워 넣으면 사용자가 정해 둔 배열이 소리 없이 흐트러진다.
+    sortOrder: null,
     originalBlob: file,
     displayBlob: display.blob,
     thumbBlob: thumb.blob,
@@ -250,6 +254,58 @@ export async function softDeleteMediaLocalFirst(id: string): Promise<void> {
   });
   const back = await d.localMedia.get(id);
   if (!back || back.deletedAt === null) throw new Error('내구성 커밋 확인 실패: 사진 삭제 read-back 불일치');
+}
+
+/**
+ * 🔴 **한 순간의 사진 순서를 굳힌다** (사용자 지시 2026-08-06 · 마이그레이션 0029).
+ *
+ * 받은 순서대로 0부터 번호를 다시 매긴다 — **그 순간의 사진 전부에**. 옮긴 하나만 매기면
+ * 「일부는 내 순서, 일부는 촬영시각」이 되어 사용자가 규칙을 예측할 수 없다(`order.ts` 참조).
+ *
+ * ── 이 함수가 지키는 계약 ──────────────────────────────────────────────────
+ *  · **엔티티와 op을 한 트랜잭션에서** 쓴다(비타협 원칙 #1의 atomic commit). 새 연산을 만들며
+ *    이 규율을 안 따라가는 것이 이 저장소의 실제 사고였다(M-0033) — 그때도 기존 op들은
+ *    전부 지키고 있었고 **새로 만든 것 하나만** 바깥에서 태어났다.
+ *  · **바뀐 것만 쓴다.** 이미 그 번호인 행은 건드리지 않는다 — version을 올리면 다른 기기의
+ *    최신 편집을 LWW로 이길 수 있고, 순서 정리가 남의 수정을 덮는 것은 사용자가 기대하는 일이 아니다.
+ *  · **read-back으로 확인한다.** HTTP 200이나 토스트가 아니라 같은 레코드를 되읽어 본다.
+ */
+export async function reorderMomentPhotos(momentId: string, orderedIds: readonly string[]): Promise<void> {
+  const d = db();
+  const now = new Date().toISOString();
+  const target = renumber(orderedIds);
+  const changed: { row: LocalMedia; order: number; opId: string }[] = [];
+
+  const rows = await d.localMedia.where('momentId').equals(momentId).toArray();
+  for (const row of rows) {
+    if (row.deletedAt !== null) continue; // 휴지통 사진은 순서를 갖지 않는다
+    const order = target.get(row.id);
+    if (order === undefined || row.sortOrder === order) continue;
+    changed.push({ row, order, opId: uuid() });
+  }
+  if (!changed.length) return; // 바뀐 게 없으면 쓰지 않는다(빈 쓰기는 남의 편집을 덮을 수 있다)
+
+  await d.transaction('rw', d.localMedia, d.syncQueue, async () => {
+    for (const { row, order, opId } of changed) {
+      await d.localMedia.put({
+        ...row,
+        sortOrder: order,
+        version: row.version + 1,
+        updatedAt: now,
+        baseVersion: row.baseVersion ?? row.version,
+        clientOperationId: opId,
+      });
+      await d.syncQueue.add(mediaOp(opId, row.id, 'update', now));
+    }
+  });
+
+  // 🔴 되읽어 확인한다 — 성공 신호가 아니라 **같은 레코드**가 근거다(docs/SYNC_PROTOCOL.md).
+  for (const { row, order } of changed) {
+    const back = await d.localMedia.get(row.id);
+    if (!back || back.sortOrder !== order) {
+      throw new Error(`내구성 커밋 확인 실패: 사진 순서 read-back 불일치(${row.id.slice(0, 8)})`);
+    }
+  }
 }
 
 /** 사진 되살리기(실행취소) — deletedAt=null 복원. version+1로 삭제를 이긴다(LWW). */
@@ -384,8 +440,14 @@ export async function rotateMediaLocalFirst(id: string): Promise<LocalMedia> {
   return back;
 }
 
-/** 여행의 활성 사진(순간별 그룹용). tombstone 제외. */
+/**
+ * 여행의 활성 사진(순간별 그룹용). tombstone 제외.
+ *
+ * 🔴 **정렬을 여기서 건다**(2026-08-06). 예전엔 정렬이 **아예 없어** Dexie가 준 순서
+ * (무작위 uuid 순)가 그대로 화면에 나갔고, **기기마다 다를 수도** 있었다. 규칙은
+ * `domain/media/order.ts` 한 곳에만 있다 — 화면이 각자 정렬하기 시작하면 갈라진다(§7 2층).
+ */
 export async function listMediaByTrip(tripId: string): Promise<LocalMedia[]> {
   const rows = await db().localMedia.where('tripId').equals(tripId).toArray();
-  return rows.filter((m) => m.deletedAt === null);
+  return orderPhotos(rows.filter((m) => m.deletedAt === null));
 }

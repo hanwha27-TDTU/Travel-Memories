@@ -33,7 +33,7 @@ function sampleRows(): CollectedRows {
   const media: LocalMedia = {
     id: 'md-1', momentId: 'm-1', tripId: 't-1111', mime: 'image/jpeg',
     originalBlob: mkBlob([10, 20, 30, 40, 50]), displayBlob: mkBlob([1, 2, 3]), thumbBlob: mkBlob([9, 8]),
-    width: 1600, height: 1200, takenAt: '2024-05-02T03:00:00.000Z', gpsLat: 35.71, gpsLng: 139.79,
+    width: 1600, height: 1200, takenAt: '2024-05-02T03:00:00.000Z', gpsLat: 35.71, gpsLng: 139.79, sortOrder: null,
     bytesOriginal: 5, bytesDisplay: 3, version: 2, createdAt: '2024-05-02T03:00:00.000Z',
     updatedAt: '2024-05-02T03:05:00.000Z', deletedAt: null, clientOperationId: 'op-1',
   };

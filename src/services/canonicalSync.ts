@@ -300,6 +300,8 @@ async function materializeMedia(rows: MediaRow[], remote: CanonicalRemote, versi
       momentId: server.momentId,
       tripId: server.tripId,
       mime: 'image/webp',
+      // canonical은 **서버가 정본**인 경로다 — 로컬 순서로 되돌리지 않는다.
+      sortOrder: server.sortOrder ?? null,
       displayBlob: display,
       thumbBlob: thumb,
       width: server.width,

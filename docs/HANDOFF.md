@@ -4,6 +4,19 @@
 
 ---
 
+## HANDOFF-0104 · v1.87 · **사진 순서 — 꾹 눌러 바꾸기 + 정사각 썸네일** (2026-08-06 · migration 0029)
+
+- **사용자 지시**: *"①손가락으로 꾹 눌러서 순서를 변경할 수 있도록 ②썸네일 사진의 가로 세로 크기가 제각각이라 보기 불편함"* → A(정사각+정렬)와 B(드래그) **둘 다** 요청.
+- 🔴 **파 보니 더 큰 게 있었다**: 사진에 **순서가 아예 없었다.** 목록이 `where('tripId').toArray()`로 끝나 정렬을 안 했고, id가 `uuid()`(무작위)라 화면 순서는 **사실상 임의**였다 — 기기마다 다를 수도 있었다. 「순서를 바꾸는 기능」보다 **순서가 있는 것**이 먼저였다.
+- **만든 것**: `domain/media/order.ts`(순수 — `orderPhotos`·`moveItem`·`renumber`·`dropIndex`) · `ui/dragReorder.ts`(포인터 배선 한 곳) · `services/media.ts::reorderMomentPhotos`(엔티티+op 한 트랜잭션 · read-back) · **migration 0029**(`media.sort_order`).
+- **규칙**: `sortOrder`가 있으면 그 순서, 없으면 **촬영시각** 순, 그래도 같으면 `id`(결정적). 새 사진은 **맨 뒤**에 붙는다. 한 번 옮기면 그 순간의 사진 **전부**에 번호를 다시 매긴다 — 섞인 상태는 사용자가 규칙을 예측할 수 없다.
+- **썸네일**: 편집용 줄만 **96px 정사각 + `cover`**로 바꿨다. 「잘림 없이」라는 원래 의도는 **보기 화면**에서 지킨다(§7 — 비대칭은 이유와 함께).
+- 🔴 **M-0115 — 라이브가 아니면 못 잡을 결함**: 길게 누르면 칸은 들리는데 **끌어도 아무 일이 없었다.** 원인은 `<img>`의 **네이티브 이미지 드래그**가 포인터를 가로채 `pointercancel`을 낸 것. 유닛 19건·타입 전부 초록이었다 — 플랫폼이 내 이벤트를 가져가는 것은 순수 함수 밖이다. 계측해 보니 `pointermove`가 딱 1회 돌고 상태가 리셋돼 있었다.
+- **곁가지 둘**: ①미리보기가 `style.order`(화면 순서)와 `measure()`(DOM 순서)를 섞어 좌표계가 어긋났다 → **자리 표시**로 바꿨다. ②라이브가 드래그 대상을 인덱스로 집어 **남의 사진을 끌고 있었다** → `data-media-id`로 집는다(M-0052의 근본형).
+- **운영 DB**: 0029를 **앱 배포보다 먼저** 적용했다(순서가 반대면 사진 push가 컬럼 없음으로 실패한다). read-back: 컬럼 1 · 제약 1 · 행 79건 전부 `NULL` · 자료 무변경.
+- **검증**: 유닛 19건 신설(전체 1451건) · 라이브 **345/345**(R⓪~R⑥ 신설 — 실제로 눌러 끌고 저장소를 되읽는다) · 주입 3종 RED→GREEN(옛 썸네일 CSS · 이미지 드래그 차단 제거 · 정렬 제거) · 전체 harness 건너뜀 0 · 🔴 **드래그 전/중/후를 캡처해 눈으로 확인**(§13).
+- **§7 형제 심사(먼저 했다)**: 오디오에는 순서를 안 넣었다 — **화면에 여러 개를 나열하는 자리가 없다**(순간당 소리는 목록이 아니라 칩 하나). 나열 UI가 생기면 그때 같은 규율을 물려받아야 한다.
+
 ## HANDOFF-0103 · v1.86 · **진단 화면 네 가지 지시 — 닫기·상단 버튼·확인 불가 분류·헌법 §17** (2026-08-06)
 
 - **사용자 지시 4건**(태블릿 캡처와 함께): ①닫기가 전 단계로 ②상단에 일괄 점검+복사 ③구조적 확인 불가를 비정상으로 분류하지 말 것 ④코딩할 때 모순 검사를 헌법에 박을 것.
@@ -521,9 +534,9 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.86<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->186<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.87<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->187<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
 
-> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
+> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->29<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
 
 ### 🕐 직전 세션에서 무슨 일이 있었나 (2026-07-30 · 새 AI는 이것부터)
