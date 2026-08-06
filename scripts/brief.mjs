@@ -149,6 +149,9 @@ export const SKILL_ROUTES = [
   { match: /^src\/domain\/\w+\/rowmap/, skill: 'sync-offline-dev' },
   // 홈 기간 트리(연도▸월) — 순수 로직이지만 존재 이유가 홈 화면 레이아웃·필터라 UI 헌장이다.
   { match: /^src\/domain\/trip\/timeTree/, skill: 'ui-responsive-dev' },
+  // 홈 상태별 보기(칩·구획·접기) — 같은 이유로 UI 헌장이다. 여기 담긴 것이 「무엇을 첫 화면에
+  // 보이고 무엇을 접는가」와 상태 라벨의 SSOT라, 화면 대칭 규율(§7)이 걸리는 자리다.
+  { match: /^src\/domain\/trip\/homeSections/, skill: 'ui-responsive-dev' },
   // 2026-07-27 M-0034로 옮겼다. 예전엔 "순수 날짜 함수"라며 문서 불필요로 분류돼 있었는데,
   // 그 사이 이 파일이 **시각 표기의 SSOT**(`isoInstant`·`Instant` 브랜드)를 갖게 됐다 —
   // 서버·백업 경계가 전부 여기를 통과하므로 규율은 동기화 헌장에 있다. 분류가 낡으면
