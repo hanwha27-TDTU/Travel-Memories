@@ -2050,6 +2050,9 @@ select.zone-input { text-overflow: ellipsis; }
 .vd-rollup-todo    { border-left-color: var(--sem-sky);  background: color-mix(in srgb, var(--sem-sky) 7%, var(--bg-2)); }
 .vd-rollup-problem { border-left-color: var(--sem-pink); background: color-mix(in srgb, var(--sem-pink) 8%, var(--bg-2)); }
 .vd-rollup-unknown { border-left-color: var(--ink-soft); }
+/* 총괄 판정 바로 아래의 [일괄 점검]·[결과 복사] — 문제가 보이는 자리와 전달 수단을 붙여 둔다
+   (사용자 제안 2026-08-06). 버튼 모양은 판정 렌더러의 .vd-btn을 그대로 쓴다(§7 화면 대칭). */
+.vd-rollup-actions { margin: calc(var(--space-3) * -1 + 2px) 0 var(--space-3); }
 .vd-dot { flex: 0 0 auto; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; font-size: 0.72rem; font-weight: 900; }
 .vd-dot-ok      { background: color-mix(in srgb, var(--sem-teal) 18%, transparent); color: var(--sem-teal-ink); }
 .vd-dot-todo    { background: color-mix(in srgb, var(--sem-sky) 18%, transparent);  color: var(--sem-sky-ink); }

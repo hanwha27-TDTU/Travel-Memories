@@ -4,6 +4,18 @@
 
 ---
 
+## HANDOFF-0103 · v1.86 · **진단 화면 네 가지 지시 — 닫기·상단 버튼·확인 불가 분류·헌법 §17** (2026-08-06)
+
+- **사용자 지시 4건**(태블릿 캡처와 함께): ①닫기가 전 단계로 ②상단에 일괄 점검+복사 ③구조적 확인 불가를 비정상으로 분류하지 말 것 ④코딩할 때 모순 검사를 헌법에 박을 것.
+- **① 닫기** — [데이터 관리]가 **자기를 닫고** 허브를 열어서, 닫으면 아래에 아무것도 없어 첫 화면이 나왔다. 돌아갈 길을 **인자로 받는다**(`onClose`) — 허브가 호출자를 추측하지 않는다.
+- **② 상단 바** — [🔄 일괄 점검]·[📋 결과 복사]를 판정 바로 아래로. 예전엔 복사가 **맨 아래 도구 안**에 있어, 문제가 보이는 자리와 전달 수단 사이를 사람이 스크롤로 메우고 있었다(§12).
+- 🔴 **③ 확인 불가의 종류** — `Metric`을 **판별 유니온**으로 바꿔 `level: 'unknown'`이면 `unknownKind: 'structural' | 'transient'`가 **필수**가 됐다(기본값 금지 · M-0060). 컴파일러가 18곳을 전수로 뽑았다. 구조적(설치된 앱에서 브라우저 persist 등)은 총괄을 끌어내리지 않고, 대신 **경계를 개수로 말한다**(「이 기기에서 잴 수 없는 항목 N개」). 일시적(서버 미응답·아직 안 눌러 봄)은 예전처럼 총괄에 반영된다.
+- **④ 헌법 §17 신설** — 「모순 검사」. 사용자 실기기가 잡은 결함의 **최빈형이 모순**이었다(M-0113·M-0048·M-0046·M-0022). 각 조각은 자기 자리에서 참이라 유닛이 전부 통과하고, 모순은 **둘이 만나는 자리(대개 화면)**에서만 보인다. 네 축(판정문↔값 · 화면↔세계 · 기기↔기기 · 문서↔코드)을 `npm run brief` ⑨가 착수마다 묻는다.
+- 🔴 **라이브만으로는 ③을 가를 수 없었다**(§4): 실제 앱엔 늘 다른 이상이 하나 켜져 있어 구조적 확인 불가가 **가려져서 통과**했다 — 주입해 보고 알았다. `rollupBanner`·`bannerLevelOf`를 순수 함수로 뽑아 유닛이 전수로 잰다.
+- **게이트가 셋을 잡았다**: `check-verdict-symmetry`(오탐 3종 — 스프레드·중간 타입·단축 속성을 못 읽었다. 넓힌 뒤 **주입으로 비공허 재확인** · §11 ①) · `check-fn-size`(래칫이 `rollupActions`·`renderDetail`·`hubHeader` 추출을 밀어줬다) · `check-doc-counts`.
+- 🔴 **M-0114**: 주입을 되돌리려고 `git checkout <파일>`을 써서 **그 파일의 오늘 작업 전체를 날렸다**(백업으로 복구). 앞선 주입은 전부 `cp` 사본으로 되돌렸는데 한 자리만 git을 썼다 — 같은 절차를 두 방법으로 하고 있었고 그중 하나가 파괴적이었다.
+- **검증**: 유닛(신규 `rollupBanner` 11건 포함) · 라이브 **55/55**(H①~H⑤ 신설) · 주입 다수 RED→GREEN · 전체 harness 건너뜀 0 · 🔴 **셸 표면으로 화면을 열어 캡처하고 두 버튼을 실제로 눌렀다**(§13).
+
 ## HANDOFF-0102 · v1.85 · **사용자 태블릿이 두 장으로 두 결함을 잡았다** (2026-08-06 · M-0113)
 
 - **경위**: v1.84 배포 직후 사용자가 태블릿 캡처 2장과 함께 *"둘 다 문제없는거지?"* — **둘 다 문제였다.**
@@ -509,7 +521,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.85<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->185<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.86<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->186<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->28<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

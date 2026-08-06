@@ -6,9 +6,22 @@
 // 각 검사는 쌍으로 간다: 잡아야 할 경우 / 잡으면 안 되는 경우. 거짓 경보는 결함만큼 해롭다(M-0008).
 
 import { describe, it, expect } from 'vitest';
-import { worst, levelFromMetrics, LEVELS, emptyVerdict, type Metric, type Level } from '../../src/ui/panels/verdict';
+import {
+  worst,
+  levelFromMetrics,
+  unknownIsStructural,
+  LEVELS,
+  emptyVerdict,
+  type Metric,
+  type Level,
+  type UnknownKind,
+} from '../../src/ui/panels/verdict';
 
-const m = (level: Level, label = 'x'): Metric => ({ label, actual: 'a', expected: 'b', level });
+// 🔴 unknown이면 종류를 **반드시** 준다 — 그게 타입 계약이다(기본값 금지 · M-0060).
+const m = (level: Level, label = 'x', kind: UnknownKind = 'transient'): Metric =>
+  level === 'unknown'
+    ? { label, actual: 'a', expected: 'b', level, unknownKind: kind }
+    : { label, actual: 'a', expected: 'b', level };
 
 describe('판정 롤업 — 가장 급한 것이 이긴다', () => {
   it('문제 > 할 일 > 확인 불가 > 정상 순으로 이긴다', () => {
@@ -72,5 +85,25 @@ describe('빈 골격', () => {
     expect(v.actions).toEqual([]);
     expect(v.evidence).toEqual([]);
     expect(v.context).toEqual([]);
+  });
+});
+
+describe('확인 불가의 종류 — 구조적인가 일시적인가(사용자 지적 2026-08-06)', () => {
+  it('전부 구조적이면 true — 총괄을 끌어내리지 않을 자격이 있다', () => {
+    expect(unknownIsStructural([m('unknown', 'a', 'structural'), m('ok')])).toBe(true);
+  });
+
+  // 🔴 하나라도 재시도로 풀릴 수 있으면 알려야 한다(§8 — 모르는 것을 정상으로 반올림 금지).
+  it('일시적이 하나라도 섞이면 false', () => {
+    expect(unknownIsStructural([m('unknown', 'a', 'structural'), m('unknown', 'b', 'transient')])).toBe(false);
+  });
+
+  it('확인 불가가 하나도 없으면 false — 「구조적」이라 부를 것이 없다', () => {
+    expect(unknownIsStructural([m('ok'), m('todo')])).toBe(false);
+    expect(unknownIsStructural([])).toBe(false);
+  });
+
+  it('구조적이어도 지표 자신의 판정은 여전히 확인 불가다(분류만 바꾼다)', () => {
+    expect(levelFromMetrics([m('unknown', 'a', 'structural'), m('ok')])).toBe('unknown');
   });
 });

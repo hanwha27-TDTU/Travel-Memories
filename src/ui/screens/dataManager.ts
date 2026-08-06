@@ -617,14 +617,14 @@ function canonicalPanel(onChanged: () => void): HTMLElement {
 }
 
 
-function cards(onChanged: () => void, goToTrip: (tripId: string) => void): HubCard[] {
+function cards(onChanged: () => void, goToTrip: (tripId: string) => void, reopen: () => void): HubCard[] {
   return [
     { icon: '💱', label: '환율 기준통화', hint: '비용 옆에 환산값 표시', open: (h) => h.detail('💱 환율 기준통화', currencyPanel()) },
     { icon: '☁️', label: 'R2 저장소 설정', hint: '사진 저장소 설정 절차·함정 기록', open: (h) => { h.close(); openR2Setup(); } },
     { icon: '💾', label: '백업 (내보내기)', hint: '기억을 파일로 저장', open: (h) => h.detail('💾 백업 (내보내기)', backupPanel()) },
     { icon: '📥', label: '복원 (가져오기)', hint: '백업 파일에서 병합 복원', open: (h) => h.detail('📥 복원 (가져오기)', restorePanel(onChanged)) },
     { icon: '🔐', label: '이 기기를 클라우드 최종본으로', hint: '일반 병합이 아닌 명시적 전체 교체', open: (h) => h.detail('🔐 클라우드 최종본 지정', canonicalPanel(onChanged)) },
-    { icon: '🩺', label: '진단 도구', hint: '동기화·무결성·저장소·환경·오류 한 곳에', open: (h) => { h.close(); openDiagnosticsHub(); } },
+    { icon: '🩺', label: '진단 도구', hint: '동기화·무결성·저장소·환경·오류 한 곳에', open: (h) => { h.close(); openDiagnosticsHub(undefined, { onClose: reopen }); } },
     { icon: '📍', label: '위치관리대장', hint: '등록한 장소를 찾고 좌표·주소 고치기', open: (h) => h.detail('📍 위치관리대장', placeRegistryPanel(onChanged, (id) => { h.close(); goToTrip(id); })) },
     { icon: '🗑', label: '휴지통', hint: '삭제한 여행 복원·영구삭제', open: (h) => h.detail('🗑 휴지통', trashPanel(onChanged, h.close)) },
     { icon: '📖', label: '가이드', hint: '연결·설정과 개발·설계 안내', open: (h) => { h.close(); openGuide(); } },
@@ -674,7 +674,9 @@ export function openDataManager(opts: DataManagerOpts): void {
       el('div', 'guide-group-hint', '기억을 지키고 되살리는 도구'),
     );
     const grid = el('div', 'guide-card-grid');
-    for (const c of cards(opts.onChanged, opts.goToTrip)) {
+    // 🔴 진단 허브가 닫힐 때 **이 화면으로 돌아온다** — 자기를 닫고 열기 때문에, 돌아갈 길을
+    // 넘기지 않으면 첫 화면이 나온다(사용자 지적 2026-08-06).
+    for (const c of cards(opts.onChanged, opts.goToTrip, () => openDataManager(opts))) {
       const btn = el('button', 'guide-card') as HTMLButtonElement;
       btn.type = 'button';
       const ic = el('span', 'guide-card-ic', c.icon);

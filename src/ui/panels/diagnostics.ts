@@ -94,7 +94,7 @@ import {
   readDeviceHints,
   DEVICE_NAME_MAX,
 } from '../../app/deviceId';
-import { renderTool, levelFromMetrics, worst, type Verdict, type Metric, type Level, type Action } from './verdict';
+import { renderTool, levelFromMetrics, worst, unknownIsStructural, levelOr, type Verdict, type Metric, type Level, type Action, type UnknownKind } from './verdict';
 
 /** 접힌 출처에 보일 사진 id 상한. 넘으면 "외 N건 생략"이라고 **적는다**(조용히 자르지 않는다). */
 export const FILE_ID_CAP = 20;
@@ -149,6 +149,28 @@ const countMap = (o: Record<string, number>): string =>
     .join(' · ') || '없음';
 
 // ────────────────────────────────────────────────────────────────────────────
+/** 도메인 판정 뷰의 공통 모양 — 인라인 타입으로 두면 게이트가 지표 리터럴로 오인한다(§11 ③). */
+interface MetricSource {
+  actual: string;
+  expected: string;
+  level: Level;
+  meaning?: string;
+}
+
+/**
+ * 도메인 판정 뷰 → `Metric`. 🔴 **`kind`에 기본값이 없다** — 새 도구가 안 적으면 컴파일되지 않는다.
+ *
+ * 왜: `확인 불가`가 *구조적*(이 기기에선 원리적으로 못 잼)인지 *일시적*(재보면 알 수 있음)인지에
+ * 따라 총괄 판정에 넣을지가 갈린다(사용자 지적 2026-08-06). 기본값을 두면 그 판단을 안 하고도
+ * 통과하고, 그게 이 규율이 조용히 빠지는 길이다(M-0060).
+ */
+function metricFromView(label: string, v: MetricSource, kind: UnknownKind): Metric {
+  const rest = v.meaning ? { meaning: v.meaning } : {};
+  return v.level === 'unknown'
+    ? { label, actual: v.actual, expected: v.expected, level: 'unknown', unknownKind: kind, ...rest }
+    : { label, actual: v.actual, expected: v.expected, level: v.level, ...rest };
+}
+
 // ① 저장소 안전 — 앱 밖 원인의 유일한 기억 손실 경로
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -170,7 +192,15 @@ export async function storageProbe(): Promise<Verdict> {
       expected: meaningful ? '적용됨' : '설치된 앱이라 브라우저 보호와 무관',
       // 셸에서는 이 값이 무엇을 뜻하는지 **재본 적이 없다** — 정상으로도 문제로도 반올림하지
       // 않는다(§8). 재는 방법이 생기면 `persistIsMeaningful`부터 고친다.
-      level: !meaningful ? 'unknown' : persisted === null ? 'unknown' : persisted ? 'ok' : 'todo',
+      //
+      // 🔴 **여기가 구조적 확인 불가의 대표 자리다**(사용자 지적 2026-08-06): 설치된 앱에서는
+      // 다시 눌러도 알 수 없다 — 잘못된 상태가 아니므로 총괄 판정을 끌어내리지 않는다.
+      // 반면 `persisted === null`(브라우저가 안 알려줌)은 브라우저·시점에 달린 **일시적**이다.
+      ...(!meaningful
+        ? { level: 'unknown' as const, unknownKind: 'structural' as const }
+        : persisted === null
+          ? { level: 'unknown' as const, unknownKind: 'transient' as const }
+          : { level: persisted ? ('ok' as const) : ('todo' as const) }),
       ...(!meaningful
         ? { meaning: '설치된 앱으로 실행 중이에요. 이 값이 이 표면에서 무엇을 뜻하는지는 아직 재보지 못했으니, 백업을 받아 두는 것이 확실합니다.' }
         : persisted === false
@@ -181,7 +211,7 @@ export async function storageProbe(): Promise<Verdict> {
       label: '저장 공간 사용률',
       actual: pct === null ? '알 수 없음' : `${pct}% (${bytes(usage)} / ${bytes(quota)})`,
       expected: '80% 미만',
-      level: pct === null ? 'unknown' : pct >= 80 ? 'problem' : 'ok',
+      ...levelOr(pct === null, 'transient', pct !== null && pct >= 80 ? 'problem' : 'ok'),
       ...(pct !== null && pct >= 80
         ? { meaning: '여유가 적어요. 브라우저가 공간을 회수하며 앱 데이터를 지울 수 있습니다. 지금 [데이터 관리 › 백업]으로 파일을 받아 두세요.' }
         : {}),
@@ -319,26 +349,16 @@ export async function syncProbe(): Promise<Verdict> {
       level: waiting > 0 ? 'todo' : 'ok',
       ...(waiting > 0 ? { meaning: '아직 서버로 보내지 않은 변경이에요. 동기화를 누르면 올라갑니다 — 정상적인 대기 상태입니다.' } : {}),
     },
-    {
-      label: '삭제 반영 확인',
-      actual: tombstone.actual,
-      expected: tombstone.expected,
-      level: tombstone.level,
-      ...(tombstone.meaning ? { meaning: tombstone.meaning } : {}),
-    },
+    // 서버 행·원장을 못 읽었을 때만 unknown이다 — 다시 확인하면 풀리므로 **일시적**.
+    metricFromView('삭제 반영 확인', tombstone, 'transient'),
   ];
 
   // 자동 동기화가 **조용히 실패하고 있지 않은지** — 자동화의 가장 큰 위험이 여기다(M-0008 부류).
   // 판정과 문장은 `domain/syncStatusVerdict.ts`의 순수 함수가 만든다 — 화면에 나가는 문장
   // 자체가 결함일 수 있어서 유닛으로 모든 갈래를 돌려야 한다(§10 ③).
   const av = autoSyncVerdict(syncStatus());
-  metrics.push({
-    label: '자동 동기화',
-    actual: av.actual,
-    expected: '최근에 성공',
-    level: av.level,
-    ...(av.meaning ? { meaning: av.meaning } : {}),
-  });
+  // 오프라인·첫 회차 진행 중 등 — 시간이 지나면 답이 나온다(**일시적**).
+  metrics.push(metricFromView('자동 동기화', { ...av, expected: '최근에 성공' }, 'transient'));
 
   const level = levelFromMetrics(metrics);
   const v: Verdict = {
@@ -1196,6 +1216,8 @@ export function fileAuditMetrics(i: {
           actual: '확인 못 함',
           expected: '기록과 파일이 1:1',
           level: 'unknown',
+          // 서버 목록을 못 받은 것뿐 — 다시 확인하면 풀린다(**일시적**).
+          unknownKind: 'transient',
           meaning: i.note ?? `서버 ${noun} 목록을 물어보지 못했어요`,
         },
       ],
@@ -1246,7 +1268,8 @@ export function fileAuditMetrics(i: {
       label: `서버에 없는 ${noun}`,
       actual: fa.truncated ? '확인 못 함' : `${recoverable.length}개`,
       expected: '0개',
-      level: fa.truncated ? 'unknown' : recoverable.length ? 'todo' : 'ok',
+      // 목록이 잘린 것은 다시 받으면 풀린다(**일시적**).
+      ...levelOr(fa.truncated, 'transient', recoverable.length ? 'todo' : 'ok'),
       ...(fa.truncated || !recoverable.length
         ? {}
         : {
@@ -1258,7 +1281,7 @@ export function fileAuditMetrics(i: {
       actual: fa.truncated ? '확인 못 함' : `${atRisk.length}개`,
       expected: '0개',
       // 목록이 잘렸으면 "없다"고 말할 수 없다 — 뒤쪽 페이지에 있을 수 있다.
-      level: fa.truncated ? 'unknown' : atRisk.length ? 'problem' : 'ok',
+      ...levelOr(fa.truncated, 'transient', atRisk.length ? 'problem' : 'ok'),
       ...(fa.truncated
         ? { meaning: `파일이 너무 많아 목록을 다 보지 못했어요(${fa.files}개까지 확인). 이 판정은 보류합니다.` }
         : atRisk.length
@@ -1274,7 +1297,7 @@ export function fileAuditMetrics(i: {
       actual: fa.truncated ? '확인 못 함' : `${clearable.length}개`,
       expected: '0개',
       // '문제'가 아니라 '할 일'이다 — 자료는 이미 없고 기록 줄만 남았다.
-      level: fa.truncated ? 'unknown' : clearable.length ? 'todo' : 'ok',
+      ...levelOr(fa.truncated, 'transient', clearable.length ? 'todo' : 'ok'),
       ...(clearable.length
         ? { meaning: `이미 지운 ${noun}의 기록 줄만 서버에 남아 있어요. **사본이 어디에도 없습니다**(이 기기를 찾아봤고, 다른 기기도 없습니다) — 아래 [지운 ${noun} 기록 정리]로 치울 수 있어요.` }
         : {}),
@@ -1444,7 +1467,7 @@ export async function storeStateProbe(): Promise<Verdict> {
     actual: cmp.outside.known ? `${cmp.outside.count}개` : '확인 못 함',
     expected: '0개',
     // 못 봤으면 정상이 아니라 '확인 불가'다(비타협 원칙 #4).
-    level: !cmp.outside.known ? 'unknown' : cmp.outside.count ? 'todo' : 'ok',
+    ...levelOr(!cmp.outside.known, 'transient', cmp.outside.count ? 'todo' : 'ok'),
     ...(!cmp.outside.known
       ? { meaning: '사진 저장소 최상위를 확인하지 못했어요. 앱은 자기 폴더만 보므로, 그 밖은 지금 판단할 수 없습니다.' }
       : cmp.outside.count
@@ -1466,7 +1489,7 @@ export async function storeStateProbe(): Promise<Verdict> {
     label: '올리다 만 사진 조각',
     actual: cmp.multipart.known ? `${cmp.multipart.mine}개` : '확인 못 함',
     expected: '0개',
-    level: !cmp.multipart.known ? 'unknown' : cmp.multipart.mine ? 'todo' : 'ok',
+    ...levelOr(!cmp.multipart.known, 'transient', cmp.multipart.mine ? 'todo' : 'ok'),
     ...(!cmp.multipart.known
       ? { meaning: '사진 저장소에 물어보지 못했어요. 서버 함수가 낡았거나 조회에 실패했습니다.' }
       : cmp.multipart.mine
@@ -1587,9 +1610,51 @@ async function currentUserSafe(): Promise<{ id: string } | null> {
  * 이 함수 하나가 두 곳에 쓰인다 — 허브 홈의 배지·총괄 줄, 그리고 요약 복사 도구. 롤업 규칙을
  * 두 번 쓰면 허브는 '정상'인데 요약은 '문제'인 화면이 언젠가 나온다(SSOT — 규칙을 두 번 쓰지 않는다).
  */
+/**
+ * 총괄 배너 한 문장 — **순수 함수**. 라이브가 못 가르는 갈래를 유닛이 전수로 잰다(§10 ③).
+ *
+ * 왜 뽑았나: 「구조적 확인 불가는 총괄을 끌어내리지 않는다」를 실제 앱에서 재려면 *다른 이상이
+ * 하나도 없는* 상태를 만들어야 하는데, 라이브 픽스처엔 늘 무언가 하나가 켜져 있다. 그 상태에선
+ * 검사가 **가려져서 통과**한다 — 초록이 「없다」가 아니라 **「못 갈랐다」**인 자리다(§4).
+ */
+/**
+ * 🔴 배너가 쓸 총괄 등급 — **구조적 확인 불가를 뺀 것**(사용자 지적 2026-08-06).
+ *
+ * 순수 함수인 이유는 §4다: 라이브에서 이 갈래를 재려면 *다른 이상이 하나도 없는* 상태가
+ * 필요한데 실제 앱에는 늘 무언가가 켜져 있어, 라이브만 두면 **가려져서 통과**한다.
+ */
+export function bannerLevelOf(per: { level: Level; unknownKind: UnknownKind }[]): Level {
+  const counted = per.filter((p) => !(p.level === 'unknown' && p.unknownKind === 'structural'));
+  // 전부 구조적이라 셀 것이 없으면 「이상 없음」이다 — 잴 수 없는 것은 이상이 아니다.
+  // (경계는 배너 문장이 개수로 따로 말한다.)
+  return counted.length ? worst(counted.map((p) => p.level)) : 'ok';
+}
+
+export function rollupBanner(i: {
+  bannerLevel: Level;
+  badLabels: string[];
+  todoLabels: string[];
+  structuralCount: number;
+}): string {
+  const head =
+    i.bannerLevel === 'problem'
+      ? `지금 확인할 것 ${i.badLabels.length}가지 — ${i.badLabels.join(' · ')}`
+      : i.bannerLevel === 'todo'
+        ? `해두면 좋은 일 ${i.todoLabels.length}가지 — ${i.todoLabels.join(' · ')}`
+        : i.bannerLevel === 'unknown'
+          ? '확인하지 못한 항목이 있어요'
+          : '이상 없음 · 방금 확인했어요';
+  // 🔴 숨기지 않는다 — 분류만 바꾸고 **경계는 개수로 말한다**(§8 · §7-C 시야의 경계).
+  return i.structuralCount ? `${head} · 이 기기에서 잴 수 없는 항목 ${i.structuralCount}개` : head;
+}
+
 export async function rollup(): Promise<{
   level: Level;
-  per: { id: string; label: string; level: Level; headline: string; metrics: Metric[] }[];
+  /** 🔴 구조적 확인 불가를 뺀 총괄 — 화면 배너가 쓰는 값이다(아래 주석 참조). */
+  bannerLevel: Level;
+  /** 구조적 확인 불가로 빠진 도구 수. 0이 아니면 배너가 그 사실을 함께 말한다(§8 경계 밝히기). */
+  structuralCount: number;
+  per: { id: string; label: string; level: Level; unknownKind: UnknownKind; headline: string; metrics: Metric[] }[];
 }> {
   const per = await Promise.all(
     CORE_TOOLS.map(async (t) => {
@@ -1597,17 +1662,52 @@ export async function rollup(): Promise<{
         const v = await t.probe();
         // 지표까지 들고 온다 — 요약 복사가 이걸 그대로 쓴다. 도구를 새로 만들면 **자동으로**
         // 요약에 들어간다(§7 2층: 다음 형제가 손대지 않아도 따라오게).
-        return { id: t.id, label: t.label, level: v.level, headline: v.headline, metrics: v.metrics };
+        const kind: UnknownKind = unknownIsStructural(v.metrics) ? 'structural' : 'transient';
+        return { id: t.id, label: t.label, level: v.level, unknownKind: kind, headline: v.headline, metrics: v.metrics };
       } catch {
         // 판정을 못 했으면 '정상'이 아니라 '확인 불가'다 — 미검사를 통과로 적지 않는다(원칙 #4).
-        return { id: t.id, label: t.label, level: 'unknown' as Level, headline: '확인하지 못했어요', metrics: [] };
+        // 🔴 그리고 이건 **일시적**이다: 예외는 다시 열면 안 날 수 있다. 구조적으로 밀면
+        // 진짜 고장이 총괄에서 조용히 사라진다.
+        return {
+          id: t.id, label: t.label, level: 'unknown' as Level, unknownKind: 'transient' as UnknownKind,
+          headline: '확인하지 못했어요', metrics: [],
+        };
       }
     }),
   );
-  return { level: worst(per.map((p) => p.level)), per };
+  // 🔴 **구조적 확인 불가는 총괄을 끌어내리지 않는다**(사용자 지적 2026-08-06:
+  // *"구조적으로 확인불가이면 확인불가로 판정은 하되 비정상으로 분류하면 안 될 거 같아요"*).
+  // 카드에는 여전히 `?`가 붙는다 — 판정을 숨기는 게 아니라 **분류만** 바꾼다.
+  // 반대로 일시적 확인 불가는 그대로 반영한다: 사용자가 눌러서 풀 수 있는 상태이기 때문이다(§8).
+  const structural = per.filter((p) => p.level === 'unknown' && p.unknownKind === 'structural');
+  return {
+    level: worst(per.map((p) => p.level)),
+    bannerLevel: bannerLevelOf(per),
+    structuralCount: structural.length,
+    per,
+  };
 }
 
-async function summaryText(): Promise<string> {
+/**
+ * 진단 요약 텍스트. 🔴 **한 곳에서만 만든다** — 허브 상단의 [결과 복사]와 「진단 요약 복사」 도구가
+ * 같은 것을 쓴다. 두 벌로 만들면 두 화면이 다른 것을 복사하기 시작한다(§7 2층).
+ */
+/**
+ * 요약을 클립보드로. **결과 문장을 돌려준다** — 부르는 쪽이 그대로 화면에 띄운다(§13 4항:
+ * 누르면 결과가 화면에 나와야 한다). 실패도 조용히 삼키지 않고 다음 행동을 말한다(§7-D).
+ */
+export async function copyDiagSummary(): Promise<string> {
+  const text = await summaryText();
+  if (!navigator.clipboard?.writeText) return '이 브라우저는 자동 복사가 막혀 있어요. [진단 요약 복사] 도구의 [원문 보기]를 열어 길게 눌러 복사해 주세요.';
+  try {
+    await navigator.clipboard.writeText(text);
+    return '복사했어요. 대화창에 붙여넣으시면 됩니다.';
+  } catch {
+    return '복사가 막혔어요. [진단 요약 복사] 도구의 [원문 보기]를 열어 길게 눌러 복사해 주세요.';
+  }
+}
+
+export async function summaryText(): Promise<string> {
   const [env, sync, roll] = await Promise.all([collectEnv(APP_VERSION), diagnoseSync(), rollup()]);
   const integ = checkIntegrity(await loadIntegritySnapshot());
   const errs = recentErrors();
@@ -1657,12 +1757,12 @@ async function summaryText(): Promise<string> {
 
 export async function summaryProbe(): Promise<Verdict> {
   const roll = await rollup();
-  const metrics: Metric[] = roll.per.map((p) => ({
-    label: p.label,
-    actual: p.headline,
-    expected: '정상',
-    level: p.level,
-  }));
+  // 요약은 각 도구의 판정을 그대로 옮긴다. 종류도 **원래 도구가 정한 것**을 물려받는다 —
+  // 여기서 다시 고르면 같은 판정이 두 화면에서 달라진다(§7 사용자 대면 대칭).
+  const metrics: Metric[] = roll.per.map((p) => {
+    const src: MetricSource = { actual: p.headline, expected: '정상', level: p.level };
+    return metricFromView(p.label, src, p.unknownKind);
+  });
   const bad = roll.per.filter((p) => p.level === 'problem').length;
   return {
     level: roll.level,
@@ -1681,16 +1781,7 @@ export async function summaryProbe(): Promise<Verdict> {
         label: '복사하기',
         primary: true,
         hook: 'data-copy-diag',
-        run: async () => {
-          const text = await summaryText();
-          if (!navigator.clipboard?.writeText) return '이 브라우저는 자동 복사가 막혀 있어요. 아래 [원문 보기]를 열어 길게 눌러 복사해 주세요.';
-          try {
-            await navigator.clipboard.writeText(text);
-            return '복사했어요. 대화창에 붙여넣으시면 됩니다.';
-          } catch {
-            return '복사가 막혔어요. 아래 [원문 보기]를 열어 길게 눌러 복사해 주세요.';
-          }
-        },
+        run: copyDiagSummary,
       },
     ],
     evidence: [
@@ -1792,13 +1883,8 @@ export async function trashProbe(): Promise<Verdict> {
   const o = await collectTrashState();
   const views = trashMetrics(o);
   const labels = ['휴지통 목록의 기준', '되살려도 자료가 비는 항목', '되살릴 곳이 없는 항목'];
-  const metrics: Metric[] = views.map((v, i) => ({
-    label: labels[i] ?? '',
-    actual: v.actual,
-    expected: v.expected,
-    level: v.level,
-    ...(v.meaning ? { meaning: v.meaning } : {}),
-  }));
+  // 이 도메인의 `확인 불가`는 전부 **일시적**이다 — 서버 조회·로그인·목록 확보가 되면 풀린다.
+  const metrics: Metric[] = views.map((v, i) => metricFromView(labels[i] ?? '', v, 'transient'));
 
   const cap = (rows: { label: string }[]): [string, string][] => {
     const shown: [string, string][] = rows.slice(0, TRASH_ITEM_CAP).map((r) => [r.label, '']);
@@ -1856,13 +1942,8 @@ export function roundTripProbe(): Promise<Verdict> {
   const run = lastRoundTrip();
   const v = roundTripView(run);
   const metrics: Metric[] = [
-    {
-      label: '왕복 시험',
-      actual: v.actual,
-      expected: v.expected,
-      level: v.level,
-      ...(v.meaning ? { meaning: v.meaning } : {}),
-    },
+    // 아직 안 돌렸거나 결과를 못 읽은 상태 — 버튼을 누르면 풀린다(**일시적**).
+    metricFromView('왕복 시험', v, 'transient'),
   ];
   const evidence: Verdict['evidence'] = [];
   if (run) {
@@ -1941,13 +2022,8 @@ export async function serverContractProbe(): Promise<Verdict> {
   const o = await collectServerContract();
   const views = serverContractMetrics(o);
   const labels = ['로그인 없는 접근', '한 번에 받는 행수', '페이지 경계'];
-  const metrics: Metric[] = views.map((v, i) => ({
-    label: labels[i] ?? '',
-    actual: v.actual,
-    expected: v.expected,
-    level: v.level,
-    ...(v.meaning ? { meaning: v.meaning } : {}),
-  }));
+  // 이 도메인의 `확인 불가`는 전부 **일시적**이다 — 서버 조회·로그인·목록 확보가 되면 풀린다.
+  const metrics: Metric[] = views.map((v, i) => metricFromView(labels[i] ?? '', v, 'transient'));
   return {
     level: levelFromMetrics(metrics),
     headline: serverContractHeadline(o),
@@ -1977,13 +2053,8 @@ export async function sessionProbe(): Promise<Verdict> {
   const o = await collectSessionState();
   const views = sessionMetrics(o);
   const labels = ['로그인 유지', '로그아웃하면 가려짐'];
-  const metrics: Metric[] = views.map((v, i) => ({
-    label: labels[i] ?? '',
-    actual: v.actual,
-    expected: v.expected,
-    level: v.level,
-    ...(v.meaning ? { meaning: v.meaning } : {}),
-  }));
+  // 이 도메인의 `확인 불가`는 전부 **일시적**이다 — 서버 조회·로그인·목록 확보가 되면 풀린다.
+  const metrics: Metric[] = views.map((v, i) => metricFromView(labels[i] ?? '', v, 'transient'));
   return {
     level: levelFromMetrics(metrics),
     headline: sessionHeadline(o),
@@ -2022,13 +2093,8 @@ export async function sessionProbe(): Promise<Verdict> {
 export async function fileRealityProbe(): Promise<Verdict> {
   const { photo, audio } = await tallyLocalFiles();
   const input: FileRealityInput = { photo, audio, sweep: lastSweep() };
-  const metrics: Metric[] = fileRealityMetrics(input).map((m) => ({
-    label: m.label,
-    actual: m.actual,
-    expected: m.expected,
-    level: m.level,
-    ...(m.meaning ? { meaning: m.meaning } : {}),
-  }));
+  // 아직 안 열어 본 상태 — [열어 보기]를 누르면 풀린다(**일시적**).
+  const metrics: Metric[] = fileRealityMetrics(input).map((m) => metricFromView(m.label, m, 'transient'));
   const sweep = input.sweep;
   return {
     level: levelFromMetrics(metrics),
@@ -2111,13 +2177,8 @@ export async function deviceFleetProbe(): Promise<Verdict> {
   };
   const views = fleetMetrics(o);
   const labels = ['이 계정의 기기', '오래 안 올린 기기'];
-  const metrics: Metric[] = views.map((v, i) => ({
-    label: labels[i] ?? '',
-    actual: v.actual,
-    expected: v.expected,
-    level: v.level,
-    ...(v.meaning ? { meaning: v.meaning } : {}),
-  }));
+  // 이 도메인의 `확인 불가`는 전부 **일시적**이다 — 서버 조회·로그인·목록 확보가 되면 풀린다.
+  const metrics: Metric[] = views.map((v, i) => metricFromView(labels[i] ?? '', v, 'transient'));
   return {
     level: levelFromMetrics(metrics),
     headline: fleetHeadline(o),

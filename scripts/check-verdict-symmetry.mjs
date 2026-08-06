@@ -77,7 +77,23 @@ export function metricsMissingExpected(src) {
       }
     }
     const obj = src.slice(start, end);
-    const missing = ['label:', 'expected:', 'level:'].filter((k) => !obj.includes(k));
+    // 🔴 **오탐도 결함이다**(§11 ③). 두 가지는 지표 리터럴이 아니거나, 빠진 것처럼 보일 뿐이다:
+    //  ① `...levelOr(` — 등급을 **스프레드로** 넣는다. 타입이 `unknownKind`까지 강제하므로
+    //     여기 없는 `level:`은 누락이 아니다(2026-08-06 신설).
+    //  ② `MetricSource` — 도메인 뷰를 옮기는 **중간 모양**이라 label을 아직 안 붙였다.
+    //     라벨은 `metricFromView(label, …)`가 붙이고, 그건 타입이 강제한다.
+    // 두 예외 다 **타입이 대신 지키는 자리**다 — 규율이 사라진 게 아니라 층이 바뀌었다.
+    const suppliedBySpread = obj.includes('...levelOr(');
+    const before = src.slice(Math.max(0, start - 80), start);
+    //  ③ 타입 선언 자체(`interface X {` · `type X = {`)는 지표가 아니라 **모양의 정의**다.
+    //     여기까지 지표로 세면 새 타입을 만들 때마다 게이트가 거짓 경보를 낸다.
+    const isViewSource = /:\s*MetricSource\b/.test(before) || /\b(interface\s+\w+|type\s+\w+\s*=)\s*$/.test(before);
+    if (isViewSource) continue;
+    // 단축 속성(`{ label, … }`)도 계약을 지킨 것이다 — `label:`만 찾으면 오탐이 난다(§11 ③).
+    const has = (k) => obj.includes(`${k}:`) || new RegExp(`[{,]\\s*${k}\\s*[,}]`).test(obj);
+    const missing = ['label', 'expected', 'level'].filter(
+      (k) => !has(k) && !(k === 'level' && suppliedBySpread),
+    ).map((k) => `${k}:`);
     if (missing.length) bad.push(`지표 리터럴에 ${missing.join(', ')} 누락 — 기준 없는 숫자는 판정이 아니다 (…${obj.slice(0, 60).replace(/\s+/g, ' ')}…)`);
   }
   return bad;
