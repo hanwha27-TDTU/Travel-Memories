@@ -67,6 +67,7 @@ import {
   pendingUnpurgeIds,
 } from '../../services/purge';
 import { supabase, isConfigured } from '../../services/supabase/client';
+import { auditPlaceZombies } from '../../services/placeZombieAudit';
 import { exportBackup } from '../../services/backup';
 import { recordBackupNow, getLastBackupAt, backupFreshness, STALE_DAYS } from '../../services/backupMeta';
 import { collectTrashState } from '../../services/trashState';
@@ -98,6 +99,9 @@ import { renderTool, levelFromMetrics, worst, unknownIsStructural, levelOr, type
 
 /** 접힌 출처에 보일 사진 id 상한. 넘으면 "외 N건 생략"이라고 **적는다**(조용히 자르지 않는다). */
 export const FILE_ID_CAP = 20;
+
+/** 개인정보를 보이지 않는 범위에서 후보 ID를 보여 줄 상한. */
+export const PLACE_ZOMBIE_ID_CAP = 20;
 
 /**
  * 이 앱이 **기대하는** 사진 저장소 함수 판. 서버가 이보다 낮으면 새 지표를 믿을 수 없다.
@@ -450,6 +454,135 @@ export async function syncProbe(): Promise<Verdict> {
 // ────────────────────────────────────────────────────────────────────────────
 // ③ ID 무결성 — 기록이 서로 앞뒤가 맞나
 // ────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 삭제 뒤 장소 재생성(좀비) — tombstone과 같은 이름·좌표의 새 UUID 감시
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 이전 결함은 tombstone을 "없는 장소"로 오인해 새 UUID를 만들고, 그 UUID를 다시
+ * 업로드하면서 삭제 승리를 피해 갔다. 이 도구는 그 흔적을 서버와 로컬에서 읽기만 한다.
+ *
+ * 같은 곳을 사용자가 의도적으로 다시 등록했을 가능성도 있으므로 후보를 자동 삭제하지
+ * 않는다. 자동 정리는 또 다른 데이터 유실을 만드는 더 위험한 좀비 대응이다.
+ */
+export async function placeZombieProbe(): Promise<Verdict> {
+  const c = supabase();
+  const u = c ? await currentUserSafe() : null;
+  if (!c || !u) {
+    const structural = !c;
+    return {
+      level: 'unknown',
+      headline: '로그인한 뒤 서버와 장소 재생성 후보를 대조할 수 있어요',
+      because: '이 검사는 삭제 표식과 활성 장소를 서버·이 기기에서 함께 읽습니다. 어느 한쪽만 보면 다른 기기에 퍼질 후보를 판단할 수 없습니다.',
+      metrics: [{
+        label: '서버 장소 대조',
+        actual: !c ? '서버 연결 없음' : '로그인 필요',
+        expected: '로그인된 서버 대조',
+        level: 'unknown',
+        unknownKind: structural ? 'structural' : 'transient',
+      }],
+      actions: [],
+      evidence: [],
+      context: [],
+    };
+  }
+
+  try {
+    const audit = await auditPlaceZombies(c);
+    const serverCount = audit.server.length;
+    const localCount = audit.local.length;
+    const hasCandidates = serverCount > 0 || localCount > 0;
+    const metrics: Metric[] = [
+      {
+        label: '서버의 삭제 뒤 재생성 후보',
+        actual: `${serverCount}건`,
+        expected: '0건',
+        level: serverCount ? 'todo' : 'ok',
+        ...(serverCount
+          ? { meaning: '삭제 표식과 같은 이름·좌표를 가진 활성 장소가 서버에 있습니다. 다른 기기에 퍼질 수 있으므로 위치관리대장에서 의도적 재등록인지 확인해 주세요.' }
+          : {}),
+      },
+      {
+        label: '이 기기의 삭제 뒤 재생성 후보',
+        actual: `${localCount}건`,
+        expected: '0건',
+        level: localCount ? 'todo' : 'ok',
+        ...(localCount
+          ? { meaning: '이 기기에만 먼저 보인 후보입니다. 동기화 후에도 남으면 위치관리대장에서 의도적 재등록인지 확인해 주세요.' }
+          : {}),
+      },
+    ];
+    const level = levelFromMetrics(metrics);
+    const sample = audit.server.length ? audit.server : audit.local;
+    const shown = sample.slice(0, PLACE_ZOMBIE_ID_CAP);
+    const omitted = Math.max(0, sample.length - shown.length);
+    const v: Verdict = {
+      level,
+      headline: hasCandidates
+        ? `삭제 뒤 새로 생긴 장소 후보가 ${Math.max(serverCount, localCount)}건 있어요`
+        : '삭제 표식과 겹치는 새 장소 UUID가 없습니다',
+      because: hasCandidates
+        ? '이름·좌표가 같은 삭제 표식과 활성 장소를 찾았습니다. 의도적으로 같은 장소를 다시 등록했을 수도 있어 자동 삭제하지 않습니다.'
+        : '삭제 표식이 남아 있는 장소가 새 UUID로 다시 활성화된 흔적은 서버와 이 기기에서 찾지 못했습니다.',
+      metrics,
+      actions: [],
+      evidence: hasCandidates
+        ? [{
+            label: `확인할 후보 ${shown.length}건${omitted ? ` (외 ${omitted}건 생략)` : ''}`,
+            build: () => table(
+              [
+                ...shown.map((candidate): [string, string] => [
+                  `활성 ${candidate.activeId.slice(0, 8)}`,
+                  `삭제 표식 ${candidate.deletedIds.map((id) => id.slice(0, 8)).join(', ')}`,
+                ]),
+                ...(omitted ? ([['안내', `후보 ${omitted}건은 화면에서 생략되었습니다. 진단 요약 복사에는 전체 개수만 담깁니다.`]] as [string, string][]) : []),
+              ],
+              '확인할 후보가 없습니다.',
+            ),
+          }]
+        : [],
+      context: [
+        { label: '서버 장소 행', value: `${audit.serverRows}건` },
+        { label: '이 기기 장소 행', value: `${audit.localRows}건` },
+        { label: '대조 세대', value: audit.generation.slice(0, 8) },
+      ],
+    };
+    if (hasCandidates) {
+      v.actions.push({
+        label: '동기화 후 다시 확인',
+        primary: true,
+        hook: 'data-sync-zombie-places',
+        run: async () => {
+          await requestSync('장소 재생성 후보 재확인', { deep: true });
+          const after = syncStatus();
+          if (after.phase === 'failed') return `동기화 실패: ${after.lastError ?? '사유를 확인하지 못했습니다.'}`;
+          if (after.phase === 'offline') return '오프라인입니다. 연결되면 자동으로 다시 동기화합니다.';
+          if (after.phase === 'signed-out') return '로그인 상태가 아닙니다. 로그인 후 다시 확인해 주세요.';
+          return '동기화를 마쳤습니다. 최신 서버 기준으로 후보를 다시 판정합니다.';
+        },
+      });
+    }
+    return v;
+  } catch (e) {
+    return {
+      level: 'unknown',
+      headline: '장소 재생성 후보를 끝까지 대조하지 못했습니다',
+      because: '중간에 최종본 세대가 바뀌었거나 서버 장소 대장을 모두 읽지 못했습니다. 추측으로 후보를 만들지 않고 다시 확인할 수 있게 남깁니다.',
+      metrics: [{
+        label: '서버·이 기기 장소 대조',
+        actual: '확인 불가',
+        expected: '같은 최종본 세대에서 대조',
+        level: 'unknown',
+        unknownKind: 'transient',
+        meaning: (e as Error).message,
+      }],
+      actions: [],
+      evidence: [],
+      context: [],
+    };
+  }
+}
 
 export async function integrityProbe(): Promise<Verdict> {
   const r = checkIntegrity(await loadIntegritySnapshot());
@@ -2259,6 +2392,15 @@ export const CORE_TOOLS: DiagTool[] = [
     hint: '서버와 얼마나 어긋나 있나',
     lead: '이 기기의 변경이 서버까지 갔는지 봅니다.',
     probe: syncProbe,
+  },
+  {
+    id: 'place-zombie',
+    group: 'compare',
+    icon: '🧟',
+    label: '삭제 장소 재생성 감시',
+    hint: '삭제한 장소가 새 UUID로 다시 생겼는지',
+    lead: '삭제 표식과 이름·좌표가 같은 활성 장소를 서버와 이 기기에서 대조합니다. 후보는 자동으로 지우지 않습니다.',
+    probe: placeZombieProbe,
   },
   {
     id: 'integrity',

@@ -107,6 +107,9 @@ export const SKILL_ROUTES = [
   { match: /^src\/ui\/dragReorder/, skill: 'ui-responsive-dev' },
   { match: /^src\/ui\/panels\/(verdict|diagnostics)/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/(diagnostics|envReport|storeState)/, skill: 'diagnostics-dev' },
+  // 삭제 표식과 새 UUID의 대조는 판정과 동기화 스냅샷이 함께 성립해야 한다.
+  { match: /^src\/services\/placeZombieAudit/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/placeZombieAudit/, skill: 'sync-offline-dev' },
   // deviceId는 진단이 읽지만 **동기화 push 경로에 값을 찍는다** — 규율은 그쪽이 더 무겁다.
   { match: /^src\/app\/deviceId/, skill: 'sync-offline-dev' },
   { match: /^src\/app\/errorLog/, skill: 'diagnostics-dev' },
@@ -118,6 +121,8 @@ export const SKILL_ROUTES = [
   // 동시에 걸리는 이음매라 두 헌장을 모두 읽는다(M-0095).
   { match: /^src\/domain\/syncTombstoneVerdict/, skill: 'diagnostics-dev' },
   { match: /^src\/domain\/syncTombstoneVerdict/, skill: 'sync-offline-dev' },
+  { match: /^src\/domain\/placeZombieVerdict/, skill: 'diagnostics-dev' },
+  { match: /^src\/domain\/placeZombieVerdict/, skill: 'sync-offline-dev' },
   // 휴지통 판정 + 그 관측 수집. `syncTombstoneVerdict`와 **같은 이음매**라 두 헌장을 모두 읽는다:
   // 판정 문장은 진단 규율(§8 · §10 ③), 「무엇을 휴지통으로 볼 것인가」는 삭제·tombstone 규율이다.
   { match: /^src\/domain\/trashVerdict/, skill: 'diagnostics-dev' },
@@ -224,7 +229,7 @@ export const SKILL_ROUTES = [
  */
 export const POSTMORTEMS = [
   {
-    match: /^(src\/services\/(sync|autoSync|purge|trash|storeState|r2|media|backup)|src\/domain\/syncTombstoneVerdict|src\/ui\/panels\/(diagnostics|verdict)|src\/offline\/|supabase\/)/,
+    match: /^(src\/services\/(sync|autoSync|purge|trash|storeState|placeZombieAudit|r2|media|backup)|src\/domain\/(syncTombstoneVerdict|placeZombieVerdict)|src\/ui\/panels\/(diagnostics|verdict)|src\/offline\/|supabase\/)/,
     doc: 'docs/records/2026-07-26-STORAGE-DELETE-POSTMORTEM.md',
     // ⚠️ **개수를 여기 손으로 적지 않는다.** 처음엔 '결함 10건'이라고 박아 뒀는데 사고가 12건이
     // 될 때까지 아무도 못 고쳤다 — 브리핑이 "이 영역에서 뭐가 났는지"를 알려주는 자리에서

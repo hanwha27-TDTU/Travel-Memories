@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import 'fake-indexeddb/auto';
 import { db } from '../../src/offline/db';
 import { createMomentLocalFirst, updateMomentLocalFirst } from '../../src/services/moments';
-import { listPlaces, reconcileMomentPlaces, savePlace, updatePlace } from '../../src/services/places';
+import { listPlaces, reconcileMomentPlaces, savePlace, softDeletePlace, updatePlace } from '../../src/services/places';
 
 beforeEach(async () => {
   const d = db();
@@ -137,5 +137,55 @@ describe('기존 순간 장소 소급 등록', () => {
 
     expect(await db().localPlaces.count()).toBe(1);
     expect((await db().syncQueue.toArray()).filter((op) => op.entityType === 'place')).toHaveLength(1);
+  });
+
+  it('does not recreate a deleted place while reconciling an existing moment link', async () => {
+    const place = await savePlace({ name: 'deleted ledger place', latitude: 37.5, longitude: 127, mapPicked: true });
+    const moment = await createMomentLocalFirst({
+      tripId: 'trip-1', title: 'linked moment', placeId: place.id,
+      placeName: place.name, placeLat: place.latitude, placeLng: place.longitude,
+    });
+    await softDeletePlace(place.id);
+    await db().syncQueue.clear();
+
+    // Before the fix this returned 1, created a fresh place UUID, and rewrote
+    // the moment. That new UUID then escaped the tombstone on the next sync.
+    expect(await reconcileMomentPlaces()).toBe(0);
+    expect(await db().localPlaces.count()).toBe(1);
+    expect(await db().localPlaces.get(place.id)).toMatchObject({ deletedAt: expect.any(String) });
+    expect(await db().localMoments.get(moment.id)).toMatchObject({ placeId: place.id });
+    expect((await db().syncQueue.toArray()).filter((op) => op.entityType === 'place')).toHaveLength(0);
+  });
+
+  it('does not recreate a deleted place during an unrelated moment edit', async () => {
+    const place = await savePlace({ name: 'deleted edit place', latitude: 37.5, longitude: 127, mapPicked: true });
+    const moment = await createMomentLocalFirst({
+      tripId: 'trip-1', title: 'before edit', placeId: place.id,
+      placeName: place.name, placeLat: place.latitude, placeLng: place.longitude,
+    });
+    await softDeletePlace(place.id);
+    await db().syncQueue.clear();
+
+    const updated = await updateMomentLocalFirst(moment.id, { title: 'after edit' });
+
+    expect(updated.placeId).toBe(place.id);
+    expect(await db().localPlaces.count()).toBe(1);
+    expect(await db().localPlaces.get(place.id)).toMatchObject({ deletedAt: expect.any(String) });
+    expect((await db().syncQueue.toArray()).filter((op) => op.entityType === 'place')).toHaveLength(0);
+  });
+
+  it('preserves a stale deleted place selection instead of cloning it on create', async () => {
+    const place = await savePlace({ name: 'deleted picker place', latitude: 37.5, longitude: 127, mapPicked: true });
+    await softDeletePlace(place.id);
+    await db().syncQueue.clear();
+
+    const moment = await createMomentLocalFirst({
+      tripId: 'trip-1', title: 'stale picker submit', placeId: place.id,
+      placeName: place.name, placeLat: place.latitude, placeLng: place.longitude,
+    });
+
+    expect(moment.placeId).toBe(place.id);
+    expect(await db().localPlaces.count()).toBe(1);
+    expect((await db().syncQueue.toArray()).filter((op) => op.entityType === 'place')).toHaveLength(0);
   });
 });

@@ -41,10 +41,13 @@ export async function createMomentLocalFirst(input: CreateMomentInput): Promise<
   const d = db();
   const selectedPlace = input.placeId ? await d.localPlaces.get(input.placeId) : null;
   const activeSelectedPlace = selectedPlace?.deletedAt === null ? selectedPlace : null;
+  const tombstonedSelectedPlace = selectedPlace?.deletedAt !== null ? selectedPlace : null;
   const placeName = input.placeName?.trim() || activeSelectedPlace?.name || '';
   const placeLat = input.placeLat ?? activeSelectedPlace?.latitude ?? null;
   const placeLng = input.placeLng ?? activeSelectedPlace?.longitude ?? null;
-  const registeredPlaceId = activeSelectedPlace?.id ?? await registerMomentPlace({
+  // A stale picker/form can still carry a deleted ledger ID. Preserve that
+  // stable relation so a restore reconnects it; never turn it into a new place.
+  const registeredPlaceId = activeSelectedPlace?.id ?? tombstonedSelectedPlace?.id ?? await registerMomentPlace({
     name: placeName,
     latitude: placeLat,
     longitude: placeLng,
@@ -168,6 +171,11 @@ export async function updateMomentLocalFirst(id: string, patch: UpdateMomentPatc
       // 연결을 명시적으로 유지한 이름 편집이다. 장소를 새로 만들지 않고 이 ID를 기준으로
       // 아래 트랜잭션에서 대장·형제 순간 이름을 함께 맞춘다.
       if (!next.placeName.trim()) next.placeName = linked.name;
+    } else if (linked?.deletedAt !== null) {
+      // A deleted ledger link is never an instruction to create another row.
+      // Keep its ID so a restore can reconnect the existing moment. Explicit
+      // clearing already took the branch above; an active replacement is handled
+      // by the active-link branch.
     } else {
       next.placeId = null;
       const registeredPlaceId = await registerMomentPlace({
