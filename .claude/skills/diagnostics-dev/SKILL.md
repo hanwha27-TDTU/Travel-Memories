@@ -39,7 +39,7 @@ description: 진단 도구 개발 프롬프트 — src/ui/panels/verdict.ts·dia
 | `src/ui/panels/diagnostics.ts` | 도구별 `probe()` = `Verdict` 생산 + **도구 등록부**(`CORE_TOOLS`) |
 | `src/domain/diagGroups.ts` | 🔴 **경로축 8단계**(`DIAG_GROUPS`·`GROUP_META`) + **사각지대 등록부**(`BLIND_SPOTS`) |
 | `src/ui/screens/diagnosticsHub.ts` | 허브 — 총괄 판정 줄 + **경로축 단계별 묶음**(`renderByPath`) + 카드별 배지 |
-| `src/domain/roundTripVerdict.ts` | 「왕복 시험」(쓰기 시험) 8단계 판정 — 순수 |
+| `src/domain/roundTripVerdict.ts` | 「왕복 시험」(쓰기 시험) 10단계 판정 — 순수 |
 | `src/domain/serverContractVerdict.ts` | 「서버 계약」 판정 — 순수 |
 | `scripts/check-diag-blindspots.mjs` | 등록부·분류·아이콘 규율 8가지(A~H)를 정적으로 강제 |
 | `scripts/check-gate-integrity.mjs` | 🔴 **메타게이트** — 게이트 자신이 비공허한가(§11) |
@@ -173,15 +173,23 @@ v1.76이 이 8단계를 만들고 인계 문서에 *"경로축으로 재분류�
 
 ## 2-D. 쓰기 시험 — 읽기만으로는 못 재는 것이 있다
 
-사용자가 검증 범위를 *"쓰기 시험까지"*로 정했다. 「왕복 시험」(`roundtrip`)이 시험용 여행 하나로
-8단계를 돈다: 저장 → 올림 → **서버에서 되읽기** → 삭제 → 삭제가 서버에 반영 → 영구삭제 →
-**행 사라짐 + 원장에 남음** → 뒷정리. 단계마다 *무엇을 증명하는지*를 함께 적는다.
+사용자가 검증 범위를 *"쓰기 시험까지"*로 정했다. 「왕복 시험」(`roundtrip`)은 시험용 여행 하나로
+정확히 10단계를 돈다: `create → push → serverRead → update → stampRead → delete → tombstoneRead →
+purge → purgeRead → cleanup`. 행동의 성공 응답이 아니라 **그 뒤의 권위 있는 되읽기**가 완료 증거다.
+이식 가능한 전체 계약은 `docs/ROUND_TRIP_TEST_BLUEPRINT.md`가 정본이다.
 
 **안전 경계 — 쓰기 도구를 만들 때 지킬 것**:
 
-- **자기가 만든 id 하나만** 건드린다. 사용자의 기록에는 손대지 않는다(§0).
-- 제목 접두사(`[진단] 왕복 시험`)로 **숨기지 않고 알아보게** 한다 — 감추면 정리 실패를 영영 모른다.
-- 실패해도 **정리를 시도**하고, 못 치웠으면 `leftover`로 **말한다**(조용히 남기지 않는다).
+- **자기가 만든 `runId + fixtureId + machine marker` 하나만** 건드린다. 제목 접두사는 사람이
+  알아보는 표식일 뿐 삭제 권한이 아니다. 사용자 제목이 같아도 절대 정리하지 않는다(§0).
+- 첫 쓰기 직전에 `activeRun`을 영속 기록하고, 앱 재시작 뒤에도 정확한 ID로 복구한다. 정리
+  read-back이 끝나기 전에는 기록을 지우지 않는다.
+- 선행 단계가 실패하면 의존 단계는 `skipped`다. 단, `cleanup`은 본 흐름과 독립된 `finally`에서
+  항상 시도하고 로컬·서버·큐·원장을 각각 되읽는다.
+- 동기화 함수의 resolve나 빈 큐는 증거가 아니다. **이번 fixture의 operation id/version/payload가
+  착지했다는 영수증**과 서버 read-back이 함께 있어야 한다.
+- canonical generation이 실행 전후 달라지거나 preflight를 못 재면 성공·실패로 꾸미지 말고
+  `unknown`으로 멈춘다. 오래된 단계 목록·다른 계정·다른 앱 버전 캐시는 통과 증거가 아니다.
 - 🔴 **성공하면 사라지는 것의 부재를 증거로 쓰지 않는다**(M-0095). 큐·락·pending은 성공 시
   사라지므로 그 부재만으로 성공과 실패를 못 가른다 — 서버 행·원장·read-back으로 판정한다.
 

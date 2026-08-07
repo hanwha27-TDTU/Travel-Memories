@@ -3,8 +3,8 @@
   "project": "bugeon-journey",
   "sharedLaw": {
     "source": "https://github.com/hanwha27-TDTU/Codex-Shared-Skills",
-    "commit": "268126d44103df9ca709e7b8eec49d8e679437c2",
-    "contentSha256": "e8f70da5fe7074d517b820b3123410d093b7238e94ee3eb60aebcfca9137646a",
+    "commit": "7b601813b6d1a29e0b17f9307f57653593adb505",
+    "contentSha256": "360690f94e775cbbb86c7fb7e13f634797f49c6ef73c1917b42431f5d6f6eafb",
     "vendoredPath": "vendor/codex-shared-skills/release-harness-governance"
   },
   "gateRegistry": "scripts/harness.mjs",

@@ -873,6 +873,9 @@ npm run harness && echo OK || echo FAILED                                 # ✓ 
 
 낭비되는 시간의 대부분은 대기가 아니라 **병렬로 할 수 있는 것을 줄 세운 것**이다.
 
+이 원칙은 조사·검사·배포뿐 아니라 **앱 런타임 오케스트레이션과 동기화 도메인**에도 그대로
+적용한다. 같은 단계의 작업이 서로의 결과를 입력으로 쓰지 않으면 병렬이 기본이다.
+
 **직렬 판정 기준(이것만)**: 앞의 결과가 뒤의 입력인가? 순서가 바뀌면 뒤의 증거가 무효가 되는가?
 
 ```
@@ -884,11 +887,26 @@ CI 초록 → 머지 → 배포
 **그 밖에서 「앞의 것이 끝나야 안심된다」로 줄 세우는 것은 의존이 아니라 습관이다.**
 병렬로 해야 하는 것: 조사·탐색 · 리뷰 렌즈 · 서로 다른 파일을 보는 검사 · 독립 배포 표면.
 
+🔴 **직렬 경계에는 구체적 사유가 필수다.** `안전을 위해`·`기존 순서라서`·`한 번에 하나씩`은
+사유가 아니다. 다음 둘 중 하나를 **정확한 값·자원·증거 이름으로** 적는다.
+
+1. 앞 단계의 어떤 출력이 뒤 단계의 어떤 입력이 되는가.
+2. 어떤 공유 자원이나 read-back 증거가 겹쳐, 순서를 바꾸면 무엇이 무효가 되는가.
+
+코드 오케스트레이션은 가능하면 병렬 그룹과 직렬 간선을 **타입 있는 실행 계획 데이터**로 둔다.
+첫 단계 이후의 각 간선은 `reason` 같은 필수 필드를 가져야 하며, 새 형제가 들어올 때 병렬 그룹과
+의존성을 선택하지 않으면 컴파일·게이트가 실패해야 한다. 산문 주석만으로 줄 세우지 않는다.
+
+🔴 **병렬 실패도 합류(join) 뒤에 보고한다.** 부수효과가 있는 형제 중 하나가 실패했다고 즉시
+반환하면 나머지 쓰기는 뒤에서 계속되어 다음 단계·다음 실행과 겹친다. 같은 단계의 모든 형제를
+성공/실패로 정산한 뒤 실패를 반환한다. 조기 reject를 완료 경계로 쓰지 않는다.
+
 병렬 전 확인 셋: ①**같은 자원을 쓰는가**(겹치면 병렬이 아니라 직렬이거나 격리)
 ②**결과를 합칠 자리와 실패 처리를 먼저 정했는가** ③**침묵을 관측할 수 있는가**
 (못 하면 대리 지표에 속는다 — §18-A).
 
-보고도 **「직렬 N구간 + 병렬 M구간」**으로 적는다. 「28분 걸렸다」는 정보가 없다.
+PR과 완료 보고에는 **병렬 그룹**과 **직렬 간선+각 사유**를 적고, 요약은
+**「직렬 N구간 + 병렬 M구간」**으로 쓴다. 「28분 걸렸다」는 정보가 없다.
 
 ### §18-D. 자동화도 하나의 표면이다
 
@@ -933,11 +951,12 @@ CI 초록 → 머지 → 배포
 | ② 구조 | 파이프 대신 로그+`EXIT=$?`가 기본 관용구 | 검증 명령을 적는 모든 자리 |
 | ③ 기계 | **PreToolUse(Bash) 훅이 파이프를 차단**한다 | `scripts/hook-verify-exit.mjs` |
 
-**정직한 한계**: 훅은 **파이프 형태**만 본다. 「대리 지표로 완료를 판정했는가」·「병렬로 할 수
-있는 것을 줄 세웠는가」는 판단이라 기계 밖이고, 그 자리는 이 조항과 착수 브리핑뿐이다.
+**정직한 한계**: 훅은 **파이프 형태**만 본다. 일반 코드 전부에서 「병렬로 할 수 있는 것을
+줄 세웠는가」는 여전히 판단 영역이다. 다만 동기화 오케스트레이션은 `syncPlan.ts`의 실행 계획과
+`check-sync-parallelism`이 push 3단계·pull 1단계·직렬 사유·join-all을 기계로 잠근다.
 
 ## 문서 지도 (SSOT)
 
 
-**`docs/HANDOFF_CODEX.md`(처음 들어온 AI를 위한 완전 인계서 — 맥락 없이도 이어서 일할 수 있게)** · `docs/PROJECT_SPEC.md`(요구사항·최상위) · `ARCHITECTURE.md` · `DATA_MODEL.md` · `SECURITY.md` · `PRIVACY.md` · `SYNC_PROTOCOL.md` · `MEDIA_PIPELINE.md` · `DEPLOYMENT.md`(배포 계약) · `AGENT_REGISTRY.md` · `LESSONS.md` · `ROADMAP.md` · `TEST_PLAN.md` · `DECISIONS.md` · `ASSUMPTIONS.md` · `HANDOFF.md` · `CHANGELOG.md` · `REPOSITORY_AUDIT.md` · `CONFLICT_REPORT.md` · `ACTIVE_TASKS.md` · `BACKLOG.md`(🔴 미완료 과제 단일 정본 — 상태는 여기에만 적고 다른 문서는 T-번호로 링크만. `npm run brief`가 열린 과제를 매 착수마다 띄운다) · `DISASTER_RECOVERY.md`(백업·복원 계약 — 전용 감사 에이전트가 참조). v0.2 원본은 `docs/reference/v0.2/`.
+**`docs/HANDOFF_CODEX.md`(처음 들어온 AI를 위한 완전 인계서 — 맥락 없이도 이어서 일할 수 있게)** · `docs/PROJECT_SPEC.md`(요구사항·최상위) · `ARCHITECTURE.md` · `DATA_MODEL.md` · `SECURITY.md` · `PRIVACY.md` · `SYNC_PROTOCOL.md` · `MEDIA_PIPELINE.md` · `DEPLOYMENT.md`(배포 계약) · `AGENT_REGISTRY.md` · `LESSONS.md` · `ROADMAP.md` · `TEST_PLAN.md` · `ROUND_TRIP_TEST_BLUEPRINT.md`(운영 쓰기 왕복검사의 다른 앱 이식 계약) · `DECISIONS.md` · `ASSUMPTIONS.md` · `HANDOFF.md` · `CHANGELOG.md` · `REPOSITORY_AUDIT.md` · `CONFLICT_REPORT.md` · `ACTIVE_TASKS.md` · `BACKLOG.md`(🔴 미완료 과제 단일 정본 — 상태는 여기에만 적고 다른 문서는 T-번호로 링크만. `npm run brief`가 열린 과제를 매 착수마다 띄운다) · `DISASTER_RECOVERY.md`(백업·복원 계약 — 전용 감사 에이전트가 참조). v0.2 원본은 `docs/reference/v0.2/`.
 충돌하면 공유 문서(SPEC)가 이긴다. 특정 AI 도구 대화가 아니라 이 문서들이 기준이다.

@@ -1,42 +1,17 @@
 // check-shared-skill-contract.mjs — 공통 스킬 정본과 이 프로젝트의 고정 스냅샷·릴리스 프로필·설치본을 대조한다.
 // 공통 법을 프로젝트에 복사하지 않고, 프로젝트 고유 사실만 schemas/release-profile.json에 둔다.
 
-import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { digestDirectory as contentHash, digestFile as fileHash } from '../vendor/codex-shared-skills/release-harness-governance/scripts/content-digest.mjs';
 import { validateProfile } from '../vendor/codex-shared-skills/release-harness-governance/scripts/validate-profile.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const SOURCE = 'https://github.com/hanwha27-TDTU/Codex-Shared-Skills';
-const APPROVED_COMMIT = '268126d44103df9ca709e7b8eec49d8e679437c2';
+const APPROVED_COMMIT = '7b601813b6d1a29e0b17f9307f57653593adb505';
 const EXPECTED_SKILLS = ['bg-codex-autorouter', 'release-harness-governance'];
-
-function filesUnder(dir) {
-  const out = [];
-  for (const name of readdirSync(dir).sort()) {
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) out.push(...filesUnder(full));
-    else out.push(full);
-  }
-  return out;
-}
-
-function contentHash(dir) {
-  const hash = createHash('sha256');
-  for (const file of filesUnder(dir)) {
-    hash.update(relative(dir, file).replaceAll('\\', '/'));
-    hash.update('\0');
-    hash.update(readFileSync(file));
-    hash.update('\0');
-  }
-  return hash.digest('hex');
-}
-
-function fileHash(path) {
-  return createHash('sha256').update(readFileSync(path)).digest('hex');
-}
 
 function markedBlock(text, start, end) {
   const begin = text.indexOf(start);

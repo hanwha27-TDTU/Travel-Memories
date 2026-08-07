@@ -24,6 +24,7 @@ import { r2BlobStore, r2ListObjects } from './r2';
 import { localBytesIds } from './storeState';
 import { deviceStamp } from '../app/deviceId';
 import { canonicalRemote, ensureCanonicalBeforeSync, fetchAllRows } from './canonicalSync';
+import { PULL_SYNC_PLAN, PUSH_SYNC_PLAN, SYNC_DOMAINS, runSyncPlan } from './syncPlan';
 import {
   applyPurgedLedger,
   purgedIdSet,
@@ -2153,15 +2154,35 @@ async function pushEntityOps(
   remotes: EntityRemotes,
   userId: string,
 ): Promise<{ pushed: number; failed: number }> {
-  const trip = await pushPending(remotes.trips, userId);
-  const place = await pushPendingPlaces(remotes.places, userId);
-  const moment = await pushPendingMoments(remotes.moments, userId);
-  const media = await pushPendingMedia(remotes.media, userId);
-  const expense = await pushPendingExpenses(remotes.expenses, userId);
-  const audio = await pushPendingAudio(remotes.audio, userId);
+  const result = await runSyncPlan(PUSH_SYNC_PLAN, {
+    trip: () => pushPending(remotes.trips, userId),
+    place: () => pushPendingPlaces(remotes.places, userId),
+    moment: () => pushPendingMoments(remotes.moments, userId),
+    media: () => pushPendingMedia(remotes.media, userId),
+    expense: () => pushPendingExpenses(remotes.expenses, userId),
+    audio: () => pushPendingAudio(remotes.audio, userId),
+  });
   return {
-    pushed: trip.pushed + place.pushed + moment.pushed + media.pushed + expense.pushed + audio.pushed,
-    failed: trip.failed + place.failed + moment.failed + media.failed + expense.failed + audio.failed,
+    pushed: SYNC_DOMAINS.reduce((sum, domain) => sum + result[domain].pushed, 0),
+    failed: SYNC_DOMAINS.reduce((sum, domain) => sum + result[domain].failed, 0),
+  };
+}
+
+async function pullEntityRows(remotes: EntityRemotes, mode: PullMode) {
+  return runSyncPlan(PULL_SYNC_PLAN, {
+    trip: () => pullTrips(remotes.trips, mode),
+    place: () => pullPlaces(remotes.places, mode),
+    moment: () => pullMoments(remotes.moments, mode),
+    media: () => pullMedia(remotes.media, mode),
+    expense: () => pullExpenses(remotes.expenses, mode),
+    audio: () => pullAudio(remotes.audio, mode),
+  });
+}
+
+function summarizePulls(result: Awaited<ReturnType<typeof pullEntityRows>>) {
+  return {
+    pulled: SYNC_DOMAINS.reduce((sum, domain) => sum + result[domain].pulled, 0),
+    skippedEmptyCloud: SYNC_DOMAINS.some((domain) => result[domain].skippedEmptyCloud),
   };
 }
 
@@ -2171,23 +2192,24 @@ async function pushEntityOps(
  * tombstone 같은 정리 쓰기도 하지 않는다. capability가 돌아오면 다음 동기화가 큐를 처리한다.
  */
 async function runServerReadOnlySync(client: JourneyClient): Promise<SyncResult> {
-  const q = await pullTrips(tripsRemote(client), 'server-read-only');
-  const qm = await pullMoments(momentsRemote(client), 'server-read-only');
-  const qd = await pullMedia(mediaRemote(client), 'server-read-only');
-  const qe = await pullExpenses(expensesRemote(client), 'server-read-only');
-  const qa = await pullAudio(audioRemote(client), 'server-read-only');
-  const qpl = await pullPlaces(placesRemote(client), 'server-read-only');
+  const pulls = summarizePulls(
+    await pullEntityRows(
+      {
+        trips: tripsRemote(client),
+        places: placesRemote(client),
+        moments: momentsRemote(client),
+        media: mediaRemote(client),
+        expenses: expensesRemote(client),
+        audio: audioRemote(client),
+      },
+      'server-read-only',
+    ),
+  );
   return {
     pushed: 0,
     failed: 0,
-    pulled: q.pulled + qm.pulled + qd.pulled + qe.pulled + qa.pulled + qpl.pulled,
-    skippedEmptyCloud:
-      q.skippedEmptyCloud ||
-      qm.skippedEmptyCloud ||
-      qd.skippedEmptyCloud ||
-      qe.skippedEmptyCloud ||
-      qa.skippedEmptyCloud ||
-      qpl.skippedEmptyCloud,
+    pulled: pulls.pulled,
+    skippedEmptyCloud: pulls.skippedEmptyCloud,
     canonicalApplied: false,
   };
 }
@@ -2268,12 +2290,7 @@ export async function runSync(
   const swept = await sweepPurgedOrphans();
   const sweepPush = swept ? await pushPurges(pRemote, dRemote) : { pushed: 0, failed: 0 };
 
-  const q = await pullTrips(remote, 'merge');
-  const qm = await pullMoments(mRemote, 'merge');
-  const qd = await pullMedia(dRemote, 'merge');
-  const qe = await pullExpenses(eRemote, 'merge');
-  const qa = await pullAudio(aRemote, 'merge');
-  const qpl = await pullPlaces(plRemote, 'merge');
+  const pulls = summarizePulls(await pullEntityRows(entityRemotes, 'merge'));
   // 옛 정책의 로컬 원본은 서버 표시본을 정확히 되읽은 뒤에만 정리한다. 실패한 사진은 다음
   // 동기화에서 다시 확인하며, 사용자 기록이나 큐에는 손대지 않는다.
   await pruneVerifiedMediaOriginals(dRemote);
@@ -2289,14 +2306,8 @@ export async function runSync(
   return {
     pushed: pu.pushed + entities.pushed + pp.pushed + sweepPush.pushed + followup.pushed,
     failed: pu.failed + entities.failed + pp.failed + sweepPush.failed + followup.failed,
-    pulled: q.pulled + qm.pulled + qd.pulled + qe.pulled + qa.pulled + qpl.pulled,
-    skippedEmptyCloud:
-      q.skippedEmptyCloud ||
-      qm.skippedEmptyCloud ||
-      qd.skippedEmptyCloud ||
-      qe.skippedEmptyCloud ||
-      qa.skippedEmptyCloud ||
-      qpl.skippedEmptyCloud,
+    pulled: pulls.pulled,
+    skippedEmptyCloud: pulls.skippedEmptyCloud,
     canonicalApplied: false,
   };
 }

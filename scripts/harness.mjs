@@ -55,6 +55,7 @@ const gates = [
   { name: 'check-base-consistency', cmd: 'node scripts/check-base-consistency.mjs' },
   { name: 'check-env-wiring', cmd: 'node scripts/check-env-wiring.mjs' },
   { name: 'check-domain-symmetry', cmd: 'node scripts/check-domain-symmetry.mjs' },
+  { name: 'check-sync-parallelism', cmd: 'node scripts/check-sync-parallelism.mjs' },
   { name: 'check-verdict-symmetry', cmd: 'node scripts/check-verdict-symmetry.mjs' },
   { name: 'check-skill-routing', cmd: 'node scripts/check-skill-routing.mjs' },
   // 아래 둘은 형제다: 하나는 「이 코드는 누가 읽고 고치나(문서)」를, 다른 하나는
