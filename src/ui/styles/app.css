@@ -16,7 +16,7 @@
   justify-content: space-between;
   gap: var(--space-3);
 }
-.app-title-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.app-title-row { display: flex; flex: 1 1 0; align-items: center; gap: 10px; min-width: 0; }
 /* 제목 줄 = 왼쪽 제목 + **오른쪽 계정 영역**(2026-07-26 사용자 요청).
    계정은 자주 쓰지 않는데 예전에는 컨트롤 행이 줄바꿈되며 한 줄을 통째로 먹었다.
    좁아지면 wrap으로 아래 줄에 **오른쪽 정렬**로 내려간다 — 숨기지 않는다(§5 정보를 감추지 않음). */
@@ -38,6 +38,10 @@
   font-size: 1.2rem;
   font-weight: 800;
   letter-spacing: -0.02em;
+}
+.app-title-home { border: 0; background: transparent; color: inherit; padding: 0; cursor: pointer; }
+.app-title-row > .sync-note {
+  min-width: 0; max-width: 24ch; margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
 /* 제목 옆 버전 배지(누르면 개발자 정보). */
 .app-version {
@@ -174,7 +178,7 @@
   font: inherit;
   cursor: pointer;
   /* 오른쪽 위 삭제/복원 버튼과 글자가 겹치지 않게 오른쪽만 넉넉히. */
-  padding: var(--space-3) 60px var(--space-3) var(--space-3);
+  padding: var(--space-3) 96px var(--space-3) var(--space-3);
   /* 🔴 고정 높이(132px)가 아니라 **최소 높이**다. 커버 시절엔 사진 자리를 확보하느라 고정이
      맞았지만, 글자만 있는 지금은 제목이 한 줄인 카드가 아래를 휑하게 비운다. 격자(grid)는
      기본이 stretch라 **같은 줄 카드끼리는 자동으로 키가 같아지고**, 줄 전체가 짧으면 줄째
@@ -316,7 +320,7 @@
 }
 .trip-restore:hover { background: color-mix(in srgb, var(--accent-strong) 12%, var(--bg-2)); color: var(--ink); }
 .trip-delete {
-  position: absolute; z-index: 3; top: 12px; right: 12px;
+  position: static; z-index: 3;
   width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
   border-radius: 50%; border: 1px solid var(--line);
   background: var(--bg-2);
@@ -324,6 +328,22 @@
 }
 .trip-delete:hover { background: color-mix(in srgb, var(--sem-pink) 18%, var(--bg-2)); color: var(--sem-pink-ink); }
 .trip-delete:focus-visible { outline: 2px solid var(--sem-sky); outline-offset: 2px; }
+.trip-card-actions { position: absolute; z-index: 3; top: 12px; right: 12px; display: flex; gap: 6px; }
+.trip-edit {
+  width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; border: 1px solid var(--line); background: var(--bg-2);
+  color: var(--ink-soft); font-size: 0.9rem; cursor: pointer; line-height: 1;
+}
+.trip-edit:hover { background: color-mix(in srgb, var(--sem-sky) 16%, var(--bg-2)); color: var(--sem-sky-ink); }
+
+.trip-editor-overlay { z-index: 80; background: color-mix(in srgb, var(--ink) 42%, transparent); }
+.trip-editor-modal { max-width: 480px; display: flex; flex-direction: column; gap: var(--space-3); }
+.trip-editor-modal h2 { margin: 0; }
+.trip-editor-modal input {
+  width: 100%; min-height: var(--touch-target-min); padding: 0 var(--space-3);
+  border: 1px solid var(--line); border-radius: var(--radius-medium);
+  background: var(--bg); color: var(--ink); font: inherit;
+}
 
 /* ===== 빈 상태 ===== */
 .empty-state {
@@ -615,6 +635,12 @@
    칩 줄에서 어떤 것은 span이고 어떤 것은 button이라는 사실이 화면에 드러나면 안 된다(§7). */
 button.chip { border: 0; font-family: inherit; }
 .chip-tap { cursor: pointer; }
+.place-chip { display: inline-flex; align-items: center; gap: 6px; flex-wrap: nowrap; max-width: 100%; }
+.place-chip-map, .place-chip-copy {
+  border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; padding: 0;
+}
+.place-chip-map { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.place-chip-copy { flex: none; white-space: nowrap; color: var(--sem-sky-ink); text-decoration: underline; font-variant-numeric: tabular-nums; }
 .chip-tap:hover { background: color-mix(in srgb, var(--sem-sky) 26%, transparent); }
 .chip-tap:focus-visible { outline: 2px solid var(--sem-sky-ink); outline-offset: 2px; }
 

@@ -15,6 +15,7 @@ import { listPlaces, updatePlace, fillAddressFromCoords, allMomentsForPlaceLooku
 import { readHere } from '../../services/here';
 import { hereFailMessage, hereLabel } from '../../domain/place/here';
 import { orderPair } from '../../domain/place/coordInput';
+import { openMapPicker } from '../lazyScreens';
 import {
   searchRegistry,
   sortRegistry,
@@ -99,6 +100,18 @@ function coordEditor(p: RegistryPlace, onSaved: () => void, note: HTMLElement): 
 
   const actions = el('div', 'pr-actions');
 
+  const mapBtn = el('button', 'btn-ghost', '🗺 지도에서 수정') as HTMLButtonElement;
+  mapBtn.type = 'button';
+  mapBtn.addEventListener('click', () => {
+    mapBtn.disabled = true;
+    void openMapPicker({ lat: p.latitude, lng: p.longitude }).then((picked) => {
+      if (!picked) return;
+      input.value = `${picked.lat}, ${picked.lng}`;
+      paint();
+      setNote(note, '지도에서 고른 좌표예요. [저장]을 누르면 확정됩니다.', 'info', null);
+    }).finally(() => { mapBtn.disabled = false; });
+  });
+
   // [지금 여기] — 사용자 요청 ③. 기존 `readHere()`를 그대로 쓴다(§7 — 두 번째 구현을 만들지 않는다).
   const hereBtn = el('button', 'btn-ghost', '📍 지금 여기') as HTMLButtonElement;
   hereBtn.type = 'button';
@@ -146,7 +159,7 @@ function coordEditor(p: RegistryPlace, onSaved: () => void, note: HTMLElement): 
     })();
   });
 
-  actions.append(hereBtn, saveBtn);
+  actions.append(mapBtn, hereBtn, saveBtn);
   box.append(input, preview, actions);
   return box;
 }

@@ -148,7 +148,7 @@ const page = await browser.newPage({
 // 것과 눌러 보는 것은 다른 층이다). 실제 GPS는 이 환경에 없으므로 **결정적인 가짜 위치**를
 // 넣는다. 재는 대상은 위성이 아니라 **배선**이다: 눌렀을 때 좌표가 필드에 들어가는가,
 // 정확도가 배지 문장이 되는가, 실패 사유가 화면에 나오는가, 버튼이 잠긴 채 남지 않는가.
-await page.context().grantPermissions(['geolocation'], { origin: 'http://localhost:4173' });
+await page.context().grantPermissions(['geolocation', 'clipboard-read', 'clipboard-write'], { origin: 'http://localhost:4173' });
 await page.context().setGeolocation({ latitude: 37.5665, longitude: 126.978, accuracy: 18 });
 
 // 지도 타일을 **가로채 1×1 PNG로 답한다.** 샌드박스는 tile.openstreetmap.org를 막으므로
@@ -192,9 +192,19 @@ page.on('pageerror', (e) => errors.push(String(e)));
 
 await page.goto(`http://localhost:4173${BASE}`);
 
+async function createTripFromModal(title, start = '', end = '') {
+  await page.locator('.trip-form .btn-primary').click();
+  const modal = page.locator('.trip-editor-modal');
+  await modal.waitFor();
+  await modal.locator('input').first().fill(title);
+  if (start) await modal.locator('input[type="date"]').nth(0).fill(start);
+  if (end) await modal.locator('input[type="date"]').nth(1).fill(end);
+  await modal.locator('button[type="submit"]').click();
+  await modal.waitFor({ state: 'detached' });
+}
+
 // v0.43: 홈 목록에서 여행 삭제(확인 → 카드 제거) + 실행취소 복원
-await page.getByLabel('여행 제목').fill('삭제 테스트 여행');
-await page.getByRole('button', { name: '+ 새 여행' }).click();
+await createTripFromModal('삭제 테스트 여행');
 await page.waitForTimeout(500);
 const delN0 = await page.locator('.trip-card').count();
 page.once('dialog', (d) => d.accept()); // 삭제 확인 창 수락
@@ -210,9 +220,29 @@ page.once('dialog', (d) => d.accept()); // 정리: 테스트 여행 다시 삭�
 await page.locator('.trip-delete').first().click();
 await page.waitForTimeout(500);
 
-await page.getByLabel('여행 제목').fill('편집기 검증 여행');
-await page.getByRole('button', { name: '+ 새 여행' }).click();
+await createTripFromModal('편집기 검증 여행', '2024-01-15', '2026-03-20');
 await page.waitForTimeout(400);
+
+check('홈 입력칸은 사진 제목 검색', await page.locator('.trip-form input[type="search"]').count() === 1);
+check('여행 기간 옆 달력 경과 표기', (await page.locator('.trip-card .trip-meta').first().textContent()).includes('(2년 2개월 5일)'));
+const titleBadgeOrder = await page.locator('.app-title-row').evaluate((row) => {
+  const children = [...row.children];
+  return children.findIndex((e) => e.classList.contains('app-version')) < children.findIndex((e) => e.classList.contains('sync-note'));
+});
+check('동기화 배지는 버전 배지 바로 옆', titleBadgeOrder);
+check('Bugeon Journey는 홈 버튼', await page.locator('.app-title-home').count() === 1);
+
+await page.locator('.trip-edit').first().click();
+await page.locator('.trip-editor-modal input[type="date"]').nth(1).fill('2026-03-21');
+await page.locator('.trip-editor-modal button[type="submit"]').click();
+await page.locator('.trip-editor-modal').waitFor({ state: 'detached' });
+check('여행 카드 편집 버튼과 별도 창 저장', (await page.locator('.trip-card .trip-meta').first().textContent()).includes('(2년 2개월 6일)'));
+// 뒤의 기존 시각·환율 시나리오는 기간 미정 여행을 전제로 하므로 픽스처 변경을 되돌린다.
+await page.locator('.trip-edit').first().click();
+await page.locator('.trip-editor-modal input[type="date"]').nth(0).fill('');
+await page.locator('.trip-editor-modal input[type="date"]').nth(1).fill('');
+await page.locator('.trip-editor-modal button[type="submit"]').click();
+await page.locator('.trip-editor-modal').waitFor({ state: 'detached' });
 
 // v0.44: 설계 개요도(배선맵) — 개발자 정보 → 설계 개요도 → 자가점검·4단계·실카운트
 await page.locator('.app-version').click();
@@ -348,6 +378,12 @@ await page.locator('.pr-row').first().locator('.pr-sum').click();
 await page.waitForTimeout(250);
 const clearSwap = await page.locator('.pr-row').first().locator('.pr-preview-swap button').count();
 check('위치관리대장: 🔴 명확한 좌표면 [이걸로 바꾸기]가 **없다**(오탐 차단)', clearSwap === 0, `버튼 ${clearSwap}개`);
+
+await page.locator('.pr-row').first().getByRole('button', { name: /지도에서 수정/ }).click();
+await page.waitForSelector('.map-overlay');
+check('위치관리대장: 지도에서 핀 좌표 수정 창이 열린다', await page.locator('.map-pick-confirm').count() === 1);
+await page.keyboard.press('Escape');
+await page.waitForSelector('.map-overlay', { state: 'detached' });
 
 // 뒷정리 — 심은 픽스처를 지운다(§3-C, 내 상태를 남기지 않는다)
 await page.keyboard.press('Escape');
@@ -1651,6 +1687,12 @@ check(
   editFilled.toast.includes('사진 위치로 장소를 넣었어요') && editFilled.toast.includes('실행취소'),
   editFilled.toast || '(토스트 없음)',
 );
+const coordCopy = page.locator('.moment-card', { hasText: '편집 폼 장소 검증' }).first().locator('.place-chip-copy');
+const coordText = await coordCopy.textContent();
+check('순간 장소는 상태 문구 대신 좌표와 복사 동작을 보인다', /-?\d+\.\d{5}, -?\d+\.\d{5}/.test(coordText ?? ''), coordText ?? '');
+await coordCopy.click();
+const copiedCoord = await page.evaluate(() => navigator.clipboard.readText());
+check('순간 장소 좌표 복사 버튼이 실제 좌표를 복사한다', /^-?\d+\.\d{5}, -?\d+\.\d{5}$/.test(copiedCoord), copiedCoord);
 
 // 🔴 이번엔 **이미 장소가 있는** 순간에 사진을 넣는다 — 손대면 안 된다.
 await page.route('**/reverse**', (route) =>
@@ -2186,11 +2228,12 @@ await page.waitForSelector('.chip.gps', { timeout: 10000 });
 // 자기 것으로 읽는다.** 좌표가 든 순간이 하나뿐이던 시절의 전제가 화석으로 남아 있었다.
 const seededCard = page.locator('.moment-card', { hasText: placeSeed?.title ?? '' }).first();
 const seededChip = seededCard.locator('.chip.gps').first();
+const seededMapButton = seededChip.locator('.place-chip-map');
 await seededChip.scrollIntoViewIfNeeded();
 await page.waitForTimeout(150);
-const chipIsButton = await seededChip.evaluate((c) => ({
+const chipIsButton = await seededMapButton.evaluate((c) => ({
   tag: c.tagName,
-  tappable: c.classList.contains('chip-tap'),
+  tappable: c.classList.contains('place-chip-map'),
   label: c.getAttribute('aria-label'),
 }));
 check(
@@ -2199,13 +2242,13 @@ check(
   String(chipIsButton?.label),
 );
 check(
-  '위치 칩: 누를 수 있는 버튼이다(span이면 아무 일도 안 일어난다)',
+  '위치 칩: 지도 영역은 누를 수 있는 버튼이다',
   chipIsButton?.tag === 'BUTTON' && chipIsButton.tappable === true,
   JSON.stringify(chipIsButton),
 );
 check('위치 칩: 무엇을 하는 버튼인지 이름이 있다(스크린리더)', /지도/.test(chipIsButton?.label ?? ''), String(chipIsButton?.label));
 
-await seededChip.click();
+await seededMapButton.click();
 await page.waitForSelector('.map-overlay', { timeout: 10000 });
 check('위치 칩: 탭하면 앱 지도가 열린다', true, 'map-overlay');
 
@@ -2467,6 +2510,7 @@ await page.waitForTimeout(200);
 // 엉뚱한 줄을 검사한다(실제로 그렇게 짰다가 이 검사가 잡았다). 홈으로 돌아가서 본다.
 await page.goto(`http://localhost:4173${BASE}`);
 await page.waitForSelector('.sync-note', { timeout: 15000 }).catch(() => {});
+await page.waitForSelector('.trip-card', { timeout: 15000 });
 const noteBox = await page.evaluate(() => {
   const n = document.querySelector('.sync-note');
   if (!n) return null;
@@ -2475,8 +2519,7 @@ const noteBox = await page.evaluate(() => {
   const card = document.querySelector('.trip-card')?.getBoundingClientRect();
   return {
     w: Math.round(r.width), vw: window.innerWidth, cls: n.className,
-    inHeadTools: Boolean(n.closest('.app-head-tools')),
-    inHeaderRightHalf: Boolean(header && r.left >= header.left + header.width * 0.45),
+    besideVersion: n.previousElementSibling?.classList.contains('app-version') === true,
     cardH: card ? Math.round(card.height) : null,
   };
 });
@@ -2484,8 +2527,8 @@ check('홈 밀도: 상태·여행 카드 측정 대상 확보', Boolean(noteBox 
   noteBox ? `cardH=${noteBox.cardH}` : 'status 없음');
 check('상태 줄: 전폭 배너가 아님(내용 폭만)', Boolean(noteBox && noteBox.w < noteBox.vw * 0.5),
   noteBox ? `${noteBox.w}px / ${noteBox.vw}px` : 'none');
-check('상태 줄: 헤더 우측 도구 묶음에 배치', Boolean(noteBox?.inHeadTools && noteBox.inHeaderRightHalf),
-  noteBox ? `tools=${noteBox.inHeadTools} right=${noteBox.inHeaderRightHalf}` : 'none');
+check('상태 줄: 버전 배지 바로 옆에 배치', Boolean(noteBox?.besideVersion),
+  noteBox ? `besideVersion=${noteBox.besideVersion}` : 'none');
 check('홈 카드: 높이 136px 이하로 축약', Boolean(noteBox?.cardH && noteBox.cardH <= 136),
   noteBox ? `height=${noteBox.cardH}px` : 'none');
 
@@ -2554,8 +2597,8 @@ if (!treeWide.exists) {
   check('홈 트리: 항목이 그려짐(전체 + 연 + 월 2)', treeWide.buttons >= 4, `buttons=${treeWide.buttons}`);
   const datedCardPeriods = await page.$$eval('.trip-meta', (nodes) => nodes.map((n) => n.textContent ?? ''));
   check('홈 카드 기간: 날짜가 있는 카드에 시작·종료 요일 표시',
-    datedCardPeriods.some((t) => t === '2026-07-10 (금) ~ 2026-07-11 (토)') &&
-      datedCardPeriods.some((t) => t === '2026-08-10 (월) ~ 2026-08-11 (화)'),
+    datedCardPeriods.some((t) => t.startsWith('2026-07-10 (금) ~ 2026-07-11 (토)')) &&
+      datedCardPeriods.some((t) => t.startsWith('2026-08-10 (월) ~ 2026-08-11 (화)')),
     datedCardPeriods.filter((t) => t.includes('2026-')).join(' | '));
   const treeFixtureOrder = await page.$$eval('.trip-title', (nodes) => nodes.map((n) => n.textContent ?? ''));
   const julyIndex = treeFixtureOrder.indexOf('라이브 검사 7월');
@@ -3217,7 +3260,7 @@ const afterPick = await page.evaluate(() => {
     overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
   };
 });
-check('장소 선택: 배지가 위치 지정을 확인해 준다', afterPick.badge.includes('위치 지정됨'), afterPick.badge);
+check('장소 선택: 상태 문구 대신 고른 장소를 직접 보여 준다', afterPick.badge.startsWith('📍 ') && !afterPick.badge.includes('위치 지정됨'), afterPick.badge);
 check(
   '🔴 장소 선택: 넓은 대상을 고르면 **한정 문장이 화면에 남는다**(자료구조에만 있으면 M-0022)',
   afterPick.hintHidden === false && afterPick.hint.includes('길 전체') && afterPick.hint.includes('지도'),
@@ -3299,7 +3342,11 @@ check(
   coordSeen.ambiguous === false && coordSeen.swapBtn === false,
   `ambiguous=${coordSeen.ambiguous} swap=${coordSeen.swapBtn}`,
 );
-check('좌표 붙여넣기: 배지가 위치 지정을 확인해 준다', coordSeen.badge.includes('지정'), coordSeen.badge);
+check(
+  '좌표 붙여넣기: 배지가 읽은 좌표를 직접 보여 준다',
+  coordSeen.badge.includes('37.58700') && coordSeen.badge.includes('127.00160'),
+  coordSeen.badge,
+);
 check(
   '좌표 붙여넣기: 좌표 문자열이 장소 이름 칸에 남지 않는다(이름이 아니다)',
   coordSeen.inputCleared === true,
@@ -3539,7 +3586,8 @@ if (singleComposerOpened) {
   check(
     'Windows 한 장 드롭: EXIF 시각·위치를 **저장 전에 자동 입력**한다',
     singleHints.when.includes('사진에서')
-      && singleHints.place.includes('위치 지정됨')
+      && singleHints.place.startsWith('📍 ')
+      && !singleHints.place.includes('위치 지정됨')
       && singleHints.placeSource.includes('16.0544')
       && singleHints.preview === 1,
     JSON.stringify(singleHints),
@@ -4160,6 +4208,31 @@ check('헤더: 가로 넘침 0', headM.overflow === 0, `overflow=${headM.overflo
         }),
     );
     check('R⑥ 새로고침해도 순서가 유지된다', after.join(',') === 'ro-tall,ro-wide,ro-square', after.join(' → '));
+
+    // Windows mouse path: a real reorder must consume the synthetic click emitted on button release.
+    await grid.scrollIntoViewIfNeeded();
+    const mouseFrom = await boxOf('ro-tall');
+    const mouseTo = await boxOf('ro-square');
+    if (mouseFrom && mouseTo) {
+      await page.mouse.move(mouseFrom.x, mouseFrom.y);
+      await page.mouse.down();
+      await page.waitForTimeout(600);
+      await page.mouse.move(mouseTo.x, mouseTo.y, { steps: 10 });
+      await page.mouse.up();
+      await page.waitForTimeout(60);
+      check('R⑦ Windows 마우스 재배열 완료 때 사진 뷰어가 열리지 않는다', await page.locator('.photo-viewer').count() === 0);
+      const nextClick = await boxOf('ro-wide');
+      if (nextClick) {
+        await page.mouse.click(nextClick.x, nextClick.y);
+        await page.waitForTimeout(80);
+        check('R⑧ 재배열 직후 다른 사진을 누르면 정상적으로 뷰어가 열린다', await page.locator('.photo-viewer').count() === 1);
+        await page.keyboard.press('Escape');
+      } else {
+        check('R⑧ 후속 정상 클릭 좌표를 찾는다', false);
+      }
+    } else {
+      check('R⑦ Windows 마우스 재배열 좌표를 찾는다', false, JSON.stringify({ mouseFrom, mouseTo }));
+    }
 
     // 뒷정리 — 심은 픽스처를 지운다(§3-C, 내 상태를 남기지 않는다).
     await page.evaluate(() =>

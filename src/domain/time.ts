@@ -43,6 +43,36 @@ export function formatTripPeriod(startDate: string | null | undefined, endDate: 
   return endDate ? `${start} ~ ${formatCalendarDate(endDate)}` : start;
 }
 
+/** 달력 날짜 두 개의 경과 기간. 시간대·DST의 영향을 받지 않는 연/월/일 표기다. */
+export function formatTripDuration(startDate: string | null | undefined, endDate: string | null | undefined): string | null {
+  if (!startDate || !endDate) return null;
+  const parse = (s: string): { y: number; m: number; d: number } | null => {
+    const hit = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (!hit) return null;
+    const y = Number(hit[1]); const m = Number(hit[2]); const d = Number(hit[3]);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d ? { y, m, d } : null;
+  };
+  const a = parse(startDate); const b = parse(endDate);
+  if (!a || !b || Date.UTC(b.y, b.m - 1, b.d) < Date.UTC(a.y, a.m - 1, a.d)) return null;
+  const startUtc = Date.UTC(a.y, a.m - 1, a.d);
+  const endUtc = Date.UTC(b.y, b.m - 1, b.d);
+  const addMonthsClamped = (count: number): number => {
+    const total = a.y * 12 + (a.m - 1) + count;
+    const y = Math.floor(total / 12);
+    const m = total % 12;
+    const lastDay = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    return Date.UTC(y, m, Math.min(a.d, lastDay));
+  };
+  let totalMonths = (b.y - a.y) * 12 + (b.m - a.m);
+  while (totalMonths > 0 && addMonthsClamped(totalMonths) > endUtc) totalMonths -= 1;
+  const anchor = totalMonths === 0 ? startUtc : addMonthsClamped(totalMonths);
+  const years = Math.floor(totalMonths / 12);
+  const months = totalMonths % 12;
+  const days = Math.round((endUtc - anchor) / 86_400_000);
+  return `${years}년 ${months}개월 ${days}일`;
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // 시각 **표기**의 SSOT — 결함군 M-0034(2026-07-27 사용자 실기기)
 //

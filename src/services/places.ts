@@ -25,6 +25,7 @@ import { providerKeyOf } from '../domain/place/rowmap';
 import { roughDistanceMeters } from '../domain/place/provider';
 import { compareInstants } from '../domain/time';
 import { reverseGeocode } from './geocode';
+import { isRealCoord } from '../domain/place/coordInput';
 
 const uuid = (): string => crypto.randomUUID();
 
@@ -86,7 +87,9 @@ export async function findExistingPlace(input: {
   const key = providerKeyOf(input.provider ?? null, input.providerPlaceId ?? null);
   if (key) {
     const hit = await d.localPlaces.where('providerKey').equals(key).toArray();
-    const active = hit.find((p) => p.deletedAt === null);
+    // 같은 제공자 지점·같은 좌표라도 사용자가 붙인 이름이 다르면 **다른 장소**다.
+    // 순간에 저장한 이름이 기준본이므로 provider id만으로 접지 않는다.
+    const active = hit.find((p) => p.deletedAt === null && p.name.trim() === input.name.trim());
     if (active) return active;
   }
   const all = await d.localPlaces.toArray();
@@ -99,6 +102,110 @@ export async function findExistingPlace(input: {
         roughDistanceMeters({ lat: p.latitude, lng: p.longitude }, target) <= SAME_PLACE_METERS,
     ) ?? null
   );
+}
+
+/** 순간 저장값을 장소 대장의 기준본으로 등록하고 그 항목 id를 돌려준다. */
+export async function registerMomentPlace(input: {
+  name: string;
+  latitude: number | null;
+  longitude: number | null;
+}): Promise<string | null> {
+  const name = input.name.trim();
+  if (!name || !isRealCoord(input.latitude, input.longitude)) return null;
+  const place = await savePlace({
+    name,
+    latitude: input.latitude!,
+    longitude: input.longitude!,
+    mapPicked: true,
+  });
+  return place.id;
+}
+
+/**
+ * 옛 순간을 현재 계약으로 소급한다. 반복 실행해도 같은 이름+좌표는 같은 대장 행으로 모인다.
+ * 서버에서 나중에 내려온 옛 순간도 다음 홈 진입 때 다시 대상이 되므로 일회성 마커를 두지 않는다.
+ */
+let reconcileInFlight: Promise<number> | null = null;
+
+export async function reconcileMomentPlaces(): Promise<number> {
+  if (reconcileInFlight) return reconcileInFlight;
+  reconcileInFlight = reconcileMomentPlacesOnce();
+  try {
+    return await reconcileInFlight;
+  } finally {
+    reconcileInFlight = null;
+  }
+}
+
+async function reconcileMomentPlacesOnce(): Promise<number> {
+  const d = db();
+  const moments = (await d.localMoments.toArray()).filter(
+    (m) => m.deletedAt === null && m.placeName.trim() !== '' && isRealCoord(m.placeLat, m.placeLng),
+  ).sort((a, b) => (compareInstants(a.occurredAt, b.occurredAt) ?? 0) || a.id.localeCompare(b.id));
+  const canonicalKey = (m: typeof moments[number]): string =>
+    `${m.placeName.trim()}\u0000${m.placeLat!.toFixed(7)}\u0000${m.placeLng!.toFixed(7)}`;
+  const firstKeyByPlaceId = new Map<string, string>();
+  for (const moment of moments) {
+    if (moment.placeId && !firstKeyByPlaceId.has(moment.placeId)) {
+      firstKeyByPlaceId.set(moment.placeId, canonicalKey(moment));
+    }
+  }
+  let changed = 0;
+  for (const moment of moments) {
+    // Backfill the previously linked ledger row from the first authoritative moment. If old moments
+    // shared one row under different names, later variants are split below instead of overwriting it.
+    if (moment.placeId && firstKeyByPlaceId.get(moment.placeId) === canonicalKey(moment)) {
+      const linked = await d.localPlaces.get(moment.placeId);
+      if (linked && linked.deletedAt === null) {
+        const name = moment.placeName.trim();
+        // 이름이 이미 순간 기준본과 같다면 대장 좌표가 권위다. 사용자가 대장의 지도 핀을
+        // 옮긴 뒤 홈에 돌아왔다고 순간의 옛 좌표로 되돌리면 안 된다.
+        if (linked.name !== name) {
+          await updatePlace(linked.id, {
+            name,
+            latitude: moment.placeLat!,
+            longitude: moment.placeLng!,
+            mapPicked: true,
+          });
+          changed += 1;
+        }
+        continue;
+      }
+    }
+    const placeId = await registerMomentPlace({
+      name: moment.placeName,
+      latitude: moment.placeLat ?? null,
+      longitude: moment.placeLng ?? null,
+    });
+    if (!placeId || moment.placeId === placeId) continue;
+    const now = new Date().toISOString();
+    const opId = uuid();
+    let relinked = false;
+    await d.transaction('rw', d.localMoments, d.syncQueue, async () => {
+      const current = await d.localMoments.get(moment.id);
+      if (!current || current.deletedAt !== null || current.placeId === placeId) return;
+      await d.localMoments.put({
+        ...current,
+        placeId,
+        updatedAt: now,
+        version: current.version + 1,
+        baseVersion: current.baseVersion ?? current.version,
+        clientOperationId: opId,
+      });
+      await d.syncQueue.add({
+        operationId: opId,
+        entityType: 'moment',
+        entityId: current.id,
+        operationType: 'update',
+        state: 'local_only',
+        attempts: 0,
+        createdAt: now,
+      });
+      relinked = true;
+    });
+    if (relinked) changed += 1;
+  }
+  return changed;
 }
 
 /**
@@ -114,51 +221,51 @@ export async function savePlace(input: NewPlace): Promise<LocalPlace> {
     throw new Error('장소 좌표가 올바르지 않습니다');
   }
 
-  const existing = await findExistingPlace({ ...input, name });
-  if (existing) return existing;
-
-  const now = new Date().toISOString(); // 로컬 생성 → 이미 정규 표기(M-0034)
-  const opId = uuid();
-  const provider = input.provider ?? null;
-  const providerPlaceId = input.providerPlaceId ?? null;
-  const key = providerKeyOf(provider, providerPlaceId);
-  const row: LocalPlace = {
-    id: uuid(),
-    name,
-    formattedAddress: input.formattedAddress ?? null,
-    provider,
-    providerPlaceId,
-    ...(key ? { providerKey: key } : {}),
-    countryCode: input.countryCode ?? null,
-    country: input.country ?? null,
-    region: input.region ?? null,
-    city: input.city ?? null,
-    district: input.district ?? null,
-    postcode: input.postcode ?? null,
-    category: input.category ?? null,
-    memo: input.memo ?? null,
-    longitude: input.longitude,
-    latitude: input.latitude,
-    precision: input.precision ?? null,
-    spanMeters: input.spanMeters ?? null,
-    mapPicked: input.mapPicked === true,
-    version: 1,
-    baseVersion: 0,
-    createdAt: now,
-    updatedAt: now,
-    deletedAt: null,
-    clientOperationId: opId,
-  };
-
   const d = db();
-  // 행과 op은 **한 트랜잭션**이다 — 둘 중 하나만 남는 창을 만들지 않는다(M-0033).
-  await d.transaction('rw', d.localPlaces, d.syncQueue, async () => {
+  // 찾기와 생성도 같은 쓰기 트랜잭션 안에서 한다. 홈 초기화·검색 재렌더가 겹쳐도 두 번째
+  // 트랜잭션은 첫 번째 행을 본 뒤 재사용하므로 같은 장소가 둘 생기지 않는다.
+  const committed = await d.transaction('rw', d.localPlaces, d.syncQueue, async () => {
+    const existing = await findExistingPlace({ ...input, name });
+    if (existing) return existing;
+    const now = new Date().toISOString(); // 로컬 생성 → 이미 정규 표기(M-0034)
+    const opId = uuid();
+    const provider = input.provider ?? null;
+    const providerPlaceId = input.providerPlaceId ?? null;
+    const key = providerKeyOf(provider, providerPlaceId);
+    const row: LocalPlace = {
+      id: uuid(),
+      name,
+      formattedAddress: input.formattedAddress ?? null,
+      provider,
+      providerPlaceId,
+      ...(key ? { providerKey: key } : {}),
+      countryCode: input.countryCode ?? null,
+      country: input.country ?? null,
+      region: input.region ?? null,
+      city: input.city ?? null,
+      district: input.district ?? null,
+      postcode: input.postcode ?? null,
+      category: input.category ?? null,
+      memo: input.memo ?? null,
+      longitude: input.longitude,
+      latitude: input.latitude,
+      precision: input.precision ?? null,
+      spanMeters: input.spanMeters ?? null,
+      mapPicked: input.mapPicked === true,
+      version: 1,
+      baseVersion: 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+      clientOperationId: opId,
+    };
     await d.localPlaces.add(row);
     await d.syncQueue.add(placeOp(opId, row.id, 'insert', now));
+    return row;
   });
 
   // **read-back으로 확인한 뒤에야 성공이다.** 예외가 없다는 것은 저장의 증거가 아니다.
-  const back = await d.localPlaces.get(row.id);
+  const back = await d.localPlaces.get(committed.id);
   if (!back) throw new Error('내구성 커밋 확인 실패: 장소 read-back 불일치');
   return back;
 }

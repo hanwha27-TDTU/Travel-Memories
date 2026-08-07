@@ -34,7 +34,7 @@ export function parseBlindSpots(src) {
   const body = src.slice(start);
   const items = [];
   // 최상위 객체 리터럴 단위로 자른다. 항목이 `  {` … `  },` 형태로 들여쓰기돼 있다.
-  for (const m of body.matchAll(/\n {2}\{\n([\s\S]*?)\n {2}\},/g)) {
+  for (const m of body.matchAll(/\r?\n {2}\{\r?\n([\s\S]*?)\r?\n {2}\},/g)) {
     const chunk = m[1];
     const str = (k) => {
       const r = chunk.match(new RegExp(`\\b${k}:\\s*(['\`])([\\s\\S]*?)\\1\\s*,`));
@@ -175,6 +175,13 @@ export function checkBlindSpots(items, groups, toolIds) {
 const G = ['local', 'upload'];
 const T = ['roundtrip'];
 const ok = { what: 'x', whyDevCannot: 'y', group: 'local', coveredBy: 'roundtrip', hasPendingReason: false };
+const parseFixture = "export const BLIND_SPOTS = [\n  {\n    what: 'x',\n    whyDevCannot: 'y',\n    group: 'local',\n    coveredBy: 'roundtrip',\n  },\n];";
+const parsedLf = parseBlindSpots(parseFixture);
+const parsedCrlf = parseBlindSpots(parseFixture.replace(/\n/g, '\r\n'));
+if (parsedLf?.length !== 1 || parsedCrlf?.length !== 1) {
+  console.error('check-diag-blindspots: 셀프테스트 실패 — LF/CRLF 등록부를 같은 항목 수로 읽지 못함');
+  process.exit(2);
+}
 const selfCases = [
   { name: '정합 통과', items: [ok], expectClean: true },
   { name: '빈 등록부 검출', items: [], expectClean: false },
