@@ -1,6 +1,6 @@
 // tests/unit/router.test.ts — 운영 순수함수 직접 테스트 (TEST_PLAN: 미러 테스트 금지)
 import { describe, it, expect } from 'vitest';
-import { pathToRoute, pathToParam } from '../../src/app/router';
+import { pathToRoute, pathToParam, searchToTripTarget } from '../../src/app/router';
 
 const BASE = '/Travel-Memories/'; // GitHub Pages 하위경로 (vite.config.ts BASE)
 
@@ -44,5 +44,18 @@ describe('pathToParam — 2번째 세그먼트(id) 추출', () => {
     expect(pathToParam('/Travel-Memories/trip', BASE)).toBeUndefined();
     expect(pathToParam('/Travel-Memories/', BASE)).toBeUndefined();
     expect(pathToParam('/Travel-Memories/trip/', BASE)).toBeUndefined();
+  });
+});
+
+describe('searchToTripTarget — URL 선택 대상 파싱', () => {
+  it('순간과 사진을 함께 읽는다', () => {
+    expect(searchToTripTarget('?moment=m-1&media=photo-1')).toEqual({ momentId: 'm-1', mediaId: 'photo-1' });
+  });
+  it('사진만 온 대상은 상세 화면이 안전하게 무시할 수 있도록 그대로 둔다', () => {
+    expect(searchToTripTarget('?media=photo-1')).toEqual({ mediaId: 'photo-1' });
+  });
+  it('빈 값·반복 값은 모호하므로 버린다', () => {
+    expect(searchToTripTarget('?moment=&media=')).toBeUndefined();
+    expect(searchToTripTarget('?moment=m-1&moment=m-2')).toBeUndefined();
   });
 });

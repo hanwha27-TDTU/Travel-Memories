@@ -13,7 +13,9 @@ import {
   coordPreview,
   needsAddress,
   liveLookupNote,
+  placeRecordGroups,
   type RegistryPlace,
+  type PlaceRecordMoment,
 } from '../../src/domain/place/registry';
 
 const P = (over: Partial<RegistryPlace> & { name: string }): RegistryPlace => ({
@@ -168,5 +170,28 @@ describe('주소를 아직 못 받은 장소', () => {
 
   it('하나라도 있으면 false', () => {
     expect(needsAddress(P({ name: 'x', country: '대한민국' }))).toBe(false);
+  });
+});
+
+describe('이 장소가 담긴 기록 — 직접 링크와 이름만 같은 추정을 여행별로 분리', () => {
+  const M = (over: Partial<PlaceRecordMoment> & { id: string; tripId: string; tripTitle: string }): PlaceRecordMoment => ({
+    title: '사진 제목', occurredAt: '2026-08-07T00:00:00.000Z', placeName: '집', placeId: null,
+    deletedAt: null, ...over,
+  });
+
+  it('직접 연결은 확실한 묶음, 이름만 같은 것은 별도 여행 묶음으로 만든다', () => {
+    const groups = placeRecordGroups([
+      M({ id: 'm1', tripId: 't1', tripTitle: '여름 여행', placeId: 'place-1' }),
+      M({ id: 'm2', tripId: 't1', tripTitle: '여름 여행', placeId: 'place-1' }),
+      M({ id: 'm3', tripId: 't2', tripTitle: '겨울 여행' }),
+      M({ id: 'm4', tripId: 't3', tripTitle: '지운 여행', placeId: 'place-1', deletedAt: '2026-08-07T01:00:00.000Z' }),
+      M({ id: 'm5', tripId: 't4', tripTitle: '다른 집', placeId: 'place-2' }),
+    ], { id: 'place-1', name: '집' });
+
+    expect(groups.linked).toHaveLength(1);
+    expect(groups.linked[0]).toMatchObject({ tripId: 't1', tripTitle: '여름 여행' });
+    expect(groups.linked[0]!.moments.map((m) => m.id)).toEqual(['m1', 'm2']);
+    expect(groups.sameName).toHaveLength(1);
+    expect(groups.sameName[0]!.tripId).toBe('t2');
   });
 });

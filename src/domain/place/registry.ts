@@ -186,7 +186,8 @@ export function momentsUsingPlace<T extends MomentLike>(
   const sameName = alive.filter(
     // 링크된 것은 이미 셌으므로 빼고, 이름이 정확히 같은 것만(부분일치는 여기서 쓰지 않는다 —
     // 검색과 달리 이건 **동일성 판단**이라 느슨하게 하면 남의 순간을 끌어온다).
-    (m) => !linkedIds.has(m.id) && m.placeName.trim() !== '' && m.placeName.trim() === place.name.trim(),
+    // 다른 장소 ID가 있으면 이름이 같아도 "링크 없음" 추정이 아니라 서로 다른 장소라는 명시적 사실이다.
+    (m) => !linkedIds.has(m.id) && !m.placeId && m.placeName.trim() !== '' && m.placeName.trim() === place.name.trim(),
   );
   return { linked, sameName };
 }
@@ -203,4 +204,33 @@ export function usageLabel(u: { linked: unknown[]; sameName: unknown[] }): strin
   if (l && s) return `이 장소를 쓰는 순간 ${l}개 · 이름만 같은 순간 ${s}개`;
   if (l) return `이 장소를 쓰는 순간 ${l}개`;
   return `이름만 같은 순간 ${s}개`;
+}
+
+/** 장소 기록 모달의 최소 투영. 사진 제목은 별도 필드가 아니라 순간 제목이다. */
+export interface PlaceRecordMoment extends MomentLike {
+  tripTitle: string;
+}
+
+export interface PlaceRecordTripGroup<T extends PlaceRecordMoment> {
+  tripId: string;
+  tripTitle: string;
+  moments: T[];
+}
+
+/** 기존 장소 판정을 재사용해 확실한 링크와 이름만 같은 추정을 여행별로 묶는다. */
+export function placeRecordGroups<T extends PlaceRecordMoment>(
+  moments: readonly T[],
+  place: { id: string; name: string },
+): { linked: PlaceRecordTripGroup<T>[]; sameName: PlaceRecordTripGroup<T>[] } {
+  const group = (items: T[]): PlaceRecordTripGroup<T>[] => {
+    const byTrip = new Map<string, PlaceRecordTripGroup<T>>();
+    for (const item of items) {
+      const existing = byTrip.get(item.tripId);
+      if (existing) existing.moments.push(item);
+      else byTrip.set(item.tripId, { tripId: item.tripId, tripTitle: item.tripTitle, moments: [item] });
+    }
+    return [...byTrip.values()];
+  };
+  const usage = momentsUsingPlace(moments, place);
+  return { linked: group(usage.linked), sameName: group(usage.sameName) };
 }

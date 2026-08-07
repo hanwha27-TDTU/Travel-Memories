@@ -1586,12 +1586,11 @@ select.zone-input { text-overflow: ellipsis; }
 .pr-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
 .pr-row { border: 1px solid var(--line); border-radius: var(--radius-medium); background: var(--surface); }
 .pr-sum {
-  list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 8px;
   min-height: var(--touch-target-min); padding: var(--space-2) var(--space-3);
 }
-.pr-sum::-webkit-details-marker { display: none; }
-.pr-sum::after { content: '▾'; margin-left: auto; color: var(--ink-soft); }
-.pr-row[open] .pr-sum::after { content: '▴'; }
+.pr-record-open { flex: 1 1 180px; min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; text-align: left; border: 0; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
+.pr-edit-open { flex: 0 0 auto; white-space: nowrap; }
 /* 이름은 낱말 중간에서 끊지 않는다(§3-H — 한글 줄바꿈). */
 .pr-name { word-break: keep-all; overflow-wrap: anywhere; }
 .pr-coord-label { font-variant-numeric: tabular-nums; }
@@ -1621,6 +1620,33 @@ select.zone-input { text-overflow: ellipsis; }
 .pr-preview-bad { margin: 0; color: var(--sem-pink-ink); }
 .pr-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .pr-full { margin: 0; word-break: keep-all; overflow-wrap: anywhere; }
+
+/* 장소 행은 긴 목록에서도 짧게 유지하고, 기록은 별도 모달에서만 읽는다. */
+.pr-records-overlay { z-index: 74; background: rgba(8, 8, 18, .5); backdrop-filter: blur(3px); }
+.pr-records-modal { max-width: 760px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-large); box-shadow: var(--shadow-float); display: flex; flex-direction: column; overflow: hidden; }
+.pr-records-body { display: flex; flex-direction: column; gap: var(--space-4); }
+.pr-record-section { display: flex; flex-direction: column; gap: var(--space-2); }
+.pr-record-heading, .pr-record-trip-title { margin: 0; word-break: keep-all; overflow-wrap: anywhere; }
+.pr-record-heading { font-size: 1rem; color: var(--ink); }
+.pr-record-note { margin: 0; color: var(--ink-soft); font-size: .84rem; word-break: keep-all; overflow-wrap: anywhere; }
+.pr-record-trip { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-medium); background: var(--bg); }
+.pr-record-trip-title { font-size: .92rem; color: var(--ink); }
+.pr-record-moment { display: flex; align-items: center; gap: var(--space-2); min-width: 0; padding-top: var(--space-2); border-top: 1px solid var(--line); }
+.pr-record-photos { flex: 0 1 auto; min-width: 0; display: flex; gap: 6px; overflow-x: auto; overscroll-behavior-inline: contain; }
+.pr-record-photo { flex: 0 0 auto; width: 56px; height: 56px; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-small); background: var(--surface); cursor: pointer; }
+.pr-record-thumb { display: block; width: 100%; height: 100%; object-fit: cover; }
+.pr-record-details { min-width: 0; flex: 1 1 auto; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.pr-record-moment-title { min-width: 0; padding: 0; border: 0; background: transparent; color: var(--ink); font: inherit; font-weight: 700; text-align: left; text-decoration: underline; cursor: pointer; word-break: keep-all; overflow-wrap: anywhere; }
+.pr-record-media-count { font-variant-numeric: tabular-nums; }
+.pr-record-jump { margin-left: auto; white-space: nowrap; }
+.moment-card.is-navigation-target { outline: 3px solid var(--sem-teal); outline-offset: 3px; }
+@media (max-width: 420px) {
+  .pr-sum { align-items: flex-start; }
+  .pr-record-open { align-items: flex-start; }
+  .pr-record-moment { align-items: flex-start; }
+  .pr-record-details { align-items: flex-start; flex-direction: column; }
+  .pr-record-jump { margin-left: 0; }
+}
 
 .dm-trash-row {
   display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap;

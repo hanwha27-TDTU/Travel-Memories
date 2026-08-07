@@ -11,7 +11,7 @@
 // 화면에 나가는 것 자체가 결함일 수 있어서다(§10 ③).
 
 import { el, setNote } from '../dom';
-import { listPlaces, updatePlace, fillAddressFromCoords, allMomentsForPlaceLookup } from '../../services/places';
+import { listPlaces, updatePlace, fillAddressFromCoords, allPlaceRecordMoments, mediaForPlaceRecordMoments } from '../../services/places';
 import { readHere } from '../../services/here';
 import { hereFailMessage, hereLabel } from '../../domain/place/here';
 import { orderPair } from '../../domain/place/coordInput';
@@ -22,11 +22,12 @@ import {
   shortAddress,
   coordPreview,
   needsAddress,
-  momentsUsingPlace,
-  usageLabel,
   type RegistryPlace,
-  type MomentLike,
+  placeRecordGroups,
+  type PlaceRecordMoment,
 } from '../../domain/place/registry';
+
+type GoToTrip = (tripId: string, target?: { momentId?: string; mediaId?: string }) => void;
 
 /** `LocalPlace` → 대장이 아는 최소 모양. 화면은 이 형태만 안다. */
 function toRegistry(p: {
@@ -171,16 +172,23 @@ function parseTwo(v: string): [number, number] {
 }
 
 /** 대장 한 줄. */
-function registryRow(p: RegistryPlace, moments: MomentLike[], onChanged: () => void, goToTrip: (tripId: string) => void): HTMLElement {
-  const row = el('details', 'pr-row') as HTMLDetailsElement;
-  const sum = el('summary', 'pr-sum');
-  sum.append(el('b', 'pr-name', p.name));
+function registryRow(p: RegistryPlace, moments: PlaceRecordMoment[], onChanged: () => void, goToTrip: GoToTrip): HTMLElement {
+  const row = el('div', 'pr-row');
+  const summary = el('div', 'pr-sum');
+  const openRecords = el('button', 'pr-record-open') as HTMLButtonElement;
+  openRecords.type = 'button';
+  openRecords.setAttribute('aria-label', `${p.name} 기록 보기`);
+  openRecords.append(el('b', 'pr-name', p.name));
   const addr = shortAddress(p);
   // 🔴 주소가 없으면 「없음」이라 적지 않고 **왜 없는지**를 말한다 — 아직 안 받은 것이지
   //    그 자리에 주소가 없는 것이 아니다(§8 — 모르는 걸 아는 척하지 않는다).
-  sum.append(el('span', 'pr-addr muted small', addr ?? (needsAddress(p) ? '주소 아직 못 받음' : '')));
-  sum.append(el('span', 'pr-coord-label muted small', `${p.latitude.toFixed(4)}, ${p.longitude.toFixed(4)}`));
-  row.appendChild(sum);
+  openRecords.append(el('span', 'pr-addr muted small', addr ?? (needsAddress(p) ? '주소 아직 못 받음' : '')));
+  openRecords.append(el('span', 'pr-coord-label muted small', `${p.latitude.toFixed(4)}, ${p.longitude.toFixed(4)}`));
+  const editOpen = el('button', 'btn-ghost pr-edit-open', '편집') as HTMLButtonElement;
+  editOpen.type = 'button';
+  editOpen.setAttribute('aria-label', `${p.name} 이름과 좌표 편집`);
+  summary.append(openRecords, editOpen);
+  row.appendChild(summary);
 
   const body = el('div', 'pr-body');
   const note = el('p', 'sync-note');
@@ -229,10 +237,16 @@ function registryRow(p: RegistryPlace, moments: MomentLike[], onChanged: () => v
     })();
   });
 
-  body.append(nameRow, coordEditor(p, onChanged, note), addrBtn, note, usageBlock(p, moments, goToTrip));
+  body.append(nameRow, coordEditor(p, onChanged, note), addrBtn, note);
   if (p.formattedAddress) {
     body.appendChild(el('p', 'pr-full muted small', p.formattedAddress));
   }
+  body.hidden = true;
+  editOpen.addEventListener('click', () => {
+    body.hidden = !body.hidden;
+    if (!body.hidden) nameInput.focus();
+  });
+  openRecords.addEventListener('click', () => openPlaceRecords(p, moments, goToTrip));
   row.appendChild(body);
   return row;
 }
@@ -244,37 +258,94 @@ function registryRow(p: RegistryPlace, moments: MomentLike[], onChanged: () => v
  * 🔴 확실한 것(링크)과 짐작(이름만 같음)을 **나눠 보여준다.** 한 숫자로 합치면 그 숫자가
  * 거짓이 된다 — 「집」이라 적은 곳이 서울 집일 수도 타슈켄트 집일 수도 있다(§8).
  */
-function usageBlock(p: RegistryPlace, moments: MomentLike[], goToTrip: (tripId: string) => void): HTMLElement {
-  const box = el('div', 'pr-usage');
-  const u = momentsUsingPlace(moments, p);
-  const label = usageLabel(u);
-  if (!label) {
-    // 침묵이 아니라 **사실을 말한다** — 여기서 「없음」은 「아직 안 쓴 장소」라는 유용한 정보다.
-    box.appendChild(el('p', 'muted small', '아직 이 장소를 쓴 순간이 없어요.'));
-    return box;
-  }
-  const fold = el('details', 'pr-usage-fold') as HTMLDetailsElement;
-  fold.appendChild(el('summary', 'pr-usage-sum', label));
-  const rows = el('div', 'pr-usage-list');
-  const add = (m: MomentLike, uncertain: boolean): void => {
-    const b = el('button', 'pr-usage-row') as HTMLButtonElement;
-    b.type = 'button';
-    b.append(el('span', 'pr-usage-title', m.title || '(제목 없음)'));
-    // 🔴 **날짜를 여기서 보여주지 않는다.** 순간의 날짜는 *여행 시간대*로 읽어야 하는데
-    //    (`momentWhen(occurredAt, tzOffsetMin, clock)`) 대장은 여행 시계를 모른다. 기기 시계로
-    //    읽으면 해외 여행 기록이 하루 어긋나 보이고, `slice(0,10)`은 UTC라 더 나쁘다
-    //    (`check-timezone`이 그걸 잡았다 — 게이트가 설계를 밀어준 자리다).
-    //    틀린 날짜보다 **없는 날짜**가 낫다: 누르면 그 여행에서 정확한 날짜를 본다.
-    // 짐작인 줄은 그 사실을 **줄마다** 붙인다 — 묶음 제목만으로는 섞여 보인다.
-    if (uncertain) b.append(el('span', 'pr-usage-guess muted small', '이름만 같음'));
-    b.addEventListener('click', () => goToTrip(m.tripId));
-    rows.appendChild(b);
+/** 장소 행은 길게 유지하고, 기록은 별도 모달에서만 보여 준다. */
+function openPlaceRecords(place: RegistryPlace, moments: PlaceRecordMoment[], goToTrip: GoToTrip): void {
+  const groups = placeRecordGroups(moments, place);
+  const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const overlay = el('div', 'overlay-base pr-records-overlay');
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', '이 장소가 담긴 기록');
+  const modal = el('div', 'modal-base pr-records-modal');
+  const close = el('button', 'guide-close', '✕') as HTMLButtonElement;
+  close.type = 'button'; close.setAttribute('aria-label', '이 장소가 담긴 기록 닫기');
+  const header = el('div', 'guide-header');
+  header.append(el('div', 'guide-title-wrap'), close);
+  const titleWrap = header.firstElementChild!;
+  titleWrap.append(el('h2', 'guide-title', '이 장소가 담긴 기록'), el('p', 'guide-sub', place.name));
+  const body = el('div', 'guide-body pr-records-body');
+  const urls: string[] = [];
+  let dismissed = false;
+  const release = (): void => { for (const url of urls) URL.revokeObjectURL(url); urls.length = 0; };
+  const dismiss = (): void => {
+    if (dismissed) return;
+    dismissed = true;
+    release(); overlay.remove(); document.removeEventListener('keydown', onKey, true);
+    if (previousFocus && document.contains(previousFocus)) previousFocus.focus();
   };
-  for (const m of u.linked) add(m, false);
-  for (const m of u.sameName) add(m, true);
-  fold.appendChild(rows);
-  box.appendChild(fold);
-  return box;
+  const onKey = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopImmediatePropagation(); // 아래 데이터 관리 창까지 한 번에 닫히지 않게 이 최상단 모달만 소비한다.
+    dismiss();
+  };
+  close.addEventListener('click', dismiss);
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) dismiss(); });
+  document.addEventListener('keydown', onKey, true);
+
+  type RecordMedia = { id: string; thumbBlob: Blob };
+  const render = (mediaByMoment: Map<string, RecordMedia[]> | null): void => {
+    // 사용자가 로딩 중 닫았으면 늦게 도착한 Blob으로 분리된 DOM과 object URL을 만들지 않는다.
+    if (dismissed) return;
+    release(); body.replaceChildren();
+    const addSection = (heading: string, note: string, list: ReturnType<typeof placeRecordGroups>['linked']): void => {
+    if (!list.length) return;
+    const section = el('section', 'pr-record-section');
+    section.append(el('h3', 'pr-record-heading', heading), el('p', 'pr-record-note', note));
+    for (const group of list) {
+      const trip = el('section', 'pr-record-trip');
+      trip.appendChild(el('h4', 'pr-record-trip-title', group.tripTitle || '(제목 없는 여행)'));
+      for (const moment of group.moments) {
+        const card = el('article', 'pr-record-moment');
+        const media = mediaByMoment?.get(moment.id) ?? [];
+        if (media.length) {
+          const photos = el('div', 'pr-record-photos');
+          for (const item of media) {
+            const photo = el('button', 'pr-record-photo') as HTMLButtonElement;
+            photo.type = 'button'; photo.dataset.mediaId = item.id;
+            photo.setAttribute('aria-label', `${moment.title || '제목 없는 순간'} 사진 보기`);
+            const img = el('img', 'pr-record-thumb') as HTMLImageElement;
+            const url = URL.createObjectURL(item.thumbBlob); urls.push(url);
+            img.src = url; img.alt = ''; img.loading = 'lazy'; photo.appendChild(img);
+            photo.addEventListener('click', () => { dismiss(); goToTrip(group.tripId, { momentId: moment.id, mediaId: item.id }); });
+            photos.appendChild(photo);
+          }
+          card.appendChild(photos);
+        }
+        const details = el('div', 'pr-record-details');
+        const jump = el('button', 'pr-record-moment-title', moment.title || '(제목 없는 순간)') as HTMLButtonElement;
+        jump.type = 'button';
+        jump.addEventListener('click', () => { dismiss(); goToTrip(group.tripId, { momentId: moment.id }); });
+        details.append(jump, el('span', 'pr-record-media-count muted small', mediaByMoment ? `사진 ${media.length}장` : '사진 확인 불가'));
+        if (!media.length) details.appendChild(el('button', 'btn-ghost pr-record-jump', '순간으로 이동'));
+        const fallback = details.lastElementChild;
+        if (fallback instanceof HTMLButtonElement && fallback.classList.contains('pr-record-jump')) {
+          fallback.addEventListener('click', () => { dismiss(); goToTrip(group.tripId, { momentId: moment.id }); });
+        }
+        card.appendChild(details); trip.appendChild(card);
+      }
+      section.appendChild(trip);
+    }
+    body.appendChild(section);
+    };
+    addSection('직접 연결된 순간', '이 장소 ID로 연결된 확실한 기록입니다.', groups.linked);
+    addSection('이름만 같은 순간', '장소 ID 연결은 없고 이름만 같아요. 같은 장소인지 확인해 주세요.', groups.sameName);
+    if (!groups.linked.length && !groups.sameName.length) body.appendChild(el('p', 'guide-note', '아직 이 장소가 담긴 순간이 없어요.'));
+  };
+  body.appendChild(el('p', 'guide-note', '사진을 불러오는 중…'));
+  modal.append(header, body); overlay.appendChild(modal); document.body.appendChild(overlay); close.focus();
+  const ids = [...groups.linked, ...groups.sameName].flatMap((group) => group.moments.map((moment) => moment.id));
+  void mediaForPlaceRecordMoments(ids).then(render).catch(() => render(null));
 }
 
 /**
@@ -284,7 +355,7 @@ function usageBlock(p: RegistryPlace, moments: MomentLike[], goToTrip: (tripId: 
  * 🔴 여기서 고치는 것은 **대장 항목뿐**이고 과거 순간의 기록은 바뀌지 않는다
  * (`updatePlace`의 계약 — 사용자가 쓴 것을 앱이 조용히 고쳐 쓰지 않는다).
  */
-export function placeRegistryPanel(onChanged: () => void, goToTrip: (tripId: string) => void): HTMLElement {
+export function placeRegistryPanel(onChanged: () => void, goToTrip: GoToTrip): HTMLElement {
   const box = el('div', 'guide-detail-body');
   box.append(
     el('p', 'guide-p', '한 번 등록한 장소가 모두 여기 모입니다. 사진에 위치가 없거나 고치고 싶을 때 여기서 찾아 쓰세요.'),
@@ -302,7 +373,7 @@ export function placeRegistryPanel(onChanged: () => void, goToTrip: (tripId: str
   box.appendChild(list);
 
   let all: RegistryPlace[] = [];
-  let moments: MomentLike[] = [];
+  let moments: PlaceRecordMoment[] = [];
 
   const paint = (): void => {
     const found = sortRegistry(searchRegistry(all, search.value));
@@ -322,7 +393,7 @@ export function placeRegistryPanel(onChanged: () => void, goToTrip: (tripId: str
 
   function reload(): void {
     void (async () => {
-      const [places, ms] = await Promise.all([listPlaces(), allMomentsForPlaceLookup()]);
+      const [places, ms] = await Promise.all([listPlaces(), allPlaceRecordMoments()]);
       all = places.map(toRegistry);
       moments = ms;
       paint();
