@@ -3,6 +3,7 @@
 // 같은 키를 되읽어(read-back) 확인한 뒤에만 완료. 서버 push는 후속(대기열에 적재).
 
 import { db, type LocalMoment, type SyncQueueItem } from '../offline/db';
+import { registerMomentPlace } from './places';
 
 function uuid(): string {
   return crypto.randomUUID();
@@ -33,6 +34,11 @@ export async function createMomentLocalFirst(input: CreateMomentInput): Promise<
   if (!title) throw new Error('기록 내용이 비어 있습니다.');
   if (!input.tripId) throw new Error('여행 정보가 없습니다.');
 
+  const registeredPlaceId = await registerMomentPlace({
+    name: input.placeName ?? '',
+    latitude: input.placeLat ?? null,
+    longitude: input.placeLng ?? null,
+  });
   const now = new Date().toISOString();
   const moment: LocalMoment = {
     id: uuid(),
@@ -44,7 +50,7 @@ export async function createMomentLocalFirst(input: CreateMomentInput): Promise<
     placeName: input.placeName?.trim() ?? '',
     placeLat: input.placeLat ?? null,
     placeLng: input.placeLng ?? null,
-    placeId: input.placeId ?? null,
+    placeId: registeredPlaceId ?? input.placeId ?? null,
     tzOffsetMin: input.tzOffsetMin ?? null,
     version: 1,
     baseVersion: 0,
@@ -93,6 +99,24 @@ export interface UpdateMomentPatch {
   tzOffsetMin?: number | null;
 }
 
+export interface PhotoTitleHit {
+  momentId: string;
+  tripId: string;
+  title: string;
+}
+
+/** 사진이 실제로 붙어 있는 순간의 제목을 검색한다. */
+export async function searchPhotoTitles(query: string): Promise<PhotoTitleHit[]> {
+  const q = query.trim().toLocaleLowerCase('ko');
+  if (!q) return [];
+  const d = db();
+  const [moments, media] = await Promise.all([d.localMoments.toArray(), d.localMedia.toArray()]);
+  const withPhoto = new Set(media.filter((m) => m.deletedAt === null).map((m) => m.momentId));
+  return moments
+    .filter((m) => m.deletedAt === null && withPhoto.has(m.id) && m.title.toLocaleLowerCase('ko').includes(q))
+    .map((m) => ({ momentId: m.id, tripId: m.tripId, title: m.title }));
+}
+
 /**
  * 순간 수정 — 생성과 동일 규율: version+1, updatedAt 갱신(LWW 기준), 대기열(update),
  * 정확한 read-back. 서버 push는 기존 순간 파이프라인이 처리(op 타입 무관 멱등 upsert).
@@ -121,6 +145,12 @@ export async function updateMomentLocalFirst(id: string, patch: UpdateMomentPatc
     clientOperationId: opId,
   };
   if (!next.title) throw new Error('기록 내용이 비어 있습니다.');
+  const registeredPlaceId = await registerMomentPlace({
+    name: next.placeName,
+    latitude: next.placeLat ?? null,
+    longitude: next.placeLng ?? null,
+  });
+  if (registeredPlaceId) next.placeId = registeredPlaceId;
 
   const op: SyncQueueItem = {
     operationId: opId,

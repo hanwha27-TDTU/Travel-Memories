@@ -89,6 +89,28 @@ function blockPlatformClaims(container: HTMLElement, isDragging: () => boolean):
   };
 }
 
+/** 재배열 직후 같은 놓기 좌표에 브라우저가 합성하는 click 한 번만 캡처 단계에서 소비한다. */
+function postDragClickBlock(container: HTMLElement): { arm: (x: number, y: number) => void; off: () => void } {
+  let until = 0;
+  let releaseX = 0;
+  let releaseY = 0;
+  const onClick = (e: MouseEvent): void => {
+    if (performance.now() > until || Math.hypot(e.clientX - releaseX, e.clientY - releaseY) > SLOP_PX) return;
+    until = 0;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  };
+  container.addEventListener('click', onClick, true);
+  return {
+    arm: (x, y) => {
+      releaseX = x;
+      releaseY = y;
+      until = performance.now() + 180;
+    },
+    off: () => container.removeEventListener('click', onClick, true),
+  };
+}
+
 /**
  * 🔴 드래그가 시작될 때 **한 번** 잰 자리. 이 묶음이 드래그 내내 **유일한 좌표계**다.
  *
@@ -134,8 +156,7 @@ function applyShift(base: DragBase, from: number, to: number): void {
 export function attachDragReorder(opts: DragReorderOptions): () => void {
   const { container, itemSelector, onReorder, onStart } = opts;
   let holdTimer: ReturnType<typeof setTimeout> | null = null;
-  let startX = 0;
-  let startY = 0;
+  let startX = 0; let startY = 0;
   let fromIndex = -1;
   let dragging = false;
   let activeEl: HTMLElement | null = null;
@@ -143,8 +164,8 @@ export function attachDragReorder(opts: DragReorderOptions): () => void {
   let liftScale = 1;
   let base: DragBase | null = null; // 계약은 `DragBase`의 머리말에 있다 — 다시 재지 않는다
   /** 잰 순간의 컨테이너 자리 — 끄는 중에 화면이 스크롤돼도 같은 좌표계로 되돌리기 위해. */
-  let originX = 0;
-  let originY = 0;
+  let originX = 0; let originY = 0;
+  const clickBlock = postDragClickBlock(container);
 
   const clearHold = (): void => {
     if (holdTimer !== null) clearTimeout(holdTimer);
@@ -219,12 +240,15 @@ export function attachDragReorder(opts: DragReorderOptions): () => void {
   };
 
 
-  const onUp = (): void => {
+  const onUp = (e: PointerEvent): void => {
     if (dragging && lastTo >= 0 && lastTo !== fromIndex) {
       const from = fromIndex;
       const to = lastTo;
       clearPreview(); // 화면은 호출자가 다시 그린다 — 밀어 둔 것이 남지 않게 먼저 지운다
       stop();
+      // pointerup 직후 브라우저가 같은 썸네일에 click을 합성한다. 재배열 완료 동작이지
+      // 사진 열기 의도가 아니므로 캡처 단계에서 **딱 한 번** 막는다.
+      clickBlock.arm(e.clientX, e.clientY);
       onReorder(from, to);
       return;
     }
@@ -242,6 +266,7 @@ export function attachDragReorder(opts: DragReorderOptions): () => void {
   return () => {
     clearHold();
     offClaims();
+    clickBlock.off();
     container.removeEventListener('pointerdown', onDown);
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);

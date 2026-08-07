@@ -128,7 +128,7 @@ function buildPickedBadge(onClear: () => void): PickedBadge {
       return;
     }
     badge.hidden = false;
-    text.textContent = detail ? `📍 위치 지정됨 · ${detail}` : '📍 위치 지정됨';
+    text.textContent = detail ? `📍 ${detail}` : '📍 좌표 있음';
     const coarse = precision != null && needsRefine(precision);
     hint.hidden = !coarse;
     hint.textContent = coarse
@@ -553,7 +553,8 @@ function applyPastedCoord(ctx: CoordApplyContext, c: ParsedCoord): void {
   ctx.commit(c.lat, c.lng);
   const typed = ctx.input.value.trim();
   const looksLikeCoords = parseCoordinateInput(typed) !== null;
-  ctx.setPicked(looksLikeCoords ? '좌표로 지정' : typed || '좌표로 지정');
+  const coordLabel = `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
+  ctx.setPicked(looksLikeCoords ? coordLabel : typed || coordLabel);
   if (!looksLikeCoords) return;
   ctx.input.value = '';
   void fillNameFromReverse(ctx, c.lat, c.lng);
@@ -1818,11 +1819,12 @@ function placeChip(m: { id: string; placeName: string; placeLat?: number | null;
   // 🔴 「진짜 좌표인가」는 단 하나의 함수(isRealCoord)가 판정한다(H-3 · NaN·범위밖·0,0 배제).
   const realCoord = isRealCoord(lat, lng);
   const label = m.placeName || (realCoord ? `${lat!.toFixed(4)}, ${lng!.toFixed(4)}` : '');
-  const chip = el('button', 'chip gps chip-tap', `📍 ${label}`) as HTMLButtonElement;
-  chip.type = 'button';
-  chip.setAttribute('aria-label', `${label} 지도에서 보기`);
+  const chip = el('span', 'chip gps place-chip');
+  const mapButton = el('button', 'place-chip-map', `📍 ${label}`) as HTMLButtonElement;
+  mapButton.type = 'button';
+  mapButton.setAttribute('aria-label', `${label} 지도에서 보기`);
   const place = { name: label, lat, lng };
-  chip.addEventListener('click', (e) => {
+  mapButton.addEventListener('click', (e) => {
     e.stopPropagation();
     const pts =
       lat !== null && lng !== null
@@ -1832,6 +1834,21 @@ function placeChip(m: { id: string; placeName: string; placeLat?: number | null;
         : [];
     void openMapView(label, pts, place);
   });
+  chip.appendChild(mapButton);
+  if (realCoord) {
+    const coord = `${lat!.toFixed(5)}, ${lng!.toFixed(5)}`;
+    const copy = el('button', 'place-chip-copy', `${coord} · 복사`) as HTMLButtonElement;
+    copy.type = 'button';
+    copy.setAttribute('aria-label', `${coord} 좌표 복사`);
+    copy.addEventListener('click', (e) => {
+      e.stopPropagation();
+      void navigator.clipboard.writeText(coord).then(
+        () => showNoticeToast('좌표를 복사했어요'),
+        () => showNoticeToast('좌표를 복사하지 못했어요'),
+      );
+    });
+    chip.appendChild(copy);
+  }
   return chip;
 }
 

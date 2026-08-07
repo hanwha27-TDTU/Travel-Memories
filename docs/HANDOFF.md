@@ -4,6 +4,19 @@
 
 ---
 
+## HANDOFF-0111 · v1.92 · **순간 장소 기준본 + 여행 홈 12개 개선** (2026-08-07)
+
+- **사용자 지시**: 순간 저장 장소명을 위치관리대장 기준본으로 삼고 기존 기록 소급, 동일 좌표·다른 이름 허용, 대장 지도 핀 좌표 수정, 좌표 표시·복사, 여행 기간 경과 표기, 카드 편집, 새 여행 모달, 사진 제목 검색, 동기화 배지 이동, 제목 홈 이동, Windows 사진 재배열 클릭 충돌까지 12건을 한 번에 요청했다.
+- **장소 계약**: 순간 생성·수정 서비스가 유효한 이름+좌표를 저장할 때 장소를 즉시 등록한다. 예전 순간은 홈 진입 때 멱등 소급하며, 한 옛 장소를 서로 다른 기준명이 공유했다면 첫 항목은 직접 고치고 나머지는 별도 장소로 분리한다. 제공자 ID·좌표가 같아도 이름이 다르면 합치지 않는다. 찾기+생성은 같은 IndexedDB 쓰기 트랜잭션이고 소급은 단일 실행으로 합쳐, 겹친 홈 갱신도 중복 행/op을 만들지 않는다.
+- **화면**: 위치관리대장 좌표 편집기에 기존 지도 피커를 연결했다. 순간 장소 칩은 이름 옆에 5자리 좌표와 복사 버튼을 표시한다. 홈은 새 여행/편집 모달, 사진이 붙은 순간 제목 검색, 달력 기준 경과 기간, 카드 편집 버튼, 버전 옆 동기화 배지, 클릭 가능한 앱 제목을 제공한다.
+- **대장 좌표 권위**: 순간 이름이 이미 대장 이름과 같으면 대장 좌표가 권위다. 사용자가 지도 핀을 옮긴 뒤 홈 소급이 순간의 옛 좌표로 되돌리지 않으며, 유닛으로 재진입을 잠갔다.
+- **Windows 재배열**: 실제 순서가 바뀐 pointerup 뒤 같은 놓기 좌표에 합성되는 click만 180ms 동안 캡처한다. 뷰어 오개방을 막으면서 다른 사진을 즉시 누르는 정상 클릭은 통과하며, 둘을 라이브 R⑦·R⑧로 함께 잰다.
+- **게이트 보수**: Windows CRLF에서 `BLIND_SPOTS` 16건을 0건으로 오판하던 기존 파서를 LF/CRLF 대칭으로 고치고 셀프테스트를 추가했다. 수정 전 실제 게이트 RED, 수정 후 등록부 16건 GREEN을 확인했다.
+- **Codex AutoRouter**: 전역 `bg-codex-autorouter`를 처음 적용했다. Terra 독립 검토가 대장 핀 되돌림·동시 중복·드래그 후 정상 클릭 범위를 찾아냈고, 프로젝트 게이트 스킬에는 “작업자 선택만 담당하며 프로젝트 헌법·brief가 우선”이라는 연결 규칙만 두었다.
+- **검증**: 관련 유닛 42건, 빠른 게이트 49종, build(v1.92), 편집기 라이브 **362/362**, 진단 라이브 **55/55**, 전체 harness **건너뜀 없이 전부 통과**.
+
+---
+
 ## HANDOFF-0110 · **T-014 종결 — 흔들리는 게이트는 「가끔」이 아니라 결정적으로 잡았다** (2026-08-06 · M-0119)
 
 - **과제**: `verify-editor-live`가 같은 커밋에서 **341/348 ↔ 348/348**을 번갈아 냈다(v1.90 릴리스 중 실측 · 그때 「다시 돌리니 됐다」로 덮지 않고 백로그에 올려 둔 행).
@@ -667,7 +680,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.91<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->191<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->101<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.92<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->192<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->102<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->29<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

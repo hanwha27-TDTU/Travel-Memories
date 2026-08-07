@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   formatCalendarDate,
+  formatTripDuration,
   formatTripPeriod,
   localDate,
   localTime,
@@ -60,6 +61,17 @@ describe('localDateTime', () => {
 });
 
 describe('여행 기간 달력 표기', () => {
+  it('기간을 달력 기준 년·개월·일로 함께 표시한다', () => {
+    expect(formatTripDuration('2024-01-15', '2026-03-20')).toBe('2년 2개월 5일');
+    expect(formatTripDuration('2026-08-01', '2026-08-01')).toBe('0년 0개월 0일');
+    expect(formatTripDuration('2026-01-31', '2026-03-01')).toBe('0년 1개월 1일');
+  });
+
+  it('기간을 계산할 수 없으면 부가 표기를 만들지 않는다', () => {
+    expect(formatTripDuration('', '2026-08-01')).toBeNull();
+    expect(formatTripDuration('2026-08-02', '2026-08-01')).toBeNull();
+  });
+
   it('시작일과 종료일에 각각 요일을 붙인다', () => {
     expect(formatTripPeriod('2026-07-20', '2026-07-31')).toBe('2026-07-20 (월) ~ 2026-07-31 (금)');
   });

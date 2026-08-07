@@ -162,11 +162,11 @@ describe('④ 🔴 의도적 비대칭 — 장소는 여행의 자식이 **아�
 });
 
 describe('⑤ 중복 접기 — 같은 곳을 열 번 골라도 행은 하나', () => {
-  it('제공자 id가 같으면 같은 곳이다(이름이 조금 달라도)', async () => {
+  it('제공자 id와 좌표가 같아도 순간의 기준 장소명이 다르면 별도 장소다', async () => {
     const a = await savePlace(DAEHAKRO);
     const b = await savePlace({ ...DAEHAKRO, name: '대학로 (혜화)' });
-    expect(b.id).toBe(a.id);
-    expect(await listPlaces()).toHaveLength(1);
+    expect(b.id).not.toBe(a.id);
+    expect(await listPlaces()).toHaveLength(2);
   });
 
   it('🔴 제공자 id가 없으면 이름이 같아도 **멀면 다른 곳**이다', async () => {

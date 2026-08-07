@@ -42,7 +42,9 @@ import {
 } from '../theme';
 import type { Route } from '../../app/router';
 import type { LocalTrip } from '../../offline/db';
-import { formatTripPeriod } from '../../domain/time';
+import { formatTripPeriod, formatTripDuration } from '../../domain/time';
+import { searchPhotoTitles } from '../../services/moments';
+import { reconcileMomentPlaces } from '../../services/places';
 import {
   buildTimeTree,
   matchesPeriod,
@@ -111,12 +113,13 @@ function tripCardShell(t: LocalTrip, navigate: Navigate): HTMLElement {
 function tripCardInfo(t: LocalTrip): HTMLElement {
   const info = el('div', 'cover-info');
   info.appendChild(el('h3', 'trip-title', t.title));
-  info.appendChild(el('p', 'trip-meta', formatTripPeriod(t.startDate, t.endDate)));
+  const duration = formatTripDuration(t.startDate, t.endDate);
+  info.appendChild(el('p', 'trip-meta', `${formatTripPeriod(t.startDate, t.endDate)}${duration ? ` (${duration})` : ''}`));
   return info;
 }
 
 // 활성 여행 카드 — div(role=button)로 만들어 내부에 '삭제' 버튼을 중첩 허용(button 중첩 불가 회피).
-function tripCard(t: LocalTrip, navigate: Navigate, onDelete: (t: LocalTrip) => void): HTMLElement {
+function tripCard(t: LocalTrip, navigate: Navigate, onDelete: (t: LocalTrip) => void, onEdit: (t: LocalTrip) => void): HTMLElement {
   const card = tripCardShell(t, navigate);
   // 삭제(🗑) — 카드 열기와 겹치지 않게 stopPropagation. 실제 삭제는 확인 + 실행취소 + 휴지통(복구 가능).
   const del = el('button', 'trip-delete', '🗑') as HTMLButtonElement;
@@ -127,7 +130,14 @@ function tripCard(t: LocalTrip, navigate: Navigate, onDelete: (t: LocalTrip) => 
     e.stopPropagation();
     onDelete(t);
   });
-  card.append(del, tripCardInfo(t));
+  const edit = el('button', 'trip-edit', '✎') as HTMLButtonElement;
+  edit.type = 'button';
+  edit.title = '여행 편집';
+  edit.setAttribute('aria-label', `${t.title} 여행 편집`);
+  edit.addEventListener('click', (e) => { e.stopPropagation(); onEdit(t); });
+  const actions = el('div', 'trip-card-actions');
+  actions.append(edit, del);
+  card.append(actions, tripCardInfo(t));
   return card;
 }
 
@@ -189,17 +199,21 @@ function buildControls(): HTMLElement {
  * `authArea`를 **인자로 받는** 이유: 내용은 로그인 상태에 따라 계속 다시 그려지므로
  * 그 껍데기의 소유권은 호출부(`renderAuth`)에 있어야 한다.
  */
-function buildHeader(authArea: HTMLElement, syncStatus: HTMLElement, onData: () => void): HTMLElement {
+function buildHeader(authArea: HTMLElement, syncStatus: HTMLElement, onData: () => void, onHome: () => void): HTMLElement {
   const header = el('header', 'app-header');
 
   // 제목 + 버전 배지(누르면 개발자 정보). 버전은 changelog SSOT의 생성물에서 읽는다.
   const titleRow = el('div', 'app-title-row');
-  titleRow.appendChild(el('h1', 'app-title', '🧳 Bugeon Journey'));
+  const homeBtn = el('button', 'app-title app-title-home', '🧳 Bugeon Journey') as HTMLButtonElement;
+  homeBtn.type = 'button';
+  homeBtn.setAttribute('aria-label', 'Bugeon Journey 홈으로');
+  homeBtn.addEventListener('click', onHome);
+  titleRow.appendChild(homeBtn);
   const verBadge = el('button', 'app-version', `v${REGISTRY.appVersion}`) as HTMLButtonElement;
   verBadge.type = 'button';
   verBadge.setAttribute('aria-label', `버전 ${REGISTRY.appVersion} · 개발자 정보 열기`);
   verBadge.addEventListener('click', () => void openAboutApp());
-  titleRow.appendChild(verBadge);
+  titleRow.append(verBadge, syncStatus);
 
   // 계정 영역은 **제목과 같은 줄 오른쪽**에 둔다(사용자 요청 2026-07-26).
   // 왜: 예전에는 계절·테마 컨트롤과 같은 행에 넣었는데, 그 행이 좁은 화면에서 줄바꿈되면서
@@ -209,7 +223,7 @@ function buildHeader(authArea: HTMLElement, syncStatus: HTMLElement, onData: () 
   const headTools = el('div', 'app-head-tools');
   // 계정 줄은 제목과 같은 높이를 지키고, 상태는 바로 아래 우측에 둔다. 둘을 가로로 놓으면
   // 900px에서도 합산 폭 때문에 계정 전체가 다음 줄로 밀렸다(기존 헤더 라이브 계약 RED).
-  headTools.append(authArea, syncStatus);
+  headTools.append(authArea);
   const headTop = el('div', 'app-head-top');
   headTop.append(titleRow, headTools);
   header.appendChild(headTop);
@@ -532,33 +546,102 @@ function filteredEmptyState(onReset: () => void): HTMLElement {
   return empty;
 }
 
-/** 새 여행 폼 — 제출 흐름(비활성화·초기화)은 여기, 저장·동기화는 onCreate가 맡는다. */
-function buildTripForm(onCreate: (title: string) => Promise<void>): HTMLFormElement {
+/** 새 여행·여행 편집이 공유하는 별도 창. */
+function openTripEditor(
+  initial: Pick<LocalTrip, 'title' | 'startDate' | 'endDate'> | null,
+  onSave: (value: { title: string; startDate: string; endDate: string }) => Promise<void>,
+): void {
+  const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const overlay = el('div', 'overlay-base trip-editor-overlay');
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', initial ? '여행 편집' : '새 여행 추가');
+  const modal = el('form', 'modal-base trip-editor-modal') as HTMLFormElement;
+  modal.appendChild(el('h2', undefined, initial ? '여행 편집' : '새 여행'));
+  const title = el('input') as HTMLInputElement;
+  title.value = initial?.title ?? '';
+  title.placeholder = '여행 제목';
+  title.maxLength = 100;
+  title.required = true;
+  title.setAttribute('aria-label', '여행 제목');
+  const start = el('input') as HTMLInputElement;
+  start.type = 'date'; start.value = initial?.startDate ?? ''; start.setAttribute('aria-label', '여행 시작일');
+  const end = el('input') as HTMLInputElement;
+  end.type = 'date'; end.value = initial?.endDate ?? ''; end.setAttribute('aria-label', '여행 종료일');
+  const actions = el('div', 'edit-actions');
+  const save = el('button', 'btn-primary', '저장') as HTMLButtonElement; save.type = 'submit';
+  const cancel = el('button', 'btn-ghost', '취소') as HTMLButtonElement; cancel.type = 'button';
+  actions.append(save, cancel);
+  modal.append(title, start, end, actions);
+  overlay.appendChild(modal);
+  const error = el('p', 'small form-error');
+  error.setAttribute('role', 'alert');
+  const close = (): void => {
+    document.removeEventListener('keydown', onKeyDown);
+    overlay.remove();
+    previouslyFocused?.focus();
+  };
+  const onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') close();
+  };
+  cancel.addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  modal.addEventListener('submit', (e) => {
+    e.preventDefault();
+    error.textContent = '';
+    save.disabled = true;
+    void onSave({ title: title.value, startDate: start.value, endDate: end.value })
+      .then(close)
+      .catch((err) => { error.textContent = err instanceof Error ? err.message : String(err); })
+      .finally(() => { save.disabled = false; });
+  });
+  modal.insertBefore(error, actions);
+  document.body.appendChild(overlay);
+  document.addEventListener('keydown', onKeyDown);
+  title.focus();
+}
+
+/** 새 여행 버튼 + 사진이 붙은 순간 제목 검색. */
+function buildTripForm(onCreate: (value: { title: string; startDate: string; endDate: string }) => Promise<void>, onSearch: () => void): HTMLFormElement {
   const form = el('form', 'trip-form') as HTMLFormElement;
   const input = el('input') as HTMLInputElement;
-  input.type = 'text';
-  input.placeholder = '여행 제목 (예: 제주도 여름 여행)';
-  input.maxLength = 100;
-  input.required = true;
-  input.setAttribute('aria-label', '여행 제목');
-  const submit = el('button', 'btn-primary', '+ 새 여행') as HTMLButtonElement;
-  submit.type = 'submit';
-  form.append(input, submit);
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    submit.disabled = true;
-    void (async () => {
-      try {
-        await onCreate(input.value);
-        input.value = '';
-      } catch {
-        // 실패 문구는 onCreate가 상태 줄에 이미 표시했다 — 입력값은 지우지 않는다(다시 치게 하지 않기).
-      } finally {
-        submit.disabled = false;
-      }
-    })();
+  input.type = 'search';
+  input.placeholder = '사진 제목 검색';
+  input.setAttribute('aria-label', '사진 제목 검색');
+  input.addEventListener('input', () => {
+    form.dataset['photoQuery'] = input.value;
+    onSearch();
   });
+  const submit = el('button', 'btn-primary', '+ 새 여행') as HTMLButtonElement;
+  submit.type = 'button';
+  submit.addEventListener('click', () => openTripEditor(null, onCreate));
+  form.append(input, submit);
+  form.dataset['photoQuery'] = '';
   return form;
+}
+
+async function loadHomeSnapshot(query: string, reconcilePlaces: boolean): Promise<{
+  pending: number;
+  all: LocalTrip[];
+}> {
+  if (reconcilePlaces) await reconcileMomentPlaces();
+  const [trips, archived, pending, photoHits] = await Promise.all([
+    listTrips(), listArchivedTrips(), pendingSyncCount(), searchPhotoTitles(query),
+  ]);
+  const hitTrips = new Set(photoHits.map((h) => h.tripId));
+  const allUnfiltered = [...trips, ...archived];
+  return {
+    pending,
+    all: query.trim() ? allUnfiltered.filter((t) => hitTrips.has(t.id)) : allUnfiltered,
+  };
+}
+
+function editTripFromHome(t: LocalTrip, refresh: () => Promise<void>): void {
+  openTripEditor(t, async (value) => {
+    await updateTripLocalFirst(t.id, value);
+    await trySync();
+    await refresh();
+  });
 }
 
 /** 기간 필터 UI 묶음 — 선택 상태를 갖고, refresh가 apply()로 목록을 거른다. */
@@ -717,7 +800,12 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   const status = el('p', 'sync-note muted');
   status.setAttribute('role', 'status');
   // onChanged: 복원·휴지통 조작 후 홈 목록·통계를 즉시 갱신(refresh는 아래에서 선언·호이스팅).
-  wrap.appendChild(buildHeader(authArea, status, () => void openDataManager({ onChanged: () => void refresh(), goToTrip: (id: string) => navigate('trip-detail', id) })));
+  wrap.appendChild(buildHeader(
+    authArea,
+    status,
+    () => void openDataManager({ onChanged: () => void refresh(), goToTrip: (id: string) => navigate('trip-detail', id) }),
+    () => navigate('home'),
+  ));
 
   const section = el('section', 'trip-section');
   // 🔴 목록의 **껍데기**다(격자가 아니다). 격자 규칙은 `.trip-list` 한 곳에 있고, 요약 화면은
@@ -745,9 +833,9 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
     },
   });
 
-  const form = buildTripForm(async (title) => {
+  const form = buildTripForm(async (value) => {
     try {
-      await createTripLocalFirst({ title });
+      await createTripLocalFirst(value);
       await refresh();
       await trySync(); // 저장 후 백그라운드 전송
       await refresh();
@@ -755,7 +843,9 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
       status.textContent = `저장 실패: ${err instanceof Error ? err.message : String(err)}`;
       throw err; // 폼이 입력값을 지우지 않게(실패한 제목을 다시 치게 하지 않는다)
     }
-  });
+  }, () => void refresh());
+
+  const editTrip = (t: LocalTrip): void => editTripFromHome(t, refresh);
 
   function renderAuth(): void {
     authArea.innerHTML = '';
@@ -789,29 +879,23 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   }
 
   async function refresh(): Promise<void> {
-    const [trips, archived, pending] = await Promise.all([
-      listTrips(),
-      listArchivedTrips(),
-      pendingSyncCount(),
-    ]);
+    const mayViewLocalRecords = canViewLocalRecords(isConfigured(), Boolean(user));
+    const query = form.dataset['photoQuery'] ?? '';
+    const { pending, all } = await loadHomeSnapshot(query, mayViewLocalRecords);
     lastPending = pending;
 
     const lockUi = { viewBar: chipBar, fold: periodUi.fold, form, filterNow: periodUi.filterNow, list, clearPeriod: periodUi.clear };
-    const locked = applySignedOutLock(!canViewLocalRecords(isConfigured(), Boolean(user)), lockUi);
+    const locked = applySignedOutLock(!mayViewLocalRecords, lockUi);
     if (locked) {
       renderSyncNote(status, pending, user);
       return;
     }
 
-    // 🔴 보관은 별도 질의로 들어오지만(services 계약) 화면에서는 **넷이 한 목록**이다.
-    // 여기서 합치지 않으면 「보관 중」 칩만 개수를 못 세고 형제와 갈라진다(§7).
-    const all = [...trips, ...archived];
     // 새 여행 폼은 보관 목록에서만 숨긴다(locked 분기는 위에서 이미 처리).
     form.hidden = statusSel === 'archived';
 
     // 대상 목록: 칩이 안 눌렸으면 요약(보관 제외), 눌렸으면 그 상태만.
     const items = statusSel === null ? summaryPool(all) : all.filter((t) => t.status === statusSel);
-    // 기간 트리는 **현재 대상 목록**에서 파생되고 목록도 같은 선택으로 걸러진다(§7 대칭).
     const shown = periodUi.apply(items, () => void refresh());
     // 칩 개수는 기간 필터를 통과한 **전체**에서 센다 — 칩이 「완료 7」이라 말하고 눌렀더니
     // 2개가 나오는 모순을 만들지 않는다.
@@ -826,8 +910,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
       void refresh();
     };
     const card = (t: LocalTrip): HTMLElement =>
-      // 보관 목록의 주행동은 [복원], 나머지는 [삭제]. 카드 껍데기는 한 곳을 쓴다(§7 구조적 강제).
-      statusSel === 'archived' ? archivedCard(t, navigate, restoreTrip) : tripCard(t, navigate, deleteTrip);
+      statusSel === 'archived' ? archivedCard(t, navigate, restoreTrip) : tripCard(t, navigate, deleteTrip, editTrip);
 
     renderListArea(list, {
       items,

@@ -5,6 +5,10 @@ description: 게이트·프롬프트 거버넌스 개발 헌장 — scripts/*.mj
 
 # 게이트·기계화 개발 프롬프트 (Gates & Mechanization Dev Charter)
 
+## Codex AutoRouter와의 관계
+
+`C:\AppDevelopment\` 아래에서 Codex가 작업할 때 전역 `bg-codex-autorouter`는 작업자 선택만 담당한다. 이 프로젝트의 헌법과 `npm run brief`가 연결하는 스킬·게이트는 언제나 우선하며, 라우터의 세부 정책은 전역 스킬을 정본으로 두고 여기에 복제하지 않는다.
+
 이 저장소의 품질은 사람의 주의력이 아니라 **기계가 막는 것**에서 나온다.
 원칙의 정본은 `CLAUDE.md`(§4 게이트는 비공허하게 · §6 결함군 승격)와 `docs/LESSONS.md` §7이고,
 이 문서는 **작업 헌장**(게이트를 실제로 쓰는 법)이다.
