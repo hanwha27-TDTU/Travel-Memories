@@ -2542,31 +2542,34 @@ check('홈 카드: 높이 136px 이하로 축약', Boolean(noteBox?.cardH && not
 // 연·월 줄이 아예 안 생긴다. 그 상태로 재면 「개수 정렬」 같은 검사가 **대상 0~2개로 조용히
 // 통과**한다. 실제로 처음 판이 그랬다 — 월 줄이 없으니 어긋날 것도 없었다.
 const TREE_FIXTURE_IDS = ['live-tree-2607', 'live-tree-2608'];
-await page.evaluate(async (ids) => {
-  const now = new Date().toISOString();
-  await new Promise((resolve, reject) => {
-    const req = indexedDB.open('journey-archive');
-    req.onsuccess = () => {
-      const tx = req.result.transaction('localTrips', 'readwrite');
-      const st = tx.objectStore('localTrips');
-      // 같은 해의 서로 다른 두 달 — 연도 줄 1 + 월 줄 2가 생겨 들여쓰기 정렬을 잴 수 있다.
-      st.put({ id: ids[0], title: '라이브 검사 7월', startDate: '2026-07-10', endDate: '2026-07-11',
-        status: 'completed', createdAt: now, updatedAt: now, deletedAt: null, version: 1 });
-      st.put({ id: ids[1], title: '라이브 검사 8월', startDate: '2026-08-10', endDate: '2026-08-11',
-        status: 'completed', createdAt: now, updatedAt: now, deletedAt: null, version: 1 });
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    };
-    req.onerror = () => reject(req.error);
-  });
-}, TREE_FIXTURE_IDS);
+async function seedTreeFixtures(targetPage) {
+  await targetPage.evaluate(async (ids) => {
+    const now = new Date().toISOString();
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.open('journey-archive');
+      req.onsuccess = () => {
+        const tx = req.result.transaction('localTrips', 'readwrite');
+        const st = tx.objectStore('localTrips');
+        // 같은 해의 서로 다른 두 달 — 연도 줄 1 + 월 줄 2가 생겨 들여쓰기 정렬을 잴 수 있다.
+        st.put({ id: ids[0], title: '라이브 검사 7월', startDate: '2026-07-10', endDate: '2026-07-11',
+          status: 'completed', createdAt: now, updatedAt: now, deletedAt: null, version: 1 });
+        st.put({ id: ids[1], title: '라이브 검사 8월', startDate: '2026-08-10', endDate: '2026-08-11',
+          status: 'completed', createdAt: now, updatedAt: now, deletedAt: null, version: 1 });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }, TREE_FIXTURE_IDS);
+}
+await seedTreeFixtures(page);
 await page.reload();
 await page.waitForSelector('.home-tree button', { timeout: 15000 }).catch(() => {});
 
-async function homeTreeAt(w, h) {
-  await page.setViewportSize({ width: w, height: h });
-  await page.waitForTimeout(220);
-  return page.evaluate(() => {
+async function homeTreeAt(w, h, targetPage = page) {
+  await targetPage.setViewportSize({ width: w, height: h });
+  await targetPage.waitForTimeout(220);
+  return targetPage.evaluate(() => {
     window.scrollTo(0, 0);
     const de = document.documentElement;
     const fold = document.querySelector('.tree-fold');
@@ -2584,10 +2587,6 @@ async function homeTreeAt(w, h) {
     };
   });
 }
-// 이 라이브 페이지는 터치 회귀를 재려고 hasTouch로 열었다. 기간 트리의 데스크톱 분기는 같은
-// 페이지에서 터치 에뮬레이션을 잠시 내려 실제 정밀 포인터 media query로 렌더한 뒤 되돌린다.
-const homeInputCdp = await page.context().newCDPSession(page);
-await homeInputCdp.send('Emulation.setTouchEmulationEnabled', { enabled: false });
 const treeWide = await homeTreeAt(1480, 920);
 // §2-J: 대상 확보를 먼저 판정한다 — 트리가 아예 없으면 나머지 판정은 공허하다.
 if (!treeWide.exists) {
@@ -2599,23 +2598,43 @@ if (!treeWide.exists) {
     treeWide.open && !treeWide.summaryShown, `open=${treeWide.open} summary=${treeWide.summaryShown}`);
   // 픽스처가 연 1 + 월 2를 만들었으므로 최소 4(전체 포함). 이보다 적으면 픽스처가 안 먹은 것이다.
   check('홈 트리: 항목이 그려짐(전체 + 연 + 월 2)', treeWide.buttons >= 4, `buttons=${treeWide.buttons}`);
-  const treeDensity = await page.evaluate(() => {
-    const all = document.querySelector('.home-tree .tree-all')?.getBoundingClientRect();
-    const dates = [...document.querySelectorAll('.home-tree button:not(.tree-all)')]
-      .map((node) => node.getBoundingClientRect());
-    const gaps = dates.slice(1).map((rect, index) => rect.top - dates[index].bottom);
-    return {
-      finePointer: matchMedia('(hover: hover) and (pointer: fine)').matches,
-      allHeight: all?.height ?? 0,
-      dateMin: dates.length ? Math.min(...dates.map((rect) => rect.height)) : 0,
-      dateMax: dates.length ? Math.max(...dates.map((rect) => rect.height)) : 0,
-      gapMax: gaps.length ? Math.max(...gaps) : 0,
-    };
+  // 🔴 터치 컨텍스트에서 CDP로 touch를 꺼도 Linux Chromium은 pointer:none에 머문다(M-0126).
+  // 실제 데스크톱 입력은 별도 non-touch 컨텍스트에서 앱과 픽스처를 다시 렌더해 잰다.
+  const desktopContext = await browser.newContext({
+    viewport: { width: 1480, height: 920 },
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36',
   });
-  check('홈 트리 밀도: 넓은 정밀 포인터 화면은 전체 선택을 유지하고 날짜 행만 36px로 압축',
-    treeDensity.finePointer && treeDensity.allHeight >= 44 && treeDensity.dateMin >= 35 && treeDensity.dateMax <= 37,
-    JSON.stringify(treeDensity));
-  check('홈 트리 밀도: 날짜 행 사이 추가 간격 0px', treeDensity.gapMax <= 0.5, JSON.stringify(treeDensity));
+  const desktopPage = await desktopContext.newPage();
+  try {
+    await desktopPage.goto(`http://localhost:4173${BASE}`);
+    await desktopPage.waitForSelector('.home-tree button', { timeout: 15000 });
+    await seedTreeFixtures(desktopPage);
+    await desktopPage.reload();
+    await desktopPage.waitForSelector('.home-tree button', { timeout: 15000 });
+    await homeTreeAt(1480, 920, desktopPage);
+    const treeDensity = await desktopPage.evaluate(() => {
+      const all = document.querySelector('.home-tree .tree-all')?.getBoundingClientRect();
+      const dates = [...document.querySelectorAll('.home-tree button:not(.tree-all)')]
+        .map((node) => node.getBoundingClientRect());
+      const gaps = dates.slice(1).map((rect, index) => rect.top - dates[index].bottom);
+      return {
+        finePointer: matchMedia('(hover: hover) and (pointer: fine)').matches,
+        allHeight: all?.height ?? 0,
+        dateMin: dates.length ? Math.min(...dates.map((rect) => rect.height)) : 0,
+        dateMax: dates.length ? Math.max(...dates.map((rect) => rect.height)) : 0,
+        gapMax: gaps.length ? Math.max(...gaps) : 0,
+      };
+    });
+    check('홈 트리 밀도: 넓은 정밀 포인터 화면은 전체 선택을 유지하고 날짜 행만 36px로 압축',
+      treeDensity.finePointer && treeDensity.allHeight >= 44 && treeDensity.dateMin >= 35 && treeDensity.dateMax <= 37,
+      JSON.stringify(treeDensity));
+    check('홈 트리 밀도: 날짜 행 사이 추가 간격 0px', treeDensity.gapMax <= 0.5, JSON.stringify(treeDensity));
+    if (process.env.HOME_CARD_SCREENSHOT) {
+      await desktopPage.screenshot({ path: resolve(process.env.HOME_CARD_SCREENSHOT), fullPage: false });
+    }
+  } finally {
+    await desktopContext.close();
+  }
   const datedCardPeriods = await page.$$eval('.trip-meta', (nodes) => nodes.map((n) => n.textContent ?? ''));
   check('홈 카드 기간: 날짜가 있는 카드에 시작·종료 요일 표시',
     datedCardPeriods.some((t) => t.startsWith('2026-07-10 (금) ~ 2026-07-11 (토)')) &&
@@ -2627,9 +2646,6 @@ if (!treeWide.exists) {
   check('홈 전체기간: 입력 순서와 무관하게 여행 시작일 최신순',
     julyIndex >= 0 && augustIndex >= 0 && augustIndex < julyIndex,
     `8월=${augustIndex} 7월=${julyIndex}`);
-  if (process.env.HOME_CARD_SCREENSHOT) {
-    await page.screenshot({ path: resolve(process.env.HOME_CARD_SCREENSHOT), fullPage: false });
-  }
   // 🔴 개수가 **한 열로** 선다(사용자 지적 2026-08-03). 들여쓴 월 항목을 margin으로 밀면
   // 버튼 오른쪽 끝이 함께 밀려 숫자 열이 어긋난다 — 오른쪽 경계를 실측해서 잡는다.
   const countCol = await page.evaluate(() => {
@@ -2640,8 +2656,6 @@ if (!treeWide.exists) {
   });
   check('홈 트리: 개수가 한 열로 정렬됨(들여쓴 월도 오른쪽 끝이 같다)',
     countCol.n >= 2 && countCol.spread <= 1, `n=${countCol.n} spread=${countCol.spread}px`);
-  await homeInputCdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
-  await page.waitForTimeout(50);
   const treeEdge = await homeTreeAt(1099, 900);
   check('홈 트리: 경계 1099에서 1단 + 넘침 0', !treeEdge.sideBySide && treeEdge.overflow <= 0,
     `sbs=${treeEdge.sideBySide} overflow=${treeEdge.overflow}`);

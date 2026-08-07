@@ -6,6 +6,15 @@
 
 ---
 
+## M-0126 · **터치 에뮬레이션을 끄면 데스크톱 포인터가 돌아온다고 가정해 CI만 실패했다**
+- 날짜: 2026-08-07 · 발견: PR #232 Required `live-render` · 심각도: medium(제품 무해 · 릴리스 차단)
+- **자리**: `scripts/verify-editor-live.mjs`의 기간 색인 입력장치 전환
+- **증상**: Windows 로컬은 editor live 378/378이었지만 Linux CI는 날짜 행 2건만 실패했다. CI 계측은 `finePointer=false`, 날짜 높이 44px, gap 2px였고 제품 CSS의 정밀 포인터 분기가 아예 실행되지 않았다.
+- **원인**: 전체 라이브 페이지를 `hasTouch:true`로 연 뒤 CDP `setTouchEmulationEnabled(false)`를 보내면 정밀 포인터가 복구된다고 가정했다. Windows Chromium은 `pointer:fine`으로 돌아왔지만 Linux Chromium은 `pointer:none`에 머물렀다. 같은 API 호출을 같은 입력 상태로 오해했다.
+- **수정**: 기존 터치 컨텍스트는 그대로 두고, 기간 색인의 데스크톱 밀도만 별도 `hasTouch:false` browser context에서 앱을 열어 같은 최소 여행 픽스처를 다시 심고 실제 CSS media query를 렌더한다. 컨텍스트는 검사 직후 닫는다.
+- **예방(게이트)**: 데스크톱 검사는 `finePointer=true` 자체를 전제로 확인하고 날짜 36px·gap 0을 함께 잰다. 원래 터치 컨텍스트에서는 412px 행 ≥44px를 별도로 잰다. 한 컨텍스트의 모드 전환 성공을 다른 OS까지 일반화하지 않는다.
+- **일반형**: 🔴 **입력장치 에뮬레이션은 상태 토글이 아니라 실행 표면이다.** 서로 다른 표면을 증명하려면 독립 컨텍스트로 분리하고, 각 컨텍스트가 실제로 어떤 media query를 만족하는지 먼저 되읽어라.
+
 ## M-0125 · **기간 색인에도 모든 버튼의 44px 높이를 반복해 날짜 계층이 필요 이상으로 벌어졌다**
 - 날짜: 2026-08-07 · 발견: 사용자 데스크톱 화면 지적 · 심각도: low(기능 무해 · 기간 탐색 밀도 저하)
 - **자리**: `src/ui/styles/app.css`의 `.home-tree` 버튼·간격 계약과 `scripts/verify-editor-live.mjs`의 홈 반응형 계측
