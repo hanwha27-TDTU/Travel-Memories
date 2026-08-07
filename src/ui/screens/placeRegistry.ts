@@ -16,6 +16,7 @@ import { readHere } from '../../services/here';
 import { hereFailMessage, hereLabel } from '../../domain/place/here';
 import { orderPair } from '../../domain/place/coordInput';
 import { openMapPicker } from '../lazyScreens';
+import type { TripNavigationTarget } from '../../app/router';
 import {
   searchRegistry,
   sortRegistry,
@@ -28,7 +29,7 @@ import {
   type PlaceRecordMoment,
 } from '../../domain/place/registry';
 
-type GoToTrip = (tripId: string, target?: { momentId?: string; mediaId?: string }) => void;
+type GoToTrip = (tripId: string, target?: TripNavigationTarget) => void;
 
 /** `LocalPlace` → 대장이 아는 최소 모양. 화면은 이 형태만 안다. */
 function toRegistry(p: {
@@ -454,7 +455,7 @@ export function placeRegistryPanel(onChanged: () => void, goToTrip: GoToTrip): H
       const section = el('section', 'pr-unlinked');
       section.append(
         el('h3', 'pr-unlinked-title', `연결이 필요한 순간 ${unlinkedFound.length}개`),
-        el('p', 'pr-unlinked-note', '이름은 순간에 남아 있지만 대장 장소 ID가 없어요. 같은 이름을 추측해 붙이지 않고, 순간에서 올바른 「내 장소」를 직접 고르게 합니다.'),
+        el('p', 'pr-unlinked-note', '이름은 순간에 남아 있지만 대장 장소 ID가 없어요. 같은 이름을 추측해 붙이지 않고, 아래 버튼으로 그 순간의 장소 입력을 열어 올바른 「내 장소」를 직접 고르게 합니다.'),
       );
       for (const moment of unlinkedFound) {
         const row = el('article', 'pr-unlinked-row');
@@ -463,10 +464,10 @@ export function placeRegistryPanel(onChanged: () => void, goToTrip: GoToTrip): H
           el('b', 'pr-unlinked-name', moment.placeName),
           el('span', 'muted small', `${moment.tripTitle || '(제목 없는 여행)'} · ${moment.title || '(제목 없는 순간)'}`),
         );
-        const connect = el('button', 'btn-ghost pr-unlinked-connect', '순간에서 연결') as HTMLButtonElement;
+        const connect = el('button', 'btn-ghost pr-unlinked-connect', '장소 고르기') as HTMLButtonElement;
         connect.type = 'button';
         connect.setAttribute('aria-label', `${moment.placeName} 순간에서 장소 다시 연결`);
-        connect.addEventListener('click', () => goToTrip(moment.tripId, { momentId: moment.id }));
+        connect.addEventListener('click', () => goToTrip(moment.tripId, { momentId: moment.id, openPlaceEditor: true }));
         row.append(detail, connect);
         section.appendChild(row);
       }

@@ -45,6 +45,7 @@ function walk(dir, ext, out = []) {
  */
 const SCAN = [
   { dir: 'src', ext: /\.(ts|css)$/ },
+  { dir: 'public', ext: /\.js$/ },
   { dir: '.github/workflows', ext: /\.ya?ml$/ },
   // 2026-07-28 다시 넓혔다 — **같은 형태가 두 영역 더 남아 있었다.** `scripts/`(게이트 자신)와
   // `supabase/`(마이그레이션·Edge Function)는 라우팅 표에 catch-all이 있어 *지금은* 아무 파일도
@@ -131,6 +132,12 @@ let selfTestCount = 0;
     process.exit(2);
   }
   selfTestCount += routingCases.length;
+  const publicWorkerSkills = [...skillsFor(['public/sw.js']).keys()];
+  if (publicWorkerSkills.length !== 1 || publicWorkerSkills[0] !== 'gates-mechanization-dev') {
+    console.error('check-skill-routing: self-test failed — public/sw.js must route to gates-mechanization-dev.');
+    process.exit(2);
+  }
+  selfTestCount += 1;
 }
 
 // ── 실제 검사 ──

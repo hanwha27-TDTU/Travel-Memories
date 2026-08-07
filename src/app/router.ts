@@ -6,6 +6,8 @@ export type Route = 'home' | 'trips' | 'trip-detail' | 'map' | 'settings';
 export interface TripNavigationTarget {
   momentId?: string;
   mediaId?: string;
+  /** 해당 순간의 장소 입력을 바로 열어, 대장 장소를 명시적으로 다시 고르게 한다. */
+  openPlaceEditor?: boolean;
 }
 type RenderFn = (route: Route, param?: string, target?: TripNavigationTarget) => void;
 
@@ -45,7 +47,11 @@ export function searchToTripTarget(search: string): TripNavigationTarget | undef
   };
   const momentId = one('moment');
   const mediaId = one('media');
-  return momentId || mediaId ? { ...(momentId ? { momentId } : {}), ...(mediaId ? { mediaId } : {}) } : undefined;
+  // place=edit은 순간 하나를 특정했을 때만 의미가 있다. 그렇지 않으면 URL이 모호하다.
+  const openPlaceEditor = momentId !== undefined && one('place') === 'edit';
+  return momentId || mediaId
+    ? { ...(momentId ? { momentId } : {}), ...(mediaId ? { mediaId } : {}), ...(openPlaceEditor ? { openPlaceEditor: true } : {}) }
+    : undefined;
 }
 
 export function createRouter(render: RenderFn): {
@@ -54,7 +60,7 @@ export function createRouter(render: RenderFn): {
 } {
   function apply() {
     render(pathToRoute(window.location.pathname), pathToParam(window.location.pathname), searchToTripTarget(window.location.search));
-    // 화면 이동 신호 — 자동 갱신(appUpdate)이 「입력을 떠난 안전한 순간」으로 이 이벤트를 듣는다.
+    // 화면 이동 신호 — 자동 갱신(appUpdate)이 입력 이력만 새 화면 기준으로 초기화한다.
     // 🔴 `hashchange`가 아니다: 이 라우터는 History API(pushState/popstate)라 hash가 안 바뀐다.
     // 예전엔 appUpdate가 hashchange를 기다렸고 그건 **한 번도 발화하지 않았다**(H-4).
     window.dispatchEvent(new Event('bj:route'));
@@ -66,6 +72,7 @@ export function createRouter(render: RenderFn): {
       const query = new URLSearchParams();
       if (target?.momentId) query.set('moment', target.momentId);
       if (target?.mediaId) query.set('media', target.mediaId);
+      if (target?.openPlaceEditor && target.momentId) query.set('place', 'edit');
       path = `${BASE}trip/${param ?? ''}${query.size ? `?${query}` : ''}`;
     } else path = `${BASE}${route}`;
     window.history.pushState({}, '', path);

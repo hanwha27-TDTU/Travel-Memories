@@ -11,6 +11,8 @@
 //   ③ 앱(src/services/appUpdate.ts) — version.json을 no-store로 묻고, main.ts가 배선한다
 //   ④ 서비스워커(public/sw.js) — version.json을 만지지 않는다(캐시하면 신호가 낡고,
 //      ?ts= 쿼리 변형이 캐시 상한을 밀어 진짜 자산을 쫓아낸다)
+//   ⑤ 화면 이동(appUpdate.ts) — `bj:route`는 입력 이력만 초기화한다. 새 판 감지 뒤 이
+//      이벤트에서 reload하면 사용자가 막 연 상세 화면의 렌더와 경합해 화면이 되돌아간다.
 //
 // §4: 아래 셀프테스트가 주입 실패로 RED를 먼저 확인한 뒤에만 실제 검사를 돈다.
 
@@ -36,6 +38,9 @@ export function appProblems(appText, mainText) {
   if (!appText.includes('version.json?ts=')) p.push('appUpdate가 version.json을 캐시 우회 쿼리로 묻지 않는다');
   if (!appText.includes("cache: 'no-store'")) p.push('fetch에 no-store가 없다 — 브라우저 캐시가 신호를 낡게 둔다');
   if (!/wireAutoUpdate/.test(mainText)) p.push('main.ts가 wireAutoUpdate를 배선하지 않는다 — 코드는 있는데 아무도 안 부른다');
+  const routeHandler = appText.match(/window\.addEventListener\('bj:route',\s*\(\)\s*=>\s*\{([\s\S]*?)\n\s*\}\);/);
+  if (!routeHandler) p.push('bj:route 입력 안전지점 처리가 없다 — 화면 이동 뒤 입력 이력을 분리할 수 없다');
+  else if (/\btryApply\s*\(/.test(routeHandler[1])) p.push('bj:route에서 reload를 시도한다 — 막 연 화면과 경합해 이전 화면으로 돌아갈 수 있다');
   return p;
 }
 
@@ -50,7 +55,10 @@ export function swProblems(text) {
 // ── 셀프테스트 (§4) ─────────────────────────────────────────────────────────
 const GOOD_PKG = `"build": "tsc --noEmit && vite build && node scripts/gen-version-file.mjs",`;
 const GOOD_GEN = `readFileSync('src/app/changelog.ts', 'utf8')\nwriteFileSync('dist/version.json', ...)`;
-const GOOD_APP = `fetch(\`\${base}version.json?ts=\${Date.now()}\`, { cache: 'no-store' })`;
+const GOOD_APP = `fetch(\`\${base}version.json?ts=\${Date.now()}\`, { cache: 'no-store' })
+window.addEventListener('bj:route', () => {
+  typedSinceSafePoint = false;
+});`;
 const GOOD_MAIN = `m.wireAutoUpdate()`;
 const GOOD_SW = `if (url.pathname.endsWith('/version.json')) return;`;
 
@@ -62,6 +70,7 @@ function selfTest() {
     ['빌드 체인에서 생성기 제거 → RED', () => pkgProblems(`"build": "tsc --noEmit && vite build",`).length > 0],
     ['생성기가 버전을 딴 데서 읽음 → RED', () => genProblems(`writeFileSync('dist/version.json', '{"version":"9.9"}')`).length > 0],
     ['no-store 제거 → RED', () => appProblems(`fetch(\`\${base}version.json?ts=1\`)`, GOOD_MAIN).length > 0],
+    ['화면 이동에서 reload 시도 → RED', () => appProblems(GOOD_APP.replace('typedSinceSafePoint = false;', 'typedSinceSafePoint = false;\n  tryApply();'), GOOD_MAIN).some((m) => m.includes('경합'))],
     ['main 배선 제거 → RED', () => appProblems(GOOD_APP, `// 아무것도 안 부른다`).length > 0],
     ['sw 통과 규칙 제거 → RED', () => swProblems(`// version.json 언급 없음`).length > 0],
   ];

@@ -1572,6 +1572,8 @@ select.zone-input { text-overflow: ellipsis; }
 .dm-usage-bar-fill { height: 100%; background: linear-gradient(90deg, var(--a2), var(--a1)); border-radius: inherit; }
 .dm-usage-quota { line-height: 1.5; }
 .dm-trash-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
+.dm-trash-bulk { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2); padding: var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-soft); }
+.dm-trash-bulk-summary { margin: 0; flex: 1 1 16rem; }
 
 /* ===== 위치관리대장 (사용자 요청 2026-08-05) =====
    등록한 장소를 찾고 좌표·주소를 고치는 대장. 목록 화면이므로 **조용한 카드**의 규율을

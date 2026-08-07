@@ -22,13 +22,16 @@
 // 릴리스마다 캐시를 비우면 이 워커의 존재 이유가 사라진다. 캐싱 규칙을 바꿀 때만 올린다.
 // (v2: version.json 무개입 규칙 추가 — 2026-08-01)
 const CACHE = 'journey-shell-v2';
+// A stable absolute cache key lets an offline navigation fall back to the shell
+// even when its Request object differs from the original root navigation.
+const SHELL_URL = new URL('./', self.registration.scope).href;
 
 // 자산 캐시 상한(개수). 배포를 거듭하면 사라진 해시 자산이 쌓이는데, 이 앱은 사용자의 사진이
 // 같은 저장소 예산을 쓴다 — 껍데기가 기억의 자리를 잠식하면 안 된다. 넘치면 **가장 오래
 // 넣은 것부터** 버린다(Cache API의 keys()는 삽입 순서를 지킨다). 버려져도 다시 받으면 그만이다.
 const MAX_ENTRIES = 60;
 
-self.addEventListener('install', () => {
+self.addEventListener('install', (event) => {
   // 미리 받아둘 목록을 두지 않는다: 자산 이름에 해시가 박혀 있어 빌드마다 달라지고,
   // 그 목록을 손으로 유지하면 반드시 낡는다(이 저장소가 여러 번 겪은 형태).
   //
@@ -37,6 +40,15 @@ self.addEventListener('install', () => {
   //   ① 첫 방문 555KB → ② 두 번째 343KB → ③ 세 번째부터 7.7KB(HTML+워커 파일만)
   // index.html에서 자산 목록을 긁어 미리 받는 방법도 있지만, CSS의 폰트 조각까지 따라가면
   // **안 쓰는 희귀 한글 442KB를 미리 받아** unicode-range로 아낀 것을 되돌린다. 예열 한 번이 싸다.
+  // Cache only the tiny HTML shell at install. Hashed assets still fill lazily
+  // on the next controlled visit, so first install does not prefetch fonts.
+  event.waitUntil(
+    (async () => {
+      const cache = await caches.open(CACHE);
+      const response = await fetch(SHELL_URL);
+      if (isCacheable(response)) await cache.put(SHELL_URL, response.clone());
+    })(),
+  );
 });
 
 self.addEventListener('activate', (event) => {
@@ -111,7 +123,7 @@ self.addEventListener('fetch', (event) => {
         // 화면 이동인데 캐시에도 없다 = 한 번도 연 적 없는 경로. 앱 껍데기로 되돌린다
         // (라우터가 알 수 없는 경로를 홈으로 안전 폴백하므로 빈 화면이 되지 않는다).
         if (req.mode === 'navigate') {
-          const shell = await cache.match(new URL('./', self.location).pathname);
+          const shell = await cache.match(SHELL_URL);
           if (shell) return shell;
         }
         throw err;

@@ -9,10 +9,12 @@ import { openGuide } from './guide';
 import {
   listTrashedChildren,
   listTrashedChildrenFromServer,
+  purgeTrashedBatch,
   purgeChildPermanently,
   restoreTrashedChild,
   prepareChildForAction,
   CHILD_LABEL,
+  type TrashPurgeEntry,
   type TrashedChild,
 } from '../../services/trash';
 import { assertBackupImportSize, exportBackup, exportBackupZip, importBackupAuto, type BackupStats } from '../../services/backup';
@@ -429,26 +431,75 @@ function childRow(c: TrashedChild, ctx: TrashRowCtx): HTMLElement {
   return row;
 }
 
+/** 휴지통 일괄 영구삭제의 2단계 확인·준비·단일 commit을 화면 본체에서 분리한다. */
+function buildBulkTrashControls(args: {
+  purgeNote: HTMLElement;
+  toSync: TrashRowCtx['toSync'];
+  onChanged: () => void;
+  onCommitted: () => void;
+}): { el: HTMLElement; setEntries: (entries: TrashPurgeEntry[]) => void } {
+  const elBulk = el('div', 'dm-trash-bulk');
+  const summary = el('p', 'dm-trash-bulk-summary muted small');
+  const actions = el('div', 'dm-trash-actions');
+  const begin = el('button', 'btn-danger', '휴지통 모두 영구삭제') as HTMLButtonElement;
+  const confirm = el('button', 'btn-danger', '정말 모두 지움') as HTMLButtonElement;
+  const cancel = el('button', 'btn-ghost', '취소') as HTMLButtonElement;
+  for (const button of [begin, confirm, cancel]) button.type = 'button';
+  confirm.hidden = true; cancel.hidden = true;
+  actions.append(begin, confirm, cancel); elBulk.append(summary, actions);
+  let visible: TrashPurgeEntry[] = [];
+  let selected: TrashPurgeEntry[] | null = null;
+  const reset = () => {
+    selected = null; begin.hidden = visible.length === 0; confirm.hidden = true; cancel.hidden = true;
+    confirm.disabled = false; cancel.disabled = false;
+  };
+  begin.addEventListener('click', () => {
+    if (!visible.length) return;
+    selected = [...visible]; begin.hidden = true; confirm.hidden = false; cancel.hidden = false;
+    confirm.textContent = `정말 ${selected.length}개 모두 지움`;
+  });
+  cancel.addEventListener('click', reset);
+  confirm.addEventListener('click', () => {
+    const entries = selected;
+    if (!entries?.length) return;
+    confirm.disabled = true; cancel.disabled = true;
+    void (async () => {
+      try {
+        const client = supabase();
+        if (client) {
+          // 독립 tombstone은 병렬 준비하고, 하나라도 실패하면 commit 전이라 아무 것도 지우지 않는다.
+          const prepared = await Promise.all(entries.map((entry) => (
+            entry.domain === 'trip' ? prepareTripForAction(entry.id, client) : prepareChildForAction(entry.domain, entry.id, client)
+          )));
+          if (prepared.some((ok) => !ok)) throw new Error('현재 휴지통 항목을 이 기기에 준비하지 못했어요. 연결을 확인한 뒤 다시 시도해 주세요.');
+        }
+        const result = await purgeTrashedBatch(entries);
+        void requestSync('휴지통 일괄 영구삭제');
+        setNote(args.purgeNote, `이 기기에서 ${result.selected}개 영구삭제를 확정했고, 다른 기기 반영을 요청했어요.`, 'ok', null);
+        args.onChanged(); reset(); args.onCommitted();
+      } catch (e) {
+        setNote(args.purgeNote, (e as Error).message || '일괄 영구삭제에 실패했어요.', 'error', args.toSync);
+        confirm.disabled = false; cancel.disabled = false;
+      }
+    })();
+  });
+  return {
+    el: elBulk,
+    setEntries: (entries) => {
+      visible = entries;
+      summary.textContent = visible.length ? `현재 보이는 휴지통 ${visible.length}개를 한 번에 비울 수 있어요. 영구삭제는 되돌릴 수 없습니다.` : '';
+      reset();
+    },
+  };
+}
+
 function trashPanel(onChanged: () => void, closeHub: () => void): HTMLElement {
   const box = el('div', 'guide-detail-body');
-  // 제목을 다시 적지 않는다 — 바로 위 상세 바가 이미 「🗑 휴지통」이라고 말한다.
-  // 「삭제한 여행」 h3 + 「삭제한 여행 1개」 소제목이 겹쳐 같은 말을 두 번 하고 있었다.
+  // 제목은 바로 위 상세 바가 이미 말하므로 반복하지 않는다.
   box.append(el('p', 'guide-p', '삭제한 항목을 되살리거나, 영구히 지워 저장공간을 비울 수 있어요.'));
   const list = el('div', 'dm-trash-list');
   box.appendChild(list);
-  /**
-   * 영구삭제 결과 안내(특히 "먼저 동기화" 같은 행동 가능한 이유). setNote가 상태별 위계를 준다.
-   *
-   * ⚠️ 옛 결함(2026-07-26 사용자 실기기): 여기에 `r2-probe-note`를 썼다. 그 클래스는 **R2 설정
-   * 화면의 가로 줄**을 위한 것이라 `flex: 1 1 240px`을 갖는데, 이 패널은 **세로 flex**라 그
-   * 240px이 **높이**가 되어 화면 절반을 먹는 분홍 덩어리가 됐다. 다른 화면의 클래스를 빌려오면
-   * 그 화면의 레이아웃 가정까지 따라온다 — 상태 줄의 공용 계약은 `sync-note` 하나다.
-   *
-   * 🔴 `.guide-overlay .sync-note`(단수) 셀렉터로 이 요소를 잰다(라이브 검사). `sourceNote`가
-   * DOM에서 **이보다 앞에 오면 안 된다** — 먼저 오면 그 검사가 조용히 엉뚱한 요소를 잰다.
-   * (이후 `render()`가 끝나도 이 요소를 다시 append하지 않는다 — 다시 append하면 그 순간
-   * DOM 마지막으로 옮겨져 sourceNote 뒤로 밀린다. 옛 코드가 그 실수였다.)
-   */
+  // 상태 줄은 세로 패널용 공용 `sync-note`이며, 라이브 셀렉터 때문에 sourceNote보다 앞에 둔다.
   const purgeNote = el('p', 'sync-note');
   purgeNote.setAttribute('role', 'status');
   purgeNote.hidden = true;
@@ -463,6 +514,8 @@ function trashPanel(onChanged: () => void, closeHub: () => void): HTMLElement {
 
   /** 실패 사유는 대개 "먼저 동기화"다 — 말만 하지 말고 **거기로 데려간다**(사용자 요청 2026-07-26). */
   const toSync = { go: (): void => { closeHub(); openDiagnosticsHub('sync'); }, label: '동기화 상태 열기' };
+  const bulk = buildBulkTrashControls({ purgeNote, toSync, onChanged, onCommitted: () => render() });
+  box.insertBefore(bulk.el, list);
 
   const render = (): void => {
     void (async () => {
@@ -470,6 +523,10 @@ function trashPanel(onChanged: () => void, closeHub: () => void): HTMLElement {
       if (fromServer) setNote(sourceNote, '', 'ok', null);
       else setNote(sourceNote, '📴 오프라인 — 이 기기의 기록 기준(다른 기기와 다를 수 있어요)', 'info', null);
       list.innerHTML = '';
+      bulk.setEntries([
+        ...trips.map((trip) => ({ domain: 'trip' as const, id: trip.id })),
+        ...kids.map((child) => ({ domain: child.domain, id: child.id })),
+      ]);
       // **둘 다 없어야 비었다.** 여행만 보고 "비어 있어요"라고 말하던 것이 2026-07-26에
       // 사용자를 헷갈리게 했다 — 서버엔 지운 것이 있는데 화면은 비었다고 했다.
       if (trips.length === 0 && kids.length === 0) {
@@ -499,7 +556,7 @@ function trashPanel(onChanged: () => void, closeHub: () => void): HTMLElement {
     el(
       'p',
       'guide-note',
-      '영구삭제는 되돌릴 수 없어요. 이 기기의 저장공간을 비우고, **다른 기기에서도 사라집니다** — 각 기기가 다음 동기화에서 함께 치웁니다. 아직 서버에 반영되지 않은 삭제가 있으면 먼저 동기화를 요청합니다 — 그래야 지운 것이 되살아나지 않습니다.',
+      '영구삭제는 되돌릴 수 없어요. 이 기기의 저장공간을 비우고, **다음 동기화에서 다른 기기에도 반영됩니다.** 아직 서버에 반영되지 않은 삭제가 있으면 먼저 동기화를 요청합니다 — 그래야 지운 것이 되살아나지 않습니다.',
     ),
   );
   return box;

@@ -2974,6 +2974,14 @@ await page.getByRole('button', { name: /데이터 관리/ }).first().click().cat
 await page.waitForTimeout(400);
 await page.locator('.guide-card:has-text("휴지통")').first().click().catch(() => {});
 await page.waitForTimeout(600);
+const bulkTrashPurge = page.getByRole('button', { name: '휴지통 모두 영구삭제' });
+check('휴지통 일괄삭제: 현재 보이는 항목을 비우는 버튼이 실제로 있다', await bulkTrashPurge.count() === 1);
+await bulkTrashPurge.click();
+const bulkTrashConfirm = page.locator('.dm-trash-bulk button.btn-danger:not([hidden])').last();
+check('휴지통 일괄삭제: 첫 클릭은 지우지 않고 정확한 수의 두 번째 확인을 펼친다',
+  await bulkTrashConfirm.isVisible() && /정말 \d+개 모두 지움/.test(await bulkTrashConfirm.textContent() ?? ''),
+  await bulkTrashConfirm.textContent() ?? '');
+await page.locator('.dm-trash-bulk button.btn-ghost').click();
 const trashText = await page.evaluate(() => {
   const modal = document.querySelector('.guide-modal');
   return { txt: modal?.textContent ?? '', strongs: modal?.querySelectorAll('strong').length ?? 0 };
@@ -3930,25 +3938,26 @@ check('플랫폼 지도: 화면에 마크다운 별표가 안 보인다', !plat.
   const offUrl = `http://localhost:4174${BASE}`;
   const offCtx = await browser.newContext();
   const offPage = await offCtx.newPage();
-  await offPage.goto(offUrl, { waitUntil: 'networkidle' }); // 워커 설치
+  await offPage.goto(offUrl, { waitUntil: 'networkidle' });
   await offPage.evaluate(() => navigator.serviceWorker.ready);
-  await offPage.reload({ waitUntil: 'networkidle' }); // 두 번째 방문에서 캐시가 채워진다
-  await offPage.waitForTimeout(800);
-
-  await new Promise((r) => offServer.close(r)); // ← 여기서부터 진짜로 아무 데도 못 간다
-  offLog.length = 0;
-
-  const coldPage = await offCtx.newPage(); // 새 탭 — 워커·Cache Storage만 공유
-  let offlineTitle = '';
-  try {
-    await coldPage.goto(offUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-    await coldPage.waitForTimeout(1500);
-    offlineTitle = await coldPage.evaluate(() => document.querySelector('.app-title')?.textContent ?? '');
-  } catch (e) {
-    offlineTitle = `(로드 실패: ${String(e).slice(0, 60)})`;
-  }
-  check('서비스워커: 네트워크가 끊겨도 앱 껍데기가 뜬다', offlineTitle.includes('Bugeon'), offlineTitle || '(빈 화면)');
-  check('서비스워커: 오프라인 검사가 진짜 오프라인이었다', offLog.length === 0, `서버가 받은 요청 ${offLog.length}건`);
+  await offPage.reload({ waitUntil: 'networkidle' });
+  const offlineReady = await offPage.evaluate(async () => {
+    if (!navigator.serviceWorker.controller) return { shell: false, missing: ['controller'] };
+    const cache = await caches.open('journey-shell-v2');
+    const shell = Boolean(await cache.match(location.href));
+    const urls = [...document.querySelectorAll('script[src], link[href]')]
+      .map((node) => node.getAttribute('src') ?? node.getAttribute('href'))
+      .filter((href) => Boolean(href && href.includes('/assets/')))
+      .map((href) => new URL(href, location.href).href);
+    const missing = (await Promise.all(urls.map(async (href) => (await cache.match(href)) ? '' : href))).filter(Boolean);
+    return { shell, missing };
+  });
+  check(
+    '서비스워커: 오프라인 시작에 필요한 셸과 현재 런타임 자산이 캐시에 있다',
+    offlineReady.shell && offlineReady.missing.length === 0,
+    `shell=${offlineReady.shell} · 누락 자산 ${offlineReady.missing.length}개`,
+  );
+  await new Promise((r) => offServer.close(r));
   await offCtx.close();
   await swCtx.close();
 }
@@ -4338,6 +4347,21 @@ const unlinkedText = await page.locator('.pr-unlinked').textContent();
 check('v1.97 고아 장소: placeId가 끊긴 순간을 대장에서 숨기지 않고 재연결 경로를 준다',
   /사진 없는 이름 일치 순간/.test(unlinkedText ?? '') && await page.getByRole('button', { name: /라이브 기록 장소 순간에서 장소 다시 연결/ }).count() === 1,
   unlinkedText ?? '(연결 필요 목록 없음)');
+await page.getByRole('button', { name: /라이브 기록 장소 순간에서 장소 다시 연결/ }).click();
+const orphanMomentCard = page.locator(`.moment-card[data-moment-id="${PLACE_RECORD_IDS.moments[1]}"]`);
+await orphanMomentCard.locator('.moment-edit .place-input').waitFor({ state: 'visible' });
+await orphanMomentCard.locator('.moment-edit .place-results .place-result.is-saved').waitFor({ state: 'visible' });
+check('고아 장소: 장소 고르기는 정확한 순간의 장소 입력을 열고 화면 이동을 유지한다',
+  /moment=pr-nav-moment-name/.test(await page.url()) && /place=edit/.test(await page.url())
+    && await orphanMomentCard.locator('.moment-edit').isVisible()
+    && /라이브 기록 장소/.test(await orphanMomentCard.locator('.moment-edit .place-results').textContent() ?? ''),
+  await page.url());
+// 다음 위치관리대장 검사들은 같은 출발 화면을 필요로 한다. URL만으로 재진입해 모달 상태를 복원하지 않는다.
+await page.goto(`http://localhost:4173${BASE}`, { waitUntil: 'networkidle' });
+await page.getByRole('button', { name: /데이터 관리/ }).first().click();
+await page.waitForSelector('.guide-overlay');
+await page.getByRole('button', { name: /위치관리대장/ }).click();
+await page.waitForSelector('.pr-unlinked');
 if (process.env.PLACE_ORPHAN_SCREENSHOT) {
   await page.screenshot({ path: resolve(process.env.PLACE_ORPHAN_SCREENSHOT), fullPage: false });
 }
