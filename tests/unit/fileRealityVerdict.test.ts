@@ -110,7 +110,13 @@ describe('판정 문장 — 한정을 생략하지 않는다(§7-C)', () => {
   });
 
   it('개수가 바뀌어도 조사는 「가」다(단위가 「개」인 한)', () => {
-    expect(fileRealityHeadline(IN({ photo: K({ rows: 69 }) }))).toBe('이 기기의 사진·소리 71개가 모두 성해요');
+    expect(fileRealityHeadline(IN({ photo: K({ rows: 69 }), sweep: { at: 'x', checked: 71, failed: [], totalAtRun: 71 } }))).toBe('이 기기의 사진·소리 71개가 모두 성해요');
+  });
+
+  it('🔴 sweep 뒤 새 파일이 늘면 확인한 것과 아직 확인 전인 것을 함께 말한다(상위 headline ↔ todo 모순 금지)', () => {
+    const i = IN({ photo: K({ rows: 78 }), audio: K({ rows: 12 }), sweep: { at: 'x', checked: 78, failed: [], totalAtRun: 78 } });
+    expect(fileRealityHeadline(i)).toBe('이 기기의 사진·소리: 확인한 78개는 모두 성하고, 새 12개는 아직 확인 전이에요');
+    expect(metric(i, '열리지 않는 파일').level).toBe('todo');
   });
 
   it('비어 있는 것과 열리지 않는 것을 **나눠** 말한다', () => {

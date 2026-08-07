@@ -764,6 +764,52 @@ if (hasFileTool) {
       /^이 기기의 사진·소리 \d+개가 모두 성해요$/.test(headline.trim()),
       headline.trim() || '(정상 판정 문장을 못 찾음)',
     );
+
+    await page.evaluate(async () => {
+      const cv = document.createElement('canvas');
+      cv.width = 8;
+      cv.height = 8;
+      const blob = await new Promise((ok) => cv.toBlob((b) => ok(b), 'image/webp'));
+      const now = new Date().toISOString();
+      await new Promise((ok, no) => {
+        const q = indexedDB.open('journey-archive');
+        q.onsuccess = () => {
+          const tx = q.result.transaction('localMedia', 'readwrite');
+          tx.objectStore('localMedia').put({
+            id: 'fr-live-new', momentId: 'fr-live-moment', tripId: 'fr-live-trip',
+            displayBlob: blob, thumbBlob: blob, width: 8, height: 8,
+            takenAt: now, gpsLat: null, gpsLng: null, bytesOriginal: blob.size, bytesDisplay: blob.size,
+            version: 1, baseVersion: 0, createdAt: now, updatedAt: now, deletedAt: null,
+            clientOperationId: 'fr-live-new',
+          });
+          tx.oncomplete = ok;
+          tx.onerror = () => no(tx.error);
+        };
+        q.onerror = () => no(q.error);
+      });
+    });
+    await page.locator('.guide-back').click();
+    await page.waitForSelector('[data-rollup]', { timeout: 10000 });
+    await fileCard.click();
+    await page.waitForFunction(
+      () => (document.querySelector('.vd-headline')?.textContent ?? '').includes('새 1개는 아직 확인 전'),
+      null,
+      { timeout: 10000 },
+    );
+    const grown = await page.evaluate(() => ({
+      headline: document.querySelector('.vd-headline')?.textContent?.trim() ?? '',
+      text: document.body.innerText,
+    }));
+    check(
+      '🔴 E⑬ sweep 뒤 새 파일이 늘면 headline도 확인한 것과 아직 확인 전을 함께 말한다(상위 ↔ todo 모순 금지)',
+      grown.headline === '이 기기의 사진·소리: 확인한 1개는 모두 성하고, 새 1개는 아직 확인 전이에요',
+      grown.headline || '(증가분 headline을 못 찾음)',
+    );
+    check(
+      '🔴 E⑭ 증가분 headline과 하위 todo가 같은 sweep 값을 말한다',
+      grown.text.includes('그때 1개 모두 열림 · 그 뒤 1개 늘었어요'),
+      grown.text.match(/[^\n]*그때 1개 모두 열림 · 그 뒤 1개 늘었어요[^\n]*/)?.[0] ?? '(증가분 todo를 못 찾음)',
+    );
   }
 }
 // ── F① ~ F⑤ 🔴 **저장소 보호: 거절 뒤에 무엇을 말하는가** (T-005) ─────────────

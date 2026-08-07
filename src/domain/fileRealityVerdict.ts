@@ -135,10 +135,11 @@ function openMetric(sweep: OpenSweep | null, totalNow: number): FileMetric {
     };
   }
   // 잰 뒤 자료가 늘었으면 그 초록은 **옛 것**이다 — 낡은 초록은 초록이 아니다(§8).
-  if (totalNow > sweep.totalAtRun) {
+  const added = uncheckedSinceSweep(sweep, totalNow);
+  if (added > 0) {
     return {
       label: '열리지 않는 파일',
-      actual: `그때 ${n(sweep.checked)} 모두 열림 · 그 뒤 ${n(totalNow - sweep.totalAtRun)} 늘었어요`,
+      actual: `그때 ${n(sweep.checked)} 모두 열림 · 그 뒤 ${n(added)} 늘었어요`,
       expected: '0개',
       level: 'todo',
       meaning: '새로 담긴 파일은 아직 안 열어 봤어요. 다시 눌러 주세요.',
@@ -148,6 +149,10 @@ function openMetric(sweep: OpenSweep | null, totalNow: number): FileMetric {
 }
 
 /** 심각도 합성 — 손으로 적지 않는다(자기모순 방지). */
+function uncheckedSinceSweep(sweep: OpenSweep | null, totalNow: number): number {
+  return sweep && totalNow > sweep.totalAtRun ? totalNow - sweep.totalAtRun : 0;
+}
+
 export function worstOf(levels: readonly FileLevel[]): FileLevel {
   if (levels.includes('problem')) return 'problem';
   if (levels.includes('unknown')) return 'unknown';
@@ -172,13 +177,16 @@ export function fileRealityHeadline(i: FileRealityInput): string {
   if (total === 0) return '이 기기에 사진·소리가 아직 없어요';
   const empty = i.photo.empty + i.audio.empty;
   const broken = i.sweep?.failed.length ?? 0;
+  const unchecked = uncheckedSinceSweep(i.sweep, total);
   if (empty + broken > 0) {
     const parts: string[] = [];
     if (empty > 0) parts.push(`비어 있는 것 ${n(empty)}`);
     if (broken > 0) parts.push(`열리지 않는 것 ${n(broken)}`);
+    if (unchecked > 0) parts.push(`새 ${n(unchecked)}는 아직 확인 전`);
     return `이 기기의 파일에 확인할 것이 있어요 — ${parts.join(' · ')}`;
   }
   if (!i.sweep) return `이 기기의 사진·소리 ${n(total)}에 빈 파일은 없어요 — 실제로 열리는지는 아직 확인 전`;
+  if (unchecked > 0) return `이 기기의 사진·소리: 확인한 ${n(i.sweep.checked)}는 모두 성하고, 새 ${n(unchecked)}는 아직 확인 전이에요`;
   return `이 기기의 사진·소리 ${n(total)}${gaOf(n(total))} 모두 성해요`;
 }
 
