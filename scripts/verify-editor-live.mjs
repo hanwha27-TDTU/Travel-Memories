@@ -2584,6 +2584,10 @@ async function homeTreeAt(w, h) {
     };
   });
 }
+// 이 라이브 페이지는 터치 회귀를 재려고 hasTouch로 열었다. 기간 트리의 데스크톱 분기는 같은
+// 페이지에서 터치 에뮬레이션을 잠시 내려 실제 정밀 포인터 media query로 렌더한 뒤 되돌린다.
+const homeInputCdp = await page.context().newCDPSession(page);
+await homeInputCdp.send('Emulation.setTouchEmulationEnabled', { enabled: false });
 const treeWide = await homeTreeAt(1480, 920);
 // §2-J: 대상 확보를 먼저 판정한다 — 트리가 아예 없으면 나머지 판정은 공허하다.
 if (!treeWide.exists) {
@@ -2595,6 +2599,23 @@ if (!treeWide.exists) {
     treeWide.open && !treeWide.summaryShown, `open=${treeWide.open} summary=${treeWide.summaryShown}`);
   // 픽스처가 연 1 + 월 2를 만들었으므로 최소 4(전체 포함). 이보다 적으면 픽스처가 안 먹은 것이다.
   check('홈 트리: 항목이 그려짐(전체 + 연 + 월 2)', treeWide.buttons >= 4, `buttons=${treeWide.buttons}`);
+  const treeDensity = await page.evaluate(() => {
+    const all = document.querySelector('.home-tree .tree-all')?.getBoundingClientRect();
+    const dates = [...document.querySelectorAll('.home-tree button:not(.tree-all)')]
+      .map((node) => node.getBoundingClientRect());
+    const gaps = dates.slice(1).map((rect, index) => rect.top - dates[index].bottom);
+    return {
+      finePointer: matchMedia('(hover: hover) and (pointer: fine)').matches,
+      allHeight: all?.height ?? 0,
+      dateMin: dates.length ? Math.min(...dates.map((rect) => rect.height)) : 0,
+      dateMax: dates.length ? Math.max(...dates.map((rect) => rect.height)) : 0,
+      gapMax: gaps.length ? Math.max(...gaps) : 0,
+    };
+  });
+  check('홈 트리 밀도: 넓은 정밀 포인터 화면은 전체 선택을 유지하고 날짜 행만 36px로 압축',
+    treeDensity.finePointer && treeDensity.allHeight >= 44 && treeDensity.dateMin >= 35 && treeDensity.dateMax <= 37,
+    JSON.stringify(treeDensity));
+  check('홈 트리 밀도: 날짜 행 사이 추가 간격 0px', treeDensity.gapMax <= 0.5, JSON.stringify(treeDensity));
   const datedCardPeriods = await page.$$eval('.trip-meta', (nodes) => nodes.map((n) => n.textContent ?? ''));
   check('홈 카드 기간: 날짜가 있는 카드에 시작·종료 요일 표시',
     datedCardPeriods.some((t) => t.startsWith('2026-07-10 (금) ~ 2026-07-11 (토)')) &&
@@ -2619,6 +2640,8 @@ if (!treeWide.exists) {
   });
   check('홈 트리: 개수가 한 열로 정렬됨(들여쓴 월도 오른쪽 끝이 같다)',
     countCol.n >= 2 && countCol.spread <= 1, `n=${countCol.n} spread=${countCol.spread}px`);
+  await homeInputCdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
+  await page.waitForTimeout(50);
   const treeEdge = await homeTreeAt(1099, 900);
   check('홈 트리: 경계 1099에서 1단 + 넘침 0', !treeEdge.sideBySide && treeEdge.overflow <= 0,
     `sbs=${treeEdge.sideBySide} overflow=${treeEdge.overflow}`);
@@ -2626,6 +2649,11 @@ if (!treeWide.exists) {
   check('홈 트리: 폰(412)에서 1단 + 접힌 필터(summary 보임) + 넘침 0',
     !treePhone.sideBySide && treePhone.summaryShown && treePhone.overflow <= 0,
     `sbs=${treePhone.sideBySide} summary=${treePhone.summaryShown} overflow=${treePhone.overflow}`);
+  const phoneTreeTarget = await page.evaluate(() => {
+    const heights = [...document.querySelectorAll('.home-tree button')].map((node) => node.getBoundingClientRect().height);
+    return heights.length ? Math.min(...heights) : 0;
+  });
+  check('홈 트리 밀도: 좁은 화면은 44px 터치 표적 유지', phoneTreeTarget >= 44, `${phoneTreeTarget}px`);
   // 되돌리기 + 상호작용: 넓은 화면에서 트리 버튼을 실제로 누른다.
   await page.setViewportSize({ width: 1480, height: 920 });
   await page.waitForTimeout(220);

@@ -1932,6 +1932,16 @@ select.zone-input { text-overflow: ellipsis; }
   .home-body > .tree-fold .home-tree { padding-top: var(--space-2); }
 }
 
+/* 넓은 2단 화면의 기간 트리는 연·월마다 44px를 반복하면 날짜 사이가 과하게 벌어진다
+   (M-0125). 정밀 포인터에서는 날짜 행만 8px 줄이고 전체 선택은 그대로 둔다. 터치 화면과
+   좁은 1단 화면은 기존 44px 표적 계약을 유지한다. */
+@media (min-width: 1100px) and (hover: hover) and (pointer: fine) {
+  .home-body > .tree-fold .home-tree { gap: 0; }
+  .home-body > .tree-fold .home-tree button:not(.tree-all) {
+    min-height: calc(var(--touch-target-min) - var(--space-2));
+  }
+}
+
 /* 아주 넓은 화면(초대형 태블릿·모니터)에서도 한 줄이 지나치게 길어지지 않도록 상한. */
 @media (min-width: 1600px) {
   .screen-home,

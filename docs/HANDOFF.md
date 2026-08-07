@@ -4,6 +4,14 @@
 
 ---
 
+## HANDOFF-0119 · v1.97 · **데스크톱 기간 색인의 날짜 행 밀도 조정** (2026-08-07)
+
+- **사용자 지시**: 홈 왼쪽 기간 색인의 연·월 날짜 행 간격이 지나치게 넓어 보인다는 실기기 화면을 제시하고, 판단 후 수정해 로컬 커밋까지 진행하도록 했다.
+- **판정(M-0125)**: 44px 최소 높이는 터치 안전에는 맞지만 정밀 포인터의 반복 색인에 2px gap과 함께 적용되면서 날짜 계층을 필요 이상으로 늘렸다. 기능 결함은 아니나 한눈에 훑는 기간 탐색의 정보 밀도를 낮췄다.
+- **구현**: 1100px 이상 2단 화면 중 `hover:hover`·`pointer:fine`에서만 연·월 행을 36px, 추가 gap을 0으로 줄였다. 「전체」는 44px를 유지하고, 터치·좁은 1단 화면은 기존 44px를 유지한다.
+- **검증**: v1.97 build PASS. editor live **378/378 PASS**·콘솔 오류 0. 실제 DOM에서 데스크톱 「전체」 ≥44px·날짜 36px·gap 0, 412px 터치 행 ≥44px를 계측했고, 1480×920 캡처를 열어 계층·개수 열·겹침 없음을 확인했다.
+- **배포 경계**: CSS·라이브 게이트·기록만 변경한다. 버전·DB·동기화·Storage·Android 셸은 변경하지 않으며 사용자 요청대로 push·PR·배포 없이 로컬 커밋까지만 진행한다.
+
 ## HANDOFF-0118 · v1.97 · **연결된 장소 이름 동기화와 고아 순간 복구 경로** (2026-08-07)
 
 - **사용자 지시**: 연결된 순간에서 장소 이름을 고치면 링크가 끊기는 문제를 바로잡고, 대장 또는 순간 어느 쪽에서 이름을 바꿔도 동기화한다. 링크가 끊겨 순간에는 이름이 있지만 위치관리대장에서는 찾을 수 없는 고아도 해결한다. 이번 범위는 로컬 커밋까지이며 푸시·배포는 하지 않는다.
@@ -752,7 +760,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.97<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->197<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->107<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.97<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->197<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->108<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->29<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
