@@ -14,6 +14,7 @@ import {
   needsAddress,
   liveLookupNote,
   placeRecordGroups,
+  unlinkedPlaceMoments,
   type RegistryPlace,
   type PlaceRecordMoment,
 } from '../../src/domain/place/registry';
@@ -193,5 +194,19 @@ describe('이 장소가 담긴 기록 — 직접 링크와 이름만 같은 추�
     expect(groups.linked[0]!.moments.map((m) => m.id)).toEqual(['m1', 'm2']);
     expect(groups.sameName).toHaveLength(1);
     expect(groups.sameName[0]!.tripId).toBe('t2');
+  });
+
+  it('대장 ID가 끊긴 활성 순간만 연결 필요 목록에 놓고 장소·순간·여행 이름으로 찾는다', () => {
+    const moments = [
+      M({ id: 'orphan', tripId: 't1', tripTitle: '유학 생활', title: '종강기념', placeName: 'TSMU 4번 건물' }),
+      M({ id: 'linked', tripId: 't1', tripTitle: '유학 생활', placeId: 'p1', placeName: '연결됨' }),
+      M({ id: 'blank', tripId: 't2', tripTitle: '빈 장소', placeName: '' }),
+      M({ id: 'deleted', tripId: 't3', tripTitle: '휴지통', placeName: '옛 장소', deletedAt: '2026-08-07T00:00:00.000Z' }),
+    ];
+
+    expect(unlinkedPlaceMoments(moments, '').map((m) => m.id)).toEqual(['orphan']);
+    expect(unlinkedPlaceMoments(moments, '종강').map((m) => m.id)).toEqual(['orphan']);
+    expect(unlinkedPlaceMoments(moments, '유학').map((m) => m.id)).toEqual(['orphan']);
+    expect(unlinkedPlaceMoments(moments, '없는 값')).toEqual([]);
   });
 });

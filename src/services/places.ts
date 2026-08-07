@@ -20,7 +20,7 @@
 // — §7이 요구하는 것은 대칭이 기본값이고 **비대칭에는 심사와 기록이 있어야 한다**는 것이다.
 // (안 적으면 다음 사람이 "형제들처럼" cascade를 붙이고, 그 순간 사용자의 장소가 조용히 사라진다.)
 
-import { db, type LocalPlace, type SyncQueueItem } from '../offline/db';
+import { db, type JourneyDB, type LocalPlace, type SyncQueueItem } from '../offline/db';
 import { providerKeyOf } from '../domain/place/rowmap';
 import { roughDistanceMeters } from '../domain/place/provider';
 import { compareInstants } from '../domain/time';
@@ -43,6 +43,86 @@ export function placeOp(
   createdAt: string,
 ): SyncQueueItem {
   return { operationId, entityType: 'place', entityId, operationType, state: 'local_only', attempts: 0, createdAt };
+}
+
+export interface LinkedPlaceNameSyncResult {
+  placeFound: boolean;
+  placeChanged: boolean;
+  momentIds: string[];
+}
+
+/**
+ * 연결된 장소 이름의 **유일한 쓰기 문**. 호출자는 반드시 `localPlaces`·`localMoments`·
+ * `syncQueue`를 포함한 Dexie 쓰기 트랜잭션 안에 있어야 한다.
+ *
+ * 이름은 링크된 장소의 표시값이므로 양쪽에서 같게 유지한다. 좌표는 당시 기록이므로 손대지
+ * 않는다. 각 행과 각 op을 같은 트랜잭션에서 만들기 때문에 앱이 중간에 닫혀도 한쪽만 바뀐
+ * 고아 상태가 남지 않는다(M-0124).
+ */
+export async function mirrorLinkedPlaceNameInTransaction(
+  d: JourneyDB,
+  placeId: string,
+  rawName: string,
+  now: string,
+): Promise<LinkedPlaceNameSyncResult> {
+  const name = rawName.trim();
+  if (!name) return { placeFound: false, placeChanged: false, momentIds: [] };
+  const place = await d.localPlaces.get(placeId);
+  if (!place || place.deletedAt !== null) return { placeFound: false, placeChanged: false, momentIds: [] };
+
+  let placeChanged = false;
+  if (place.name !== name) {
+    const operationId = uuid();
+    await d.localPlaces.put({
+      ...place,
+      name,
+      updatedAt: now,
+      version: place.version + 1,
+      baseVersion: place.baseVersion ?? place.version,
+      clientOperationId: operationId,
+    });
+    await d.syncQueue.add(placeOp(operationId, place.id, 'update', now));
+    placeChanged = true;
+  }
+
+  // 휴지통 순간도 복원될 수 있으므로 함께 맞춘다. 활성 순간만 고치면 복원 순간에 옛 이름이
+  // 다시 나타나 연결된 장소와 즉시 갈라진다.
+  const linked = await d.localMoments.filter((moment) => moment.placeId === placeId).toArray();
+  const momentIds: string[] = [];
+  for (const moment of linked) {
+    if (moment.placeName === name) continue;
+    const operationId = uuid();
+    await d.localMoments.put({
+      ...moment,
+      placeName: name,
+      updatedAt: now,
+      version: moment.version + 1,
+      baseVersion: moment.baseVersion ?? moment.version,
+      clientOperationId: operationId,
+    });
+    await d.syncQueue.add({
+      operationId,
+      entityType: 'moment',
+      entityId: moment.id,
+      operationType: 'update',
+      state: 'local_only',
+      attempts: 0,
+      createdAt: now,
+    });
+    momentIds.push(moment.id);
+  }
+  return { placeFound: true, placeChanged, momentIds };
+}
+
+export async function verifyLinkedPlaceNameReadBack(placeId: string, name: string): Promise<void> {
+  const d = db();
+  const [place, linked] = await Promise.all([
+    d.localPlaces.get(placeId),
+    d.localMoments.filter((moment) => moment.placeId === placeId).toArray(),
+  ]);
+  if (!place || place.name !== name || linked.some((moment) => moment.placeName !== name)) {
+    throw new Error('내구성 커밋 확인 실패: 연결된 장소 이름 read-back 불일치');
+  }
 }
 
 /** 새 장소를 만들 때 필요한 값. 좌표는 필수 — 좌표 없는 장소는 라이브러리에 담지 않는다. */
@@ -162,12 +242,15 @@ async function reconcileMomentPlacesOnce(): Promise<number> {
         // 이름이 이미 순간 기준본과 같다면 대장 좌표가 권위다. 사용자가 대장의 지도 핀을
         // 옮긴 뒤 홈에 돌아왔다고 순간의 옛 좌표로 되돌리면 안 된다.
         if (linked.name !== name) {
-          await updatePlace(linked.id, {
+          // 옛 데이터가 한 placeId를 서로 다른 이름으로 공유하면 아래 반복이 이름별로 행을
+          // 갈라 준다. 이 소급 단계에서 먼저 형제 순간 이름을 덮으면 갈라낼 증거를 잃으므로,
+          // 사용자 편집용 양방향 미러가 아니라 명시적인 legacy 정책을 쓴다.
+          await updatePlaceWithNamePolicy(linked.id, {
             name,
             latitude: moment.placeLat!,
             longitude: moment.placeLng!,
             mapPicked: true,
-          });
+          }, 'legacy-reconcile');
           changed += 1;
         }
         continue;
@@ -332,17 +415,21 @@ export interface PlacePatch {
   provider?: string | null;
 }
 
-/**
- * 장소를 고친다.
- *
- * 🔴 **이 수정은 과거 순간의 기록을 바꾸지 않는다.** 순간은 자기 `placeName`/좌표를 그대로
- * 갖고 있고(마이그레이션 0022 설계 결정 1), 여기서 고치는 것은 라이브러리 항목뿐이다.
- * 사용자가 쓴 것을 앱이 조용히 고쳐 쓰지 않는다.
- */
-export async function updatePlace(id: string, patch: PlacePatch): Promise<void> {
+export interface PlaceUpdateResult {
+  renamedMomentCount: number;
+}
+
+type PlaceNamePolicy = 'mirror-linked' | 'legacy-reconcile';
+
+/** 이름 정책은 기본값을 두지 않는다. 사용자 편집과 옛 placeId 분리 소급은 사정권이 다르다. */
+async function updatePlaceWithNamePolicy(
+  id: string,
+  patch: PlacePatch,
+  namePolicy: PlaceNamePolicy,
+): Promise<PlaceUpdateResult> {
   const d = db();
   const cur = await d.localPlaces.get(id);
-  if (!cur || cur.deletedAt !== null) return;
+  if (!cur || cur.deletedAt !== null) return { renamedMomentCount: 0 };
   const now = new Date().toISOString();
   const opId = uuid();
   const next: LocalPlace = {
@@ -368,12 +455,27 @@ export async function updatePlace(id: string, patch: PlacePatch): Promise<void> 
     baseVersion: cur.baseVersion ?? cur.version,
     clientOperationId: opId,
   };
-  await d.transaction('rw', d.localPlaces, d.syncQueue, async () => {
+  const mirrored = await d.transaction('rw', d.localPlaces, d.localMoments, d.syncQueue, async () => {
     await d.localPlaces.put(next);
     await d.syncQueue.add(placeOp(opId, id, 'update', now));
+    if (patch.name === undefined || namePolicy === 'legacy-reconcile') return null;
+    return mirrorLinkedPlaceNameInTransaction(d, id, next.name, now);
   });
   const back = await d.localPlaces.get(id);
   if (!back || back.version !== next.version) throw new Error('내구성 커밋 확인 실패: 장소 수정 read-back 불일치');
+  if (mirrored?.placeFound) await verifyLinkedPlaceNameReadBack(id, next.name);
+  return { renamedMomentCount: mirrored?.momentIds.length ?? 0 };
+}
+
+/**
+ * 장소를 고친다.
+ *
+ * 연결된 동안 **이름은 한 값**이다. 대장에서 이름을 바꾸면 직접 연결된 활성·휴지통 순간의
+ * `placeName`도 같은 트랜잭션에서 바뀐다. 반면 좌표는 당시 기록이므로 대장 좌표를 고쳐도
+ * 순간 좌표에는 전파하지 않는다.
+ */
+export async function updatePlace(id: string, patch: PlacePatch): Promise<PlaceUpdateResult> {
+  return updatePlaceWithNamePolicy(id, patch, 'mirror-linked');
 }
 
 export type DeleteUnusedPlaceResult =

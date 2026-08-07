@@ -4,6 +4,15 @@
 
 ---
 
+## HANDOFF-0118 · v1.97 · **연결된 장소 이름 동기화와 고아 순간 복구 경로** (2026-08-07)
+
+- **사용자 지시**: 연결된 순간에서 장소 이름을 고치면 링크가 끊기는 문제를 바로잡고, 대장 또는 순간 어느 쪽에서 이름을 바꿔도 동기화한다. 링크가 끊겨 순간에는 이름이 있지만 위치관리대장에서는 찾을 수 없는 고아도 해결한다. 이번 범위는 로컬 커밋까지이며 푸시·배포는 하지 않는다.
+- **운영 원인 확정(M-0124)**: 편집 폼이 기존 `placeId`를 초기 상태에 넘기지 않았고 이름 input 이벤트가 검색 좌표·ID를 함께 비웠다. Supabase 읽기 전용 대조에서 문제 순간은 `place_id`·순간 좌표·사진 2장의 GPS가 모두 null이라, 이름 유사도 외에는 자동 재연결 증거가 없었다.
+- **구현(ADR-0053)**: 편집 폼은 기존 ID·좌표를 유지하고 명시적 위치 해제(✕)만 세 값을 함께 비운다. 연결 rename은 장소와 모든 직접 연결 순간(활성·휴지통), 각 sync op을 한 Dexie 트랜잭션에서 갱신하고 read-back한다. 대장 좌표 변경은 당시 순간 좌표에 전파하지 않는다.
+- **기존 고아 복구**: 이름-only 순간을 같은 이름 장소에 추측 연결하지 않는다. 위치관리대장에 「연결이 필요한 순간」으로 전부 노출하고 여행·순간 제목과 `순간에서 연결` 버튼을 제공해, 사용자가 정확한 순간에서 올바른 「내 장소」를 선택한다. 좌표가 있는 고아는 기존 소급 등록 경로가 자동 복원한다.
+- **검증**: 관련 유닛 35/35, v1.97 build, editor live **375/375**·콘솔 오류 0. 전체 release harness **55개 게이트 PASS·SKIP 0**(unit/editor/diagnostics live 포함). 화면 캡처에서 연결 필요 구역의 데스크톱 배치와 오버플로 0을 확인했다.
+- **배포 경계**: DB migration·RLS·Edge Function·R2 형식 변경은 없다. 사용자 요청대로 커밋까지만 진행하며 push·PR·Pages·Android 배포와 운영 데이터 자동 수정은 하지 않는다. 문제 순간은 배포 후 사용자가 대장의 연결 필요 목록에서 올바른 장소를 한 번 선택해야 한다.
+
 ## HANDOFF-0117 · v1.96 · **미연결 장소의 복구 가능한 정리** (2026-08-07)
 
 - **사용자 지시**: 위치관리대장에 동일 이름·좌표 장소가 두 줄씩 보이는 원인을 확인하고, 사진이 연결되지 않은 장소를 삭제할 수 있게 한 뒤 배포한다.
@@ -743,7 +752,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.96<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->196<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->106<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.97<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->197<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->107<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->29<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

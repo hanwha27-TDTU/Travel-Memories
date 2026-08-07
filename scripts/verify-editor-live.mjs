@@ -4291,6 +4291,14 @@ await page.goto(`http://localhost:4173${BASE}`, { waitUntil: 'networkidle' });
 await page.getByRole('button', { name: /데이터 관리/ }).first().click();
 await page.waitForSelector('.guide-overlay');
 await page.getByRole('button', { name: /위치관리대장/ }).click();
+await page.waitForSelector('.pr-unlinked');
+const unlinkedText = await page.locator('.pr-unlinked').textContent();
+check('v1.97 고아 장소: placeId가 끊긴 순간을 대장에서 숨기지 않고 재연결 경로를 준다',
+  /사진 없는 이름 일치 순간/.test(unlinkedText ?? '') && await page.getByRole('button', { name: /라이브 기록 장소 순간에서 장소 다시 연결/ }).count() === 1,
+  unlinkedText ?? '(연결 필요 목록 없음)');
+if (process.env.PLACE_ORPHAN_SCREENSHOT) {
+  await page.screenshot({ path: resolve(process.env.PLACE_ORPHAN_SCREENSHOT), fullPage: false });
+}
 await page.getByRole('button', { name: /라이브 기록 장소 기록 보기/ }).click();
 await page.waitForSelector('.pr-records-overlay');
 await page.waitForSelector('.pr-record-photo[data-media-id="pr-nav-media-second"]');
@@ -4356,6 +4364,28 @@ check('v1.94 위치 기록: URL target으로 사진 뷰어까지 자동으로 �
   /moment=pr-nav-moment-direct/.test(await page.url()) && /media=pr-nav-media-second/.test(await page.url()) && await page.locator('.photo-viewer').count() === 1,
   await page.url());
 await page.keyboard.press('Escape');
+await targetCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
+await targetCard.locator('.moment-edit .place-input').fill('라이브 이름 동기화 장소');
+await targetCard.locator('.moment-edit').getByRole('button', { name: '저장', exact: true }).click();
+await page.waitForSelector(`.moment-card[data-moment-id="${PLACE_RECORD_IDS.moments[0]}"] .moment-edit`, { state: 'hidden' });
+const linkedNameReadBack = await page.evaluate(async (ids) => await new Promise((resolve) => {
+  const req = indexedDB.open('journey-archive');
+  req.onsuccess = () => {
+    const tx = req.result.transaction(['localPlaces', 'localMoments'], 'readonly');
+    const placeReq = tx.objectStore('localPlaces').get(ids.place);
+    const momentReq = tx.objectStore('localMoments').get(ids.moments[0]);
+    tx.oncomplete = () => resolve({ place: placeReq.result, moment: momentReq.result });
+    tx.onerror = () => resolve(null);
+  };
+  req.onerror = () => resolve(null);
+}), PLACE_RECORD_IDS);
+check('v1.97 연결 이름: 순간 편집이 placeId·당시 좌표를 보존하고 대장 이름까지 함께 바꾼다',
+  linkedNameReadBack?.place?.name === '라이브 이름 동기화 장소'
+    && linkedNameReadBack?.moment?.placeName === '라이브 이름 동기화 장소'
+    && linkedNameReadBack?.moment?.placeId === PLACE_RECORD_IDS.place
+    && linkedNameReadBack?.moment?.placeLat === 41.3111
+    && linkedNameReadBack?.moment?.placeLng === 69.2797,
+  JSON.stringify(linkedNameReadBack));
 await page.evaluate(async (ids) => {
   await new Promise((resolve) => {
     const req = indexedDB.open('journey-archive');

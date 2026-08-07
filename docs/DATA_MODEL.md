@@ -137,6 +137,11 @@ where deleted_at is null;
 
 > **C-10 시간 정책**: 단일 `captured_at`/`occurred_at timestamptz`로 확정하지 않는다. `occurred_at`이 null이어도 `occurred_local`로 기록을 보존한다. 타임라인 정렬은 확정 UTC와 현지 원시시각을 구분한다. AI 요약은 이 테이블에 쓰지 않고 `ai_artifacts`(Phase 7)에 저장한다.
 
+> **장소 링크 이름 계약(ADR-0053)**: `place_id`가 있으면 순간의 장소 표시명과 `places.name`은
+> 한 값으로 유지한다. 어느 화면에서 이름을 바꿔도 직접 연결된 순간들에 원자 전파한다. 순간의
+> 당시 좌표는 역사적 사실이므로 대장 좌표 변경으로 덮지 않는다. `place_id`가 없는 이름-only
+> 순간은 이름만으로 자동 연결하지 않는다.
+
 ## places
 | 필드 | 형식 | 설명 |
 |------|------|------|
