@@ -42,6 +42,9 @@ export const SKILL_ROUTES = [
   // 개별 스킬 문서는 아래 skillsFor()가 자기 자신도 함께 라우팅한다.
   { match: /^\.claude\/skills\//, skill: 'gates-mechanization-dev' },
   { match: /^docs\/(CONSTITUTION|HANDOFF(?:_CODEX)?)\.md$/, skill: 'gates-mechanization-dev' },
+  // The service worker controls the deployed shell's offline behavior. It is
+  // executable release infrastructure, not an ungoverned public asset.
+  { match: /^public\/sw\.js$/, skill: 'gates-mechanization-dev' },
   { match: /^src\/ui\/(styles|theme|toast|dom)/, skill: 'ui-responsive-dev' },
   { match: /^src\/ui\/screens\//, skill: 'ui-responsive-dev' },
   // 보조 화면 지연 로드의 단일 관문. 화면을 다루는 파일이므로 UI 헌장을 읽되,

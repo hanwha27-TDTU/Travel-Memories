@@ -46,6 +46,12 @@ export interface TrashedChild {
   deletedAt: string;
 }
 
+/** 휴지통 화면이 서비스에 넘기는 영구삭제 선택. 도메인과 id를 분리하지 않는다. */
+export interface TrashPurgeEntry {
+  domain: TrashDomain;
+  id: string;
+}
+
 /** 사람이 읽는 도메인 이름 — 화면이 손으로 다시 적지 않게 여기 한 곳(§7). */
 export const CHILD_LABEL: Record<ChildDomain, string> = {
   moment: '순간',
@@ -282,6 +288,54 @@ export class PendingChildSyncError extends Error {
     super(`아직 서버에 반영되지 않은 변경이 ${count}건 있습니다. 먼저 동기화해 주세요.`);
     this.name = 'PendingChildSyncError';
   }
+}
+
+/** 일괄 영구삭제에도 개별 삭제와 같은 "먼저 동기화" 경계를 적용한다. */
+export class PendingTrashSyncError extends Error {
+  constructor(public readonly count: number) {
+    super(`아직 서버에 반영되지 않은 변경이 ${count}건 있습니다. 먼저 동기화해 주세요.`);
+    this.name = 'PendingTrashSyncError';
+  }
+}
+
+/**
+ * 휴지통의 선택 항목을 **하나의 트랜잭션**으로 영구삭제한다.
+ *
+ * 목록을 `purge*Permanently()`로 순서대로 돌리면 앞 항목은 지워지고 뒤 항목에서 막힐 수 있다.
+ * 그래서 가족 전체를 먼저 병렬로 수집하고(서로 독립적인 읽기), 모든 대기 작업을 검사한 뒤
+ * `commitPurge` 한 번으로 표식·전파 큐·로컬 행을 함께 바꾼다. 의존 관계가 있는 가족 내부는
+ * 기존 `collectPurgeTargets`가 부모→자식 규칙을 결정하고 commit이 자식부터 지운다.
+ */
+export async function purgeTrashedBatch(entries: readonly TrashPurgeEntry[]): Promise<{ selected: number; targets: number }> {
+  const unique = [...new Map(entries.map((entry) => [`${entry.domain}:${entry.id}`, entry])).values()];
+  if (!unique.length) return { selected: 0, targets: 0 };
+
+  const families = await Promise.all(unique.map(async (entry) => {
+    const table = localTableOf(entry.domain) as unknown as {
+      get(id: string): Promise<{ id: string; deletedAt: string | null } | undefined>;
+    };
+    const row = await table.get(entry.id);
+    if (!row) throw new Error('휴지통 목록이 바뀌었어요. 새로고침한 뒤 다시 시도해 주세요.');
+    if (row.deletedAt === null) throw new Error('삭제되지 않은 항목은 영구 삭제할 수 없습니다.');
+    const parent = asPurgeParent(entry.domain);
+    return parent ? collectPurgeTargets(parent, entry.id) : collectPurgeTargets2(entry.domain as ChildDomain, entry.id);
+  }));
+
+  // 같은 가족을 두 번 선택해도 표식·전파 op는 하나여야 한다. 부모 뿌리와 자식이 겹치면
+  // 뿌리 쪽(underRoot 없음)을 보존해 서버가 가족 전체를 처리하도록 한다.
+  const byTarget = new Map<string, PurgeTarget>();
+  for (const target of families.flat()) {
+    const key = `${target.domain}:${target.id}`;
+    const previous = byTarget.get(key);
+    if (!previous || (previous.underRoot && !target.underRoot)) byTarget.set(key, target);
+  }
+  const targets = [...byTarget.values()];
+  const targetIds = new Set(targets.map((target) => target.id));
+  const pending = (await db().syncQueue.toArray()).filter((op) => targetIds.has(op.entityId));
+  if (pending.length) throw new PendingTrashSyncError(pending.length);
+
+  await commitPurge(targets, new Date().toISOString());
+  return { selected: unique.length, targets: targets.length };
 }
 
 /**

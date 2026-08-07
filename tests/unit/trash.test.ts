@@ -17,9 +17,11 @@ import { createTripLocalFirst, softDeleteTripLocalFirst } from '../../src/servic
 import { createMomentLocalFirst, softDeleteMomentLocalFirst } from '../../src/services/moments';
 import {
   listTrashedChildren,
+  purgeTrashedBatch,
   purgeChildPermanently,
   restoreTrashedChild,
   PendingChildSyncError,
+  PendingTrashSyncError,
   CHILD_DOMAINS,
 } from '../../src/services/trash';
 import { purgeOpType } from '../../src/services/purge';
@@ -185,5 +187,47 @@ describe('③ 영구삭제는 여행과 같은 규율', () => {
     await db().syncQueue.clear();
     await purgeChildPermanently('moment', momentId);
     expect(await listTrashedChildren()).toEqual([]);
+  });
+
+  it('일괄 영구삭제는 여러 항목을 한 번의 원자적 처리로 비우고 각각의 전파 op를 남긴다', async () => {
+    const d = db();
+    const { tripId, momentId } = await tripWithMoment();
+    const another = await createMomentLocalFirst({
+      tripId,
+      title: '함께 지울 순간',
+      occurredAt: '2026-07-02T00:00:00.000Z',
+    });
+    await softDeleteMomentLocalFirst(momentId);
+    await softDeleteMomentLocalFirst(another.id);
+    await d.syncQueue.clear();
+
+    await expect(purgeTrashedBatch([
+      { domain: 'moment', id: momentId },
+      { domain: 'moment', id: another.id },
+    ])).resolves.toEqual({ selected: 2, targets: 2 });
+
+    expect(await d.localMoments.bulkGet([momentId, another.id])).toEqual([undefined, undefined]);
+    expect(await d.purgedIds.bulkGet([momentId, another.id])).toEqual([expect.anything(), expect.anything()]);
+    expect((await d.syncQueue.toArray()).map((op) => op.entityType)).toEqual([purgeOpType('moment'), purgeOpType('moment')]);
+  });
+
+  it('일괄 영구삭제는 대상 하나라도 동기화 대기면 어느 것도 지우지 않는다', async () => {
+    const d = db();
+    const { tripId, momentId } = await tripWithMoment();
+    const another = await createMomentLocalFirst({
+      tripId,
+      title: '남아야 할 순간',
+      occurredAt: '2026-07-02T00:00:00.000Z',
+    });
+    await softDeleteMomentLocalFirst(momentId);
+    await softDeleteMomentLocalFirst(another.id);
+
+    await expect(purgeTrashedBatch([
+      { domain: 'moment', id: momentId },
+      { domain: 'moment', id: another.id },
+    ])).rejects.toBeInstanceOf(PendingTrashSyncError);
+
+    expect(await d.localMoments.bulkGet([momentId, another.id])).toEqual([expect.anything(), expect.anything()]);
+    expect(await d.purgedIds.bulkGet([momentId, another.id])).toEqual([undefined, undefined]);
   });
 });

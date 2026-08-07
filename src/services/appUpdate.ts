@@ -9,14 +9,14 @@
 //
 // 그래서: 시작·복귀 때 배포에 심어진 신호(version.json — gen-version-file.mjs)를 묻고,
 // 새 판이 있으면 **안전할 때** 새로고침한다. 안전하지 않으면(글 쓰는 중·창 열림) 미뤘다가
-// **다음 화면 이동 때** 적용한다 — 새 UI 없이 반드시 도달한다.
+// **다음 앱 복귀 때** 적용한다 — 새 UI 없이 반드시 도달한다.
 //
 // 🔴 안전 규칙이 이 파일의 핵심이다. 새로고침은 입력 중인 글을 날릴 수 있다(비타협 원칙 #1의
 // 이웃 — 아직 저장 안 된 기억). 그래서 「지난 안전지점 이후 입력이 있었나」와 「열린
 // 창(overlay)이 있나」를 보고, 하나라도 걸리면 지금은 건드리지 않는다.
 //
 // 🔴 H-4(2026-08-01 감사·확정) — 이 배선이 두 군데서 조용히 죽어 있었다:
-//  ① 「다음 화면 이동」을 `hashchange`로 들었는데, 이 앱 라우터는 History API(pushState/popstate)라
+//  ① 「화면 이동」을 `hashchange`로 들었는데, 이 앱 라우터는 History API(pushState/popstate)라
 //     hash가 안 바뀐다 → 그 이벤트는 **한 번도 발화하지 않았다.** 미뤄둔 갱신이 영영 도달 못 했다.
 //     이제 라우터가 화면을 그릴 때마다 쏘는 `bj:route`를 듣는다(router.ts:apply).
 //  ② 입력 감지가 `keydown` 전용이라 **붙여넣기·음성입력·제스처 타이핑·IME 조합**을 놓쳤다
@@ -80,7 +80,7 @@ const ATTEMPT_KEY = 'bj.update.attempted';
 /**
  * 자동 갱신을 배선한다(main.ts에서 1회).
  *
- * 시점: ① 시작 직후 ② 화면 복귀(visibilitychange) ③ 화면 이동(hashchange — 미뤄둔 적용).
+ * 시점: ① 시작 직후 ② 화면 복귀(visibilitychange — 미뤄둔 적용).
  * 적용: 안전하면 즉시 location.reload(), 아니면 pending으로 들고 다음 시점에 다시 시도.
  */
 export function wireAutoUpdate(): void {
@@ -124,11 +124,12 @@ export function wireAutoUpdate(): void {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') check();
   });
-  // 화면 이동 = 이전 화면의 입력을 떠났다 — 안전지점이자 미뤄둔 갱신을 적용할 순간.
+  // 화면 이동은 입력 이력의 안전지점일 뿐, 갱신 적용 지점은 아니다.
+  // 새 판을 받은 구번들에서 여기서 reload하면 클릭으로 막 연 목적지 렌더와 경합해 이전 화면처럼
+  // 보일 수 있다. 갱신 적용은 시작·앱 복귀에서만 하며, 사용자의 화면 이동을 절대 가로채지 않는다.
   // 🔴 `bj:route`다(router.ts). 예전의 `hashchange`는 History 라우터에서 **발화하지 않았다**(H-4 ①).
   window.addEventListener('bj:route', () => {
     typedSinceSafePoint = false;
-    tryApply();
   });
 
   check(); // 시작 직후 1회 — 「접속할 때 자동으로 최신」의 그 시점

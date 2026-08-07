@@ -51,6 +51,10 @@ describe('searchToTripTarget — URL 선택 대상 파싱', () => {
   it('순간과 사진을 함께 읽는다', () => {
     expect(searchToTripTarget('?moment=m-1&media=photo-1')).toEqual({ momentId: 'm-1', mediaId: 'photo-1' });
   });
+  it('장소 연결 복구는 순간을 특정했을 때만 장소 입력 열기로 해석한다', () => {
+    expect(searchToTripTarget('?moment=m-1&place=edit')).toEqual({ momentId: 'm-1', openPlaceEditor: true });
+    expect(searchToTripTarget('?media=photo-1&place=edit')).toEqual({ mediaId: 'photo-1' });
+  });
   it('사진만 온 대상은 상세 화면이 안전하게 무시할 수 있도록 그대로 둔다', () => {
     expect(searchToTripTarget('?media=photo-1')).toEqual({ mediaId: 'photo-1' });
   });

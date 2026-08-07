@@ -33,7 +33,7 @@ const LEGACY = {
   'src/ui/photoViewer.ts::openPhotoViewer': 251,
   'src/ui/screens/home.ts::renderHome': 181,
   'src/ui/screens/designOverview.ts::openDesignOverview': 209,
-  'src/ui/screens/dataManager.ts::trashPanel': 75,
+  'src/ui/screens/dataManager.ts::trashPanel': 68,
   'src/ui/screens/aboutApp.ts::openAboutApp': 168,
   'src/ui/screens/mapView.ts::openMapView': 133,
   'src/ui/screens/tripDetail.ts::buildPlaceField': 80,

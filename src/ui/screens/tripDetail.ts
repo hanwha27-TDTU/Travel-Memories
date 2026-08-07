@@ -84,6 +84,8 @@ interface PlaceField {
    * 좌표 채우기는 **네트워크가 0**이다. 이름 조회만 동의를 거친다(`consent.ts` 참조).
    */
   suggestFrom: (metas: readonly PhotoMetaLike[]) => void;
+  /** 연결 복구처럼 이미 대장 장소를 고르게 할 때, 현재 이름으로 로컬 후보를 바로 펼친다. */
+  showSavedPlaces: () => void;
   reset: () => void;
 }
 /**
@@ -1166,7 +1168,7 @@ function wireLiveRegistry(
   results: HTMLElement,
   pick: (p: LocalPlace) => void,
   owner: ResultsOwner,
-): void {
+): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
   const paint = async (token: number): Promise<void> => {
     if (!owner.holds(token)) return;
@@ -1196,6 +1198,10 @@ function wireLiveRegistry(
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => void paint(token), LIVE_LOOKUP_MS);
   });
+  return () => {
+    const token = owner.claim();
+    void paint(token);
+  };
 }
 
 /**
@@ -1344,8 +1350,7 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
     owner,
   });
   searchBtn.addEventListener('click', doSearch);
-  // ⌨️ 치는 동안 「내 장소」를 바로 보여준다(네트워크 0 — 지오코더는 [🔍 검색] 뒤에 그대로).
-  wireLiveRegistry(input, results, (p) => applyPick(savedPick(p)), owner);
+  const showSavedPlaces = wireLiveRegistry(input, results, (p) => applyPick(savedPick(p)), owner);
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault(); // 폼 제출 대신 검색
@@ -1376,6 +1381,7 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
     getCoords: st.coords,
     getPlaceId: st.getPlaceId,
     suggestFrom,
+    showSavedPlaces,
     reset: () => {
       photoNote.hidden = true;
       photoNote.textContent = '';
@@ -2036,8 +2042,15 @@ function renderTripNotFound(wrap: HTMLElement, navigate: Navigate): void {
 function tripTargetController(initial?: TripNavigationTarget) {
   let pending = initial;
   let highlightedMomentId: string | undefined;
+  // 장소 연결 복구는 해당 순간의 장소 입력을 한 번 열어야 한다. 사용자가 닫거나 저장하면
+  // 다음 refresh에서 다시 열지 않는다.
+  let placeEditorMomentId = initial?.openPlaceEditor ? initial.momentId : undefined;
   return {
     isHighlighted: (momentId: string): boolean => highlightedMomentId === momentId,
+    opensPlaceEditor: (momentId: string): boolean => placeEditorMomentId === momentId,
+    closePlaceEditor: (momentId: string): void => {
+      if (placeEditorMomentId === momentId) placeEditorMomentId = undefined;
+    },
     reveal(timeline: HTMLElement, byMoment: Map<string, LocalMedia[]>, refresh: () => Promise<void>, clock: TripClock): void {
       const next = pending;
       pending = undefined;
@@ -2048,6 +2061,13 @@ function tripTargetController(initial?: TripNavigationTarget) {
       highlightedMomentId = next.momentId;
       card.classList.add('is-navigation-target');
       card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (placeEditorMomentId === next.momentId) {
+        const focusPlaceInput = (): void => card.querySelector<HTMLInputElement>('.moment-edit .place-input')?.focus({ preventScroll: true });
+        focusPlaceInput();
+        // 카드가 타임라인에 막 붙은 첫 프레임에는 일부 WebView가 focus를 무시한다. 다음 프레임에도
+        // 같은 입력을 다시 지정해 장소 선택을 시작할 지점을 확실히 남긴다.
+        requestAnimationFrame(focusPlaceInput);
+      }
       if (!next.mediaId) return;
       const mediaList = byMoment.get(next.momentId) ?? [];
       const index = mediaList.findIndex((media) => media.id === next.mediaId);
@@ -2068,9 +2088,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       return;
     }
 
-    // 🕒 **이 여행의 시계를 여기서 한 번 만든다.** 아래 모든 시각 표시가 이것을 지난다 —
-    // 화면 안에서 자가 갈리지 않게(M-utc-slice의 근본형은 「같은 값을 두 자로 쟀다」였다).
-    // 여행 시간대를 고치면 화면이 통째로 재렌더되므로(onSave → renderTripDetail) const로 둔다.
+    // 이 여행의 시계는 아래 모든 시각 표시가 공유한다.
     const clock: TripClock = { zone: trip.timeZone ?? '', homeZone: homeZone() };
 
     // ===== 히어로 커버 =====
@@ -2105,9 +2123,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const body = el('section', 'detail-body');
     wrap.appendChild(body);
 
-    // 넓은 화면에서 [기록 폼 | 타임라인] 2단으로 나누기 위한 좌측 묶음.
-    // 좁은 화면에서는 그냥 세로로 흐른다(CSS가 분기) — DOM 순서는 기록 → 타임라인 그대로라
-    // 화면읽기·키보드 탐색 순서도 자연스럽다.
+    // CSS가 넓은 화면에서만 기록 폼과 타임라인을 두 단으로 나눈다.
     const compose = el('div', 'detail-compose');
     body.appendChild(compose);
 
@@ -2385,7 +2401,9 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         trip,
         clock,
         existingExpense,
+        targetController.opensPlaceEditor(m.id),
         async (patch, expenseIntent) => {
+          targetController.closePlaceEditor(m.id);
           await updateMomentLocalFirst(m.id, patch);
           if (expenseIntent.amount !== null) {
             if (existingExpense) {
@@ -2417,17 +2435,19 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           void trySync();
         },
         () => {
+          targetController.closePlaceEditor(m.id);
           editForm.hidden = true;
           addPhotoWrap.hidden = true;
         },
       );
-      editForm.hidden = true;
+      editForm.hidden = !targetController.opensPlaceEditor(m.id);
       // `hasPlace`: 이름이든 좌표든 하나라도 있으면 사진이 장소를 **손대지 않는다.**
       wireAddPhoto(addPhotoInput, addProgress, { momentId: m.id, tripId: trip!.id, fallbackZone: trip?.timeZone ?? '', hasPlace, refresh });
       editBtn.addEventListener('click', () => {
         const show = editForm.hidden; // 열기로 전환
         editForm.hidden = !show;
         addPhotoWrap.hidden = !show;
+        if (!show) targetController.closePlaceEditor(m.id);
       });
 
       // 삭제 → tombstone + 실행취소 토스트(5초). 사진도 함께 tombstone되고 undo가 함께 복원.
@@ -3092,13 +3112,18 @@ async function processPhotosIntoMoment(
   return saved;
 }
 
+/** 대장에서 재연결할 때만 현재 이름으로 「내 장소」 후보를 즉시 펼친다. */
+function openPlaceCandidates(field: PlaceField, enabled: boolean): void {
+  if (enabled) requestAnimationFrame(() => field.showSavedPlaces());
+}
+
 function buildMomentEditForm(
   m: LocalMoment,
-  /** 여행 기간 — 기간 밖 경고에 쓴다(생성 폼과 같은 필드·같은 문장, §7). */
+  /** 여행 기간과 시계 — 생성 폼과 같은 기준으로 기간 밖 경고를 낸다. */
   trip: { startDate: string | null; endDate: string | null; timeZone?: string } | null,
-  /** 이 여행의 시계 — 생성 폼과 **같은 자**로 재야 한다(§7 사용자 대면 대칭). */
   clock: TripClock,
   existingExpense: LocalExpense | undefined,
+  openPlacePicker: boolean,
   onSave: (
     // 서비스의 계약 타입을 그대로 쓴다 — 필드가 늘 때 화면·서비스 두 곳을 고치지 않는다(SSOT).
     patch: UpdateMomentPatch,
@@ -3115,7 +3140,7 @@ function buildMomentEditForm(
   titleIn.required = true;
   titleIn.setAttribute('aria-label', '순간 한 줄 기록');
 
-  const emotion = buildEmotionRow(m.emotion); // 생성 폼과 같은 위젯(§7)
+  const emotion = buildEmotionRow(m.emotion);
 
   const placeField = buildPlaceField({ name: m.placeName, lat: m.placeLat ?? null, lng: m.placeLng ?? null, placeId: m.placeId ?? null });
 
@@ -3126,7 +3151,6 @@ function buildMomentEditForm(
   noteIn.placeholder = '메모 (선택)';
   noteIn.setAttribute('aria-label', '메모(선택)');
 
-  // 비용(선택): 금액 비우면 기존 비용 삭제, 채우면 생성/수정.
   const money = buildMoneyRow(existingExpense);
 
   const timeField = buildWhenField(trip, clock);
@@ -3154,6 +3178,7 @@ function buildMomentEditForm(
     timeField.el,
     row,
   );
+  openPlaceCandidates(placeField, openPlacePicker);
 
   panel.addEventListener('submit', (e) => {
     e.preventDefault();
