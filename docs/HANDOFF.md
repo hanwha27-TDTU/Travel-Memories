@@ -4,6 +4,18 @@
 
 ---
 
+## HANDOFF-0115 · **왕복검사 이식 설계 + 공용 스킬 교훈 환류** (2026-08-07)
+
+- **사용자 지시**: Bugeon Journey의 운영 왕복검사를 다른 앱에서도 재현할 설계서를 파일로 남기고, 저장소에서 완전히 불필요한 것을 안전하게 폐기한 뒤 이번 세션의 교훈을 프로젝트·전역 스킬에 반영하도록 했다.
+- **이식 정본**: `docs/ROUND_TRIP_TEST_BLUEPRINT.md`에 10단계 `create → push → serverRead → update → stampRead → delete → tombstoneRead → purge → purgeRead → cleanup`, 포트·타입·Runner 의사코드, fail-fast/`finally`, 영속 `activeRun`, mutex/timeout, canonical generation fence, RLS 양·음성 대조군, 캐시 무효화와 현재 구현의 13개 차이를 기록했다. 성공한 sync나 빈 큐가 아니라 **목표 operation 영수증 + 서버 payload/version read-back**을 완료 증거로 삼는다.
+- **프로젝트 스킬**: `diagnostics-dev`와 `sync-offline-dev`가 위 10단계·정확 ID 정리·행 부재+purge 원장·다른 계정/옛 단계 캐시 거부를 직접 가리킨다. `gates-mechanization-dev`에는 저장소 정리 시 추적/ignore/정적 참조/생성 가능 여부를 후보 단서로만 쓰고, 동적 소비자·독립 배포 표면·사용자 첨부물·복구 수단을 확인한 정확한 경로만 삭제하는 규율을 추가했다.
+- **실제 폐기**: 조사 결과 삭제 증거가 모두 모인 `debug.log` 1개(99,671 bytes, ignored/untracked GPU 경고 로그)만 영구 삭제했다. `.codex-remote-attachments`는 사용자 제공 파일, `dist`는 라이브 게이트 입력, `node_modules`는 현재 실행 입력이라 보존했다. Android/PWA의 같은 이름·해시 자산도 경로 역할이 달라 보존했다.
+- **공용 스킬 정본**: `Codex-Shared-Skills` PR #1을 CI 통과 뒤 squash merge해 승인 커밋을 `7b601813b6d1a29e0b17f9307f57653593adb505`로 올렸다. AutoRouter에는 광범위 정리의 Luna 후보 수집→Sol 구조 검토→메인의 정확 경로 삭제를, 릴리스 법에는 텍스트 LF/CRLF 논리 해시와 바이너리 원바이트 해시를 추가했다.
+- **해시 결함 M-0121**: Windows checkout 줄바꿈만으로 공급망 변조를 오판하던 raw SHA-256을 공용 `content-digest.mjs`로 통일했다. LF/CRLF 동일, 실제 문자·바이너리 변조 RED 대조군을 통과했고, 프로젝트 checker도 vendored 함수를 직접 import한다. 전역 Codex/Claude 설치본 4곳과 프로젝트 vendor/lock/profile을 새 커밋으로 재생성했다.
+- **버전·배포**: 앱 거동·사용자 화면·데이터 계약은 바꾸지 않은 문서·개발도구 작업이라 앱 버전은 올리지 않는다. 전체 build/harness/live와 앱 배포는 다음 기능 릴리스에 묶고, 이번 변경은 빠른 게이트와 공급망/문서 검증만 수행한다.
+
+---
+
 ## HANDOFF-0114 · **전역 공용 스킬 소비자 등록** (2026-08-07)
 
 - **사용자 지시**: 비공개 정본 `hanwha27-TDTU/Codex-Shared-Skills`의 승인 커밋 `268126d44103df9ca709e7b8eec49d8e679437c2`에 이 프로젝트를 연결하고, 공통법을 복사하지 않은 채 프로젝트별 릴리스 프로필과 드리프트 CI 게이트를 두도록 했다.

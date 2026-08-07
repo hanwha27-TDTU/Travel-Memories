@@ -221,6 +221,30 @@ if (mustUploadBytes(audio, true))  { … }  // 소리: 키 형식이 하나 → 
 
 > **자문 한 줄**: 이 판정을 **두 번째로** 쓰고 있는가? 그렇다면 그건 이미 갈라진 것이다.
 
+## 2-E. 🔴 운영 왕복검사는 **대상 op의 착지와 권위 있는 상태**를 함께 증명한다 (2026-08-07)
+
+전체 `runSync()`가 resolve했거나 큐가 비었다는 사실은 시험 fixture의 성공 증거가 아니다. 다른
+사용자 작업이 함께 처리될 수 있고, 성공한 op은 큐에서 사라지기 때문이다. 이식 정본은
+`docs/ROUND_TRIP_TEST_BLUEPRINT.md`다.
+
+- 순서는 `create → push → serverRead → update → stampRead → delete → tombstoneRead → purge →
+  purgeRead → cleanup`이다. 행동 단계 뒤 되읽기 단계가 그 행동의 완료를 증명한다.
+- create/update/delete/purge마다 **이번 fixture의 operation id**를 보존하고, sync는 목표 op별
+  `landed | failed | pending` 영수증을 돌려준다. `Promise<void>`는 판정 근거가 아니다.
+- update는 `updated_at`만 보지 않고 **수정 payload + operation/version**을 함께 되읽는다.
+- permanent delete는 **서버 행 부재 + purge 원장 존재**를 함께 봐야 한다. 부재만 보면 애초에
+  없던 행도 통과하고, 원장만 보면 실제 행이 남은 상태를 놓친다.
+- 첫 쓰기 전에 정확한 fixture ID를 영속 journal에 남기고, 실패·취소·재시작에서도 `finally`
+  정리를 독립 실행한다. 접두사 검색으로 정리 범위를 넓히지 않는다.
+- 실행 전후 canonical generation이 같지 않으면 결과는 `unknown`이다. 그 실행에서 추가 push나
+  정리를 계속하지 않는다.
+- timeout은 `AbortSignal`로 실제 작업을 멈추고, 뒤늦은 쓰기가 없는지 되읽는다. UI timeout만
+  내고 네트워크 작업을 살려 두면 정리 뒤 fixture가 다시 생길 수 있다.
+
+**RLS 대조군**도 왕복의 일부다: 자기 행의 SELECT/UPDATE/DELETE/원장 접근은 허용하고, 다른
+사용자 행은 같은 네 동작이 모두 거부돼야 한다. 사진·소리는 바이트 정리 경계가 다르므로 행 왕복에
+끼워 넣지 말고 별도 형제 probe로 둔다.
+
 ## 2-C. 🔴 「로컬」은 두 가지다 — 섞으면 절대시각이 틀어진다 (2026-07-29 · M-0049)
 
 `domain/time.ts`가 두 종류의 「로컬」을 **다른 함수로** 나눠 갖는다. 섞으면 화면 안에서 날짜가
