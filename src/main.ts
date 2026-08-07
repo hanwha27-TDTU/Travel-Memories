@@ -74,11 +74,11 @@ async function guardTripDetail(): Promise<boolean> {
   return canViewLocalRecords(true, (await currentUser()) !== null);
 }
 
-const router: ReturnType<typeof createRouter> = createRouter((route: Route, param?: string) => {
+const router: ReturnType<typeof createRouter> = createRouter((route: Route, param?: string, target?: import('./app/router').TripNavigationTarget) => {
   switch (route) {
     case 'trip-detail':
       void guardTripDetail().then((allowed) => {
-        if (allowed) renderTripDetail(root, param ?? '', router.navigate);
+        if (allowed) renderTripDetail(root, param ?? '', router.navigate, target);
         else router.navigate('home');
       });
       break;

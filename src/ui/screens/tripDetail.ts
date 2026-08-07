@@ -1406,7 +1406,7 @@ import {
 import { homeZone, setHomeZone } from '../../services/homeZone';
 import { groupMomentsByDay, type DayGroup } from '../../domain/moment/timeline';
 import { requestSync, syncStatus } from '../../services/autoSync';
-import type { Route } from '../../app/router';
+import type { Route, TripNavigationTarget } from '../../app/router';
 import type { LocalMoment, LocalTrip, LocalMedia, LocalExpense, LocalPlace } from '../../offline/db';
 
 /** 금액 입력(콤마·공백 허용) → 양수 숫자 또는 null. */
@@ -1430,7 +1430,7 @@ function currencySelect(current: string): HTMLSelectElement {
   return sel;
 }
 
-type Navigate = (route: Route, param?: string) => void;
+type Navigate = (route: Route, param?: string, target?: TripNavigationTarget) => void;
 
 // 🔴 상태 라벨·순서는 `domain/trip/homeSections.ts` **한 곳**이 정한다. 예전엔 이 파일과
 // `home.ts`가 각자 손으로 같은 표를 갖고 있었다 — 한쪽만 고치면 같은 상태가 화면마다 다른
@@ -2020,7 +2020,42 @@ function dayHeaderLabel(g: DayGroup): string {
   return g.dayNumber && g.dayNumber >= 1 ? `Day ${g.dayNumber} · ${md}` : md;
 }
 
-export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: Navigate): void {
+function renderTripNotFound(wrap: HTMLElement, navigate: Navigate): void {
+  const nf = el('div', 'detail-notfound');
+  nf.appendChild(el('p', 'empty-emoji', '🧭'));
+  nf.appendChild(el('h2', undefined, '여행을 찾을 수 없어요'));
+  const back = el('button', 'btn-primary', '← 홈으로') as HTMLButtonElement;
+  back.type = 'button';
+  back.addEventListener('click', () => navigate('home'));
+  nf.appendChild(back);
+  wrap.appendChild(nf);
+}
+
+/** URL target을 한 번만 소비하고, 다음 상세 refresh까지 강조 상태를 보존한다. */
+function tripTargetController(initial?: TripNavigationTarget) {
+  let pending = initial;
+  let highlightedMomentId: string | undefined;
+  return {
+    isHighlighted: (momentId: string): boolean => highlightedMomentId === momentId,
+    reveal(timeline: HTMLElement, byMoment: Map<string, LocalMedia[]>, refresh: () => Promise<void>, clock: TripClock): void {
+      const next = pending;
+      pending = undefined;
+      if (!next?.momentId) return;
+      const card = [...timeline.querySelectorAll<HTMLElement>('.moment-card[data-moment-id]')]
+        .find((item) => item.dataset.momentId === next.momentId);
+      if (!card) return;
+      highlightedMomentId = next.momentId;
+      card.classList.add('is-navigation-target');
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (!next.mediaId) return;
+      const mediaList = byMoment.get(next.momentId) ?? [];
+      const index = mediaList.findIndex((media) => media.id === next.mediaId);
+      if (index >= 0) openPhotoViewer(mediaList, index, refresh, clock);
+    },
+  };
+}
+
+export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: Navigate, target?: TripNavigationTarget): void {
   mount.innerHTML = '';
   const wrap = el('main', 'screen screen-detail');
   mount.appendChild(wrap);
@@ -2028,14 +2063,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
   void (async () => {
     const trip = await getTrip(tripId);
     if (!trip) {
-      const nf = el('div', 'detail-notfound');
-      nf.appendChild(el('p', 'empty-emoji', '🧭'));
-      nf.appendChild(el('h2', undefined, '여행을 찾을 수 없어요'));
-      const back = el('button', 'btn-primary', '← 홈으로') as HTMLButtonElement;
-      back.type = 'button';
-      back.addEventListener('click', () => navigate('home'));
-      nf.appendChild(back);
-      wrap.appendChild(nf);
+      renderTripNotFound(wrap, navigate);
       return;
     }
 
@@ -2218,6 +2246,8 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     }
 
 
+    const targetController = tripTargetController(target);
+
     async function refresh(): Promise<void> {
       const [moments, media, expenses] = await Promise.all([
         listMoments(trip!.id),
@@ -2231,6 +2261,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       const expByMoment = groupByMoment(expenses);
       locatedPoints = toMapPoints(moments, byMoment, clock);
       renderTimeline(moments, byMoment, expByMoment, audioByMoment);
+      targetController.reveal(timeline, byMoment, refresh, clock);
       const groups = groupMomentsByDay(moments, clock, trip!.startDate || undefined);
       statRow.innerHTML = '';
       statRow.append(
@@ -2324,6 +2355,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       // 않는다 — 환산은 시각이 **다를 때만** 나온다(`home`이 빈 문자열이면 침묵. §8).
       item.append(...timeGutter(momentWhen(m.occurredAt, m.tzOffsetMin, clock)));
       const [card, hasPlace] = asMomentPhotoDropTarget(el('article', 'moment-card'), m);
+      if (targetController.isHighlighted(m.id)) card.classList.add('is-navigation-target');
       const head = el('div', 'moment-head');
       head.appendChild(el('p', 'moment-say', m.title));
       const headRight = el('div', 'moment-head-right');

@@ -26,6 +26,7 @@ import { roughDistanceMeters } from '../domain/place/provider';
 import { compareInstants } from '../domain/time';
 import { reverseGeocode } from './geocode';
 import { isRealCoord } from '../domain/place/coordInput';
+import { orderPhotos } from '../domain/media/order';
 
 const uuid = (): string => crypto.randomUUID();
 
@@ -491,4 +492,35 @@ export async function allMomentsForPlaceLookup(): Promise<
     placeId: m.placeId ?? null,
     deletedAt: m.deletedAt,
   }));
+}
+
+/** 장소 기록 모달의 읽기 전용 스냅샷. 저장·큐·동기화는 건드리지 않는다. */
+export async function allPlaceRecordMoments(): Promise<
+  { id: string; tripId: string; tripTitle: string; title: string; occurredAt: string; placeName: string; placeId?: string | null; deletedAt: string | null }[]
+> {
+  const d = db();
+  const [trips, moments] = await Promise.all([d.localTrips.toArray(), d.localMoments.toArray()]);
+  const tripTitles = new Map(trips.filter((t) => t.deletedAt === null).map((t) => [t.id, t.title]));
+  return moments.filter((m) => tripTitles.has(m.tripId)).map((m) => ({
+    id: m.id, tripId: m.tripId, tripTitle: tripTitles.get(m.tripId)!, title: m.title,
+    occurredAt: m.occurredAt, placeName: m.placeName, placeId: m.placeId ?? null, deletedAt: m.deletedAt,
+  }));
+}
+
+/**
+ * 기록 모달을 실제로 열었을 때만 해당 순간들의 썸네일을 읽는다.
+ * 대장 진입에서 모든 Blob을 `toArray()`로 꺼내지 않아 긴 여행 기록의 메모리를 불필요하게 쓰지 않는다.
+ */
+export async function mediaForPlaceRecordMoments(momentIds: readonly string[]): Promise<Map<string, { id: string; thumbBlob: Blob }[]>> {
+  const result = new Map<string, { id: string; thumbBlob: Blob }[]>();
+  if (!momentIds.length) return result;
+  const rows = orderPhotos((await db().localMedia.where('momentId').anyOf([...momentIds]).toArray())
+    .filter((item) => item.deletedAt === null));
+  for (const item of rows) {
+    const existing = result.get(item.momentId);
+    const value = { id: item.id, thumbBlob: item.thumbBlob };
+    if (existing) existing.push(value);
+    else result.set(item.momentId, [value]);
+  }
+  return result;
 }

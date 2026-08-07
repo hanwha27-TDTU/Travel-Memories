@@ -4,6 +4,16 @@
 
 ---
 
+## HANDOFF-0113 · v1.94 · **장소에서 연결된 여행·사진으로 바로 이동** (2026-08-07)
+
+- **사용자 지시**: 위치관리대장의 장소가 어느 사진에 연결됐는지 보고, 장소를 클릭하면 여행 제목과 사진 제목을 별도 창에 띄운 뒤 그 사진으로 이동하게 해 달라고 했다.
+- **기존 현실**: 대장은 이미 `이 장소를 쓰는 순간`을 세고 순간 제목에서 여행으로 이동했지만, 여행 제목을 보여 주지 않았고 정확한 순간·사진을 열지 못했다. 장소는 순간에 연결되고 사진은 그 순간의 자식이며 사진별 제목 필드는 없다.
+- **화면 계약**: 장소 행은 `이 장소가 담긴 기록` 창을 열고, 기존 좌표·이름 편집은 명시적 편집 동작으로 분리한다. 기록 창은 여행별로 여행 제목·순간 제목·연결된 모든 사진 썸네일·사진 수를 보여 주며, 직접 연결과 이름만 같은 추정을 같은 사실처럼 섞지 않는다. 사진 Blob은 대장 진입 때 전부 읽지 않고 장소 기록 창을 연 뒤 해당 순간 것만 지연 조회한다.
+- **이동 계약**: 기록을 고르면 해당 여행의 정확한 순간으로 이동해 강조한다. 사진이 있으면 선택한 사진 뷰어를 바로 열고, 사진이 없으면 순간으로 이동한다. 순간·사진 대상은 URL에 남겨 새로고침·뒤로가기에서도 의도를 보존하고, 삭제되거나 잘못된 대상은 안전하게 무시한다.
+- **검증**: `npm run build && npm run harness && npm run live` 전부 통과(건너뜀 없음). 편집 라이브 370/370, 진단 라이브 57/57. 412×915 캡처를 직접 확인했고, 375×812 세로·812×375 가로에서 잘림·가로 넘침 0과 스크롤 도달을 실측했다.
+
+---
+
 ## HANDOFF-0112 · v1.93 · **파일 실물 판정문과 검사 범위를 하나로 묶음** (2026-08-07)
 
 - **실기기 발견**: 파일 실물 진단의 부모 문장은 「사진·소리 90개가 모두 성해요」라고 했지만, 바로 아래 지표는 「그때 78개 모두 열림 · 그 뒤 12개 늘었어요」라고 했다. 12개는 아직 열어 보지 않았으므로 전체 정상 판정은 근거가 없었다.
@@ -690,7 +700,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.93<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->193<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->103<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.94<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->194<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->104<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->29<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

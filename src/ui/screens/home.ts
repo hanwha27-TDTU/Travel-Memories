@@ -40,7 +40,7 @@ import {
   toggleTheme,
   type Season,
 } from '../theme';
-import type { Route } from '../../app/router';
+import type { Route, TripNavigationTarget } from '../../app/router';
 import type { LocalTrip } from '../../offline/db';
 import { formatTripPeriod, formatTripDuration } from '../../domain/time';
 import { searchPhotoTitles } from '../../services/moments';
@@ -65,7 +65,7 @@ import {
   type TripStatus,
 } from '../../domain/trip/homeSections';
 
-type Navigate = (route: Route, param?: string) => void;
+type Navigate = (route: Route, param?: string, target?: TripNavigationTarget) => void;
 
 let unsubscribeAuth: (() => void) | null = null;
 /** 동기화 상태·대조 구독 — 홈을 다시 그릴 때 겹치지 않게 모듈에 들고 있다가 해지한다. */
@@ -803,7 +803,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   wrap.appendChild(buildHeader(
     authArea,
     status,
-    () => void openDataManager({ onChanged: () => void refresh(), goToTrip: (id: string) => navigate('trip-detail', id) }),
+    () => void openDataManager({ onChanged: () => void refresh(), goToTrip: (id: string, target?: TripNavigationTarget) => navigate('trip-detail', id, target) }),
     () => navigate('home'),
   ));
 

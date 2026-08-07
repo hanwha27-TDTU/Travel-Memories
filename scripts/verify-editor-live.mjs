@@ -353,7 +353,7 @@ check('위치관리대장: 검색이 실제로 거른다', prFiltered === 1, `�
 check('위치관리대장: 찾은 수와 전체 수를 함께 말한다', /찾음.*전체/.test(prCountText ?? ''), prCountText ?? '');
 
 // 모호한 좌표 → [이걸로 바꾸기]가 **있어야** 한다
-await page.locator('.pr-row').first().locator('.pr-sum').click();
+await page.locator('.pr-row').first().locator('.pr-edit-open').click();
 await page.waitForTimeout(250);
 const ambSwap = await page.locator('.pr-row').first().locator('.pr-preview-swap button').count();
 const ambWhy = await page.locator('.pr-row').first().locator('.pr-preview-why').count();
@@ -374,7 +374,7 @@ check('위치관리대장: 뒤집은 뒤에도 되돌릴 수단이 남는다', a
 // 🔴 없어야 할 때 없는가 — 명확한 좌표(서울)에는 [이걸로 바꾸기]가 **없어야** 한다
 await page.fill('.pr-search', '명확');
 await page.waitForTimeout(250);
-await page.locator('.pr-row').first().locator('.pr-sum').click();
+await page.locator('.pr-row').first().locator('.pr-edit-open').click();
 await page.waitForTimeout(250);
 const clearSwap = await page.locator('.pr-row').first().locator('.pr-preview-swap button').count();
 check('위치관리대장: 🔴 명확한 좌표면 [이걸로 바꾸기]가 **없다**(오탐 차단)', clearSwap === 0, `버튼 ${clearSwap}개`);
@@ -4249,6 +4249,106 @@ check('헤더: 가로 넘침 0', headM.overflow === 0, `overflow=${headM.overflo
     );
   }
 }
+
+// ── v1.94: 위치관리대장 → 기록 모달 → 정확한 순간/사진 뷰어 ───────────────────
+// 긴 시나리오의 뒤쪽에 둔다. 이 블록은 URL·Dexie·오버레이 상태를 바꾸므로 앞 단계의 전제를
+// 흔들지 않고, 자기가 심은 세 store 행도 끝에서 전부 지운다(§3-C).
+const PLACE_RECORD_IDS = { place: 'pr-nav-place', trips: ['pr-nav-trip-direct', 'pr-nav-trip-name'], moments: ['pr-nav-moment-direct', 'pr-nav-moment-name'], media: ['pr-nav-media-first', 'pr-nav-media-second'] };
+const placeRecordSeed = await page.evaluate(async (ids) => {
+  const now = new Date().toISOString();
+  const makeThumb = async (color) => {
+    const canvas = document.createElement('canvas'); canvas.width = 16; canvas.height = 12;
+    const ctx = canvas.getContext('2d'); if (!ctx) return null;
+    ctx.fillStyle = color; ctx.fillRect(0, 0, 16, 12);
+    return await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp'));
+  };
+  const thumbs = await Promise.all(['#268', '#862'].map(makeThumb));
+  if (thumbs.some((thumb) => !thumb)) return false;
+  const place = { id: ids.place, name: '라이브 기록 장소', latitude: 41.3111, longitude: 69.2797,
+    formattedAddress: null, provider: null, providerPlaceId: null, countryCode: null, country: null, region: null, city: null, district: null, postcode: null,
+    category: null, memo: null, precision: null, spanMeters: null, mapPicked: false, version: 1, baseVersion: 0, createdAt: now, updatedAt: now, deletedAt: null, clientOperationId: 'pr-nav-place-op' };
+  const trips = ids.trips.map((id, index) => ({ id, title: index ? '이름 일치 여행' : '직접 연결 여행', startDate: '2026-08-07', endDate: '2026-08-07', status: 'completed', timeZone: 'Asia/Tashkent', version: 1, baseVersion: 0, createdAt: now, updatedAt: now, deletedAt: null, clientOperationId: `${id}-op` }));
+  const moments = [
+    { id: ids.moments[0], tripId: ids.trips[0], occurredAt: now, title: '대표 사진이 있는 순간', note: '', emotion: '', placeName: place.name, placeLat: 41.3111, placeLng: 69.2797, placeId: place.id, version: 1, baseVersion: 0, createdAt: now, updatedAt: now, deletedAt: null, clientOperationId: 'pr-nav-moment-direct-op' },
+    { id: ids.moments[1], tripId: ids.trips[1], occurredAt: now, title: '사진 없는 이름 일치 순간', note: '', emotion: '', placeName: place.name, placeLat: null, placeLng: null, placeId: null, version: 1, baseVersion: 0, createdAt: now, updatedAt: now, deletedAt: null, clientOperationId: 'pr-nav-moment-name-op' },
+  ];
+  const media = thumbs.map((thumb, index) => ({ id: ids.media[index], momentId: ids.moments[0], tripId: ids.trips[0], mime: 'image/webp', displayBlob: thumb, thumbBlob: thumb, width: 16, height: 12, takenAt: now, gpsLat: null, gpsLng: null, sortOrder: index, bytesOriginal: thumb.size, bytesDisplay: thumb.size, version: 1, baseVersion: 0, createdAt: now, updatedAt: now, deletedAt: null, clientOperationId: `pr-nav-media-${index}-op` }));
+  await new Promise((resolve, reject) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const tx = req.result.transaction(['localPlaces', 'localTrips', 'localMoments', 'localMedia'], 'readwrite');
+      tx.objectStore('localPlaces').put(place); trips.forEach((row) => tx.objectStore('localTrips').put(row));
+      moments.forEach((row) => tx.objectStore('localMoments').put(row)); media.forEach((row) => tx.objectStore('localMedia').put(row));
+      tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
+    }; req.onerror = () => reject(req.error);
+  });
+  return true;
+}, PLACE_RECORD_IDS);
+check('v1.94 위치 기록: Dexie 픽스처(직접·이름 일치·사진)를 함께 심는다', placeRecordSeed === true, String(placeRecordSeed));
+
+await page.goto(`http://localhost:4173${BASE}`, { waitUntil: 'networkidle' });
+await page.getByRole('button', { name: /데이터 관리/ }).first().click();
+await page.waitForSelector('.guide-overlay');
+await page.getByRole('button', { name: /위치관리대장/ }).click();
+await page.getByRole('button', { name: /라이브 기록 장소 기록 보기/ }).click();
+await page.waitForSelector('.pr-records-overlay');
+await page.waitForSelector('.pr-record-photo[data-media-id="pr-nav-media-second"]');
+const recordModalText = await page.locator('.pr-records-modal').textContent();
+check('v1.94 위치 기록: 직접 연결·이름만 같은 순간을 문구로 분리한다',
+  /직접 연결된 순간/.test(recordModalText ?? '') && /이름만 같은 순간/.test(recordModalText ?? ''), recordModalText ?? '');
+const modalMediaOrder = await page.locator('.pr-record-photo').evaluateAll((nodes) => nodes.map((node) => node.dataset.mediaId));
+check('v1.94 위치 기록: 여행 제목·순간 제목·사진 수·모든 썸네일을 기존 순서로 실제로 그린다',
+  /직접 연결 여행/.test(recordModalText ?? '') && /대표 사진이 있는 순간/.test(recordModalText ?? '') && /사진 2장/.test(recordModalText ?? '') && await page.locator('.pr-record-thumb').count() === 2 && modalMediaOrder.join(',') === PLACE_RECORD_IDS.media.join(','),
+  `${recordModalText ?? ''} | ${modalMediaOrder.join(',')}`);
+for (const viewport of [{ width: 375, height: 812, label: '세로 폰' }, { width: 812, height: 375, label: '가로 폰' }]) {
+  await page.setViewportSize({ width: viewport.width, height: viewport.height });
+  const metrics = await page.locator('.pr-records-modal').evaluate((modal) => {
+    const rect = modal.getBoundingClientRect();
+    const body = modal.querySelector('.pr-records-body');
+    const bodyStyle = body ? getComputedStyle(body) : null;
+    return {
+      top: Math.round(rect.top), bottom: Math.round(rect.bottom), viewportHeight: innerHeight,
+      overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      bodyScrollable: body instanceof HTMLElement && body.scrollHeight > body.clientHeight,
+      bodyOverflowY: bodyStyle?.overflowY ?? '',
+    };
+  });
+  check(`v1.94 위치 기록: ${viewport.label}에서 잘림·가로 넘침 없이 끝까지 스크롤 가능`,
+    metrics.top >= 11 && metrics.bottom <= metrics.viewportHeight - 11 && metrics.overflowX === 0 && (!metrics.bodyScrollable || metrics.bodyOverflowY === 'auto'),
+    JSON.stringify(metrics));
+}
+await page.setViewportSize({ width: 412, height: 915 });
+if (process.env.PLACE_RECORD_SCREENSHOT) {
+  await page.screenshot({ path: resolve(process.env.PLACE_RECORD_SCREENSHOT), fullPage: false });
+}
+await page.keyboard.press('Escape');
+check('v1.94 위치 기록: Esc는 기록 창만 닫고 데이터 관리는 그대로 둔다',
+  await page.locator('.pr-records-overlay').count() === 0 && await page.locator('.guide-overlay').count() === 1,
+  `기록=${await page.locator('.pr-records-overlay').count()} · 데이터관리=${await page.locator('.guide-overlay').count()}`);
+await page.getByRole('button', { name: /라이브 기록 장소 기록 보기/ }).click();
+await page.waitForSelector('.pr-record-photo[data-media-id="pr-nav-media-second"]');
+await page.locator(`.pr-record-photo[data-media-id="${PLACE_RECORD_IDS.media[1]}"]`).click();
+await page.waitForSelector(`.moment-card[data-moment-id="${PLACE_RECORD_IDS.moments[0]}"]`);
+await page.waitForSelector('.photo-viewer');
+const targetCard = page.locator(`.moment-card[data-moment-id="${PLACE_RECORD_IDS.moments[0]}"]`);
+check('v1.94 위치 기록: 데이터 관리가 닫히고 정확한 순간을 강조한다',
+  await page.locator('.guide-overlay').count() === 0 && await targetCard.evaluate((node) => node.classList.contains('is-navigation-target')),
+  await page.url());
+check('v1.94 위치 기록: URL target으로 사진 뷰어까지 자동으로 연다',
+  /moment=pr-nav-moment-direct/.test(await page.url()) && /media=pr-nav-media-second/.test(await page.url()) && await page.locator('.photo-viewer').count() === 1,
+  await page.url());
+await page.keyboard.press('Escape');
+await page.evaluate(async (ids) => {
+  await new Promise((resolve) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const tx = req.result.transaction(['localPlaces', 'localTrips', 'localMoments', 'localMedia'], 'readwrite');
+      tx.objectStore('localPlaces').delete(ids.place); ids.trips.forEach((id) => tx.objectStore('localTrips').delete(id));
+      ids.moments.forEach((id) => tx.objectStore('localMoments').delete(id)); ids.media.forEach((id) => tx.objectStore('localMedia').delete(id));
+      tx.oncomplete = () => resolve(); tx.onerror = () => resolve();
+    }; req.onerror = () => resolve();
+  });
+}, PLACE_RECORD_IDS);
 
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 
