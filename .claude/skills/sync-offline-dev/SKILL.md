@@ -91,7 +91,7 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·c
    - 이유: 시계 스큐·지연 pull·**오래된 백업 복원**이 삭제한 데이터를 부활시키던 사고(메디컬 앱)를 원천 차단.
 4. **빈-클라우드 가드**: 서버가 빈 배열을 줘도 로컬을 지우지 않는다(`isEmptyCloudAnomaly`). 죽은/초기화된 서버가 기억을 삭제하지 못하게.
 5. **조건부 upsert + operation read-back**: 로컬 mutation은 서버에서 마지막으로 확인한 `baseVersion`을 보존한다(연속 편집 때 `cur.version`으로 올리지 않는다). push는 `base_version`과 큐의 `operationId`를 보내고, 서버에서 **같은 `client_operation_id` + 보낸 값 이상의 version**(+사진·소리 경로)을 되읽은 뒤에만 큐 op를 제거한다. 불일치면 서버 승자를 로컬 행+큐에 원자 반영하거나, LWW상 로컬이 이길 때 서버 version으로 재기반화해 재시도한다. HTTP 200·부분 필드 일치는 성공 증거가 아니다.
-6. **push 순서 = 부모 먼저**: `runSync`는 unpurge → 여행 → 장소 → 순간 → 사진·비용·소리 → purge. 장소는 `moments.place_id`의 부모이고, 사진·비용·소리는 순간의 자식이라 이 순서를 어기면 복합 FK가 거절한다(H-02).
+6. **push 순서 = 부모 먼저, 같은 의존성 단계는 병렬**: `runSync`는 unpurge → `[여행 ∥ 장소]` → 순간 → `[사진 ∥ 비용 ∥ 소리]` → purge. 장소는 `moments.place_id`의 부모이고, 사진·비용·소리는 순간의 자식이라 **두 FK 경계만** 직렬이다(H-02). pull 여섯 도메인은 서로 결과 의존성이 없어 한 단계에서 병렬 실행한다. 실행 계획은 `services/syncPlan.ts` 한 곳에 두고 직렬 간선은 구체적인 복합 FK `reason`을 필수로 갖는다. 단계 안의 실패는 `Promise.allSettled`로 형제를 전부 정산한 뒤 반환한다 — 조기 reject 뒤에 서버 쓰기를 남기지 않는다(헌법 §18-C · M-0122).
 7. **cascade는 큐까지 전파**: 순간을 삭제/복원하면 딸린 비용·사진에도 **각각 큐 op**를 넣어야 한다. 로컬만 바꾸고 큐를 빠뜨리면 다른 기기에서 되살아난다.
 7-A. 🔴 **영구삭제의 가족 범위는 「서버 FK가 데려가는 범위」와 같아야 한다**(2026-08-05 · M-0107).
    서버 스키마는 `media/expenses/audio → moments → trips`로 **두 단계 `ON DELETE CASCADE`**다.
@@ -145,7 +145,7 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·c
 2. `domain/<x>/rowmap.ts`: `XRow` 인터페이스 + `toXRow`/`fromXRow` (+ 왕복 유닛)
 3. `services/<x>.ts`: 모든 mutation에 **큐 op enqueue**(create/update/delete). 부모 cascade에서도 전파
 4. `services/sync.ts`: `XRemote` 포트 + `pushPendingX`(upsert→read-back→LWW→큐 제거) + `pullX`(빈-클라우드 가드)
-5. `runSync`에 **부모 다음** 순서로 배치
+5. `services/syncPlan.ts`에 추가: push는 **부모 다음 의존성 단계**, pull은 결과 의존성이 없으면 기존 병렬 그룹. 직렬이면 정확한 FK/증거 `reason` 필수
 6. `scripts/check-schema-parity.mjs`의 `ROW_TO_TABLE`에 매핑 추가 ← **잊으면 게이트가 그 엔티티를 안 지킨다**
 7. `app/blueprint.ts` SOURCES에 `hasRowmap`/`hasSync` 반영(`check-blueprint`가 대조)
 8. 백업 커버리지: 새 Dexie 테이블이면 `backup.ts` export/import 양쪽에 넣거나, 파생이면 EXCLUDE에 **근거와 함께** 등록
@@ -312,6 +312,7 @@ const w = momentWhen(m.occurredAt, m.tzOffsetMin, clock);
 
 | 버전 | 결함 | 근본형 | 재발 방지 |
 |---|---|---|---|
+| 1.95 | `runSync`가 push·pull 여섯 도메인을 전부 직렬 await해 각 네트워크 왕복 시간이 합산됨(M-0122) | 부모→자식 FK 순서를 **모든 형제의 직렬 실행**으로 과잉 일반화. pull에는 결과 의존성도 없는데 같은 관행을 복사 | `syncPlan.ts` 실행 계획: push `[trip∥place] → moment → [media∥expense∥audio]`, pull 6개 병렬. 직렬 간선 FK 사유 필수 + allSettled join. `check-sync-parallelism`·스케줄링 유닛 |
 | 릴리스 대기 | 같은 기기의 Android 앱/Chrome이 서로 다른 휴지통을 보임(플랫폼 저장소 파티션 분리) → 사용자가 "기기끼리 절대 다르면 안 된다"고 요구(ADR-0049) | 휴지통 **목록**을 로컬 Dexie만으로 답해 왔음 — 정상 pull 불변식("로컬에 없는 tombstone을 안 만든다")을 표시 소스 결정에도 그대로 적용한 것이 과잉일반화 | 온라인이면 서버가 정본(여행+5도메인 전부 서버 조회, 부분 실패시 전부 로컬 폴백+안내). 액션 직전 `ensureLocalTombstone`으로 서버-only 항목만 on-demand materialize(ACTIVE 행 거부). `serverTrashAuthority.test.ts` — 로컬/서버 경로 바이트 단위 SSOT 대조 15건 |
 | 릴리스 대기 | tombstone 사진 하나의 바이트 다운로드 실패가 `replaceLocalSnapshot` 전체(트립 포함)를 throw로 멈춰, 새 기기가 서버 여행 8개 중 0개를 받음(M-0101) | 활성/휴지통 구분 없이 "미디어 바이트 하나라도 실패하면 전체 중단"을 기본값으로 둠 + 홈 배지가 `syncStatus().phase`를 안 보고 pending count만 봐서 실패가 숨음 | `materializeMedia`/`materializeAudio` 공용 `fetchOrMissing()` — 활성은 여전히 멈추고 tombstone은 `bytesMissing:true`로 최선노력 진행 · 홈 배지가 `phase==='failed'`를 pending보다 먼저 확인 |
 | 릴리스 대기 | 사진을 만들고 첫 push 전에 지우면(M-0100), `mustUploadBytes`가 「옛 키 형식」 보호를 오적용해 R2 PUT을 건너뛰고도 storage_path를 서버에 적어 영구 404를 남김 | 「경로 없음」이 「옛 형식이라 이미 있음」과 「아직 한 번도 안 올림」 두 뜻을 겉모습만으로 구별 못 함 — §7 비대칭이 공간축이 아니라 **시간축**(방금 태어난 행 vs 오래된 행)에서 남음 | `baseVersion===0`(push·pull 어느 쪽으로도 서버 착지 이력 없음)일 때만 사진도 「경로 없음=올라간 적 없음」으로 해석 · `reuploadMissingBytes.test.ts` 순수 2건+통합 1건 |

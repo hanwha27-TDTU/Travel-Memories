@@ -33,6 +33,8 @@ export const GATE_DESC: Record<string, string> = {
   'check-base-consistency': 'base 경로·자산 참조 일관성',
   'check-env-wiring': '환경변수가 코드·워크플로·문서에서 같은 이름으로 쓰이는지',
   'check-domain-symmetry': '도메인 4종이 같은 생명주기 심볼을 갖는지(삭제만 있고 복원이 없는 형태 차단)',
+  'check-sync-parallelism':
+    '동기화가 독립 도메인은 병렬로 실행하고, 직렬 경계는 구체적인 FK 사유를 가지며, 실패해도 같은 단계 작업을 전부 정산하는지',
   'check-verdict-symmetry': '진단 도구가 자기 렌더 코드를 갖지 않고 단일 렌더러를 거치는지',
   'check-skill-routing': '모든 코드 영역이 착수 전 읽을 스킬 문서를 갖는지',
   // 「덮였다」가 아니라 「덮도록 **선언**됐다」까지만 말한다 — 라이브 게이트는 SKIP될 수 있고
@@ -108,6 +110,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-base-consistency': 'generated',
   'check-env-wiring': 'generated',
   'check-domain-symmetry': 'static',
+  'check-sync-parallelism': 'static',
   'check-verdict-symmetry': 'static',
   'check-skill-routing': 'generated',
   // 형제(`check-skill-routing`)와 같은 부류다: 손으로 쓴 **선언**을 디렉터리라는 **현실**에

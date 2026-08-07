@@ -140,6 +140,31 @@ tombstone/R2 삭제를 전부 건너뛴다. 이미 non-legacy 세대를 소비�
 ```
 테이블별 `updated_at` 추측 대신 **`sync_changes.sequence` 단조 cursor**로 페이지를 받는다. 커서가 서버 보존범위보다 오래되면 전체 재동기화. 관련 테이블: `client_operations`(operation receipt·`base_version`), `sync_changes`(단조 변경 피드), `sync_conflicts`(충돌 스냅샷 — 로그 금지). 상세 스키마 `docs/DATA_MODEL.md`.
 
+### 현재 도메인 실행 계획 — 병렬이 기본, FK만 직렬
+
+실행 계획의 코드 SSOT는 `src/services/syncPlan.ts`다. 일반 동기화의 single-flight는 유지하되,
+한 실행 안에서 독립 도메인을 줄 세우지 않는다.
+
+```text
+push:  [여행 ∥ 장소]
+          ↓ moments의 trip/place 복합 FK
+       [순간]
+          ↓ media/expenses/audio의 moment 복합 FK
+       [사진 ∥ 비용 ∥ 소리]
+
+pull:  [여행 ∥ 장소 ∥ 순간 ∥ 사진 ∥ 비용 ∥ 소리]
+```
+
+- `unpurge → entity push → purge → 원장 적용 → pull → 원본 정리 → 필요 시 후행 push`의 바깥
+  상태 전이는 그대로 직렬이다. 앞 단계가 다음 단계의 허용 조건·입력·read-back 증거를 만들기 때문이다.
+- pull 여섯 결과는 서로의 입력이 아니고 로컬/서버 FK 생성도 하지 않으므로 한 단계에서 시작한다.
+- 단계 내부는 `Promise.allSettled`로 **모든 형제를 정산한 뒤** 실패한다. 한 형제의 조기 reject 뒤에
+  다른 서버 쓰기가 계속되는 상태로 다음 실행을 열지 않는다.
+- 도메인 내부의 큐 항목은 이 변경에서 병렬화하지 않는다. 같은 엔티티의 연속 operation과 R2
+  업로드/read-back이 서로의 기준선을 사용하며, 무제한 동시 업로드는 모바일 메모리·대역폭 상한도
+  아직 측정하지 않았기 때문이다.
+- `check-sync-parallelism`과 `syncParallelism.test.ts`가 그룹·직렬 사유·시작/합류 순서를 잠근다.
+
 ## 불변식 (절대 위반 금지 — LESSONS §1)
 
 1. **안정 id + created_at + updated_at + 서버 기준 version.** 동일 id의 쓰기는 마지막으로 본 `base_version`이 현재 서버 version과 일치할 때만 받는다(0026, 운영 적용 완료). 불일치면 행·서버시각을 바꾸지 않고 read-back으로 승자를 다시 판정한다. 같은 삭제 상태의 충돌은 정규화한 `updated_at` LWW, 삭제 상태 전이는 version으로 판정한다.

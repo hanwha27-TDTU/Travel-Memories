@@ -153,7 +153,7 @@ export const SKILL_ROUTES = [
   { match: /^src\/ui\/screens\/placeRegistry/, skill: 'map-place-dev' },
   { match: /^src\/services\/sessionState/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/sessionState/, skill: 'supabase-security-dev' },
-  { match: /^src\/services\/(sync|canonicalSync|autoSync|purge|trips|moments|media|expenses|trash)\.ts/, skill: 'sync-offline-dev' },
+  { match: /^src\/services\/(sync|syncPlan|canonicalSync|autoSync|purge|trips|moments|media|expenses|trash)\.ts/, skill: 'sync-offline-dev' },
   { match: /^src\/(sync|offline)\//, skill: 'sync-offline-dev' },
   { match: /^src\/domain\/\w+\/rowmap/, skill: 'sync-offline-dev' },
   // 홈 기간 트리(연도▸월) — 순수 로직이지만 존재 이유가 홈 화면 레이아웃·필터라 UI 헌장이다.
