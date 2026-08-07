@@ -4,6 +4,16 @@
 
 ---
 
+## HANDOFF-0120 · v1.99 · **삭제된 장소가 새 UUID로 다시 생기는 좀비 경로 차단** (2026-08-08)
+
+- **사용자 보고**: 모바일에서 장소를 모두 삭제한 뒤 다른 기기 위치관리대장에 장소들이 다시 살아났다. 화면상 장소 45개·연결 필요 0개가 보였고, 이는 연결 누락 표시 문제가 아니었다.
+- **운영 상태 확인(읽기 전용)**: `journey.places`에서 활성 45개, tombstone 0개, 활성 미연결 18개를 확인했다. 즉 로컬 캐시만 남은 것이 아니라 새 활성 행이 실제 서버에 있었다. 개별 활성 행은 사용자가 다시 만든 기록일 수 있으므로 자동 삭제하지 않았다.
+- **확정 원인(M-0127)**: 동기화 병합의 tombstone 우선순위 자체는 정상이다. 그러나 홈의 `reconcileMomentPlacesOnce()`와 순간의 일반 편집이 tombstoned `placeId`를 대장 누락으로 오인해 새 UUID를 등록했다. 새 UUID는 원래 tombstone과 ID가 달라, 다음 동기화에서 새 활성 장소로 업로드되어 삭제가 되살아난 것처럼 보였다.
+- **수정**: tombstoned/정리된 장소 ID를 가리키는 순간은 복원 전까지 그 ID를 보존한다. 자동 보정, 제목·메모만 바꾸는 일반 편집, 늦게 제출된 stale 선택 폼은 새 장소를 만들지 않는다. 명시적인 위치 비우기와 새 활성 장소 선택만 새 연결을 만들 수 있다.
+- **상태 감시**: 진단의 「삭제 장소 재생성 감시」는 `sync_meta.canonical_version` 전후가 같은 스냅샷에서 서버·로컬 장소 전체를 읽어, tombstone과 이름·좌표가 같은 활성 UUID를 후보로 보인다. 의도적 재등록일 수 있어 후보를 자동 삭제하지 않고, 사용자 탭으로 동기화 후 재판정만 한다.
+- **회귀 검증**: `tests/unit/momentPlaceReconcile.test.ts`에 홈 보정·일반 편집·stale 생성 세 진입점 테스트를 추가했다. 수정 전 홈 보정은 장소를 2개로 늘리고 `reconcile=1`이 되어 RED였으며, 수정 후 모두 새 place sync op 0건을 보장한다.
+- **배포/정리 경계**: 이 수정은 이후 재생성을 막는다. 이미 활성으로 다시 올라온 45개는 데이터 안전상 자동 제거하지 않는다. 배포 후 사용자가 재삭제하면 tombstone이 유지돼야 하며, 기존 후보를 일괄 정리하려면 사용자의 범위 확인 후 별도 복구 가능 흐름으로 진행한다.
+
 ## HANDOFF-0119 · v1.97 · **데스크톱 기간 색인의 날짜 행 밀도 조정** (2026-08-07)
 
 - **사용자 지시**: 홈 왼쪽 기간 색인의 연·월 날짜 행 간격이 지나치게 넓어 보인다는 실기기 화면을 제시하고, 판단 후 수정해 로컬 커밋까지 진행하도록 했다.
@@ -762,7 +772,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.98<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->198<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->110<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->1.99<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->199<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->111<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->29<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

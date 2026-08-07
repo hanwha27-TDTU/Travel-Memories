@@ -233,6 +233,15 @@ async function reconcileMomentPlacesOnce(): Promise<number> {
   }
   let changed = 0;
   for (const moment of moments) {
+    // A tombstoned ledger row deliberately keeps `moment.placeId` intact so that
+    // restoring the place restores its original links. This legacy reconciler
+    // must only fill genuinely absent links: treating a deleted (or already
+    // purged) ID as absent manufactures a new UUID and turns one delete into a
+    // cross-device zombie on the next sync.
+    if (moment.placeId) {
+      const linked = await d.localPlaces.get(moment.placeId);
+      if (!linked || linked.deletedAt !== null) continue;
+    }
     // Backfill the previously linked ledger row from the first authoritative moment. If old moments
     // shared one row under different names, later variants are split below instead of overwriting it.
     if (moment.placeId && firstKeyByPlaceId.get(moment.placeId) === canonicalKey(moment)) {
