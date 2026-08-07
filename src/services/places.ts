@@ -376,19 +376,40 @@ export async function updatePlace(id: string, patch: PlacePatch): Promise<void> 
   if (!back || back.version !== next.version) throw new Error('내구성 커밋 확인 실패: 장소 수정 read-back 불일치');
 }
 
+export type DeleteUnusedPlaceResult =
+  | { status: 'deleted' }
+  | { status: 'missing' | 'already-deleted' }
+  | { status: 'linked'; activeMomentCount: number; trashedMomentCount: number };
+
 /**
- * 삭제 — **하드 삭제 없음**(§0). `deletedAt` tombstone만 세운다.
+ * 장소 tombstone의 **유일한 쓰기 문**.
  *
- * 순간들의 링크는 여기서 끊지 않는다. 서버는 `on delete set null`로 영구삭제 때만 끊고,
- * tombstone 동안에는 **되살리면 링크가 그대로 살아난다**(실행취소가 진짜 되돌리기가 되게).
+ * 대장 화면의 "미연결 장소 삭제"는 순간 참조 검사와 tombstone+op을 같은 트랜잭션에 둔다.
+ * 검사 뒤 삭제를 따로 쓰면 그 사이에 순간이 연결될 수 있고, 그러면 화면의 "미연결" 판정이
+ * 이미 낡은 값이 된다(동기화는 사용자 작업 사이에 끼어든다는 sync-offline-dev §1-B의 같은 형태).
  */
-export async function softDeletePlace(id: string): Promise<void> {
+async function softDeletePlaceInternal(id: string, onlyIfUnused: boolean): Promise<DeleteUnusedPlaceResult> {
   const d = db();
-  const cur = await d.localPlaces.get(id);
-  if (!cur || cur.deletedAt !== null) return; // 멱등 — 두 번 눌러도 같다
-  const now = new Date().toISOString();
-  const opId = uuid();
-  await d.transaction('rw', d.localPlaces, d.syncQueue, async () => {
+  const result = await d.transaction('rw', d.localPlaces, d.localMoments, d.syncQueue, async () => {
+    const cur = await d.localPlaces.get(id);
+    if (!cur) return { status: 'missing' } as const;
+    if (cur.deletedAt !== null) return { status: 'already-deleted' } as const;
+
+    if (onlyIfUnused) {
+      // 🔴 사진 수가 아니라 **직접 링크된 순간 수**가 삭제 경계다. 사진 없는 글 순간도
+      // 사용자 기록이고, 휴지통 순간도 복원될 수 있으므로 둘 다 참조로 센다.
+      const linked = await d.localMoments.filter((moment) => moment.placeId === id).toArray();
+      if (linked.length) {
+        return {
+          status: 'linked',
+          activeMomentCount: linked.filter((moment) => moment.deletedAt === null).length,
+          trashedMomentCount: linked.filter((moment) => moment.deletedAt !== null).length,
+        } as const;
+      }
+    }
+
+    const now = new Date().toISOString();
+    const opId = uuid();
     await d.localPlaces.put({
       ...cur,
       deletedAt: now,
@@ -398,9 +419,33 @@ export async function softDeletePlace(id: string): Promise<void> {
       clientOperationId: opId,
     });
     await d.syncQueue.add(placeOp(opId, id, 'delete', now));
+    return { status: 'deleted' } as const;
   });
+
+  if (result.status !== 'deleted') return result;
   const back = await d.localPlaces.get(id);
   if (!back || back.deletedAt === null) throw new Error('내구성 커밋 확인 실패: 장소 삭제 read-back 불일치');
+  return result;
+}
+
+/**
+ * 삭제 — **하드 삭제 없음**(§0). `deletedAt` tombstone만 세운다.
+ *
+ * 순간들의 링크는 여기서 끊지 않는다. 서버는 `on delete set null`로 영구삭제 때만 끊고,
+ * tombstone 동안에는 **되살리면 링크가 그대로 살아난다**(실행취소가 진짜 되돌리기가 되게).
+ */
+export async function softDeletePlace(id: string): Promise<void> {
+  await softDeletePlaceInternal(id, false);
+}
+
+/**
+ * 직접 연결된 순간이 하나도 없는 장소만 휴지통으로 보낸다.
+ *
+ * 이름만 같은 순간은 링크가 아니므로 막지 않는다. 반대로 사진이 0장이어도 직접 연결된 순간이
+ * 있으면 막는다 — 사진 없는 글 기록도 사용자의 기억이기 때문이다.
+ */
+export async function deleteUnusedPlace(id: string): Promise<DeleteUnusedPlaceResult> {
+  return softDeletePlaceInternal(id, true);
 }
 
 /** 되살리기 — 삭제와 **쌍**이다(`check-domain-symmetry`가 이 대칭을 강제한다). */

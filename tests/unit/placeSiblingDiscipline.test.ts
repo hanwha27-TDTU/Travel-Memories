@@ -17,8 +17,9 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import 'fake-indexeddb/auto';
 import { db } from '../../src/offline/db';
 import { createTripLocalFirst, softDeleteTripLocalFirst, purgeTripPermanently } from '../../src/services/trips';
+import { createMomentLocalFirst } from '../../src/services/moments';
 import { listTrashedChildren, restoreTrashedChild, purgeChildPermanently, CHILD_DOMAINS, CHILD_LABEL } from '../../src/services/trash';
-import { savePlace, softDeletePlace, restorePlace, updatePlace, listPlaces, placesNear, findExistingPlace } from '../../src/services/places';
+import { savePlace, softDeletePlace, restorePlace, updatePlace, listPlaces, placesNear, findExistingPlace, deleteUnusedPlace } from '../../src/services/places';
 import { PURGE_DOMAINS, DOMAIN_PURGE } from '../../src/services/purge';
 import { exportCollectRows } from '../../src/services/backup';
 import { SOURCES, selfCheck } from '../../src/app/blueprint';
@@ -98,6 +99,52 @@ describe('② 하드 삭제 없음 — 삭제는 tombstone, 되살리기는 쌍'
     const v = (await db().localPlaces.get(p.id))!.version;
     await softDeletePlace(p.id);
     expect((await db().localPlaces.get(p.id))!.version).toBe(v);
+  });
+
+  it('직접 연결된 순간이 없으면 장소만 휴지통으로 보내고 delete op을 남긴다', async () => {
+    const p = await savePlace(DAEHAKRO);
+    await db().syncQueue.clear();
+
+    expect(await deleteUnusedPlace(p.id)).toEqual({ status: 'deleted' });
+    expect((await db().localPlaces.get(p.id))!.deletedAt).not.toBeNull();
+    expect((await db().syncQueue.where('entityId').equals(p.id).toArray()).map((op) => op.operationType)).toEqual(['delete']);
+  });
+
+  it('사진이 없어도 직접 연결된 글 순간이면 삭제하지 않는다', async () => {
+    const moment = await createMomentLocalFirst({
+      tripId: 'trip-1', title: '사진 없는 기억', placeName: DAEHAKRO.name,
+      placeLat: DAEHAKRO.latitude, placeLng: DAEHAKRO.longitude,
+    });
+    await db().syncQueue.clear();
+
+    expect(await deleteUnusedPlace(moment.placeId!)).toEqual({
+      status: 'linked', activeMomentCount: 1, trashedMomentCount: 0,
+    });
+    expect((await db().localPlaces.get(moment.placeId!))!.deletedAt).toBeNull();
+    expect(await db().syncQueue.count()).toBe(0);
+  });
+
+  it('휴지통 순간의 링크도 복원될 수 있으므로 삭제를 막는다', async () => {
+    const moment = await createMomentLocalFirst({
+      tripId: 'trip-1', title: '휴지통의 기억', placeName: DAEHAKRO.name,
+      placeLat: DAEHAKRO.latitude, placeLng: DAEHAKRO.longitude,
+    });
+    await db().localMoments.update(moment.id, { deletedAt: '2026-08-07T00:00:00.000Z' });
+    await db().syncQueue.clear();
+
+    expect(await deleteUnusedPlace(moment.placeId!)).toEqual({
+      status: 'linked', activeMomentCount: 0, trashedMomentCount: 1,
+    });
+    expect((await db().localPlaces.get(moment.placeId!))!.deletedAt).toBeNull();
+  });
+
+  it('이름만 같은 순간은 실제 링크가 아니므로 미연결 장소 삭제를 막지 않는다', async () => {
+    const p = await savePlace(DAEHAKRO);
+    await createMomentLocalFirst({ tripId: 'trip-1', title: '이름만 같음', placeName: DAEHAKRO.name });
+    await db().syncQueue.clear();
+
+    expect(await deleteUnusedPlace(p.id)).toEqual({ status: 'deleted' });
+    expect((await db().localMoments.toArray())[0]!.deletedAt).toBeNull();
   });
 });
 
