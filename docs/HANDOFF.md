@@ -10,7 +10,8 @@
 - **판정(M-0125)**: 44px 최소 높이는 터치 안전에는 맞지만 정밀 포인터의 반복 색인에 2px gap과 함께 적용되면서 날짜 계층을 필요 이상으로 늘렸다. 기능 결함은 아니나 한눈에 훑는 기간 탐색의 정보 밀도를 낮췄다.
 - **구현**: 1100px 이상 2단 화면 중 `hover:hover`·`pointer:fine`에서만 연·월 행을 36px, 추가 gap을 0으로 줄였다. 「전체」는 44px를 유지하고, 터치·좁은 1단 화면은 기존 44px를 유지한다.
 - **검증**: v1.97 build PASS. editor live **378/378 PASS**·콘솔 오류 0. 실제 DOM에서 데스크톱 「전체」 ≥44px·날짜 36px·gap 0, 412px 터치 행 ≥44px를 계측했고, 1480×920 캡처를 열어 계층·개수 열·겹침 없음을 확인했다.
-- **배포 경계**: CSS·라이브 게이트·기록만 변경한다. 버전·DB·동기화·Storage·Android 셸은 변경하지 않으며 사용자 요청대로 push·PR·배포 없이 로컬 커밋까지만 진행한다.
+- **후속 배포 결정**: 사용자가 저장소의 미병합 커밋 전부를 배포하고 스킬 업데이트 뒤 세션을 끝내도록 지시했다. 이 변경과 HANDOFF-0118의 장소 연결 수정은 main v1.96 위 한 번의 **v1.97** 릴리스로 묶는다. `map-place-dev`는 M-0124의 안정 ID·고아 복구 계약을, `ui-responsive-dev`는 M-0125의 입력장치별 밀도 계약을 반영했다.
+- **배포 경계**: 영향 표면은 GitHub Pages 하나다. `android-shell/**`·APK workflow·Supabase migration·Edge Function·R2/Storage 형식은 바뀌지 않아 재배포하지 않는다. Ready PR 최신 SHA의 Required CI 뒤 squash merge하고 Pages workflow와 운영 `version.json` v1.97을 되읽는다.
 
 ## HANDOFF-0118 · v1.97 · **연결된 장소 이름 동기화와 고아 순간 복구 경로** (2026-08-07)
 
