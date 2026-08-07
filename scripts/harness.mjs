@@ -45,6 +45,10 @@ const gates = [
   { name: 'check-ci-policy', cmd: 'node scripts/check-ci-policy.mjs' },
   { name: 'check-workflow-pins', cmd: 'node scripts/check-workflow-pins.mjs' },
   { name: 'check-dependabot-policy', cmd: 'node scripts/check-dependabot-policy.mjs' },
+  // 공통 스킬은 비공개 GitHub 정본의 승인 커밋에서만 갱신한다. 프로젝트에는 법을 복사하지 않고
+  // 고정 스냅샷·해시·이 저장소 전용 릴리스 프로필만 둔다. CI가 전역 설치본까지 볼 수 있는
+  // 환경에서는 설치 드리프트도 잡고, 일반 GitHub runner에서는 프로젝트 스냅샷·프로필을 판정한다.
+  { name: 'check-shared-skill-contract', cmd: 'node scripts/check-shared-skill-contract.mjs' },
   { name: 'check-domain-wiring', cmd: 'node scripts/check-domain-wiring.mjs' },
   { name: 'check-csp', cmd: 'node scripts/check-csp.mjs' },
   { name: 'check-production-artifacts', cmd: 'node scripts/check-production-artifacts.mjs' },

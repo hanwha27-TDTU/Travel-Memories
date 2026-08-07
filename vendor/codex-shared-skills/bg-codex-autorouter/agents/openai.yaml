@@ -1,0 +1,4 @@
+interface:
+  display_name: "BG Codex AutoRouter"
+  short_description: "개발 작업을 위험도에 맞는 작업 에이전트로 안전하게 분배"
+  default_prompt: "Use $bg-codex-autorouter to choose the safest efficient execution path."

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "policyApi": 1,
+  "source": "https://github.com/hanwha27-TDTU/Codex-Shared-Skills",
+  "commit": "268126d44103df9ca709e7b8eec49d8e679437c2",
+  "manifestSha256": "621675c8921f9bd67fa65551f89639c93f86f375c0e444910b9fdec382512c7c",
+  "skills": [
+    {
+      "name": "bg-codex-autorouter",
+      "path": "vendor/codex-shared-skills/bg-codex-autorouter",
+      "contentSha256": "9a8b69b1a9b6b71a722c8169226249a94d5add0a5229bf47cf7fa38b7de79b23"
+    },
+    {
+      "name": "release-harness-governance",
+      "path": "vendor/codex-shared-skills/release-harness-governance",
+      "contentSha256": "e8f70da5fe7074d517b820b3123410d093b7238e94ee3eb60aebcfca9137646a"
+    }
+  ],
+  "adapter": {
+    "path": "vendor/codex-shared-skills/adapters/codex-autorouter-block.md",
+    "contentSha256": "ebd06429c09fd81a5c8f77d5accaa5c1265e57a2b0cda7165f7be38ffb58ca90",
+    "start": "<!-- BG_CODEX_AUTOROUTER_START -->",
+    "end": "<!-- BG_CODEX_AUTOROUTER_END -->"
+  }
+}

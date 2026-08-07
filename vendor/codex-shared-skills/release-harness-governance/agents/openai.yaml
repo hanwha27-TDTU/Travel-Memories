@@ -1,0 +1,4 @@
+interface:
+  display_name: "하네스·릴리스 거버넌스"
+  short_description: "검증 게이트와 릴리스 순서를 프로젝트별 계약으로 안전하게 관리"
+  default_prompt: "Use $release-harness-governance to plan and verify this repository release."
