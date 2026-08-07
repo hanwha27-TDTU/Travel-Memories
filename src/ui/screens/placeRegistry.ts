@@ -24,6 +24,7 @@ import {
   needsAddress,
   type RegistryPlace,
   placeRecordGroups,
+  unlinkedPlaceMoments,
   type PlaceRecordMoment,
 } from '../../domain/place/registry';
 
@@ -212,8 +213,15 @@ function registryRow(p: RegistryPlace, moments: PlaceRecordMoment[], onChanged: 
     renameBtn.disabled = true;
     void (async () => {
       try {
-        await updatePlace(p.id, { name: next });
-        setNote(note, '이름을 바꿨어요.', 'ok', null);
+        const result = await updatePlace(p.id, { name: next });
+        setNote(
+          note,
+          result.renamedMomentCount
+            ? `이름과 연결된 순간 ${result.renamedMomentCount}개를 함께 바꿨어요.`
+            : '이름을 바꿨어요.',
+          'ok',
+          null,
+        );
         onChanged();
       } catch (e) {
         setNote(note, `실패: ${e instanceof Error ? e.message : String(e)}`, 'error', null);
@@ -403,13 +411,13 @@ function openPlaceRecords(place: RegistryPlace, moments: PlaceRecordMoment[], go
  * 위치관리대장 패널.
  *
  * 사진에 위치가 없거나 고치고 싶을 때 여기서 장소를 찾아 좌표를 확인·수정한다.
- * 🔴 여기서 고치는 것은 **대장 항목뿐**이고 과거 순간의 기록은 바뀌지 않는다
- * (`updatePlace`의 계약 — 사용자가 쓴 것을 앱이 조용히 고쳐 쓰지 않는다).
+ * 연결된 장소 이름은 순간과 함께 바뀌고, 당시 좌표는 그대로 남는다. 링크가 이미 끊긴 순간은
+ * 별도 「연결 필요」 목록에 보여 사용자가 정확한 장소를 다시 고를 수 있게 한다.
  */
 export function placeRegistryPanel(onChanged: () => void, goToTrip: GoToTrip): HTMLElement {
   const box = el('div', 'guide-detail-body');
   box.append(
-    el('p', 'guide-p', '한 번 등록한 장소가 모두 여기 모입니다. 사진에 위치가 없거나 고치고 싶을 때 여기서 찾아 쓰세요.'),
+    el('p', 'guide-p', '한 번 등록한 장소가 모두 여기 모입니다. 연결된 장소 이름은 순간과 함께 바뀌며, 연결이 끊긴 순간도 아래에서 찾아 다시 연결할 수 있습니다.'),
   );
 
   const search = el('input', 'pr-search') as HTMLInputElement;
@@ -428,18 +436,42 @@ export function placeRegistryPanel(onChanged: () => void, goToTrip: GoToTrip): H
 
   const paint = (): void => {
     const found = sortRegistry(searchRegistry(all, search.value));
+    const unlinkedAll = unlinkedPlaceMoments(moments, '');
+    const unlinkedFound = unlinkedPlaceMoments(moments, search.value);
     list.replaceChildren();
     // 총 개수와 찾은 개수를 **함께** 말한다 — 「3개」만 보면 전체가 3개인 줄 안다(§7-C 한정 생략).
     count.textContent = search.value.trim()
-      ? `${found.length}개 찾음 (전체 ${all.filter((p) => p.deletedAt === null).length}개)`
-      : `전체 ${found.length}개`;
-    if (!found.length) {
+      ? `장소 ${found.length}개 · 연결 필요 ${unlinkedFound.length}개 찾음 (전체 장소 ${all.length}개 · 연결 필요 ${unlinkedAll.length}개)`
+      : `장소 ${found.length}개 · 연결 필요 ${unlinkedFound.length}개`;
+    if (!found.length && !unlinkedFound.length) {
       list.appendChild(
-        el('p', 'guide-note', all.length ? '찾는 장소가 없어요. 다른 글자로 찾아보세요.' : '아직 등록된 장소가 없어요. 순간에 장소를 붙이면 여기 모입니다.'),
+        el('p', 'guide-note', all.length || unlinkedAll.length ? '찾는 장소나 순간이 없어요. 다른 글자로 찾아보세요.' : '아직 등록된 장소나 연결이 필요한 순간이 없어요.'),
       );
       return;
     }
     for (const p of found) list.appendChild(registryRow(p, moments, reload, goToTrip));
+    if (unlinkedFound.length) {
+      const section = el('section', 'pr-unlinked');
+      section.append(
+        el('h3', 'pr-unlinked-title', `연결이 필요한 순간 ${unlinkedFound.length}개`),
+        el('p', 'pr-unlinked-note', '이름은 순간에 남아 있지만 대장 장소 ID가 없어요. 같은 이름을 추측해 붙이지 않고, 순간에서 올바른 「내 장소」를 직접 고르게 합니다.'),
+      );
+      for (const moment of unlinkedFound) {
+        const row = el('article', 'pr-unlinked-row');
+        const detail = el('div', 'pr-unlinked-detail');
+        detail.append(
+          el('b', 'pr-unlinked-name', moment.placeName),
+          el('span', 'muted small', `${moment.tripTitle || '(제목 없는 여행)'} · ${moment.title || '(제목 없는 순간)'}`),
+        );
+        const connect = el('button', 'btn-ghost pr-unlinked-connect', '순간에서 연결') as HTMLButtonElement;
+        connect.type = 'button';
+        connect.setAttribute('aria-label', `${moment.placeName} 순간에서 장소 다시 연결`);
+        connect.addEventListener('click', () => goToTrip(moment.tripId, { momentId: moment.id }));
+        row.append(detail, connect);
+        section.appendChild(row);
+      }
+      list.appendChild(section);
+    }
   };
 
   function reload(): void {
@@ -458,7 +490,7 @@ export function placeRegistryPanel(onChanged: () => void, goToTrip: GoToTrip): H
     el(
       'p',
       'guide-note',
-      '좌표를 저장하면 국가·도시를 자동으로 받아 옵니다 — 이때 좌표가 지도 서비스로 나갑니다(이름·메모·사진은 나가지 않아요). 여기서 고친 내용은 대장에만 반영되고, 이미 기록한 순간의 위치는 그대로 남습니다.',
+      '좌표를 저장하면 국가·도시를 자동으로 받아 옵니다 — 이때 좌표가 지도 서비스로 나갑니다(이름·메모·사진은 나가지 않아요). 이름은 연결된 순간과 함께 바뀌고, 이미 기록한 순간의 좌표는 그대로 남습니다.',
     ),
   );
   return box;

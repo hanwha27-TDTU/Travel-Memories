@@ -23,6 +23,7 @@
 // 사용자가 눈으로 확인하고 **지금 확정한다.** 나중에 고를 것을 남기지 않는다.
 
 import { isUsableCoord } from './coordInput';
+import { compareInstants } from '../time';
 
 /** 대장이 다루는 장소의 최소 모양 — 화면·유닛이 이 형태만 알면 된다. */
 export interface RegistryPlace {
@@ -172,9 +173,8 @@ export interface MomentLike {
  * 둘을 한 숫자로 합치면 그 숫자가 거짓이 된다. 합치면 사용자는 「7개가 이 장소를 쓴다」로
  * 읽는데 실제로는 3개만 확실하다 — 그 차이가 장소를 고칠지 말지의 판단을 바꾼다.
  *
- * 🔴 그리고 **이름이 같아도 좌표는 안 바꾼다**: `updatePlace`의 계약대로 대장 수정은 과거
- * 순간의 기록을 건드리지 않는다(사용자가 쓴 것을 앱이 고쳐 쓰지 않는다). 여기서 세는 것은
- * 「무엇이 이 이름을 쓰고 있나」이지 「무엇이 바뀔 것인가」가 아니다.
+ * 🔴 연결된 순간의 **이름은 함께 바뀌지만 좌표는 안 바꾼다**: 링크의 표시 이름은 한 값이고,
+ * 좌표는 당시 기록이다. `sameName`은 연결이 아니므로 이름도 자동 변경하지 않는다.
  */
 export function momentsUsingPlace<T extends MomentLike>(
   moments: readonly T[],
@@ -215,6 +215,28 @@ export interface PlaceRecordTripGroup<T extends PlaceRecordMoment> {
   tripId: string;
   tripTitle: string;
   moments: T[];
+}
+
+/**
+ * 이름은 순간에 남았지만 장소 대장 ID가 없는 활성 순간. 자동으로 같은 이름의 장소에 붙이지
+ * 않는다 — 「집」처럼 동명이 많고, 좌표도 없으면 동일성을 증명할 수 없다. 대신 대장에서
+ * 빠짐없이 보여 주고 해당 순간으로 이동시켜 사용자가 올바른 장소를 한 번 고르게 한다.
+ */
+export function unlinkedPlaceMoments<T extends PlaceRecordMoment>(
+  moments: readonly T[],
+  query: string,
+): T[] {
+  const needle = query.trim().toLocaleLowerCase('ko');
+  return moments
+    .filter((moment) => {
+      if (moment.deletedAt !== null || moment.placeId || !moment.placeName.trim()) return false;
+      if (!needle) return true;
+      return [moment.placeName, moment.title, moment.tripTitle]
+        .join(' ')
+        .toLocaleLowerCase('ko')
+        .includes(needle);
+    })
+    .sort((a, b) => (compareInstants(b.occurredAt, a.occurredAt) ?? 0) || a.id.localeCompare(b.id));
 }
 
 /** 기존 장소 판정을 재사용해 확실한 링크와 이름만 같은 추정을 여행별로 묶는다. */

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import 'fake-indexeddb/auto';
 import { db } from '../../src/offline/db';
-import { createMomentLocalFirst } from '../../src/services/moments';
+import { createMomentLocalFirst, updateMomentLocalFirst } from '../../src/services/moments';
 import { listPlaces, reconcileMomentPlaces, savePlace, updatePlace } from '../../src/services/places';
 
 beforeEach(async () => {
@@ -73,6 +73,61 @@ describe('기존 순간 장소 소급 등록', () => {
     expect(await reconcileMomentPlaces()).toBe(0);
     expect(await db().localPlaces.get(moment.placeId!)).toMatchObject({ latitude: 37.6, longitude: 127.1 });
     expect(await db().syncQueue.count()).toBe(0);
+  });
+
+  it('연결된 순간에서 이름을 바꾸면 placeId·당시 좌표를 유지하고 대장·형제 순간에 원자 전파한다', async () => {
+    const place = await savePlace({ name: 'TSMU 대학병원 4번 건물 7층', latitude: 41.3505, longitude: 69.1720 });
+    const first = await createMomentLocalFirst({
+      tripId: 'trip-1', title: '종강기념', placeId: place.id,
+      placeName: place.name, placeLat: 41.3505, placeLng: 69.1720,
+    });
+    const second = await createMomentLocalFirst({
+      tripId: 'trip-1', title: '다른 날', placeId: place.id,
+      placeName: place.name, placeLat: 41.3506, placeLng: 69.1721,
+    });
+    await db().localMoments.update(second.id, { deletedAt: '2026-08-07T00:00:00.000Z' });
+    await db().syncQueue.clear();
+
+    const updated = await updateMomentLocalFirst(first.id, { placeName: 'TSMU 대학병원 4번 건물' });
+    const [placeBack, siblingBack, ops] = await Promise.all([
+      db().localPlaces.get(place.id), db().localMoments.get(second.id), db().syncQueue.toArray(),
+    ]);
+
+    expect(updated).toMatchObject({
+      placeId: place.id, placeName: 'TSMU 대학병원 4번 건물',
+      placeLat: 41.3505, placeLng: 69.1720,
+    });
+    expect(placeBack?.name).toBe('TSMU 대학병원 4번 건물');
+    expect(siblingBack).toMatchObject({ placeName: 'TSMU 대학병원 4번 건물', deletedAt: '2026-08-07T00:00:00.000Z' });
+    expect(ops.filter((op) => op.entityType === 'place' && op.entityId === place.id)).toHaveLength(1);
+    expect(ops.filter((op) => op.entityType === 'moment')).toHaveLength(2);
+  });
+
+  it('대장에서 이름을 바꾸면 연결된 순간 이름만 함께 바꾸고 당시 좌표는 보존한다', async () => {
+    const moment = await createMomentLocalFirst({
+      tripId: 'trip-1', title: '연결된 순간', placeName: '옛 이름', placeLat: 37.5, placeLng: 127,
+    });
+    await db().syncQueue.clear();
+
+    const result = await updatePlace(moment.placeId!, { name: '새 이름' });
+    const back = await db().localMoments.get(moment.id);
+
+    expect(result.renamedMomentCount).toBe(1);
+    expect(back).toMatchObject({ placeId: moment.placeId, placeName: '새 이름', placeLat: 37.5, placeLng: 127 });
+  });
+
+  it('위치 해제를 명시하면 이름·좌표·placeId가 모두 비고 새 대장 행을 만들지 않는다', async () => {
+    const moment = await createMomentLocalFirst({
+      tripId: 'trip-1', title: '연결 해제', placeName: '기존 장소', placeLat: 37.5, placeLng: 127,
+    });
+    const before = await db().localPlaces.count();
+
+    const back = await updateMomentLocalFirst(moment.id, {
+      placeName: '', placeLat: null, placeLng: null, placeId: null,
+    });
+
+    expect(back).toMatchObject({ placeName: '', placeLat: null, placeLng: null, placeId: null });
+    expect(await db().localPlaces.count()).toBe(before);
   });
 
   it('같은 장소 저장이 동시에 겹쳐도 대장 행과 insert op은 하나뿐이다', async () => {

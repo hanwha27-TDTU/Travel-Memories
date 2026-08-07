@@ -1027,7 +1027,7 @@ async function placeFromPhotos(
   const name = hit?.name ?? '';
   await updateMomentLocalFirst(momentId, { placeName: name, placeLat: lat, placeLng: lng });
   showUndoToast(name ? `📍 사진 위치로 장소를 넣었어요 · ${name}` : '📍 사진 위치(좌표)를 넣었어요', async () => {
-    await updateMomentLocalFirst(momentId, { placeName: '', placeLat: null, placeLng: null });
+    await updateMomentLocalFirst(momentId, { placeName: '', placeLat: null, placeLng: null, placeId: null });
     await refresh();
   });
 }
@@ -1269,16 +1269,17 @@ function photoPlaceSuggester(o: {
  * 조용한 결함이 된다. 이제 비우는 법은 `clear()` 하나, 채우는 법은 `pick()`·`commit()`뿐이다.
  *
  * `mapPicked`가 뜻하는 것: 지도·내 위치로 **자리를 먼저 정한** 좌표는 이름과 독립이라 이름을
- * 나중에 적어도 유지된다. 검색으로 얻은 좌표는 이름과 한 몸이라 이름을 고치면 무효가 된다.
+ * 나중에 적어도 유지된다. 검색으로 얻은 좌표도 이미 `placeId`로 연결됐다면 이름 편집은
+ * 장소 자체의 이름 변경이므로 연결·좌표를 유지한다. 명시적인 ✕만 연결을 끊는다(M-0124).
  */
-function placeCoordState(initial: { lat: number | null; lng: number | null }) {
+function placeCoordState(initial: { lat: number | null; lng: number | null; placeId?: string | null }) {
   let lat = initial.lat;
   let lng = initial.lng;
   let mapPicked = false;
-  let placeId: string | null = null;
+  let placeId: string | null = initial.placeId ?? null;
   return {
     coords: () => (lat !== null && lng !== null ? { lat, lng } : null),
-    isIndependent: () => mapPicked,
+    isIndependent: () => mapPicked || placeId !== null,
     getPlaceId: () => placeId,
     linkPlace: (id: string | null) => {
       placeId = id;
@@ -1306,7 +1307,7 @@ function placeCoordState(initial: { lat: number | null; lng: number | null }) {
   };
 }
 
-function buildPlaceField(initial: { name: string; lat: number | null; lng: number | null }): PlaceField {
+function buildPlaceField(initial: { name: string; lat: number | null; lng: number | null; placeId?: string | null }): PlaceField {
   const { wrap, row, input, searchBtn, mapBtn, hereBtn, results } = buildPlaceFieldShell(initial.name);
   const st = placeCoordState(initial);
   const owner = placeResultsOwner(); // 결과 상자에 그리는 손이 둘이라 주인을 정한다
@@ -1318,7 +1319,7 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
   });
   const setPicked = picked.set;
   wrap.append(row, results, picked.badge, picked.hint);
-  setPicked(st.coords() ? '' : null); // 기존 좌표가 있으면 배지 표시
+  setPicked(st.coords() || st.getPlaceId() ? '' : null); // 기존 좌표나 연결이 있으면 배지 표시
   wireNameEdit({ input, coordIsIndependent: st.isIndependent, setPicked, clearCoord: st.clear });
 
   const coordCtx: CoordApplyContext = { input, setPicked: (d, p) => setPicked(d, p), commit: st.commit };
@@ -3116,7 +3117,7 @@ function buildMomentEditForm(
 
   const emotion = buildEmotionRow(m.emotion); // 생성 폼과 같은 위젯(§7)
 
-  const placeField = buildPlaceField({ name: m.placeName, lat: m.placeLat ?? null, lng: m.placeLng ?? null });
+  const placeField = buildPlaceField({ name: m.placeName, lat: m.placeLat ?? null, lng: m.placeLng ?? null, placeId: m.placeId ?? null });
 
   const noteIn = el('textarea', 'edit-input edit-note') as HTMLTextAreaElement;
   noteIn.value = m.note;

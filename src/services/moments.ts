@@ -3,7 +3,11 @@
 // 같은 키를 되읽어(read-back) 확인한 뒤에만 완료. 서버 push는 후속(대기열에 적재).
 
 import { db, type LocalMoment, type SyncQueueItem } from '../offline/db';
-import { registerMomentPlace } from './places';
+import {
+  mirrorLinkedPlaceNameInTransaction,
+  registerMomentPlace,
+  verifyLinkedPlaceNameReadBack,
+} from './places';
 
 function uuid(): string {
   return crypto.randomUUID();
@@ -34,10 +38,16 @@ export async function createMomentLocalFirst(input: CreateMomentInput): Promise<
   if (!title) throw new Error('기록 내용이 비어 있습니다.');
   if (!input.tripId) throw new Error('여행 정보가 없습니다.');
 
-  const registeredPlaceId = await registerMomentPlace({
-    name: input.placeName ?? '',
-    latitude: input.placeLat ?? null,
-    longitude: input.placeLng ?? null,
+  const d = db();
+  const selectedPlace = input.placeId ? await d.localPlaces.get(input.placeId) : null;
+  const activeSelectedPlace = selectedPlace?.deletedAt === null ? selectedPlace : null;
+  const placeName = input.placeName?.trim() || activeSelectedPlace?.name || '';
+  const placeLat = input.placeLat ?? activeSelectedPlace?.latitude ?? null;
+  const placeLng = input.placeLng ?? activeSelectedPlace?.longitude ?? null;
+  const registeredPlaceId = activeSelectedPlace?.id ?? await registerMomentPlace({
+    name: placeName,
+    latitude: placeLat,
+    longitude: placeLng,
   });
   const now = new Date().toISOString();
   const moment: LocalMoment = {
@@ -47,10 +57,10 @@ export async function createMomentLocalFirst(input: CreateMomentInput): Promise<
     title,
     note: input.note?.trim() ?? '',
     emotion: input.emotion ?? '',
-    placeName: input.placeName?.trim() ?? '',
-    placeLat: input.placeLat ?? null,
-    placeLng: input.placeLng ?? null,
-    placeId: registeredPlaceId ?? input.placeId ?? null,
+    placeName,
+    placeLat,
+    placeLng,
+    placeId: registeredPlaceId,
     tzOffsetMin: input.tzOffsetMin ?? null,
     version: 1,
     baseVersion: 0,
@@ -69,10 +79,11 @@ export async function createMomentLocalFirst(input: CreateMomentInput): Promise<
     createdAt: now,
   };
 
-  const d = db();
-  await d.transaction('rw', d.localMoments, d.syncQueue, async () => {
+  const mirrored = await d.transaction('rw', d.localPlaces, d.localMoments, d.syncQueue, async () => {
     await d.localMoments.add(moment);
     await d.syncQueue.add(op);
+    if (!moment.placeId || !moment.placeName) return null;
+    return mirrorLinkedPlaceNameInTransaction(d, moment.placeId, moment.placeName, now);
   });
 
   const [readMoment, readOp] = await Promise.all([
@@ -82,6 +93,7 @@ export async function createMomentLocalFirst(input: CreateMomentInput): Promise<
   if (!readMoment || readMoment.title !== moment.title || !readOp) {
     throw new Error('내구성 커밋 확인 실패: read-back 불일치 — 저장을 완료로 표시하지 않음');
   }
+  if (mirrored?.placeFound) await verifyLinkedPlaceNameReadBack(moment.placeId!, moment.placeName);
   return readMoment;
 }
 
@@ -145,12 +157,27 @@ export async function updateMomentLocalFirst(id: string, patch: UpdateMomentPatc
     clientOperationId: opId,
   };
   if (!next.title) throw new Error('기록 내용이 비어 있습니다.');
-  const registeredPlaceId = await registerMomentPlace({
-    name: next.placeName,
-    latitude: next.placeLat ?? null,
-    longitude: next.placeLng ?? null,
-  });
-  if (registeredPlaceId) next.placeId = registeredPlaceId;
+  const explicitlyCleared = patch.placeId === null
+    && patch.placeName !== undefined && patch.placeName.trim() === ''
+    && patch.placeLat === null && patch.placeLng === null;
+  if (explicitlyCleared) {
+    next.placeId = null;
+  } else {
+    const linked = next.placeId ? await d.localPlaces.get(next.placeId) : null;
+    if (linked?.deletedAt === null) {
+      // 연결을 명시적으로 유지한 이름 편집이다. 장소를 새로 만들지 않고 이 ID를 기준으로
+      // 아래 트랜잭션에서 대장·형제 순간 이름을 함께 맞춘다.
+      if (!next.placeName.trim()) next.placeName = linked.name;
+    } else {
+      next.placeId = null;
+      const registeredPlaceId = await registerMomentPlace({
+        name: next.placeName,
+        latitude: next.placeLat ?? null,
+        longitude: next.placeLng ?? null,
+      });
+      if (registeredPlaceId) next.placeId = registeredPlaceId;
+    }
+  }
 
   const op: SyncQueueItem = {
     operationId: opId,
@@ -162,15 +189,18 @@ export async function updateMomentLocalFirst(id: string, patch: UpdateMomentPatc
     createdAt: now,
   };
 
-  await d.transaction('rw', d.localMoments, d.syncQueue, async () => {
+  const mirrored = await d.transaction('rw', d.localPlaces, d.localMoments, d.syncQueue, async () => {
     await d.localMoments.put(next);
     await d.syncQueue.add(op);
+    if (!next.placeId || !next.placeName) return null;
+    return mirrorLinkedPlaceNameInTransaction(d, next.placeId, next.placeName, now);
   });
 
   const readMoment = await d.localMoments.get(id);
   if (!readMoment || readMoment.version !== next.version) {
     throw new Error('내구성 커밋 확인 실패: read-back 불일치');
   }
+  if (mirrored?.placeFound) await verifyLinkedPlaceNameReadBack(next.placeId!, next.placeName);
   return readMoment;
 }
 
