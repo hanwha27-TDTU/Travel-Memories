@@ -1639,6 +1639,9 @@ select.zone-input { text-overflow: ellipsis; }
 .pr-record-moment-title { min-width: 0; padding: 0; border: 0; background: transparent; color: var(--ink); font: inherit; font-weight: 700; text-align: left; text-decoration: underline; cursor: pointer; word-break: keep-all; overflow-wrap: anywhere; }
 .pr-record-media-count { font-variant-numeric: tabular-nums; }
 .pr-record-jump { margin-left: auto; white-space: nowrap; }
+.pr-record-delete { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; padding-top: var(--space-3); border-top: 1px solid var(--line); }
+.pr-record-delete-note { flex: 1 1 280px; margin: 0; color: var(--ink-soft); font-size: .88rem; word-break: keep-all; overflow-wrap: anywhere; }
+.pr-record-delete-status { flex: 1 1 100%; margin: 0; }
 .moment-card.is-navigation-target { outline: 3px solid var(--sem-teal); outline-offset: 3px; }
 @media (max-width: 420px) {
   .pr-sum { align-items: flex-start; }

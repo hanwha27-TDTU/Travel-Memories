@@ -4253,7 +4253,7 @@ check('헤더: 가로 넘침 0', headM.overflow === 0, `overflow=${headM.overflo
 // ── v1.94: 위치관리대장 → 기록 모달 → 정확한 순간/사진 뷰어 ───────────────────
 // 긴 시나리오의 뒤쪽에 둔다. 이 블록은 URL·Dexie·오버레이 상태를 바꾸므로 앞 단계의 전제를
 // 흔들지 않고, 자기가 심은 세 store 행도 끝에서 전부 지운다(§3-C).
-const PLACE_RECORD_IDS = { place: 'pr-nav-place', trips: ['pr-nav-trip-direct', 'pr-nav-trip-name'], moments: ['pr-nav-moment-direct', 'pr-nav-moment-name'], media: ['pr-nav-media-first', 'pr-nav-media-second'] };
+const PLACE_RECORD_IDS = { place: 'pr-nav-place', unusedPlace: 'pr-nav-place-unused', trips: ['pr-nav-trip-direct', 'pr-nav-trip-name'], moments: ['pr-nav-moment-direct', 'pr-nav-moment-name'], media: ['pr-nav-media-first', 'pr-nav-media-second'] };
 const placeRecordSeed = await page.evaluate(async (ids) => {
   const now = new Date().toISOString();
   const makeThumb = async (color) => {
@@ -4267,6 +4267,7 @@ const placeRecordSeed = await page.evaluate(async (ids) => {
   const place = { id: ids.place, name: '라이브 기록 장소', latitude: 41.3111, longitude: 69.2797,
     formattedAddress: null, provider: null, providerPlaceId: null, countryCode: null, country: null, region: null, city: null, district: null, postcode: null,
     category: null, memo: null, precision: null, spanMeters: null, mapPicked: false, version: 1, baseVersion: 0, createdAt: now, updatedAt: now, deletedAt: null, clientOperationId: 'pr-nav-place-op' };
+  const unusedPlace = { ...place, id: ids.unusedPlace, name: '라이브 미연결 장소', latitude: 37.5656422, longitude: 126.8009320, clientOperationId: 'pr-nav-place-unused-op' };
   const trips = ids.trips.map((id, index) => ({ id, title: index ? '이름 일치 여행' : '직접 연결 여행', startDate: '2026-08-07', endDate: '2026-08-07', status: 'completed', timeZone: 'Asia/Tashkent', version: 1, baseVersion: 0, createdAt: now, updatedAt: now, deletedAt: null, clientOperationId: `${id}-op` }));
   const moments = [
     { id: ids.moments[0], tripId: ids.trips[0], occurredAt: now, title: '대표 사진이 있는 순간', note: '', emotion: '', placeName: place.name, placeLat: 41.3111, placeLng: 69.2797, placeId: place.id, version: 1, baseVersion: 0, createdAt: now, updatedAt: now, deletedAt: null, clientOperationId: 'pr-nav-moment-direct-op' },
@@ -4277,14 +4278,14 @@ const placeRecordSeed = await page.evaluate(async (ids) => {
     const req = indexedDB.open('journey-archive');
     req.onsuccess = () => {
       const tx = req.result.transaction(['localPlaces', 'localTrips', 'localMoments', 'localMedia'], 'readwrite');
-      tx.objectStore('localPlaces').put(place); trips.forEach((row) => tx.objectStore('localTrips').put(row));
+      tx.objectStore('localPlaces').put(place); tx.objectStore('localPlaces').put(unusedPlace); trips.forEach((row) => tx.objectStore('localTrips').put(row));
       moments.forEach((row) => tx.objectStore('localMoments').put(row)); media.forEach((row) => tx.objectStore('localMedia').put(row));
       tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
     }; req.onerror = () => reject(req.error);
   });
   return true;
 }, PLACE_RECORD_IDS);
-check('v1.94 위치 기록: Dexie 픽스처(직접·이름 일치·사진)를 함께 심는다', placeRecordSeed === true, String(placeRecordSeed));
+check('v1.96 위치 기록: Dexie 픽스처(직접·이름 일치·미연결·사진)를 함께 심는다', placeRecordSeed === true, String(placeRecordSeed));
 
 await page.goto(`http://localhost:4173${BASE}`, { waitUntil: 'networkidle' });
 await page.getByRole('button', { name: /데이터 관리/ }).first().click();
@@ -4300,6 +4301,8 @@ const modalMediaOrder = await page.locator('.pr-record-photo').evaluateAll((node
 check('v1.94 위치 기록: 여행 제목·순간 제목·사진 수·모든 썸네일을 기존 순서로 실제로 그린다',
   /직접 연결 여행/.test(recordModalText ?? '') && /대표 사진이 있는 순간/.test(recordModalText ?? '') && /사진 2장/.test(recordModalText ?? '') && await page.locator('.pr-record-thumb').count() === 2 && modalMediaOrder.join(',') === PLACE_RECORD_IDS.media.join(','),
   `${recordModalText ?? ''} | ${modalMediaOrder.join(',')}`);
+check('v1.96 미연결 장소: 직접 연결된 순간이 있으면 삭제 버튼이 없다',
+  await page.locator('.pr-record-delete').count() === 0, `삭제영역 ${await page.locator('.pr-record-delete').count()}개`);
 for (const viewport of [{ width: 375, height: 812, label: '세로 폰' }, { width: 812, height: 375, label: '가로 폰' }]) {
   await page.setViewportSize({ width: viewport.width, height: viewport.height });
   const metrics = await page.locator('.pr-records-modal').evaluate((modal) => {
@@ -4325,6 +4328,21 @@ await page.keyboard.press('Escape');
 check('v1.94 위치 기록: Esc는 기록 창만 닫고 데이터 관리는 그대로 둔다',
   await page.locator('.pr-records-overlay').count() === 0 && await page.locator('.guide-overlay').count() === 1,
   `기록=${await page.locator('.pr-records-overlay').count()} · 데이터관리=${await page.locator('.guide-overlay').count()}`);
+await page.getByRole('button', { name: /라이브 미연결 장소 기록 보기/ }).click();
+await page.waitForSelector('.pr-records-overlay');
+const unusedDelete = page.getByRole('button', { name: /라이브 미연결 장소 미연결 장소 삭제/ });
+check('v1.96 미연결 장소: 직접 연결이 없을 때만 삭제 버튼과 복구 설명이 보인다',
+  await unusedDelete.count() === 1 && /휴지통/.test(await page.locator('.pr-records-modal').textContent() ?? ''),
+  await page.locator('.pr-records-modal').textContent() ?? '');
+if (process.env.PLACE_UNUSED_SCREENSHOT) {
+  await page.screenshot({ path: resolve(process.env.PLACE_UNUSED_SCREENSHOT), fullPage: false });
+}
+page.once('dialog', (dialog) => dialog.dismiss());
+await unusedDelete.click();
+await page.waitForTimeout(100);
+check('v1.96 미연결 장소: 확인을 취소하면 장소와 모달이 그대로 남는다',
+  await page.locator('.pr-records-overlay').count() === 1 && await page.getByRole('button', { name: /라이브 미연결 장소 기록 보기/ }).count() === 1);
+await page.keyboard.press('Escape');
 await page.getByRole('button', { name: /라이브 기록 장소 기록 보기/ }).click();
 await page.waitForSelector('.pr-record-photo[data-media-id="pr-nav-media-second"]');
 await page.locator(`.pr-record-photo[data-media-id="${PLACE_RECORD_IDS.media[1]}"]`).click();
@@ -4343,7 +4361,7 @@ await page.evaluate(async (ids) => {
     const req = indexedDB.open('journey-archive');
     req.onsuccess = () => {
       const tx = req.result.transaction(['localPlaces', 'localTrips', 'localMoments', 'localMedia'], 'readwrite');
-      tx.objectStore('localPlaces').delete(ids.place); ids.trips.forEach((id) => tx.objectStore('localTrips').delete(id));
+      tx.objectStore('localPlaces').delete(ids.place); tx.objectStore('localPlaces').delete(ids.unusedPlace); ids.trips.forEach((id) => tx.objectStore('localTrips').delete(id));
       ids.moments.forEach((id) => tx.objectStore('localMoments').delete(id)); ids.media.forEach((id) => tx.objectStore('localMedia').delete(id));
       tx.oncomplete = () => resolve(); tx.onerror = () => resolve();
     }; req.onerror = () => resolve();

@@ -11,7 +11,7 @@
 // 화면에 나가는 것 자체가 결함일 수 있어서다(§10 ③).
 
 import { el, setNote } from '../dom';
-import { listPlaces, updatePlace, fillAddressFromCoords, allPlaceRecordMoments, mediaForPlaceRecordMoments } from '../../services/places';
+import { listPlaces, updatePlace, fillAddressFromCoords, allPlaceRecordMoments, mediaForPlaceRecordMoments, deleteUnusedPlace } from '../../services/places';
 import { readHere } from '../../services/here';
 import { hereFailMessage, hereLabel } from '../../domain/place/here';
 import { orderPair } from '../../domain/place/coordInput';
@@ -246,7 +246,7 @@ function registryRow(p: RegistryPlace, moments: PlaceRecordMoment[], onChanged: 
     body.hidden = !body.hidden;
     if (!body.hidden) nameInput.focus();
   });
-  openRecords.addEventListener('click', () => openPlaceRecords(p, moments, goToTrip));
+  openRecords.addEventListener('click', () => openPlaceRecords(p, moments, goToTrip, onChanged));
   row.appendChild(body);
   return row;
 }
@@ -259,7 +259,55 @@ function registryRow(p: RegistryPlace, moments: PlaceRecordMoment[], onChanged: 
  * 거짓이 된다 — 「집」이라 적은 곳이 서울 집일 수도 타슈켄트 집일 수도 있다(§8).
  */
 /** 장소 행은 길게 유지하고, 기록은 별도 모달에서만 보여 준다. */
-function openPlaceRecords(place: RegistryPlace, moments: PlaceRecordMoment[], goToTrip: GoToTrip): void {
+function appendUnusedPlaceDelete(
+  body: HTMLElement,
+  place: RegistryPlace,
+  groups: ReturnType<typeof placeRecordGroups>,
+  dismiss: () => void,
+  onChanged: () => void,
+): void {
+  if (groups.linked.length) return;
+  const deleteBox = el('div', 'pr-record-delete');
+  const explanation = groups.sameName.length
+    ? '직접 연결된 순간은 없어요. 이름만 같은 순간과 사진은 그대로 둡니다.'
+    : '직접 연결된 순간이 없어 이 장소만 휴지통으로 보낼 수 있어요. 순간과 사진은 지워지지 않습니다.';
+  const deleteNote = el('p', 'pr-record-delete-note', explanation);
+  const deleteBtn = el('button', 'btn-danger', '🗑 이 장소 삭제') as HTMLButtonElement;
+  deleteBtn.type = 'button';
+  deleteBtn.setAttribute('aria-label', `${place.name} 미연결 장소 삭제`);
+  const status = el('p', 'sync-note pr-record-delete-status');
+  status.setAttribute('role', 'status');
+  status.hidden = true;
+  deleteBtn.addEventListener('click', () => {
+    if (!window.confirm(
+      `"${place.name}" 장소를 휴지통으로 보낼까요?\n연결된 순간과 사진은 삭제하지 않습니다. [데이터 관리 › 휴지통]에서 되살릴 수 있어요.`,
+    )) return;
+    deleteBtn.disabled = true;
+    void (async () => {
+      try {
+        const result = await deleteUnusedPlace(place.id);
+        if (result.status === 'linked') {
+          const parts = [
+            result.activeMomentCount ? `연결된 순간 ${result.activeMomentCount}개` : '',
+            result.trashedMomentCount ? `휴지통 순간 ${result.trashedMomentCount}개` : '',
+          ].filter(Boolean);
+          setNote(status, `${parts.join(' · ')}가 이 장소를 사용해 삭제하지 않았어요.`, 'error', null);
+          return;
+        }
+        dismiss();
+        onChanged();
+      } catch (error) {
+        setNote(status, `삭제 실패: ${error instanceof Error ? error.message : String(error)}`, 'error', null);
+      } finally {
+        deleteBtn.disabled = false;
+      }
+    })();
+  });
+  deleteBox.append(deleteNote, deleteBtn, status);
+  body.appendChild(deleteBox);
+}
+
+function openPlaceRecords(place: RegistryPlace, moments: PlaceRecordMoment[], goToTrip: GoToTrip, onChanged: () => void): void {
   const groups = placeRecordGroups(moments, place);
   const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const overlay = el('div', 'overlay-base pr-records-overlay');
@@ -341,6 +389,9 @@ function openPlaceRecords(place: RegistryPlace, moments: PlaceRecordMoment[], go
     addSection('직접 연결된 순간', '이 장소 ID로 연결된 확실한 기록입니다.', groups.linked);
     addSection('이름만 같은 순간', '장소 ID 연결은 없고 이름만 같아요. 같은 장소인지 확인해 주세요.', groups.sameName);
     if (!groups.linked.length && !groups.sameName.length) body.appendChild(el('p', 'guide-note', '아직 이 장소가 담긴 순간이 없어요.'));
+    // 화면 스냅샷은 버튼 노출만 결정한다. 실제 삭제 직전에는 서비스가 휴지통 순간까지 다시
+    // 읽고, 참조 검사+tombstone+op을 한 트랜잭션으로 묶는다(오래된 화면 판정으로 지우지 않게).
+    appendUnusedPlaceDelete(body, place, groups, dismiss, onChanged);
   };
   body.appendChild(el('p', 'guide-note', '사진을 불러오는 중…'));
   modal.append(header, body); overlay.appendChild(modal); document.body.appendChild(overlay); close.focus();
