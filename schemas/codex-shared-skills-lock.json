@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "policyApi": 1,
   "source": "https://github.com/hanwha27-TDTU/Codex-Shared-Skills",
-  "commit": "7b601813b6d1a29e0b17f9307f57653593adb505",
+  "commit": "8f2baec4e87181942c25615cffc32ae851e0fcc6",
   "manifestSha256": "621675c8921f9bd67fa65551f89639c93f86f375c0e444910b9fdec382512c7c",
   "skills": [
     {
@@ -13,7 +13,7 @@
     {
       "name": "release-harness-governance",
       "path": "vendor/codex-shared-skills/release-harness-governance",
-      "contentSha256": "360690f94e775cbbb86c7fb7e13f634797f49c6ef73c1917b42431f5d6f6eafb"
+      "contentSha256": "f395283ca7bd38f89b06395eeb5e7532f40748fd5197c9ce8da8daed37604d93"
     }
   ],
   "adapter": {

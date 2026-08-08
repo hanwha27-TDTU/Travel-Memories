@@ -10,6 +10,7 @@
 - **헌법 정본**: `docs/CONSTITUTION.md` §18-F가 앱·서버 독립 배포의 공통 원칙을 소유한다. 버전 번호는 소스 동일성 증거가 아니며, 제공자를 구형 앱과 호환되게 먼저 배포하고 정확한 운영 hash·protocol·ops·시크릿을 되읽은 뒤 소비자 앱을 배포한다. 조회 실패·불일치는 앱 릴리스 차단이다.
 - **실행 절차**: `docs/DEPLOYMENT.md`가 `media-sign` 변경 시 생성→정적 동일성 검사→Edge 선배포→운영 검사→Ready PR→Pages의 실제 순서를 설명한다. 프로젝트 id·영향 조건·read-back 값의 실행 정본은 `schemas/release-profile.json`이며 산문에 복제하지 않는다.
 - **결정 기록**: ADR-0054가 오늘의 Chrome 장애와 같은 `FN_VERSION` 내부 소스 드리프트를 근거로 선택·기각·롤백 경계를 보존한다. 구조·기계 층은 v2.05에서 이미 배포된 생성기·정적 게이트·운영 verifier·기기 진단이다.
+- **공용 스킬 환류**: `Codex-Shared-Skills` PR #2를 CI 통과 뒤 squash merge해 정본을 `8f2baec4e87181942c25615cffc32ae851e0fcc6`로 올렸다. `release-harness-governance` HRL-16과 프로젝트 프로필 계약에 하위 호환 제공자 선배포·정확한 운영 정체성 대조·실패 시 소비자 차단을 일반 규칙으로 넣고, 전역 설치 4곳과 이 프로젝트 vendored 스냅샷·lock·release profile을 같은 커밋으로 동기화했다.
 - **버전 경계**: 이번 변경은 앱 거동과 배포 산출물을 바꾸지 않는 문서 계약 현행화이므로 v2.05를 유지하며 별도 앱 릴리스를 만들지 않는다.
 
 ## HANDOFF-0124 · v2.05 · **동기화 출고 계약·운영 Edge read-back·실행 정체 진단** (2026-08-08 · 배포 완료)

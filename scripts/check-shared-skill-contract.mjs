@@ -10,7 +10,7 @@ import { validateProfile } from '../vendor/codex-shared-skills/release-harness-g
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const SOURCE = 'https://github.com/hanwha27-TDTU/Codex-Shared-Skills';
-const APPROVED_COMMIT = '7b601813b6d1a29e0b17f9307f57653593adb505';
+const APPROVED_COMMIT = '8f2baec4e87181942c25615cffc32ae851e0fcc6';
 const EXPECTED_SKILLS = ['bg-codex-autorouter', 'release-harness-governance'];
 
 function markedBlock(text, start, end) {
