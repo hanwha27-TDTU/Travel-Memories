@@ -139,6 +139,13 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·c
 11. 🔴 **앱 선배포가 계약이면 새 서버 기능의 부재도 정상 전환 상태로 설계하되, capability 불명은 read-only다**(v1.63 · M-0093). v1.62는 0027보다 먼저 배포해야 했지만 `runSync` 첫 줄에서 아직 없는 `ensure_sync_meta()`를 필수 호출해, 로컬이 빈 기기의 pull까지 통째로 막았다. 그러나 PostgREST `PGRST202`는 migration 미적용의 증명이 아니라 함수 signature/schema cache 불일치일 수도 있다. 먼저 RLS가 적용된 `sync_meta`를 **직접 SELECT**해 non-legacy 세대를 되읽고, 그것도 확인할 수 없으며 로컬 canonical 상태가 absent/`legacy`이고 미완료 게시가 없을 때만 **서버 read-only pull**로 낮춘다. 이 모드는 repair/push, purge·unpurge 원장 변경, DB DELETE/upsert, R2 정리를 전부 금지하고 로컬 큐를 보존한다. 이미 non-legacy 세대를 소비했거나 pending 게시가 있으면 **fail-closed**다. 권한·네트워크·빈 응답 같은 다른 오류는 기능 부재로 반올림하지 않는다. 메시지 문구가 아니라 기계 오류 코드를 쓴다.
 12. 🔴 **성공하면 사라지는 큐는 성공 증거가 아니다**(v1.64 · M-0095). tombstone push가 operation read-back 뒤 큐를 지우면 `로컬 tombstone + 큐 없음`이 정상 완료의 흔적이 된다. 진단·복구·옛 자료 백필은 서버 행의 삭제 상태·version·operation id와 `purged_ids` 원장을 읽기 전용으로 대조하고 canonical 세대도 전후로 확인한다. 서버 tombstone은 재전송하지 않고, 서버 active는 반드시 공용 `mergeDecision`을 거쳐 오래된 삭제와 최신 복원을 가른다. 서버 행·원장 부재, 일부 조회 실패, 세대 변경은 자동 op으로 반올림하지 않는다. capability-unknown의 server-read-only는 서버 쓰기뿐 아니라 로컬 큐 생성도 금지한다. pull이 직접 확인해 만든 삭제 op은 같은 실행의 부모→자식 후행 push 한 번으로 끝내, 첫 버튼이 큐만 만들고 완료라고 말하지 않게 한다.
 
+## 사진 없는 장소를 일괄 정리할 때 (v2.00 · 2026-08-08)
+
+- **사진 수가 아니라 활성·휴지통을 포함한 직접 `placeId` 순간 연결 0건**을 기준으로 삼는다. 사진 없는 텍스트 순간도 기억이며, 같은 이름은 연결 증거가 아니다.
+- 선택 창의 후보 목록은 안내일 뿐이다. 실제 삭제마다 `localPlaces`·`localMoments`·`syncQueue` **같은 Dexie 트랜잭션 안에서** 직접 연결을 다시 확인하고, 새로 연결됐다면 삭제하지 않고 보호 결과를 돌려준다.
+- 삭제는 장소 tombstone + delete op의 로컬 우선 원자 커밋만 한다. 순간·사진·비용은 절대 함께 지우지 않으며, 완료 전 read-back으로 tombstone과 op를 확인한다.
+- 선택 항목은 재확인-삭제 결과를 정직하게 집계한다. 이 단계의 직렬 처리는 사용자가 여는 동안 연결 상태가 바뀔 수 있어 각 원자 재확인의 결과를 확정해야 한다는 사유를 코드에 남긴다.
+
 ## 2. 새 엔티티를 동기화에 추가하는 순서 (빠뜨리기 쉬운 것 포함)
 
 1. 서버 마이그레이션: 테이블 + **소유자 RLS + 초대제(`is_allowed()`)** + 복합 FK + `updated_at` 트리거 + **좀비 방지 트리거**
@@ -336,6 +343,7 @@ const w = momentWhen(m.occurredAt, m.tzOffsetMin, clock);
 | 1.17 | **순간 실행취소가 사진만 되살렸다**(M-0042) — 비용·소리는 tombstone으로 남고, 순간은 활성이라 휴지통에도 안 보여 **복구 경로가 소멸** | **M-0007과 같은 결함인데 형제 한쪽만 안 고쳐졌다.** 여행 쪽은 `TripChildren` 묶음으로 컴파일 오류화했는데 순간 쪽은 `(id, mediaIds, expenseIds = [], audioIds = [])` 옛 모양이 남아, 화면이 `const { deletedMediaIds } = …`로 하나만 꺼내 넘겨도 **기본값이 삼켰다** | `MomentChildren` 묶음 — **삭제가 돌려주는 것과 복원이 받는 것이 같은 타입**이라 손으로 고를 기회가 없다. 옛 시그니처 주입 시 3건 RED |
 | 1.37 | 🔴 **[다시 올리기]를 눌러도 휴지통 사진의 바이트가 안 올라갔다**(M-0060) — 그러면서 앱은 「3건을 다시 올렸어요」라고 **말했다**(거짓 완료 보고) | **형제의 업로드 조건을 손으로 두 번 썼고 한쪽만 고쳤다.** 소리는 M-0046에서 `|| !storagePath`를 받았고 사진은 안 받았다. 게다가 **제외 이유를 코드에 적어 뒀는데**(「옛 키 형식 행은 경로를 기억 안 하면서 바이트는 서버에 있다」) 그 이유가 참인 사정권이 **복구 경로가 생기면서 좁아졌다** — 거기서 「경로 기억 없음」은 정반대(**없음을 확인함**)를 뜻한다 | `mustUploadBytes(e, unknownPathMeansNeverUploaded)` **공용 문**(기본값 금지 → 새 형제가 안 넘기면 컴파일 오류) + `bytesMissing` 표시(추측 대신 **확인한 사실을 적는다**) + 게이트 `check-bytes-upload-symmetry` + 유닛 10건(주입 2종 RED) |
 | 0.37 | 사진 tombstone 후 Storage 표시본이 고아로 남음 | 행 삭제와 바이트 삭제의 시점이 다름(DEL-CONTRACT) | tombstone 서버 반영 후 최선노력 `remove` + 마이그 0010 소유자 폴더격리 DELETE 정책 |
+| 2.00 | 「사진 없는 장소」를 media 0으로만 골라, 사진 없는 순간의 직접 장소 연결을 지울 뻔함 | 표시용 후보와 실제 삭제 승인을 같은 시점의 같은 사실로 취급 | 직접 `placeId` 연결을 active+trash에서 트랜잭션 재확인. 후보는 안내만, 연결되면 보호·tombstone+op만 원자 커밋 |
 
 ### 🔴 로컬 전용은 **정당한 예외가 아니라 빚이다** (사용자 결정 2026-07-27 — 아래 절을 뒤집는다)
 
