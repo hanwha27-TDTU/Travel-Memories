@@ -117,6 +117,8 @@ export const SKILL_ROUTES = [
   // 자동 동기화 상태 → 사용자 문장. **판정 문장 자체가 결함일 수 있는** 부류라 진단 헌장이다
   // (§10 ③ · 7-D). 2026-07-27: 성공 72초 뒤인데 「판정 불가」로 총괄을 끌어내렸다.
   { match: /^src\/domain\/syncStatusVerdict/, skill: 'diagnostics-dev' },
+  // Domain-settled sync progress is part of the sync execution contract, not an elapsed-time estimate.
+  { match: /^src\/domain\/syncProgress/, skill: 'sync-offline-dev' },
   // 큐 없는 tombstone의 서버 증거 판정 + 사용자 문장. 삭제/LWW 규율과 진단 전달 규율이
   // 동시에 걸리는 이음매라 두 헌장을 모두 읽는다(M-0095).
   { match: /^src\/domain\/syncTombstoneVerdict/, skill: 'diagnostics-dev' },

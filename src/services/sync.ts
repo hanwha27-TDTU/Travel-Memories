@@ -25,6 +25,8 @@ import { localBytesIds } from './storeState';
 import { deviceStamp } from '../app/deviceId';
 import { canonicalRemote, ensureCanonicalBeforeSync, fetchAllRows } from './canonicalSync';
 import { PULL_SYNC_PLAN, PUSH_SYNC_PLAN, SYNC_DOMAINS, runSyncPlan } from './syncPlan';
+import type { SyncDomain } from './syncPlan';
+import type { SyncProgress } from '../domain/syncProgress';
 import {
   applyPurgedLedger,
   purgedIdSet,
@@ -2138,6 +2140,16 @@ async function revivePushOps(ids: string[]): Promise<number> {
  */
 export interface SyncOptions {
   deep?: boolean;
+  /** 진행률은 관찰용이다. 알림 실패가 실제 동기화를 중단시키면 안 된다. */
+  onProgress?: (progress: SyncProgress) => void;
+}
+
+function reportProgress(opts: SyncOptions, progress: SyncProgress): void {
+  try {
+    opts.onProgress?.(progress);
+  } catch {
+    // UI 구독자가 실패해도 동기화의 read-back/정산을 방해하지 않는다.
+  }
 }
 
 interface EntityRemotes {
@@ -2153,6 +2165,7 @@ interface EntityRemotes {
 async function pushEntityOps(
   remotes: EntityRemotes,
   userId: string,
+  onDomainSettled?: (domain: SyncDomain) => void,
 ): Promise<{ pushed: number; failed: number }> {
   const result = await runSyncPlan(PUSH_SYNC_PLAN, {
     trip: () => pushPending(remotes.trips, userId),
@@ -2161,14 +2174,18 @@ async function pushEntityOps(
     media: () => pushPendingMedia(remotes.media, userId),
     expense: () => pushPendingExpenses(remotes.expenses, userId),
     audio: () => pushPendingAudio(remotes.audio, userId),
-  });
+  }, onDomainSettled ? { onDomainSettled } : {});
   return {
     pushed: SYNC_DOMAINS.reduce((sum, domain) => sum + result[domain].pushed, 0),
     failed: SYNC_DOMAINS.reduce((sum, domain) => sum + result[domain].failed, 0),
   };
 }
 
-async function pullEntityRows(remotes: EntityRemotes, mode: PullMode) {
+async function pullEntityRows(
+  remotes: EntityRemotes,
+  mode: PullMode,
+  onDomainSettled?: (domain: SyncDomain) => void,
+) {
   return runSyncPlan(PULL_SYNC_PLAN, {
     trip: () => pullTrips(remotes.trips, mode),
     place: () => pullPlaces(remotes.places, mode),
@@ -2176,7 +2193,7 @@ async function pullEntityRows(remotes: EntityRemotes, mode: PullMode) {
     media: () => pullMedia(remotes.media, mode),
     expense: () => pullExpenses(remotes.expenses, mode),
     audio: () => pullAudio(remotes.audio, mode),
-  });
+  }, onDomainSettled ? { onDomainSettled } : {});
 }
 
 function summarizePulls(result: Awaited<ReturnType<typeof pullEntityRows>>) {
@@ -2191,7 +2208,10 @@ function summarizePulls(result: Awaited<ReturnType<typeof pullEntityRows>>) {
  * 서버에는 SELECT/R2 GET만 수행한다. 로컬 purge·unpurge·편집 큐는 그대로 두고, 서버 고아
  * tombstone 같은 정리 쓰기도 하지 않는다. capability가 돌아오면 다음 동기화가 큐를 처리한다.
  */
-async function runServerReadOnlySync(client: JourneyClient): Promise<SyncResult> {
+async function runServerReadOnlySync(client: JourneyClient, opts: SyncOptions): Promise<SyncResult> {
+  let completed = 0;
+  const total = SYNC_DOMAINS.length;
+  reportProgress(opts, { phase: 'pulling', completed, total, phaseCompleted: completed, phaseTotal: total });
   const pulls = summarizePulls(
     await pullEntityRows(
       {
@@ -2203,6 +2223,10 @@ async function runServerReadOnlySync(client: JourneyClient): Promise<SyncResult>
         audio: audioRemote(client),
       },
       'server-read-only',
+      () => {
+        completed += 1;
+        reportProgress(opts, { phase: 'pulling', completed, total, phaseCompleted: completed, phaseTotal: total });
+      },
     ),
   );
   return {
@@ -2219,6 +2243,10 @@ export async function runSync(
   userId: string,
   opts: SyncOptions = {},
 ): Promise<SyncResult> {
+  // Push six domains + pull six domains + final read-back/follow-up settlement.
+  // Do not show 100% before that last safety boundary has finished.
+  const totalStages = SYNC_DOMAINS.length * 2 + 1;
+  reportProgress(opts, { phase: 'preparing', completed: 0, total: totalStages, phaseCompleted: 0, phaseTotal: 0 });
   // 🔴 어떤 로컬 repair/push보다 먼저 canonical 세대를 본다. 바뀌었으면 클라우드 정확집합만
   // 반영하고 여기서 끝낸다 — 병합 결과를 다시 올리면 사용자가 고른 최종본이 즉시 오염된다.
   const canonical = await ensureCanonicalBeforeSync(canonicalRemote(client), userId);
@@ -2231,7 +2259,7 @@ export async function runSync(
       canonicalApplied: true,
     };
   }
-  if (canonical.mode === 'legacy') return runServerReadOnlySync(client);
+  if (canonical.mode === 'legacy') return runServerReadOnlySync(client, opts);
   const remote = tripsRemote(client);
   const mRemote = momentsRemote(client);
   const eRemote = expensesRemote(client);
@@ -2269,7 +2297,12 @@ export async function runSync(
   // 다만 여기서는 **장소가 부모 쪽**이다). 장소 자신은 부모가 없어 여행보다 앞에 둬도 되지만,
   // 「부모 먼저」 목록을 읽는 사람이 순서를 한 줄로 이해하도록 여행 다음에 놓는다.
   // 소리는 **순간 뒤**여야 한다 — 복합 FK `(moment_id,user_id)`가 서버의 부모를 요구한다.
-  const entities = await pushEntityOps(entityRemotes, userId);
+  let pushedDomains = 0;
+  reportProgress(opts, { phase: 'pushing', completed: pushedDomains, total: totalStages, phaseCompleted: pushedDomains, phaseTotal: SYNC_DOMAINS.length });
+  const entities = await pushEntityOps(entityRemotes, userId, () => {
+    pushedDomains += 1;
+    reportProgress(opts, { phase: 'pushing', completed: pushedDomains, total: totalStages, phaseCompleted: pushedDomains, phaseTotal: SYNC_DOMAINS.length });
+  });
   // 영구삭제 전파는 **pull보다 먼저** — 이번 동기화에서 다른 기기가 바로 알 수 있게.
   const pRemote = pRemote0;
   const pp = await pushPurges(pRemote, dRemote);
@@ -2290,19 +2323,27 @@ export async function runSync(
   const swept = await sweepPurgedOrphans();
   const sweepPush = swept ? await pushPurges(pRemote, dRemote) : { pushed: 0, failed: 0 };
 
-  const pulls = summarizePulls(await pullEntityRows(entityRemotes, 'merge'));
+  reportProgress(opts, { phase: 'finalizing', completed: SYNC_DOMAINS.length, total: totalStages, phaseCompleted: 0, phaseTotal: 0 });
+  let pulledDomains = 0;
+  reportProgress(opts, { phase: 'pulling', completed: SYNC_DOMAINS.length, total: totalStages, phaseCompleted: pulledDomains, phaseTotal: SYNC_DOMAINS.length });
+  const pulls = summarizePulls(await pullEntityRows(entityRemotes, 'merge', () => {
+    pulledDomains += 1;
+    reportProgress(opts, { phase: 'pulling', completed: SYNC_DOMAINS.length + pulledDomains, total: totalStages, phaseCompleted: pulledDomains, phaseTotal: SYNC_DOMAINS.length });
+  }));
   // 옛 정책의 로컬 원본은 서버 표시본을 정확히 되읽은 뒤에만 정리한다. 실패한 사진은 다음
   // 동기화에서 다시 확인하며, 사용자 기록이나 큐에는 손대지 않는다.
   await pruneVerifiedMediaOriginals(dRemote);
   // pull이 "서버 active + 로컬 tombstone"을 직접 확인해 만든 delete op은 같은 버튼에서
   // 끝낸다(M-0095). 첫 실행이 큐만 만들고 "동기화했어요"라고 말한 뒤 두 번째 클릭을 요구하면
   // 해소 동작이 실제 판정을 해소하지 못한다. 새 delete가 있을 때만 한 번, 같은 부모→자식 문으로.
+  reportProgress(opts, { phase: 'finalizing', completed: totalStages - 1, total: totalStages, phaseCompleted: 0, phaseTotal: 0 });
   const followupNeeded = (await db().syncQueue.toArray()).some(
     (op) => op.state === 'local_only' && op.operationType === 'delete',
   );
   const followup = followupNeeded
     ? await pushEntityOps(entityRemotes, userId)
     : { pushed: 0, failed: 0 };
+  reportProgress(opts, { phase: 'finalizing', completed: totalStages, total: totalStages, phaseCompleted: 0, phaseTotal: 0 });
   return {
     pushed: pu.pushed + entities.pushed + pp.pushed + sweepPush.pushed + followup.pushed,
     failed: pu.failed + entities.failed + pp.failed + sweepPush.failed + followup.failed,

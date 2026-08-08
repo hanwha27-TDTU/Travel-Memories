@@ -26,6 +26,12 @@
 // 돌린다(§10 ③ — 자료구조는 옳고 화면 문장만 틀린 부류가 이 저장소의 최빈 결함군이다).
 
 /** `services/autoSync.ts`의 phase 중 이 판정이 쓰는 것만. */
+import {
+  syncProgressLabel,
+  syncProgressPercent,
+  type SyncProgress,
+} from './syncProgress';
+
 export type SyncPhaseLike = 'idle' | 'running' | 'ok' | 'failed' | 'offline' | 'signed-out';
 
 /** 서버와의 대조 결과. 아직 안 했거나 못 했으면 `null`. */
@@ -54,6 +60,7 @@ export interface BadgeInput {
   lastResult: { pushed: number; pulled: number; failed: number } | null;
   /** Source of the most recent sync request. */
   lastReason: string;
+  progress: SyncProgress | null;
 }
 
 export type BadgeLevel = 'ok' | 'info' | 'error';
@@ -73,6 +80,8 @@ export interface BadgeView {
    * (사용자 제안 2026-08-05), 「지금 확인」이 필요한 상태에서는 배지가 그 버튼 노릇을 한다.
    */
   syncOnTap: boolean;
+  /** A measurable domain-sync percentage; omitted for preparation/safety work. */
+  progressPercent?: number;
 }
 
 /**
@@ -93,7 +102,15 @@ export function syncBadge(i: BadgeInput): BadgeView {
 
   // ③ 지금 돌고 있다 — 누르면 또 돌리는 것이 아니라 기다리게 한다.
   if (i.phase === 'running') {
-    return { text: '↻ 동기화 중…', level: 'info', go: null, syncOnTap: false };
+    const progressPercent = syncProgressPercent(i.progress);
+    const label = syncProgressLabel(i.progress);
+    return {
+      text: progressPercent === null ? `↻ ${label}` : `↻ ${label} · ${progressPercent}%`,
+      level: 'info',
+      go: null,
+      syncOnTap: false,
+      ...(progressPercent === null ? {} : { progressPercent }),
+    };
   }
 
   // ④ 최근 실패 — pending이 0이어도 이게 먼저다(M-0101: 보낼 게 없어서 조용한 것과

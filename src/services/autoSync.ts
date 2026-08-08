@@ -36,6 +36,7 @@
 import { supabase } from './supabase/client';
 import { currentUser } from './auth';
 import { runSync, type SyncResult } from './sync';
+import type { SyncProgress } from '../domain/syncProgress';
 
 export type SyncPhase = 'idle' | 'running' | 'ok' | 'failed' | 'offline' | 'signed-out';
 
@@ -48,9 +49,11 @@ export interface SyncStatus {
   lastResult: SyncResult | null;
   /** 마지막으로 동기화를 부른 이유(진단용). */
   lastReason: string;
+  /** 실행 중인 경우에만 실제 도메인 완료 단위를 담는다. */
+  progress: SyncProgress | null;
 }
 
-let status: SyncStatus = { phase: 'idle', lastOkAt: null, lastError: null, lastResult: null, lastReason: '' };
+let status: SyncStatus = { phase: 'idle', lastOkAt: null, lastError: null, lastResult: null, lastReason: '', progress: null };
 const listeners = new Set<(s: SyncStatus) => void>();
 
 export function syncStatus(): SyncStatus {
@@ -105,12 +108,12 @@ async function runOnce(reason: string): Promise<void> {
     return;
   }
 
-  setStatus({ phase: 'running', lastReason: reason });
+  setStatus({ phase: 'running', lastReason: reason, progress: null });
   try {
     // 소비하면서 내린다 — 이 실행이 그 요청을 덮었으므로 다음 실행까지 끌고 가지 않는다.
     const deep = deepPending;
     deepPending = false;
-    const r = await runSync(c, u.id, { deep });
+    const r = await runSync(c, u.id, { deep, onProgress: (progress) => setStatus({ progress }) });
     // **실패한 작업이 있으면 성공이 아니다.** `runSync`는 개별 작업 실패를 예외로 던지지 않고
     // 개수로 돌려준다 — 그걸 안 보면 "3건이 안 갔는데 동기화 성공"이라고 말하게 된다.
     // 실제로 그랬다(2026-07-26): 서버 DELETE 권한이 없어 영구삭제 3건이 막혔는데 화면은
@@ -121,13 +124,14 @@ async function runOnce(reason: string): Promise<void> {
         phase: 'failed',
         lastError: `${r.failed}건이 서버에 반영되지 않았어요(나머지 ${r.pushed}건은 갔습니다)`,
         lastResult: r,
+        progress: null,
       });
     } else {
-      setStatus({ phase: 'ok', lastOkAt: new Date().toISOString(), lastError: null, lastResult: r });
+      setStatus({ phase: 'ok', lastOkAt: new Date().toISOString(), lastError: null, lastResult: r, progress: null });
     }
   } catch (e) {
     // **조용히 삼키지 않는다.** 자동 동기화의 가장 큰 위험이 "안 갔는데 갔다고 믿는 것"이다.
-    setStatus({ phase: 'failed', lastError: e instanceof Error ? e.message : String(e) });
+    setStatus({ phase: 'failed', lastError: e instanceof Error ? e.message : String(e), progress: null });
   }
 }
 
@@ -207,6 +211,6 @@ export function __resetAutoSyncForTests(): void {
   if (timer) clearTimeout(timer);
   timer = null;
   installed = false;
-  status = { phase: 'idle', lastOkAt: null, lastError: null, lastResult: null, lastReason: '' };
+  status = { phase: 'idle', lastOkAt: null, lastError: null, lastResult: null, lastReason: '', progress: null };
   listeners.clear();
 }

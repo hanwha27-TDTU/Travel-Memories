@@ -743,6 +743,7 @@ function renderSyncNote(status: HTMLElement, pending: number, user: SessionUser 
     lastError: engine.lastError,
     lastResult: engine.lastResult,
     lastReason: engine.lastReason,
+    progress: engine.progress,
     // **`null`은 「같다」가 아니라 「모른다」**다 — 만료된 대조는 lastParity가 null을 준다.
     parity: lastParity(),
   });
@@ -761,7 +762,7 @@ function renderSyncNote(status: HTMLElement, pending: number, user: SessionUser 
             else if (v.go === 'env') void openDiagnosticsHub('environment');
           },
         };
-  setNote(status, v.text, v.level, action);
+  setNote(status, v.text, v.level, action, v.progressPercent ?? null);
 }
 
 

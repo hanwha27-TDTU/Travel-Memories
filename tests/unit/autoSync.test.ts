@@ -105,6 +105,26 @@ describe('실패를 숨기지 않는다', () => {
     expect(seen).toContain('running');
     expect(seen).toContain('ok');
   });
+
+  it('forwards measurable progress and clears it after completion', async () => {
+    const seen: number[] = [];
+    const stop = onSyncStatus((s) => {
+      if (s.progress) seen.push(s.progress.completed);
+    });
+    runSyncMock.mockImplementationOnce(async (
+      _client: unknown,
+      _userId: unknown,
+      opts: { onProgress?: (progress: { phase: 'pulling'; completed: number; total: number; phaseCompleted: number; phaseTotal: number }) => void },
+    ) => {
+      opts.onProgress?.({ phase: 'pulling', completed: 9, total: 13, phaseCompleted: 3, phaseTotal: 6 });
+      return { pushed: 0, failed: 0, pulled: 0, skippedEmptyCloud: false };
+    });
+
+    await requestSync('progress');
+    stop();
+    expect(seen).toEqual([9]);
+    expect(syncStatus().progress).toBeNull();
+  });
 });
 
 describe('돌 수 없는 상황은 실패가 아니다 — 정직하게 구분한다', () => {

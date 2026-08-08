@@ -19,6 +19,7 @@ const IN = (over: Partial<BadgeInput> = {}): BadgeInput => ({
   parity: { same: true, differing: 0, at: '2026-08-05T12:00:00.000Z' },
   lastResult: null,
   lastReason: '',
+  progress: null,
   ...over,
 });
 
@@ -182,5 +183,17 @@ describe('문장 규율', () => {
       expect(syncBadge(IN(c)).text).not.toContain('**');
       expect(syncBadge(IN(c)).text.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('measurable sync progress', () => {
+  it('reports only settled domain stages as a percentage', () => {
+    const v = syncBadge(IN({
+      phase: 'running',
+      progress: { phase: 'pulling', completed: 9, total: 13, phaseCompleted: 3, phaseTotal: 6 },
+    }));
+    expect(v.text).toContain('69%');
+    expect(v.text).toContain('3/6');
+    expect(v.progressPercent).toBe(69);
   });
 });
