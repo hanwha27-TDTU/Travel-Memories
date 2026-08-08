@@ -63,6 +63,8 @@ const CORS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, content-type, apikey, x-client-info',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  // Chrome 기본 preflight 캐시는 짧다. 첫 기기에서 사진마다 OPTIONS를 되풀이하지 않는다.
+  'Access-Control-Max-Age': '600',
 };
 
 export interface R2Env {

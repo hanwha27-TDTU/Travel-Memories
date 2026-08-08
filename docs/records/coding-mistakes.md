@@ -6,6 +6,15 @@
 
 ---
 
+## M-0130 · **사진 90장 중 한 번의 브라우저 fetch 단절이 첫 canonical 소비 전체를 0건에 남겼다**
+- **날짜**: 2026-08-08 · **발견**: 사용자 Android Chrome 화면 + 운영 Edge Function 로그 · **심각도**: high(새 브라우저가 서버 기록을 전혀 소비하지 못함)
+- **자리**: `src/services/r2.ts`의 `callSign`·R2 GET, `supabase/functions/media-sign/index.ts`의 CORS preflight
+- **증상**: 클라우드 여행 10·사진 90인 새 Chrome이 로컬 0건 상태에서 오래 준비 중에 있다가 활성 사진 한 건의 `Failed to send a request to the Edge Function`으로 실패했다. canonical은 바이트를 모두 받기 전 로컬 표를 바꾸지 않으므로 여행도 계속 0건이었다.
+- **원인**: 운영 함수는 직전 `media-sign` POST 약 80건을 모두 200으로 처리했지만 오류 시각에는 OPTIONS/POST가 아예 도착하지 않았다. SDK 2.112의 `FunctionsFetchError`는 HTTP 전 fetch reject다. 그럼에도 사진별 서명 GET과 R2 GET에 timeout·재시도가 하나도 없어 순간 전송 단절 한 번을 전체 snapshot의 최종 실패로 확정했다. Chrome 기본 preflight 캐시도 짧아 OPTIONS를 반복했다.
+- **수정**: 부작용 없는 `media-sign get`과 R2 GET만 최대 3회 제한 지수 backoff로 재시도하고 각각 15초·30초 abort timeout을 둔다. FunctionsFetch/Relay와 408·425·429·5xx만 재시도하며 401·403·404는 반복하지 않는다. 최종 실패한 활성 바이트는 계속 fail-closed한다. OPTIONS는 10분 캐시한다.
+- **예방**: 유닛이 FunctionsFetchError 1회 뒤 성공, R2 fetch 1회 뒤 성공, 403·404 무재시도, timeout 옵션과 CORS Max-Age를 고정한다. 운영 조사에서는 오류 시각의 함수 로그 부재를 확인해 함수 내부·R2 손상으로 건너뛰지 않는다.
+- **일반형**: 🔴 **원자 적용은 중간 결과를 공개하지 않는 계약이지, 멱등 읽기의 순간 실패를 최종 실패로 확정하는 계약이 아니다.** 반복 원격 읽기는 오류 종류를 가른 제한 재시도와 유한 timeout을 갖고, 그 뒤에도 실패할 때만 전체를 막는다.
+
 ## M-0129 · **비동기 대조는 끝났는데 완료 신호가 없어 배지가 영원히 「확인 중」이었다**
 - **날짜**: 2026-08-08 · **발견**: 사용자 Chrome 실동작 재현 · **심각도**: medium(데이터는 정상이나 동기화 완료를 확인할 수 없음)
 - **자리**: `src/services/syncParity.ts`, `src/ui/screens/home.ts`, `src/domain/syncBadgeVerdict.ts`

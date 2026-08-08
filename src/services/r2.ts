@@ -19,6 +19,36 @@ import type { JourneyClient } from './supabase/client';
 
 const FN = 'media-sign';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const TRANSIENT_ATTEMPTS = 3;
+const SIGN_TIMEOUT_MS = 15_000;
+const DOWNLOAD_TIMEOUT_MS = 30_000;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 모바일 브라우저의 순간 전송 단절만 짧게 재시도한다. 인증·입력 오류는 그대로 돌려준다. */
+export function isTransientFunctionError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const e = error as { name?: unknown; message?: unknown; context?: unknown };
+  if (e.name === 'FunctionsFetchError' || e.name === 'FunctionsRelayError') return true;
+  // functions-js 옛 판이나 테스트 대역이 name을 보존하지 않아도 표준 전송 오류 문구는 식별한다.
+  if (e.message === 'Failed to send a request to the Edge Function') return true;
+  const context = e.context as { status?: unknown } | undefined;
+  const status = typeof context?.status === 'number' ? context.status : undefined;
+  return status === 408 || status === 425 || status === 429 || (status !== undefined && status >= 500);
+}
+
+function functionErrorDetail(error: unknown): string {
+  if (!error || typeof error !== 'object') return String(error);
+  const e = error as { name?: unknown; message?: unknown };
+  const message = typeof e.message === 'string' ? e.message : String(error);
+  return typeof e.name === 'string' && e.name !== 'Error' ? `${e.name}: ${message}` : message;
+}
+
+function retryDelayMs(failedAttempt: number): number {
+  return 300 * (2 ** Math.max(0, failedAttempt - 1));
+}
 
 /** 바이트 저장소 포트 — MediaRemote의 바이트 3종과 같은 모양. */
 export interface BlobStore {
@@ -79,17 +109,61 @@ async function callSign(
   mediaId: string | null,
   extra?: Record<string, unknown>,
 ): Promise<{ data: SignResult | null; error?: string }> {
-  try {
-    const body: Record<string, unknown> = { op, ...extra };
-    if (mediaId) body['mediaId'] = mediaId;
-    const r = await client.functions.invoke(FN, { body });
-    if (r.error) return { data: null, error: r.error.message };
-    const d = r.data as SignResult | null;
-    if (d?.error) return { data: null, error: d.error };
-    return { data: d };
-  } catch (e) {
-    return { data: null, error: (e as Error).message };
+  const body: Record<string, unknown> = { op, ...extra };
+  if (mediaId) body['mediaId'] = mediaId;
+  const attempts = op === 'get' ? TRANSIENT_ATTEMPTS : 1;
+  let lastError = '함수 요청 실패';
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const r = await client.functions.invoke(FN, { body, timeout: SIGN_TIMEOUT_MS });
+      if (r.error) {
+        lastError = functionErrorDetail(r.error);
+        if (!isTransientFunctionError(r.error)) return { data: null, error: lastError };
+      } else {
+        const d = r.data as SignResult | null;
+        if (d?.error) return { data: null, error: d.error };
+        return { data: d };
+      }
+    } catch (e) {
+      lastError = functionErrorDetail(e);
+      // invoke 바깥으로 나온 TypeError는 fetch 계층 단절이다. 그 밖의 프로그래밍 오류는 숨기지 않는다.
+      if (!(e instanceof TypeError) && !isTransientFunctionError(e)) return { data: null, error: lastError };
+    }
+    if (attempt < attempts) await wait(retryDelayMs(attempt));
   }
+  return { data: null, error: `함수 요청 ${attempts}회 실패: ${lastError}` };
+}
+
+function isRetryableDownloadStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+async function downloadSignedUrl(url: string): Promise<{ data: Blob | null; error?: string; status?: number }> {
+  let lastError = '네트워크 오류';
+  for (let attempt = 1; attempt <= TRANSIENT_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) {
+        lastError = `R2 내려받기 실패(${res.status})`;
+        if (!isRetryableDownloadStatus(res.status) || attempt === TRANSIENT_ATTEMPTS) {
+          return { data: null, error: lastError, status: res.status };
+        }
+        await res.body?.cancel();
+      } else {
+        // 타이머는 body까지 다 읽은 뒤 해제한다. 응답 헤더만 받고 바이트가 멎는 경우도 유한해야 한다.
+        return { data: await res.blob() };
+      }
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e);
+      if (attempt === TRANSIENT_ATTEMPTS) return { data: null, error: `R2 내려받기 실패: ${lastError}` };
+    } finally {
+      clearTimeout(timer);
+    }
+    await wait(retryDelayMs(attempt));
+  }
+  return { data: null, error: `R2 내려받기 실패: ${lastError}` };
 }
 
 /** 함수 응답의 원인 코드를 사람이 읽을 수 있게. 진단표(앱 내 가이드)와 같은 어휘를 쓴다. */
@@ -279,13 +353,7 @@ export function r2BlobStore(client: JourneyClient): BlobStore {
     async download(path) {
       const s = await signed('get', path);
       if (s.error || !s.url) return { data: null, error: s.error ?? 'no_url' };
-      try {
-        const res = await fetch(s.url);
-        if (!res.ok) return { data: null, error: `R2 내려받기 실패(${res.status})`, status: res.status };
-        return { data: await res.blob() };
-      } catch (e) {
-        return { data: null, error: `R2 내려받기 실패: ${(e as Error).message}` };
-      }
+      return downloadSignedUrl(s.url);
     },
 
     async remove(path) {

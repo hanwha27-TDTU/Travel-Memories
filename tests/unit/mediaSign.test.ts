@@ -95,6 +95,13 @@ beforeEach(() => {
 });
 
 describe('접근 통제 — 서버가 키를 만든다', () => {
+  it('OPTIONS는 모바일 첫 동기화 중 반복 preflight를 줄이는 유한 캐시를 알린다', async () => {
+    const res = await fn.handler(new Request('https://x/media-sign', { method: 'OPTIONS' }));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Access-Control-Allow-Methods')).toContain('POST');
+    expect(res.headers.get('Access-Control-Max-Age')).toBe('600');
+  });
+
   // 2026-07-27부터 **이름은 앱이 정한다**(여행 제목·촬영시각을 함수는 모른다).
   // 바뀐 것은 이름뿐이고, **첫 칸이 검증된 sub라는 것**은 그대로다 — 아래 셋이 그 경계를 잰다.
   it('접미에 남의 uid를 넣어도 그건 **내 폴더 안의 하위 폴더**가 될 뿐이다', async () => {
