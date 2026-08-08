@@ -1007,7 +1007,7 @@ read-back을 등록하고, 위와 동등한 **정적 동일성 검사 + 운영 �
 ## 문서 지도 (SSOT)
 
 
-**`docs/HANDOFF_CODEX.md`(처음 들어온 AI를 위한 완전 인계서 — 맥락 없이도 이어서 일할 수 있게)** · `docs/PROJECT_SPEC.md`(요구사항·최상위) · `ARCHITECTURE.md` · `DATA_MODEL.md` · `SECURITY.md` · `PRIVACY.md` · `SYNC_PROTOCOL.md` · `MEDIA_PIPELINE.md` · `DEPLOYMENT.md`(배포 계약) · `AGENT_REGISTRY.md` · `LESSONS.md` · `ROADMAP.md` · `TEST_PLAN.md` · `ROUND_TRIP_TEST_BLUEPRINT.md`(운영 쓰기 왕복검사의 다른 앱 이식 계약) · `DECISIONS.md` · `ASSUMPTIONS.md` · `HANDOFF.md` · `CHANGELOG.md` · `REPOSITORY_AUDIT.md` · `CONFLICT_REPORT.md` · `ACTIVE_TASKS.md` · `BACKLOG.md`(🔴 미완료 과제 단일 정본 — 상태는 여기에만 적고 다른 문서는 T-번호로 링크만. `npm run brief`가 열린 과제를 매 착수마다 띄운다) · `DISASTER_RECOVERY.md`(백업·복원 계약 — 전용 감사 에이전트가 참조). v0.2 원본은 `docs/reference/v0.2/`.
+**`docs/HANDOFF_CODEX.md`(처음 들어온 AI를 위한 완전 인계서 — 맥락 없이도 이어서 일할 수 있게)** · `docs/PROJECT_SPEC.md`(요구사항·최상위) · `ARCHITECTURE.md` · `DATA_MODEL.md` · `SECURITY.md` · `PRIVACY.md` · `SYNC_PROTOCOL.md` · `MEDIA_PIPELINE.md` · `DEPLOYMENT.md`(배포 계약) · `AGENT_REGISTRY.md` · `LESSONS.md` · `ROADMAP.md` · `TEST_PLAN.md` · `ROUND_TRIP_TEST_BLUEPRINT.md`(운영 쓰기 왕복검사의 다른 앱 이식 계약) · `DIAGNOSTIC_TOOL_DESIGN_BLUEPRINT.md`(앱 상태 확인 전체 시스템의 다른 앱 이식 계약) · `DECISIONS.md` · `ASSUMPTIONS.md` · `HANDOFF.md` · `CHANGELOG.md` · `REPOSITORY_AUDIT.md` · `CONFLICT_REPORT.md` · `ACTIVE_TASKS.md` · `BACKLOG.md`(🔴 미완료 과제 단일 정본 — 상태는 여기에만 적고 다른 문서는 T-번호로 링크만. `npm run brief`가 열린 과제를 매 착수마다 띄운다) · `DISASTER_RECOVERY.md`(백업·복원 계약 — 전용 감사 에이전트가 참조). v0.2 원본은 `docs/reference/v0.2/`.
 충돌하면 공유 문서(SPEC)가 이긴다. 특정 AI 도구 대화가 아니라 이 문서들이 기준이다.
 
 <!--CONSTITUTION:END-->

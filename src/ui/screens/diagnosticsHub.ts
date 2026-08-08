@@ -20,7 +20,18 @@
 //    사용자의 기억을 지우지 않는다.
 
 import { el, applyText } from '../dom';
-import { DIAG_TOOLS, CORE_TOOLS, renderDiagTool, rollup, rollupBanner, copyDiagSummary, type DiagTool } from '../panels/diagnostics';
+import {
+  DIAG_TOOLS,
+  CORE_TOOLS,
+  renderDiagTool,
+  rollup,
+  retryFailedDiagnostics,
+  rollupBanner,
+  copyDiagSummary,
+  type DiagnosticProgress,
+  type DiagTool,
+  type RollupResult,
+} from '../panels/diagnostics';
 import { DIAG_GROUPS, GROUP_META, BLIND_SPOTS } from '../../domain/diagGroups';
 import { LEVELS, type Level } from '../panels/verdict';
 
@@ -29,6 +40,7 @@ function card(t: DiagTool, onOpen: (t: DiagTool) => void): { btn: HTMLButtonElem
   const btn = el('button', 'guide-card guide-card-diag') as HTMLButtonElement;
   btn.type = 'button';
   btn.setAttribute('data-tool', t.label);
+  btn.setAttribute('data-tool-id', t.id);
   const ic = el('span', 'guide-card-ic', t.icon);
   ic.setAttribute('aria-hidden', 'true');
   const mid = el('span', 'guide-card-mid');
@@ -132,38 +144,58 @@ function renderDetail(body: HTMLElement, t: DiagTool, onBack: () => void): void 
  *
  * 두 버튼 모두 **결과 문장을 화면에 낸다**(§13 4항) — 계산해놓고 안 알리면 M-0022의 행동판이다.
  */
-function rollupActions(recheckAll: () => Promise<string>): HTMLElement[] {
+function rollupActions(actions: {
+  recheckAll: (progress: (value: DiagnosticProgress) => void) => Promise<string>;
+  retryFailed: (progress: (value: DiagnosticProgress) => void) => Promise<string>;
+  copy: () => Promise<string>;
+}): { nodes: HTMLElement[]; runInitial: () => void } {
   const bar = el('div', 'vd-actions vd-rollup-actions');
   const recheck = el('button', 'vd-btn vd-btn-primary', '🔄 일괄 점검') as HTMLButtonElement;
   recheck.type = 'button';
   recheck.setAttribute('data-recheck-all', '');
+  const retry = el('button', 'vd-btn', '↻ 실패 항목만') as HTMLButtonElement;
+  retry.type = 'button';
+  retry.setAttribute('data-retry-failed-tools', '');
   const copy = el('button', 'vd-btn', '📋 결과 복사') as HTMLButtonElement;
   copy.type = 'button';
   copy.setAttribute('data-copy-all', '');
   const note = el('p', 'vd-msg');
+  note.setAttribute('role', 'status');
+  note.setAttribute('aria-live', 'polite');
   note.hidden = true;
-  bar.append(recheck, copy);
+  bar.append(recheck, retry, copy);
 
   const say = (msg: string): void => {
     applyText(note, msg);
     note.hidden = false;
   };
-  // 누른 뒤 버튼이 잠긴 채 남지 않는다(§13 4항 ④) — `finally`가 그 계약이다.
-  const wire = (btn: HTMLButtonElement, busy: string, run: () => Promise<string>, failed: string): void => {
-    btn.addEventListener('click', () => {
-      btn.disabled = true;
+  const buttons = [recheck, retry, copy];
+  let running = false;
+  // 한 실행이 끝나기 전에 다른 실행을 겹치지 않는다. 진행 문장은 완료 수를 실시간으로 말한다.
+  const start = (
+    busy: string,
+    run: (progress: (value: DiagnosticProgress) => void) => Promise<string>,
+    failed: string,
+  ): void => {
+      if (running) return;
+      running = true;
+      buttons.forEach((button) => { button.disabled = true; });
       say(busy);
-      void run()
+      void run((progress) => say(`${progress.completed}/${progress.total} · ${progress.label} 확인 완료`))
         .then(say)
         .catch(() => say(failed))
         .finally(() => {
-          btn.disabled = false;
+          running = false;
+          buttons.forEach((button) => { button.disabled = false; });
         });
-    });
   };
-  wire(recheck, '다시 재는 중…', recheckAll, '다시 재지 못했어요. 카드를 열어 개별로 확인해 주세요.');
-  wire(copy, '요약을 만드는 중…', copyDiagSummary, '요약을 만들지 못했어요. [진단 요약 복사] 도구를 열어 주세요.');
-  return [bar, note];
+  recheck.addEventListener('click', () => start('다시 재는 중…', actions.recheckAll, '다시 재지 못했어요. 카드를 열어 개별로 확인해 주세요.'));
+  retry.addEventListener('click', () => start('실패한 실행형 도구를 다시 재는 중…', actions.retryFailed, '실패 항목을 다시 재지 못했어요.'));
+  copy.addEventListener('click', () => start('요약을 만드는 중…', () => actions.copy(), '요약을 만들지 못했어요. [진단 요약 복사] 도구를 열어 주세요.'));
+  return {
+    nodes: [bar, note],
+    runInitial: () => start('처음 상태를 확인하는 중…', actions.recheckAll, '상태를 확인하지 못했어요. 카드를 열어 개별로 확인해 주세요.'),
+  };
 }
 
 /**
@@ -180,12 +212,48 @@ export interface DiagHubOptions {
    * 닫을 때 돌아갈 곳. 자기를 닫고 허브를 연 화면이 **자기를 다시 여는 함수**를 준다.
    * 안 주면 그냥 닫힌다 — 첫 화면 칩처럼 아래에 화면이 남아 있는 경우가 그렇다.
    */
-  onClose?: () => void;
+  onClose?: () => HTMLElement | void;
+}
+
+function trapDialogFocus(modal: HTMLElement, event: KeyboardEvent): void {
+  if (event.key !== 'Tab') return;
+  const focusable = [...modal.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+    .filter((node) => !node.hidden && node.getClientRects().length > 0);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function wireDialogClose(
+  overlay: HTMLElement,
+  modal: HTMLElement,
+  closeBtn: HTMLButtonElement,
+  afterClose: () => void,
+): () => void {
+  const close = (): void => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+    afterClose();
+  };
+  function onKey(event: KeyboardEvent): void {
+    if (event.key === 'Escape') close();
+    else trapDialogFocus(modal, event);
+  }
+  closeBtn.addEventListener('click', close);
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+  document.addEventListener('keydown', onKey);
+  return close;
 }
 
 export function openDiagnosticsHub(toolId?: string, opts?: DiagHubOptions): void {
   const prevFocus = document.activeElement as HTMLElement | null;
-
   const overlay = el('div', 'overlay-base guide-overlay');
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
@@ -195,8 +263,9 @@ export function openDiagnosticsHub(toolId?: string, opts?: DiagHubOptions): void
   const { header, closeBtn } = hubHeader();
 
   const body = el('div', 'guide-body');
+  let lastRollup: RollupResult | null = null;
 
-  const showHome = (): void => {
+  const showHome = (focusToolId?: string): void => {
     body.replaceChildren();
 
     // 총괄 판정 — 열자마자 보이는 한 줄. 계산 전에는 '확인 중…'.
@@ -221,40 +290,38 @@ export function openDiagnosticsHub(toolId?: string, opts?: DiagHubOptions): void
         '이 도구들은 개발자가 볼 수 없는 것 — 이 기기의 저장소·환경·오류 — 을 보이게 만듭니다. 문제가 생기면 [진단 요약 복사]로 한 번에 전달해 주세요. 기록 내용(여행 제목·메모·사진)은 담기지 않습니다.',
       ),
     );
-    closeBtn.focus();
+    const paint = (r: RollupResult): void => {
+      lastRollup = r;
+      banner.className = `vd-rollup vd-rollup-${r.bannerLevel}`;
+      bDot.className = `vd-dot vd-dot-${r.bannerLevel}`;
+      bDot.textContent = LEVELS[r.bannerLevel].glyph;
+      bDot.setAttribute('aria-label', LEVELS[r.bannerLevel].name);
+      const bad = r.per.filter((p) => p.level === 'problem');
+      const todo = r.per.filter((p) => p.level === 'todo');
+      applyText(
+        bLine,
+        rollupBanner({
+          bannerLevel: r.bannerLevel,
+          badLabels: bad.map((p) => p.label),
+          todoLabels: todo.map((p) => p.label),
+          structuralCount: r.structuralCount,
+        }),
+      );
+      for (const p of r.per) {
+        const slot = slots.get(p.id);
+        if (slot) slot.replaceChildren(...(p.level === 'ok' ? [] : [dot(p.level)]), el('span', 'guide-card-chev', '›'));
+      }
+      const summary = slots.get('summary');
+      if (summary) summary.replaceChildren(...(r.bannerLevel === 'ok' ? [] : [dot(r.bannerLevel)]), el('span', 'guide-card-chev', '›'));
+    };
+
+    if (lastRollup) paint(lastRollup);
 
     // 🔴 배너를 그리는 일이 **한 곳**에만 있어야 [일괄 점검]과 첫 진입이 갈라지지 않는다(§7 2층).
-    const runRollup = (): Promise<string> =>
-      rollup()
+    const runRollup = (progress: (value: DiagnosticProgress) => void): Promise<string> =>
+      rollup(progress)
       .then((r) => {
-        // 🔴 배너는 `bannerLevel`을 쓴다 — **구조적 확인 불가는 비정상으로 분류하지 않는다**
-        // (사용자 지적 2026-08-06). 카드에는 여전히 `?`가 붙으므로 판정을 숨기는 것이 아니라
-        // 분류만 바꾸는 것이고, 그 경계는 아래 문장이 **개수로 말한다**(§8 시야의 경계).
-        banner.className = `vd-rollup vd-rollup-${r.bannerLevel}`;
-        bDot.replaceWith(dot(r.bannerLevel));
-        const bad = r.per.filter((p) => p.level === 'problem');
-        const todo = r.per.filter((p) => p.level === 'todo');
-        // 문장은 순수 함수가 만든다 — 갈래를 유닛으로 전수 검사할 수 있어야 한다(§10 ③).
-        applyText(
-          bLine,
-          rollupBanner({
-            bannerLevel: r.bannerLevel,
-            badLabels: bad.map((p) => p.label),
-            todoLabels: todo.map((p) => p.label),
-            structuralCount: r.structuralCount,
-          }),
-        );
-
-        for (const p of r.per) {
-          const slot = slots.get(p.id);
-          if (!slot) continue;
-          // 정상은 배지 없이 셰브론만 — 침묵이 정상 신호다.
-          slot.replaceChildren(...(p.level === 'ok' ? [] : [dot(p.level)]), el('span', 'guide-card-chev', '›'));
-        }
-        // 요약 도구는 롤업 대상이 아니므로 총괄 판정을 그대로 물려받는다.
-        const s = slots.get('summary');
-        if (s) s.replaceChildren(...(r.bannerLevel === 'ok' ? [] : [dot(r.bannerLevel)]), el('span', 'guide-card-chev', '›'));
-        // 판정 자체는 **맨 위 배너**가 말한다 — 여기서 그 문장을 되풀이하면 대시가 겹쳐 읽기 나쁘다.
+        paint(r);
         return `${CORE_TOOLS.length}가지를 다시 쟀어요 — 결과는 맨 위 판정에 반영했습니다.`;
       })
       .catch(() => {
@@ -263,30 +330,38 @@ export function openDiagnosticsHub(toolId?: string, opts?: DiagHubOptions): void
         return '상태를 확인하지 못했어요. 카드를 열어 개별로 확인해 주세요.';
       });
 
-    actionSlot.append(...rollupActions(runRollup));
-    void runRollup();
+    const runFailed = async (progress: (value: DiagnosticProgress) => void): Promise<string> => {
+      if (!lastRollup) return runRollup(progress);
+      const retried = await retryFailedDiagnostics(lastRollup, progress);
+      paint(retried.result);
+      return retried.retried
+        ? `실패한 실행형 도구 ${retried.retried}가지만 다시 쟀어요.`
+        : '다시 잴 실패한 실행형 도구가 없어요.';
+    };
+    const controls = rollupActions({
+      recheckAll: runRollup,
+      retryFailed: runFailed,
+      copy: () => copyDiagSummary(lastRollup ?? undefined),
+    });
+    actionSlot.append(...controls.nodes);
+    if (!lastRollup) controls.runInitial();
+    queueMicrotask(() => {
+      const target = focusToolId ? body.querySelector<HTMLButtonElement>(`[data-tool-id="${focusToolId}"]`) : null;
+      (target ?? closeBtn).focus();
+    });
   };
 
-  const showDetail = (t: DiagTool): void => renderDetail(body, t, showHome);
+  const showDetail = (t: DiagTool): void => renderDetail(body, t, () => showHome(t.id));
 
-  const close = (): void => {
-    overlay.remove();
-    document.removeEventListener('keydown', onKey);
-    if (prevFocus && document.contains(prevFocus)) prevFocus.focus();
+  wireDialogClose(overlay, modal, closeBtn, () => {
     // 🔴 **온 곳으로 돌려보낸다**(사용자 지적 2026-08-06: *"닫기를 누르면 바로 전 단계 화면으로
     // 가야 하는데 메인화면으로 돌아가게 되어 불편함"*). 이 허브는 [데이터 관리]가 **자기를 닫고**
     // 열기 때문에, 닫으면 그 아래에 아무것도 없어 첫 화면이 나왔다. 온 곳을 아는 것은 부른 쪽뿐이라
     // 돌아갈 길을 **인자로 받는다** — 허브가 호출자를 추측하지 않는다.
-    opts?.onClose?.();
-  };
-  function onKey(e: KeyboardEvent): void {
-    if (e.key === 'Escape') close();
-  }
-  closeBtn.addEventListener('click', close);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
+    const restored = opts?.onClose?.();
+    if (restored && document.contains(restored)) restored.focus();
+    else if (prevFocus && document.contains(prevFocus)) prevFocus.focus();
   });
-  document.addEventListener('keydown', onKey);
 
   modal.append(header, body);
   overlay.appendChild(modal);

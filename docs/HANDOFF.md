@@ -4,6 +4,22 @@
 
 ---
 
+## HANDOFF-0127 · v2.06 · **진단 허브 실행 스냅샷·사각지대 책임·안전 보고서** (2026-08-08 · 릴리스 후보)
+
+- **사용자 결정**: Medical 앱의 진단 허브 복제 청사진을 이 앱과 비교해, 프로젝트에 맞는 강점은 최대한 받아들이고 배포까지 진행한다. 외부 도구명·파일 배치·웹 자산 APK 복제는 이 앱의 Vite 모듈·Pages 원격 셸 계약과 달라 기각했다.
+- **도구 계약**: 15개 핵심 도구와 요약 도구가 질문·읽는 원본·실행 모드·쓸 수 있는 범위를 필수 선언한다. 사각지대 18건은 안정 ID, 구조적/일시적 종류, 같은 경로 그룹의 책임 도구를 갖고 상세 화면과 보고서가 같은 등록부를 읽는다.
+- **실행·판정**: 첫 점검과 일괄 점검은 같은 병렬 실행 경로와 `n/N` aria-live 진행률을 쓴다. 문제 또는 일시적 확인 불가인 비동기 도구만 재실행할 수 있고, 겹친 실행은 UI에서 차단한다. 관측 예외는 문제로 단정하지 않고 일시적 확인 불가로 그리며, 구조적 확인 불가를 제외한 배너 판정을 화면·요약이 함께 쓴다.
+- **보고서·접근성**: 상단 결과 복사는 새 검사를 시작하지 않고 화면의 마지막 `observedAt` 스냅샷을 재사용한다. 최종 반출 경계가 JWT·Bearer·키/토큰·이메일·전체 URL을 제거한다. 상세→허브→데이터 관리 진입점 포커스 복귀와 Tab 트랩을 추가하고 공용 닫기 표적을 44px로 맞췄다.
+- **검증**: 병렬 시작·실패 선택·비밀값 제거·판정 우선순위 유닛 29건과 등록부/렌더러 정적 게이트 통과. 라이브에서 38px 닫기 표적을 실제 RED로 잡은 뒤 44px로 교정했고, 16개 도구·375/768/1280px×light/dark·대비·포커스·재시도까지 **68/68 PASS**, 콘솔 오류 0을 확인했다.
+- **배포 표면**: DB migration·RLS·Edge Function·R2 형식·Android 네이티브는 변경하지 않는다. 영향 표면은 GitHub Pages v2.06 하나이며, 전체 Ready 게이트·PR·merge·Pages `version.json` read-back으로 닫는다.
+
+## HANDOFF-0126 · **‘앱 상태 확인’ 전체 진단 시스템 이식 청사진** (2026-08-08 · 문서 계약)
+
+- **사용자 범위 확정**: 개별 진단 카드의 판정 방식만이 아니라, 실기기 화면의 「앱 상태 확인」 전체 — 상단 종합판정, 전체 점검·결과 복사, 경로형 영역, 모든 하위 도구, 상세 화면, 수리 후 재검사, 개인정보 경계, 자동 검증 — 를 다른 앱에서 재현할 수 있는 설계서를 요청했다.
+- **새 이식 정본**: `docs/DIAGNOSTIC_TOOL_DESIGN_BLUEPRINT.md`가 화면 셸과 생명주기, 8개 실패 경로 영역, 16개 도구 카탈로그, 4단계 `Verdict`, 단일 렌더러·등록부, 사각지대 등록부, 권위 원본 read-back, 안전한 행동·격리 fixture, 검증 계층과 완료 기준을 한 문서로 소유한다.
+- **문서 라우팅 보강**: 새 정본을 `npm run brief -- docs/DIAGNOSTIC_TOOL_DESIGN_BLUEPRINT.md`로 열면 `diagnostics-dev`와 `gates-mechanization-dev`가 함께 나오도록 명시 라우팅과 자기검사를 추가했다. 작성 전에는 문서를 찾지 못해 RED였고, 라우팅 추가 뒤 두 계약이 함께 나오는 것으로 GREEN을 판정한다.
+- **문서 지도**: `docs/CONSTITUTION.md`의 문서 SSOT 지도에 이식 정본을 추가하고 생성 어댑터를 다시 만든다. 앱 실행 코드·버전·배포 표면은 바꾸지 않으므로 v2.05를 유지하고 새 배포는 하지 않는다.
+
 ## HANDOFF-0125 · **릴리스법 §18-F — 독립 서버 표면의 하위 호환 선배포와 정확한 운영 대조** (2026-08-08 · 문서 계약)
 
 - **사용자 결정**: v2.05에서 만든 동기화 출고 점검과 Edge 배포 누락 차단을 일회성 구현이 아니라 앱의 정식 릴리스법에 추가한다.
@@ -814,7 +830,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->2.05<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->205<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->116<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->2.06<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->206<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->117<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->29<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

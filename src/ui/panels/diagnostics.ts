@@ -17,7 +17,8 @@
 //   ○ 맥락(context) = 상태가 아닌 환경 사실. (앱 버전·시간대·사진 저장소 …)
 // 옛 동기화 진단 5줄 중 최상위 자격이 있는 것은 사실상 하나뿐이었다.
 
-import type { DiagGroup } from '../../domain/diagGroups';
+import { blindSpotsForTool, type DiagGroup } from '../../domain/diagGroups';
+import { redactDiagnosticText } from '../../domain/diagnosticReport';
 import {
   fileRealityMetrics,
   fileRealityHeadline,
@@ -1822,16 +1823,33 @@ export function rollupBanner(i: {
   return i.structuralCount ? `${head} · 이 기기에서 잴 수 없는 항목 ${i.structuralCount}개` : head;
 }
 
-export async function rollup(): Promise<{
+export interface RollupEntry {
+  id: string;
+  label: string;
+  level: Level;
+  unknownKind: UnknownKind;
+  headline: string;
+  metrics: Metric[];
+}
+
+export interface RollupResult {
   level: Level;
   /** 🔴 구조적 확인 불가를 뺀 총괄 — 화면 배너가 쓰는 값이다(아래 주석 참조). */
   bannerLevel: Level;
   /** 구조적 확인 불가로 빠진 도구 수. 0이 아니면 배너가 그 사실을 함께 말한다(§8 경계 밝히기). */
   structuralCount: number;
-  per: { id: string; label: string; level: Level; unknownKind: UnknownKind; headline: string; metrics: Metric[] }[];
-}> {
-  const per = await Promise.all(
-    CORE_TOOLS.map(async (t) => {
+  per: RollupEntry[];
+  observedAt: string;
+}
+
+export interface DiagnosticProgress {
+  completed: number;
+  total: number;
+  toolId: string;
+  label: string;
+}
+
+async function probeTool(t: DiagTool): Promise<RollupEntry> {
       try {
         const v = await t.probe();
         // 지표까지 들고 온다 — 요약 복사가 이걸 그대로 쓴다. 도구를 새로 만들면 **자동으로**
@@ -1847,8 +1865,28 @@ export async function rollup(): Promise<{
           headline: '확인하지 못했어요', metrics: [],
         };
       }
+}
+
+export async function runDiagnosticToolSet(
+  wanted: DiagTool[],
+  onProgress?: (progress: DiagnosticProgress) => void,
+): Promise<RollupEntry[]> {
+  let completed = 0;
+  return Promise.all(
+    wanted.map(async (tool) => {
+      const result = await probeTool(tool);
+      completed += 1;
+      onProgress?.({ completed, total: wanted.length, toolId: tool.id, label: tool.label });
+      return result;
     }),
   );
+}
+
+async function runTools(ids: string[], onProgress?: (progress: DiagnosticProgress) => void): Promise<RollupEntry[]> {
+  return runDiagnosticToolSet(CORE_TOOLS.filter((tool) => ids.includes(tool.id)), onProgress);
+}
+
+function resultFromEntries(per: RollupEntry[]): RollupResult {
   // 🔴 **구조적 확인 불가는 총괄을 끌어내리지 않는다**(사용자 지적 2026-08-06:
   // *"구조적으로 확인불가이면 확인불가로 판정은 하되 비정상으로 분류하면 안 될 거 같아요"*).
   // 카드에는 여전히 `?`가 붙는다 — 판정을 숨기는 게 아니라 **분류만** 바꾼다.
@@ -1859,7 +1897,33 @@ export async function rollup(): Promise<{
     bannerLevel: bannerLevelOf(per),
     structuralCount: structural.length,
     per,
+    observedAt: new Date().toISOString(),
   };
+}
+
+export async function rollup(onProgress?: (progress: DiagnosticProgress) => void): Promise<RollupResult> {
+  return resultFromEntries(await runTools(CORE_TOOLS.map((tool) => tool.id), onProgress));
+}
+
+/** 재실행 가치가 있는 원격·비동기 도구 중 문제/일시적 확인 불가만 고른다. */
+export function failedAsyncToolIds(result: RollupResult): string[] {
+  const modes = new Map(CORE_TOOLS.map((tool) => [tool.id, tool.mode]));
+  return result.per
+    .filter((entry) => entry.level === 'problem' || (entry.level === 'unknown' && entry.unknownKind === 'transient'))
+    .filter((entry) => modes.get(entry.id) === 'async')
+    .map((entry) => entry.id);
+}
+
+export async function retryFailedDiagnostics(
+  previous: RollupResult,
+  onProgress?: (progress: DiagnosticProgress) => void,
+): Promise<{ result: RollupResult; retried: number }> {
+  const ids = failedAsyncToolIds(previous);
+  if (!ids.length) return { result: previous, retried: 0 };
+  const fresh = await runTools(ids, onProgress);
+  const replacements = new Map(fresh.map((entry) => [entry.id, entry]));
+  const merged = previous.per.map((entry) => replacements.get(entry.id) ?? entry);
+  return { result: resultFromEntries(merged), retried: ids.length };
 }
 
 /**
@@ -1870,8 +1934,8 @@ export async function rollup(): Promise<{
  * 요약을 클립보드로. **결과 문장을 돌려준다** — 부르는 쪽이 그대로 화면에 띄운다(§13 4항:
  * 누르면 결과가 화면에 나와야 한다). 실패도 조용히 삼키지 않고 다음 행동을 말한다(§7-D).
  */
-export async function copyDiagSummary(): Promise<string> {
-  const text = await summaryText();
+export async function copyDiagSummary(snapshot?: RollupResult): Promise<string> {
+  const text = await summaryText(snapshot);
   if (!navigator.clipboard?.writeText) return '이 브라우저는 자동 복사가 막혀 있어요. [진단 요약 복사] 도구의 [원문 보기]를 열어 길게 눌러 복사해 주세요.';
   try {
     await navigator.clipboard.writeText(text);
@@ -1881,8 +1945,8 @@ export async function copyDiagSummary(): Promise<string> {
   }
 }
 
-export async function summaryText(): Promise<string> {
-  const [env, sync, roll] = await Promise.all([collectEnv(APP_VERSION), diagnoseSync(), rollup()]);
+export async function summaryText(snapshot?: RollupResult): Promise<string> {
+  const [env, sync, roll] = await Promise.all([collectEnv(APP_VERSION), diagnoseSync(), snapshot ?? rollup()]);
   const integ = checkIntegrity(await loadIntegritySnapshot());
   const errs = recentErrors();
   const fmt = (o: Record<string, number>): string =>
@@ -1891,9 +1955,9 @@ export async function summaryText(): Promise<string> {
       .map(([k, n]) => `${k}=${n}`)
       .join(' ') || '없음';
 
-  return [
-    `[Bugeon Journey 진단 요약] ${env.clock.nowIso}`,
-    `총괄 판정: ${roll.level}`,
+  const text = [
+    `[Bugeon Journey 진단 요약] 관측 ${roll.observedAt} · 보고서 생성 ${env.clock.nowIso}`,
+    `총괄 판정: ${roll.bannerLevel}`,
     // 판정 한 줄 **아래에 지표까지** 붙인다(2026-07-26 사용자: 확인할 때마다 화면을 사진으로
     // 찍어 보내야 했다 — "수백 장은 찍은 거 같아"). 요약에 숫자가 없으면 복사해 봐야 소용이
     // 없고, 결국 다시 사진을 찍게 된다. 개인정보는 그대로 안 담는다(진단 §6 — 개수와 판정만).
@@ -1926,7 +1990,16 @@ export async function summaryText(): Promise<string> {
     ...integ.findings.map((f) => `  ${f.severity} ${f.code} x${f.count} [${f.samples.join(' ')}]`),
     `--- 오류 ${errs.length}건 ---`,
     ...errs.slice(0, 5).map((e) => `  ${e.kind}: ${e.message}`),
+    `--- 관측·쓰기 경계 ---`,
+    ...CORE_TOOLS.flatMap((tool) => {
+      const spots = blindSpotsForTool(tool.id);
+      return [
+        `  ${tool.label}: 읽음=${tool.reads} · 쓰기=${tool.writes}`,
+        ...spots.map((spot) => `    ${spot.id} [${spot.kind}]: ${spot.what}`),
+      ];
+    }),
   ].join('\n');
+  return redactDiagnosticText(text);
 }
 
 export async function summaryProbe(): Promise<Verdict> {
@@ -1939,13 +2012,14 @@ export async function summaryProbe(): Promise<Verdict> {
   });
   const bad = roll.per.filter((p) => p.level === 'problem').length;
   return {
-    level: roll.level,
+    // 허브 배너와 같은 총괄 계약을 쓴다. 구조적 확인 불가만으로 요약이 아파 보이지 않는다.
+    level: roll.bannerLevel,
     headline:
-      roll.level === 'problem'
+      roll.bannerLevel === 'problem'
         ? `지금 확인할 것이 ${bad}가지 있어요`
-        : roll.level === 'todo'
+        : roll.bannerLevel === 'todo'
           ? '지금 해두면 좋은 일이 있어요'
-          : roll.level === 'unknown'
+          : roll.bannerLevel === 'unknown'
             ? '확인하지 못한 항목이 있어요'
             : `${CORE_TOOLS.length}가지 모두 정상입니다`,
     because: '[복사하기]를 누르면 이 결과를 텍스트로 전달할 수 있어요. 여행 제목·사진·메모 같은 기록 내용은 담기지 않습니다.',
@@ -1955,7 +2029,7 @@ export async function summaryProbe(): Promise<Verdict> {
         label: '복사하기',
         primary: true,
         hook: 'data-copy-diag',
-        run: copyDiagSummary,
+        run: () => copyDiagSummary(),
       },
     ],
     evidence: [
@@ -2391,7 +2465,14 @@ export interface DiagTool {
   icon: string;
   label: string;
   hint: string;
-  lead: string;
+  /** 이 도구가 답할 질문 한 문장. */
+  question: string;
+  /** 실제로 읽는 권위 원본·상태. */
+  reads: string;
+  /** 허브 재실행 정책. 원격 호출을 포함하면 async. */
+  mode: 'summary' | 'async';
+  /** 자동 probe와 명시 액션을 포함해 이 도구가 쓸 수 있는 범위. */
+  writes: string;
   probe: () => Promise<Verdict>;
   /**
    * 🔴 **기억이 지나는 길의 어느 단계인가**(`domain/diagGroups.ts`).
@@ -2413,7 +2494,10 @@ export const CORE_TOOLS: DiagTool[] = [
     icon: '💾',
     label: '저장소 안전',
     hint: '브라우저가 데이터를 지울 위험',
-    lead: '브라우저가 공간이 부족하면 앱 데이터를 지울 수 있어요. 그 위험을 봅니다.',
+    question: '브라우저가 이 기기의 기억을 지우지 않도록 보호됐는가?',
+    reads: 'StorageManager 사용량·할당량·persist 상태와 마지막 보호 요청 결과',
+    mode: 'summary',
+    writes: '사용자가 누를 때 브라우저 저장소 보호 요청만 수행',
     probe: storageProbe,
   },
   {
@@ -2422,7 +2506,10 @@ export const CORE_TOOLS: DiagTool[] = [
     icon: '🔄',
     label: '동기화 상태',
     hint: '서버와 얼마나 어긋나 있나',
-    lead: '이 기기의 변경이 서버까지 갔는지 봅니다.',
+    question: '이 기기의 변경이 서버까지 빠짐없이 전파됐는가?',
+    reads: '로컬 작업 큐·tombstone·동기화 실행 상태와 서버 반영 상태',
+    mode: 'async',
+    writes: '사용자가 누를 때 기존 동기화·재시도 경로만 수행',
     probe: syncProbe,
   },
   {
@@ -2431,7 +2518,10 @@ export const CORE_TOOLS: DiagTool[] = [
     icon: '🧟',
     label: '삭제 장소 재생성 감시',
     hint: '삭제한 장소가 새 UUID로 다시 생겼는지',
-    lead: '삭제 표식과 이름·좌표가 같은 활성 장소를 서버와 이 기기에서 대조합니다. 후보는 자동으로 지우지 않습니다.',
+    question: '삭제한 장소가 다른 ID로 되살아나지 않았는가?',
+    reads: '로컬·서버의 장소와 삭제 표식, 이름·좌표 동일 후보',
+    mode: 'async',
+    writes: '없음 — 후보를 자동 삭제하지 않음',
     probe: placeZombieProbe,
   },
   {
@@ -2440,7 +2530,10 @@ export const CORE_TOOLS: DiagTool[] = [
     icon: '🧷',
     label: 'ID 무결성',
     hint: '기록이 서로 앞뒤가 맞나',
-    lead: '저장된 기록끼리 참조가 끊기지 않았는지 봅니다. 읽기 전용이라 아무것도 바꾸지 않아요.',
+    question: '이 기기의 기록 참조가 끊기거나 고아가 되지 않았는가?',
+    reads: 'Dexie의 여행·날짜·순간·사진·비용·장소·소리 참조',
+    mode: 'summary',
+    writes: '없음',
     probe: integrityProbe,
   },
   {
@@ -2449,7 +2542,10 @@ export const CORE_TOOLS: DiagTool[] = [
     icon: '🧩',
     label: '환경·기능',
     hint: '이 기기가 갖춘 기능',
-    lead: '이 기기·브라우저가 앱에 필요한 기능을 갖췄는지 봅니다.',
+    question: '이 기기와 브라우저가 앱에 필요한 기능을 갖췄는가?',
+    reads: '화면·네트워크·저장소·Service Worker·브라우저 기능 지원 상태',
+    mode: 'summary',
+    writes: '없음',
     probe: environmentProbe,
   },
   {
@@ -2458,7 +2554,10 @@ export const CORE_TOOLS: DiagTool[] = [
     icon: '☁️',
     label: '저장 상태 · 기기별 현황',
     hint: '클라우드와 같은가 · 어느 기기가 뒤처졌나',
-    lead: '클라우드와 이 기기의 기록 수를 나란히 놓고, 각 기기가 마지막으로 올린 시각을 봅니다.',
+    question: '클라우드와 이 기기가 같은 기록을 갖고 각 기기가 따라왔는가?',
+    reads: '로컬·서버 도메인별 개수, 파일 목록, 기기별 마지막 업로드 시각',
+    mode: 'async',
+    writes: '사용자가 누를 때 기기 이름 변경·명시적 동기화만 수행',
     probe: storeStateProbe,
   },
   {
@@ -2467,7 +2566,10 @@ export const CORE_TOOLS: DiagTool[] = [
     icon: '📄',
     label: '오류 기록',
     hint: '이 세션에서 생긴 오류',
-    lead: '앱이 도는 동안 생긴 오류를 모아 둡니다. 새로고침하면 사라져요.',
+    question: '이번 실행 중 앱이 사용자에게 드러내지 못한 오류가 있었는가?',
+    reads: '현재 메모리 세션의 오류 종류·시각·정리된 메시지',
+    mode: 'summary',
+    writes: '사용자가 누를 때 메모리 오류 목록만 비움',
     probe: errorProbe,
   },
   {
@@ -2476,7 +2578,10 @@ export const CORE_TOOLS: DiagTool[] = [
     icon: '📱',
     label: '기기별 현황',
     hint: '내 기기들이 뒤처지지 않았나',
-    lead: '이 계정에서 서버에 올린 적 있는 기기들과, 각 기기가 마지막으로 올린 시각을 봅니다.',
+    question: '이 계정의 다른 기기들이 동기화에서 뒤처지지 않았는가?',
+    reads: '서버의 기기 원장과 기기별 마지막 업로드 시각',
+    mode: 'async',
+    writes: '없음',
     probe: deviceFleetProbe,
   },
   {
@@ -2485,7 +2590,10 @@ export const CORE_TOOLS: DiagTool[] = [
     icon: '🔑',
     label: '세션·로그인',
     hint: '로그인이 유지되나 · 로그아웃하면 가려지나',
-    lead: '로그인이 얼마나 유지되는지, 그리고 로그아웃했을 때 이 기기의 기록을 가리는 배선이 실제로 도는지 확인합니다.',
+    question: '로그인이 의도대로 유지되고 로그아웃 시 로컬 기록이 가려지는가?',
+    reads: '현재 인증 세션·만료 시각과 로컬 기록 표시 가드의 경우표',
+    mode: 'async',
+    writes: '없음',
     probe: sessionProbe,
   },
   {
@@ -2494,7 +2602,10 @@ export const CORE_TOOLS: DiagTool[] = [
     icon: '📡',
     label: '서버 계약',
     hint: '서버가 가정대로 행동하나',
-    lead: '로그인 없는 접근이 실제로 막히는지, 서버가 한 번에 주는 행수가 앱의 가정과 맞는지 실제로 물어봅니다. 읽기 전용이에요.',
+    question: '서버가 RLS·페이지 크기·조회 계약대로 실제 응답하는가?',
+    reads: '실제 Supabase 익명 접근 응답과 Range/Content-Range',
+    mode: 'async',
+    writes: '없음 — 읽기 요청만 수행',
     probe: serverContractProbe,
   },
   {
@@ -2503,7 +2614,10 @@ export const CORE_TOOLS: DiagTool[] = [
     icon: '🚦',
     label: '동기화 출고 점검',
     hint: '앱·Edge 배포 판과 실행 정체',
-    lead: '앱이 기대하는 Edge Function이 실제로 배포됐는지, 동기화 단계가 오래 멈춰 있지 않은지 읽기 전용으로 확인합니다.',
+    question: '앱과 Edge Function의 출고 판이 맞고 동기화가 멎지 않았는가?',
+    reads: '앱 프로토콜 판·Edge Function 식별자·현재 동기화 단계와 경과 시간',
+    mode: 'async',
+    writes: '없음 — read-back만 수행',
     probe: syncReleaseProbe,
   },
   {
@@ -2512,7 +2626,10 @@ export const CORE_TOOLS: DiagTool[] = [
     icon: '🖼️',
     label: '파일 실물',
     hint: '사진·소리가 실제로 열리나',
-    lead: '기록이 가리키는 바이트가 이 기기에 있고, 실제로 열리는지 하나씩 확인합니다.',
+    question: '기록이 가리키는 사진·소리가 이 기기에서 실제로 열리는가?',
+    reads: '로컬 사진·소리 행과 바이트 존재 여부, 마지막 명시적 열기 전수 결과',
+    mode: 'summary',
+    writes: '사용자가 누를 때 파일을 읽어 디코드 결과만 메모리에 기록',
     probe: fileRealityProbe,
   },
   {
@@ -2521,7 +2638,10 @@ export const CORE_TOOLS: DiagTool[] = [
     icon: '🔁',
     label: '왕복 시험',
     hint: '저장한 게 서버까지 갔다 오나',
-    lead: '시험용 여행 하나를 만들어 서버까지 보냈다가 고쳐 보고, 지우고 흔적까지 확인한 뒤 스스로 치웁니다. 기존 기록은 건드리지 않아요.',
+    question: '시험 기록이 생성·수정·삭제까지 서버를 왕복하고 정확히 정리되는가?',
+    reads: '마지막 왕복 결과와 시험용 엔티티·작업 큐·서버 read-back',
+    mode: 'summary',
+    writes: '사용자가 누를 때 고유 시험 기록만 생성·동기화·수정·삭제·정리',
     probe: roundTripProbe,
   },
   {
@@ -2530,7 +2650,10 @@ export const CORE_TOOLS: DiagTool[] = [
     icon: '🗑️',
     label: '저장·삭제·휴지통',
     hint: '지운 것을 되살릴 수 있나',
-    lead: '휴지통을 모든 기기가 같이 보는지, 되살렸을 때 자료가 온전히 돌아오는지 봅니다. 읽기 전용이라 아무것도 지우지 않아요.',
+    question: '삭제와 복원이 모든 기기에서 같은 의미로 보존되는가?',
+    reads: '로컬·서버 tombstone·영구삭제 원장·휴지통 일치 상태',
+    mode: 'async',
+    writes: '없음 — 읽기 전용',
     probe: trashProbe,
   },
   {
@@ -2539,7 +2662,10 @@ export const CORE_TOOLS: DiagTool[] = [
     icon: '🗄️',
     label: '백업 신선도',
     hint: '이 손에 있는 사본이 있나',
-    lead: '클라우드와 별개로, 이 기기 밖으로 받아 둔 백업 파일이 얼마나 최근인지 봅니다.',
+    question: '클라우드와 별개로 최근 백업 사본을 사용자가 갖고 있는가?',
+    reads: '마지막 완전백업 시각과 현재 클라우드 사용 여부',
+    mode: 'summary',
+    writes: '사용자가 누를 때 완전백업 파일만 생성',
     probe: backupProbe,
   },
 ];
@@ -2550,7 +2676,10 @@ export const SUMMARY_TOOL: DiagTool = {
   icon: '📋',
   label: '진단 요약 복사',
   hint: '앞의 결과를 한 번에 전달',
-  lead: '위 도구들의 결과를 한 덩어리 텍스트로 만듭니다.',
+  question: '현재 화면의 판정과 경계를 안전한 텍스트 한 장으로 전달할 수 있는가?',
+  reads: '현재 진단 실행 스냅샷·환경·동기화·무결성·오류·사각지대 등록부',
+  mode: 'summary',
+  writes: '사용자가 누를 때 비밀값 제거 보고서를 클립보드에 씀',
   probe: summaryProbe,
 };
 
@@ -2558,7 +2687,28 @@ export const DIAG_TOOLS: DiagTool[] = [...CORE_TOOLS, SUMMARY_TOOL];
 
 /** 도구 하나를 그린다 — **모든 도구가 같은 렌더러를 통과한다**. */
 export function renderDiagTool(t: DiagTool): HTMLElement {
-  return renderTool({ title: t.label, lead: t.lead, probe: t.probe });
+  const spots = blindSpotsForTool(t.id);
+  return renderTool({
+    title: t.label,
+    lead: t.question,
+    probe: async () => {
+      const verdict = await t.probe();
+      return {
+        ...verdict,
+        context: [
+          ...verdict.context,
+          { label: '읽는 것', value: t.reads },
+          {
+            label: '못 보는 것',
+            value: spots.length
+              ? spots.map((spot) => `${spot.id}(${spot.kind === 'structural' ? '구조적' : '일시적'})`).join(' · ')
+              : '등록된 사각지대 없음',
+          },
+          { label: '쓸 수 있는 것', value: t.writes },
+        ],
+      };
+    },
+  });
 }
 
 

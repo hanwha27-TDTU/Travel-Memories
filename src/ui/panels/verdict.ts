@@ -45,8 +45,10 @@ export interface LevelMeta {
 
 export const LEVELS: Record<Level, LevelMeta> = {
   problem: { glyph: '!', name: '문제', rank: 0 },
-  todo: { glyph: '●', name: '할 일', rank: 1 },
-  unknown: { glyph: '?', name: '확인 불가', rank: 2 },
+  // 다시 확인하면 풀릴 수 있는 `unknown/transient`는 선택적 할 일보다 먼저 보여야 한다.
+  // 구조적 unknown은 롤업의 `bannerLevelOf()`가 별도로 제외한다.
+  unknown: { glyph: '?', name: '확인 불가', rank: 1 },
+  todo: { glyph: '●', name: '할 일', rank: 2 },
   ok: { glyph: '✓', name: '정상', rank: 3 },
 };
 
@@ -229,6 +231,13 @@ export interface ToolView {
   probe: () => Promise<Verdict>;
 }
 
+function showActionFailure(message: HTMLElement, error: Error, reread: () => void): void {
+  message.textContent = `실행 실패: ${error.message}`;
+  message.hidden = false;
+  // 일부 변경 뒤 실패했을 수 있다. 실패 문장만 믿지 않고 현재 권위 상태를 다시 읽는다.
+  reread();
+}
+
 /**
  * 도구 하나를 그린다 — **모든 진단 도구가 이 함수를 통과한다**.
  *
@@ -326,8 +335,7 @@ export function renderTool(v: ToolView): HTMLElement {
                 run(); // read-back: 고쳤다고 말만 하지 않는다
               })
               .catch((e: Error) => {
-                msg.textContent = `실행 실패: ${e.message}`;
-                msg.hidden = false;
+                showActionFailure(msg, e, run);
               })
               .finally(() => {
                 b.disabled = false;
@@ -345,9 +353,10 @@ export function renderTool(v: ToolView): HTMLElement {
         ctx.hidden = r.context.length === 0;
       })
       .catch((e: Error) => {
-        card.className = 'vd-card vd-card-problem';
+        // 관측 실패는 관측된 문제와 다르다. 다시 열면 풀릴 수 있는 일시적 확인 불가다.
+        card.className = 'vd-card vd-card-unknown';
         applyText(line, '확인하지 못했어요');
-        head.replaceChildren(badge('problem'), line);
+        head.replaceChildren(badge('unknown'), line);
         applyText(because, e.message);
         because.hidden = false;
       })

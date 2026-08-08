@@ -123,6 +123,11 @@ let selfTestCount = 0;
       actual: [...skillsFor(['docs/HANDOFF_CODEX.md']).keys()],
       expected: ['gates-mechanization-dev'],
     },
+    {
+      name: 'portable diagnostic blueprint routes to diagnostics and gates',
+      actual: [...skillsFor(['docs/DIAGNOSTIC_TOOL_DESIGN_BLUEPRINT.md']).keys()],
+      expected: ['diagnostics-dev', 'gates-mechanization-dev'],
+    },
   ];
   const broken = routingCases.filter(
     ({ actual, expected }) => actual.length !== expected.length || expected.some((skill) => !actual.includes(skill)),

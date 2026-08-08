@@ -42,6 +42,10 @@ export const SKILL_ROUTES = [
   // 개별 스킬 문서는 아래 skillsFor()가 자기 자신도 함께 라우팅한다.
   { match: /^\.claude\/skills\//, skill: 'gates-mechanization-dev' },
   { match: /^docs\/(CONSTITUTION|HANDOFF(?:_CODEX)?)\.md$/, skill: 'gates-mechanization-dev' },
+  // A portable diagnostic blueprint changes both diagnostic semantics and the
+  // gates that prove those semantics. Route it to both contracts explicitly.
+  { match: /^docs\/DIAGNOSTIC_TOOL_DESIGN_BLUEPRINT\.md$/, skill: 'diagnostics-dev' },
+  { match: /^docs\/DIAGNOSTIC_TOOL_DESIGN_BLUEPRINT\.md$/, skill: 'gates-mechanization-dev' },
   // The service worker controls the deployed shell's offline behavior. It is
   // executable release infrastructure, not an ungoverned public asset.
   { match: /^public\/sw\.js$/, skill: 'gates-mechanization-dev' },
@@ -139,6 +143,7 @@ export const SKILL_ROUTES = [
   { match: /^src\/services\/trashState/, skill: 'sync-offline-dev' },
   // 진단 분류 축·사각지대 등록부 — 「무엇을 도구로 만들 것인가」의 정본이라 진단 헌장이다.
   { match: /^src\/domain\/diagGroups/, skill: 'diagnostics-dev' },
+  { match: /^src\/domain\/diagnosticReport/, skill: 'diagnostics-dev' },
   // 🔴 왕복 시험은 **쓰기**다. 판정은 진단 규율이지만, 실제로 만들고 지우고 영구삭제하는
   // 경로라 삭제·tombstone·원장 규율이 그대로 걸린다 — 두 헌장을 모두 읽는다.
   { match: /^src\/domain\/roundTripVerdict/, skill: 'diagnostics-dev' },

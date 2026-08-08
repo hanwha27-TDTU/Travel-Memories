@@ -1189,7 +1189,7 @@ select.zone-input { text-overflow: ellipsis; }
 .guide-title { margin: 0; font-family: var(--font-disp); font-size: 1.5rem; color: var(--ink); }
 .guide-sub { margin: 4px 0 0; font-size: 0.82rem; color: var(--ink-soft); }
 .guide-close {
-  flex: 0 0 auto; width: 38px; height: 38px; display: grid; place-items: center;
+  flex: 0 0 auto; width: var(--touch-target-min); height: var(--touch-target-min); display: grid; place-items: center;
   border: 1px solid var(--line); border-radius: var(--radius-pill);
   background: var(--surface); color: var(--ink-soft); font-size: 1rem; cursor: pointer;
 }
