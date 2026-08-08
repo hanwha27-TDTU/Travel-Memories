@@ -47,6 +47,8 @@ export const GATE_DESC: Record<string, string> = {
   'check-report-fields': '보고용 구조체의 필드를 화면이 실제로 읽는지(계산만 하고 안 보여주는 형태 차단)',
   'check-no-synthetic-italic': '가짜 기울임(합성 이탤릭)으로 한글을 뭉개지 않는지',
   'check-edge-fn-ops': 'Edge Function이 처리하는 연산 목록이 클라이언트가 보내는 것과 일치하는지',
+  'check-sync-release-contract':
+    '동기화 릴리스 계약의 정본·앱 생성물·Edge 소스 식별자가 같은지(배포 누락을 운영 대조 전에 정적으로 차단)',
   'check-node-version': '개발 환경과 배포 서버가 같은 Node 판을 쓰는지(어긋나면 여기선 되고 저기선 안 됩니다)',
   'check-backup-coverage': '모든 사용자 테이블이 백업 export/import에 다 있는지',
   'check-blueprint': '설계 개요도(배선맵) 선언 ↔ 실제 구조 일치',
@@ -122,6 +124,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-report-fields': 'static',
   'check-no-synthetic-italic': 'static',
   'check-edge-fn-ops': 'static',
+  'check-sync-release-contract': 'generated',
   'check-node-version': 'static',
   'check-backup-coverage': 'static',
   'check-blueprint': 'generated',

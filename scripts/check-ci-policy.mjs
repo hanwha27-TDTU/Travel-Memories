@@ -10,6 +10,7 @@
 //  ③ 취소 정책이 켜져 있는가(③)
 //  ④ Ready PR의 harness job이 **build → harness** 순서인가
 //  ⑤ `deploy-pages.yml`이 harness를 **다시 돌리지 않는가** — 하네스→머지→배포 한 묶음
+//  ⑥ Ready PR과 Pages 배포가 운영 Edge 계약을 되읽는가 — 새 앱 + 옛 함수 차단
 //
 // 🔴 정직한 한계: 이 게이트는 **파일이 그렇게 적혀 있다**까지만 안다. GitHub이 실제로 그
 // 일정대로 도는지는 정적으로 볼 수 없다(§2-J ②의 한계와 같다). 판정문도 그렇게만 말한다.
@@ -96,6 +97,9 @@ export function findPolicyViolations(ciYaml, deployYaml) {
   if (harnessBody !== null && !commandsInOrder(harnessBody, 'build', 'harness')) {
     bad.push('§15④ Ready PR의 harness job은 앱을 먼저 build한 뒤 harness를 실행해야 합니다.');
   }
+  if (harnessBody !== null && !/npm run verify:sync-release-live/.test(harnessBody)) {
+    bad.push('동기화 배포 계약: Ready PR harness job이 운영 Edge 계약을 되읽지 않습니다.');
+  }
 
   // ①의 좁은 검사가 존재하는가 — 없으면 draft에서 아무것도 안 재게 된다
   if (!/^\s{2}fast-gates:/m.test(ci)) {
@@ -115,6 +119,9 @@ export function findPolicyViolations(ciYaml, deployYaml) {
   if (!/npm run build/.test(deploy)) {
     bad.push('§15⑤ deploy-pages.yml에 배포 산출물 build가 없습니다.');
   }
+  if (!/npm run verify:sync-release-live/.test(deploy)) {
+    bad.push('동기화 배포 계약: deploy-pages.yml이 운영 Edge 계약을 되읽지 않습니다.');
+  }
   return bad;
 }
 
@@ -125,10 +132,10 @@ export function findPolicyViolations(ciYaml, deployYaml) {
     'concurrency:', '  cancel-in-progress: true', '',
     'jobs:', '  fast-gates:', '    runs-on: x',
     '  harness:', '    if: ${{ github.event.pull_request.draft == false }}', '    runs-on: x',
-    '    steps:', '      - run: npm run build', '      - run: npm run harness',
+    '    steps:', '      - run: npm run build', '      - run: npm run harness', '      - run: npm run verify:sync-release-live',
     '  live-render:', '    if: ${{ github.event.pull_request.draft == false }}', '    runs-on: x',
   ].join('\n');
-  const goodDeploy = 'jobs:\n  build:\n    steps:\n      - run: npm run build\n';
+  const goodDeploy = 'jobs:\n  build:\n    steps:\n      - run: npm run verify:sync-release-live\n      - run: npm run build\n';
   if (findPolicyViolations(goodCi, goodDeploy).length !== 0) {
     throw new Error('SELF-TEST 실패: 정상 설정을 위반으로 판정(오탐).');
   }
@@ -155,6 +162,12 @@ export function findPolicyViolations(ciYaml, deployYaml) {
   // 주입 ⑤: deploy에서 harness 재실행
   if (findPolicyViolations(goodCi, goodDeploy.replace('npm run build', 'npm run build\n      - run: npm run harness')).length === 0) {
     throw new Error('SELF-TEST 실패: deploy의 중복 harness를 통과시킨다.');
+  }
+  if (findPolicyViolations(goodCi.replace('      - run: npm run verify:sync-release-live\n', ''), goodDeploy).length === 0) {
+    throw new Error('SELF-TEST 실패: Ready PR의 운영 Edge 대조 누락을 통과시킨다.');
+  }
+  if (findPolicyViolations(goodCi, goodDeploy.replace('      - run: npm run verify:sync-release-live\n', '')).length === 0) {
+    throw new Error('SELF-TEST 실패: Pages 배포의 운영 Edge 대조 누락을 통과시킨다.');
   }
   // 주석 안의 낱말은 판정을 흔들면 안 된다(오탐 방지)
   if (findPolicyViolations(`# push: 를 쓰지 않는 이유를 설명한다\n${goodCi}`, goodDeploy).length !== 0) {

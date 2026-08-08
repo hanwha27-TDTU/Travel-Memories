@@ -141,6 +141,18 @@ export const BLIND_SPOTS: BlindSpot[] = [
     coveredBy: 'contract',
   },
   {
+    what: '앱이 기대하는 media-sign 소스와 실제 배포된 Edge Function 소스가 같은가',
+    whyDevCannot: '프로토콜 판과 실제 배포 소스는 다르며, 운영 함수가 자기 소스 식별자를 되돌려줘야만 대조할 수 있다',
+    group: 'contract',
+    coveredBy: 'sync-release',
+  },
+  {
+    what: '동기화가 실행 중인 척한 채 같은 단계에서 영구히 멎지 않았는가',
+    whyDevCannot: 'Promise 미정산과 모바일 네트워크·브라우저 정체는 실기기 실행 시간축에서만 드러난다',
+    group: 'upload',
+    coveredBy: 'sync-release',
+  },
+  {
     what: '서버 트리거가 updated_at을 덮어써서 LWW 판정을 흔들지 않는가',
     whyDevCannot: '실제로 저장해 보고 응답을 비교해야 안다 — 쓰기 권한이 있는 서버가 필요하다',
     group: 'upload',

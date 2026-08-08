@@ -17,6 +17,8 @@
     "check:secrets": "node scripts/check-secret-leak.mjs",
     "gates": "node scripts/harness.mjs --fast",
     "gen:adapters": "node scripts/gen-adapters.mjs",
+    "gen:sync-release": "node scripts/gen-sync-release-contract.mjs",
+    "verify:sync-release-live": "node scripts/verify-sync-release-live.mjs",
     "known": "node scripts/known.mjs"
   },
   "engines": {

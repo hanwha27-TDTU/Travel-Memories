@@ -140,6 +140,28 @@ describe('실패를 숨기지 않는다', () => {
     expect(seen).toEqual([9]);
     expect(syncStatus().progress).toBeNull();
   });
+
+  it('records run start and the last real progress time for stall diagnostics', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-08-08T08:00:00.000Z'));
+      runSyncMock.mockImplementationOnce(async (
+        _client: unknown,
+        _userId: unknown,
+        opts: { onProgress?: (progress: { phase: 'pulling'; completed: number; total: number; phaseCompleted: number; phaseTotal: number }) => void },
+      ) => {
+        vi.setSystemTime(new Date('2026-08-08T08:01:30.000Z'));
+        opts.onProgress?.({ phase: 'pulling', completed: 1, total: 13, phaseCompleted: 1, phaseTotal: 6 });
+        return { pushed: 0, failed: 0, pulled: 1, skippedEmptyCloud: false };
+      });
+
+      await requestSync('timestamp');
+      expect(syncStatus().startedAt).toBe('2026-08-08T08:00:00.000Z');
+      expect(syncStatus().progressAt).toBe('2026-08-08T08:01:30.000Z');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('돌 수 없는 상황은 실패가 아니다 — 정직하게 구분한다', () => {

@@ -38,6 +38,7 @@ import {
 import { retryFailedOps, requeueMissingBytes } from '../../services/sync';
 import { checkIntegrity, CHECK_COUNT } from '../../domain/integrity';
 import { autoSyncVerdict } from '../../domain/syncStatusVerdict';
+import { syncReleaseHeadline, syncReleaseMetrics, type SyncReleaseObservation } from '../../domain/syncReleaseVerdict';
 import {
   isConfirmedTombstone,
   tombstoneFindingText,
@@ -50,6 +51,7 @@ import { persistResultNote, persistIsMeaningful, surfaceLabel, storageHeadline, 
 import { recentErrors, clearErrors } from '../../app/errorLog';
 import { CHANGELOG } from '../../app/changelog';
 import { syncStatus, requestSync } from '../../services/autoSync';
+import { collectSyncReleaseObservation } from '../../services/syncReleaseDiagnostics';
 import {
   compareStore,
   storeStateRemote,
@@ -448,6 +450,55 @@ export async function syncProbe(): Promise<Verdict> {
     },
   });
   return v;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 동기화 출고 점검 — 코드·Edge 배포·실행 정체를 같은 계약으로 대조
+
+export async function syncReleaseProbe(): Promise<Verdict> {
+  const c = supabase();
+  const runtime = syncStatus();
+  const observation: SyncReleaseObservation = c
+    ? await collectSyncReleaseObservation(c)
+    : {
+        edge: {
+          version: null,
+          ops: null,
+          sourceSha256: null,
+          serverTime: null,
+          secretsOk: null,
+          error: '서버 연결이 설정되지 않았습니다',
+        },
+        runtime: {
+          phase: runtime.phase,
+          progressLabel: null,
+          startedAt: runtime.startedAt,
+          progressAt: runtime.progressAt,
+        },
+        nowIso: new Date().toISOString(),
+      };
+  const views = syncReleaseMetrics(observation);
+  const metrics = views.map((view) => metricFromView(view.label, view, 'transient'));
+  return {
+    level: levelFromMetrics(metrics),
+    headline: syncReleaseHeadline(views),
+    metrics,
+    actions: [],
+    evidence: [
+      {
+        label: '자세히 — 배포·진행 증거',
+        build: () => table([
+          ['서버 시각', observation.edge.serverTime ? localDateTime(observation.edge.serverTime) : '확인 못 함'],
+          ['동기화 시작', observation.runtime.startedAt ? localDateTime(observation.runtime.startedAt) : '이번 세션에 없음'],
+          ['마지막 단계 전진', observation.runtime.progressAt ? localDateTime(observation.runtime.progressAt) : '이번 세션에 없음'],
+        ], '수집한 증거가 없어요'),
+      },
+    ],
+    context: [
+      { label: '검사 범위', value: '읽기 전용 · 사용자 기록 변경 없음' },
+      { label: '배포 원칙', value: 'Edge Function 먼저 → 운영 대조 → 앱 배포' },
+    ],
+  };
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -2445,6 +2496,15 @@ export const CORE_TOOLS: DiagTool[] = [
     hint: '서버가 가정대로 행동하나',
     lead: '로그인 없는 접근이 실제로 막히는지, 서버가 한 번에 주는 행수가 앱의 가정과 맞는지 실제로 물어봅니다. 읽기 전용이에요.',
     probe: serverContractProbe,
+  },
+  {
+    id: 'sync-release',
+    group: 'contract',
+    icon: '🚦',
+    label: '동기화 출고 점검',
+    hint: '앱·Edge 배포 판과 실행 정체',
+    lead: '앱이 기대하는 Edge Function이 실제로 배포됐는지, 동기화 단계가 오래 멈춰 있지 않은지 읽기 전용으로 확인합니다.',
+    probe: syncReleaseProbe,
   },
   {
     id: 'files',

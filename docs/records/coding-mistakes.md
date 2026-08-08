@@ -6,6 +6,15 @@
 
 ---
 
+## M-0132 · **같은 FN_VERSION 안의 Edge 수정은 배포를 누락해도 진단이 잡지 못했다**
+- **날짜**: 2026-08-08 · **발견**: 오늘의 Chrome canonical 장애 사후 예방 설계 · **심각도**: high(새 앱과 옛 Edge 조합이 동기화를 다시 막을 수 있음)
+- **자리**: `supabase/functions/media-sign/index.ts`, `src/ui/panels/diagnostics.ts`, `.github/workflows/ci.yml`, `.github/workflows/deploy-pages.yml`
+- **증상**: 진단은 「사진 저장소 함수 판 v6 / 정상 v6 이상」만 확인했다. 같은 v6 안에서 재시도·timeout·CORS를 고친 뒤 Edge 배포를 누락해도 운영 함수는 계속 v6을 말하므로 초록이었다. `running`도 시작·진행 시각이 없어 오래 걸리는 정상과 영구 정체를 가를 수 없었다.
+- **원인**: 호환성 버전과 실제 배포 소스 식별자를 같은 값으로 취급했다. 정적 소스·CI·운영 함수·기기 진단이 공유하는 릴리스 계약 SSOT가 없었고, Pages 배포는 Edge 운영 상태를 되읽지 않았다.
+- **수정**: `schemas/sync-release-contract.json`을 정본으로 media-sign 논리 소스 SHA-256, protocol, 필수 op, 정체 상한을 생성한다. Edge `capabilities`가 해시를 밝히고 앱의 「동기화 출고 점검」이 배포 판과 마지막 단계 전진 시각을 읽는다. Ready PR과 Pages 배포는 운영 capabilities를 읽기 전용으로 대조한다.
+- **예방**: `check-sync-release-contract`가 정본↔앱↔Edge 생성물과 LF/CRLF 대조군을 검사하고 실제 소스 변조 RED를 확인한다. 배포 순서는 **Edge 선배포 → sourceSha256 운영 대조 → 앱 배포**로 고정한다.
+- **일반형**: 🔴 **계약 판은 ‘무엇을 할 수 있는가’를 말하고, 소스 식별자는 ‘무엇이 실제로 올라갔는가’를 말한다.** 서로 다른 질문을 한 숫자로 답하면 배포 누락이 정상으로 보인다.
+
 ## M-0131 · **동기화 종료 뒤 0건·「확인 전」을 남길 수 있는 비동기 전달 경합이 있었다**
 - **날짜**: 2026-08-08 · **발견**: 사용자 Android Chrome 시각별 화면 + 운영 Edge Function 로그 · **심각도**: high(서버 수신과 사용자 화면의 완료 판정이 갈릴 수 있음)
 - **자리**: `src/services/canonicalSync.ts`, `src/services/syncParity.ts`, `src/ui/screens/home.ts`, `src/domain/syncProgress.ts`
