@@ -211,4 +211,14 @@ describe('measurable sync progress', () => {
     expect(v.text).toContain('3/6');
     expect(v.progressPercent).toBe(69);
   });
+
+  it('새 Chrome의 canonical 사진 진행을 실제 장수로 보여 준다', () => {
+    const v = syncBadge(IN({
+      phase: 'running',
+      progress: { phase: 'canonical-media', completed: 56, total: 92, phaseCompleted: 56, phaseTotal: 90 },
+    }));
+    expect(v.text).toContain('사진 받는 중 56/90');
+    expect(v.text).toContain('61%');
+    expect(v.progressPercent).toBe(61);
+  });
 });

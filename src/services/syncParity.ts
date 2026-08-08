@@ -96,6 +96,16 @@ export function refreshParity(): Promise<ParitySnapshot | null> {
   return inFlight;
 }
 
+/**
+ * 성공한 동기화보다 먼저 시작한 대조는 완료 증거가 아니다. 그 대조가 이미 돌고 있으면
+ * 끝난 뒤 반드시 한 번 더 잰다 — single-flight를 "옛 대조 재사용"으로 바꾸지 않는다.
+ */
+export async function refreshParityAfterSync(): Promise<ParitySnapshot | null> {
+  const before = inFlight;
+  if (before) await before;
+  return refreshParity();
+}
+
 let installed = false;
 
 /**
@@ -109,7 +119,7 @@ export function installParityWatch(): () => void {
   if (installed) return () => undefined;
   installed = true;
   const off = onSyncStatus((s) => {
-    if (s.phase === 'ok') void refreshParity();
+    if (s.phase === 'ok') void refreshParityAfterSync();
     // 실패·로그아웃이면 옛 대조는 못 믿는다 — 비운다(낡은 초록 금지).
     if (s.phase === 'failed' || s.phase === 'signed-out') cached = null;
   });

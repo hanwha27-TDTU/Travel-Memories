@@ -4,6 +4,14 @@
 
 ---
 
+## HANDOFF-0123 · v2.04 · **첫 canonical 소비 게이지·로컬 반영 read-back·화면 경합 차단** (2026-08-08)
+
+- **사용자 실기기 증거**: v2.03 Android Chrome은 18:39 「동기화 준비·안전 확인 중」과 여행 0건을 보였고, 18:42·18:45에는 「보낼 것 없음 · 클라우드와 같은지는 확인 전」으로 바뀌었지만 목록은 계속 0건이었다. 같은 구간의 운영 `media-sign` v8 요청 56회는 모두 HTTP 200이어서, 다운로드가 진행되어도 한 단계 문구로만 보이고 완료 뒤 화면 정본이 갈릴 수 있는 전달 문제를 함께 조사했다.
+- **수정(M-0131)**: canonical snapshot의 사진·소리 수를 분모로 삼아 파일 다운로드·썸네일 생성이 끝날 때마다 실제 게이지를 전진시킨다. 이어 Dexie 원자 반영과 로컬 재확인을 별도 단계로 보인다. transaction 뒤 여섯 엔티티 표 개수와 canonical version을 다시 읽어 snapshot 기대값과 다르면 성공하지 않는다.
+- **화면·대조 수렴**: 인증 복원·첫 parity·동기화 완료의 홈 refresh에는 세대를 두어 마지막 요청만 렌더한다. 동기화 성공 전에 parity가 이미 돌고 있었다면 그 결과를 완료 증거로 재사용하지 않고, 끝난 뒤 새 대조를 한 번 더 실행한다.
+- **스킬 환류**: `sync-runtime-dev`에 canonical 실제 분모·최신 렌더 소유권·성공 후 새 parity 규율을, `sync-offline-dev`에 transaction 뒤 여섯 표·canonical version read-back 규율을 추가했다.
+- **검증·배포 경계**: 관련 유닛 48/48와 TypeScript strict 검사를 먼저 통과했다. 최종 릴리스 판정은 v2.04 생성물 재생성→build→전체 harness/live→Ready PR Required CI→squash merge→Pages `version.json` read-back 순서로 닫는다. DB migration·Edge Function·R2 형식·Android 셸은 바뀌지 않아 배포 표면은 GitHub Pages 하나다.
+
 ## HANDOFF-0122 · v2.03 · **Android Chrome 첫 사진 동기화의 순간 전송 단절 복구** (2026-08-08)
 
 - **사용자 실기기 증거**: 별도 저장소인 설치 앱은 정상이었지만 새 Android Chrome은 클라우드 여행 10·사진 90 등에 로컬 0인 첫 canonical 소비에서 오래 준비 상태에 있다가, 활성 사진 `8c20ea26-0ee9-4eab-9cdd-a2bd65d810d9`의 `Failed to send a request to the Edge Function`으로 종료했다.
@@ -789,7 +797,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->2.03<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->203<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->114<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->2.04<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->204<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->115<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->29<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

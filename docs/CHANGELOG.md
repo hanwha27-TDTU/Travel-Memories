@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+### 첫 canonical 소비 진행률·로컬 read-back·최신 렌더 소유권 (2026-08-08)
+- canonical snapshot의 사진·소리 분모를 읽은 뒤 각 파일 다운로드와 썸네일 처리가 실제로 끝난 수만 게이지에 반영한다. 파일 수신 뒤 Dexie 원자 반영과 로컬 재확인도 별도 단계로 표시한다.
+- transaction resolve 뒤 여섯 엔티티 표의 실제 개수와 `syncState.canonicalVersion`을 snapshot 기대값과 다시 대조한다. 하나라도 다르면 성공을 반환하지 않는다.
+- 인증 복원·초기 parity·동기화 성공이 홈 refresh를 겹쳐도 요청 세대로 마지막 조회만 DOM을 갱신한다. 성공 전 parity single-flight가 있었다면 종료를 기다린 뒤 성공 후 대조를 새로 실행한다.
+
 ### Android Chrome 첫 canonical 사진 소비 복원력 (2026-08-08)
 - 운영 Edge Function 로그에서 첫 동기화 중 `media-sign` POST 200이 80회 이어진 뒤, 사용자 오류 시각에는 OPTIONS/POST가 하나도 도착하지 않은 것을 확인했다. Supabase SDK의 `FunctionsFetchError`와 일치해 함수·인증·R2 객체가 아니라 client→Edge fetch 단절로 판정했다.
 - 부작용 없는 `media-sign get`과 서명된 R2 GET만 최대 3회 지수 backoff로 재시도한다. 함수 invoke 15초, R2 응답 body 30초 abort timeout을 두며 401·403·404는 반복하지 않는다. 최종 실패한 활성 사진은 계속 canonical 전체 적용을 막는다.

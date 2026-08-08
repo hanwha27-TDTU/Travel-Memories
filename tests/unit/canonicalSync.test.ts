@@ -1,7 +1,7 @@
 // canonicalSync.test.ts — 일반 병합과 사용자 지정 최종본 교체가 섞이지 않는가.
 
 import 'fake-indexeddb/auto';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { db, type LocalMedia, type LocalTrip, type SyncQueueItem } from '../../src/offline/db';
 import {
   canonicalRemote,
@@ -13,6 +13,7 @@ import {
 import { runSync } from '../../src/services/sync';
 import type { TripRow } from '../../src/domain/trip/rowmap';
 import type { MediaRow } from '../../src/domain/media/rowmap';
+import type { SyncProgress } from '../../src/domain/syncProgress';
 
 const USER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const LOCAL_ID = '11111111-1111-4111-8111-111111111111';
@@ -191,6 +192,48 @@ describe('canonical 소비 기기', () => {
     expect(await db().localTrips.get(SERVER_ID)).toMatchObject({ title:'클라우드 최종본',baseCanonicalVersion:VERSION });
     expect(await db().syncQueue.count()).toBe(0);
     expect(remote.published).toHaveLength(0);
+  });
+
+  it('사진별 실제 완료와 로컬 반영·재확인 단계를 순서대로 보고한다', async () => {
+    const media: MediaRow = {
+      id:'66666666-6666-4666-8666-666666666666',user_id:USER,moment_id:MOMENT_ID,trip_id:SERVER_ID,
+      storage_path:`${USER}/trip/photo__66666666666646668666666666666666.webp`,gps_lat:null,gps_lng:null,sort_order:null,
+      width:100,height:100,taken_at:null,bytes_display:10,source:'user',version:1,base_version:1,
+      base_canonical_version:VERSION,created_at:'2026-08-01T00:00:00.000Z',
+      updated_at:'2026-08-02T00:00:00.000Z',deleted_at:null,client_operation_id:null,
+    };
+    await db().syncState.put({ id:`canonical:${USER}`,userId:USER,canonicalVersion:'legacy',updatedAt:'2026-08-01T00:00:00.000Z' });
+    const progress: SyncProgress[] = [];
+
+    await ensureCanonicalBeforeSync(
+      fakeRemote({ version:VERSION,trips:[tripRow()],media:[media] }),
+      USER,
+      (value) => progress.push(value),
+    );
+
+    expect(progress.map((x) => `${x.phase}:${x.phaseCompleted}/${x.phaseTotal}`)).toEqual([
+      'canonical-media:0/1',
+      'canonical-media:1/1',
+      'canonical-applying:0/1',
+      'canonical-verifying:0/1',
+      'canonical-verifying:1/1',
+    ]);
+    expect(progress.at(-1)).toMatchObject({ completed:3,total:3 });
+  });
+
+  it('로컬 read-back이 서버 snapshot 개수와 다르면 성공으로 끝내지 않는다', async () => {
+    await db().syncState.put({ id:`canonical:${USER}`,userId:USER,canonicalVersion:'legacy',updatedAt:'2026-08-01T00:00:00.000Z' });
+    const spy = vi.spyOn(db().localTrips, 'count').mockImplementation((() => (
+      db().localTrips.toArray().then(() => 0)
+    )) as never);
+
+    try {
+      await expect(ensureCanonicalBeforeSync(fakeRemote({ version:VERSION,trips:[tripRow()] }),USER))
+        .rejects.toThrow('이 기기 반영 확인 실패');
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await db().localTrips.get(SERVER_ID)).toBeDefined();
   });
 
   it('바이트를 다 받지 못하면 로컬 교체를 시작하지 않는다', async () => {
