@@ -26,6 +26,12 @@
 // 돌린다(§10 ③ — 자료구조는 옳고 화면 문장만 틀린 부류가 이 저장소의 최빈 결함군이다).
 
 /** `services/autoSync.ts`의 phase 중 이 판정이 쓰는 것만. */
+import {
+  syncProgressLabel,
+  syncProgressPercent,
+  type SyncProgress,
+} from './syncProgress';
+
 export type SyncPhaseLike = 'idle' | 'running' | 'ok' | 'failed' | 'offline' | 'signed-out';
 
 /** 서버와의 대조 결과. 아직 안 했거나 못 했으면 `null`. */
@@ -50,6 +56,11 @@ export interface BadgeInput {
   lastError: string | null;
   /** 서버 대조 결과. **`null`은 「같다」가 아니라 「모른다」**다. */
   parity: ParitySnapshot | null;
+  /** Most recent sync result; shown only after a user-initiated badge sync. */
+  lastResult: { pushed: number; pulled: number; failed: number } | null;
+  /** Source of the most recent sync request. */
+  lastReason: string;
+  progress: SyncProgress | null;
 }
 
 export type BadgeLevel = 'ok' | 'info' | 'error';
@@ -69,6 +80,8 @@ export interface BadgeView {
    * (사용자 제안 2026-08-05), 「지금 확인」이 필요한 상태에서는 배지가 그 버튼 노릇을 한다.
    */
   syncOnTap: boolean;
+  /** A measurable domain-sync percentage; omitted for preparation/safety work. */
+  progressPercent?: number;
 }
 
 /**
@@ -89,7 +102,15 @@ export function syncBadge(i: BadgeInput): BadgeView {
 
   // ③ 지금 돌고 있다 — 누르면 또 돌리는 것이 아니라 기다리게 한다.
   if (i.phase === 'running') {
-    return { text: '↻ 동기화 중…', level: 'info', go: null, syncOnTap: false };
+    const progressPercent = syncProgressPercent(i.progress);
+    const label = syncProgressLabel(i.progress);
+    return {
+      text: progressPercent === null ? `↻ ${label}` : `↻ ${label} · ${progressPercent}%`,
+      level: 'info',
+      go: null,
+      syncOnTap: false,
+      ...(progressPercent === null ? {} : { progressPercent }),
+    };
   }
 
   // ④ 최근 실패 — pending이 0이어도 이게 먼저다(M-0101: 보낼 게 없어서 조용한 것과
@@ -118,6 +139,10 @@ export function syncBadge(i: BadgeInput): BadgeView {
   // ⑦ 🔴 대조를 못 했다 — **「동기화됨」이라 하지 않는다.** 모르는 것을 정상으로 반올림하는
   //    것이 M-0101이 사용자를 속인 방식이다(§8 · 비타협 원칙 #4).
   if (!i.parity) {
+    // Never promote a completed transfer to a full sync before the store comparison returns.
+    if (i.phase === 'ok' && i.lastReason === '배지' && i.lastResult) {
+      return { text: '✓ 전송 완료 · 대장 대조 확인 중', level: 'info', go: 'store', syncOnTap: false };
+    }
     return { text: '☁️ 보낼 것 없음 · 클라우드와 같은지는 확인 전', level: 'info', go: 'store', syncOnTap: true };
   }
 
@@ -132,6 +157,15 @@ export function syncBadge(i: BadgeInput): BadgeView {
   }
 
   // ⑨ 보낼 것도 없고 서버와도 같다 — **이때만** 동기화됨이다. 정상은 침묵(목적지 없음).
+  // Automatic successes stay quiet; an explicit badge tap receives an immediate result.
+  if (i.phase === 'ok' && i.lastReason === '배지' && i.lastResult) {
+    const { pushed, pulled } = i.lastResult;
+    const text = pushed === 0 && pulled === 0
+      ? '✓ 동기화 완료 · 변경 없음'
+      : `✓ 동기화 완료 · 보냄 ${pushed}건 · 받음 ${pulled}건`;
+    return { text, level: 'info', go: null, syncOnTap: false };
+  }
+
   return { text: '☁️ 동기화됨', level: 'ok', go: null, syncOnTap: false };
 }
 

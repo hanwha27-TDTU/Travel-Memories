@@ -17,6 +17,9 @@ const IN = (over: Partial<BadgeInput> = {}): BadgeInput => ({
   phase: 'ok',
   lastError: null,
   parity: { same: true, differing: 0, at: '2026-08-05T12:00:00.000Z' },
+  lastResult: null,
+  lastReason: '',
+  progress: null,
   ...over,
 });
 
@@ -102,6 +105,45 @@ describe('보낼 것이 남았을 때', () => {
   });
 });
 
+describe('수동 동기화 완료 결과', () => {
+  it('대조까지 같으면 방금 보낸/받은 결과를 즉시, 짧게 보여 준다', () => {
+    const v = syncBadge(IN({
+      lastReason: '배지',
+      lastResult: { pushed: 3, pulled: 2, failed: 0 },
+    }));
+    expect(v.text).toBe('✓ 동기화 완료 · 보냄 3건 · 받음 2건');
+    expect(v.level).toBe('info');
+    expect(v.go).toBeNull();
+    expect(v.syncOnTap).toBe(false);
+  });
+
+  it('실제 변경이 없었던 수동 동기화도 성공 여부를 명확히 남긴다', () => {
+    expect(syncBadge(IN({
+      lastReason: '배지',
+      lastResult: { pushed: 0, pulled: 0, failed: 0 },
+    })).text).toBe('✓ 동기화 완료 · 변경 없음');
+  });
+
+  it('대조가 끝나지 않았으면 전송 성공을 전체 동기화 성공으로 과장하지 않는다', () => {
+    const v = syncBadge(IN({
+      parity: null,
+      lastReason: '배지',
+      lastResult: { pushed: 1, pulled: 0, failed: 0 },
+    }));
+    expect(v.text).toBe('✓ 전송 완료 · 대장 대조 확인 중');
+    expect(v.level).toBe('info');
+    expect(v.go).toBe('store');
+    expect(v.syncOnTap).toBe(false);
+  });
+
+  it('자동 동기화의 이전 결과는 평소 상태를 시끄럽게 만들지 않는다', () => {
+    expect(syncBadge(IN({
+      lastReason: '주기',
+      lastResult: { pushed: 3, pulled: 2, failed: 0 },
+    })).text).toBe('☁️ 동기화됨');
+  });
+});
+
 describe('로컬 전용·로그인 전', () => {
   it('클라우드를 안 쓰면 왜 서버로 안 가는지는 환경이 답한다', () => {
     expect(syncBadge(IN({ cloudConfigured: false })).go).toBe('env');
@@ -141,5 +183,17 @@ describe('문장 규율', () => {
       expect(syncBadge(IN(c)).text).not.toContain('**');
       expect(syncBadge(IN(c)).text.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('measurable sync progress', () => {
+  it('reports only settled domain stages as a percentage', () => {
+    const v = syncBadge(IN({
+      phase: 'running',
+      progress: { phase: 'pulling', completed: 9, total: 13, phaseCompleted: 3, phaseTotal: 6 },
+    }));
+    expect(v.text).toContain('69%');
+    expect(v.text).toContain('3/6');
+    expect(v.progressPercent).toBe(69);
   });
 });

@@ -14,6 +14,7 @@ import {
   needsAddress,
   liveLookupNote,
   placeRecordGroups,
+  unusedRegistryPlaces,
   unlinkedPlaceMoments,
   type RegistryPlace,
   type PlaceRecordMoment,
@@ -69,6 +70,25 @@ describe('검색 — 한 글자라도 포함되면 나온다(사용자 요청)',
 
   it('🔴 지운 장소는 언제나 뺀다 — 검색어가 맞아도', () => {
     expect(searchRegistry(FIXTURE, '지운').map((p) => p.name)).toEqual([]);
+  });
+});
+
+describe('사진이 없는 장소 정리 후보', () => {
+  const M = (over: Partial<PlaceRecordMoment> & { id: string; tripId: string; tripTitle: string }): PlaceRecordMoment => ({
+    title: '기록', occurredAt: '2026-08-08T00:00:00.000Z', placeName: '장소', placeId: null,
+    deletedAt: null, ...over,
+  });
+
+  it('직접 연결된 순간이 없는 장소만 고른다. 이름만 같은 순간은 삭제 근거가 아니다', () => {
+    const free = P({ id: 'free', name: '같은 이름' });
+    const used = P({ id: 'used', name: '연결된 장소' });
+    const deleted = P({ id: 'deleted', name: '휴지통 장소', deletedAt: '2026-08-08T00:00:00.000Z' });
+    const result = unusedRegistryPlaces([free, used, deleted], [
+      M({ id: 'same-name-only', tripId: 't1', tripTitle: '여행', placeName: '같은 이름' }),
+      M({ id: 'linked', tripId: 't1', tripTitle: '여행', placeId: 'used' }),
+    ]);
+
+    expect(result.map((place) => place.id)).toEqual(['free']);
   });
 });
 

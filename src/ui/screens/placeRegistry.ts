@@ -25,11 +25,18 @@ import {
   needsAddress,
   type RegistryPlace,
   placeRecordGroups,
+  unusedRegistryPlaces,
   unlinkedPlaceMoments,
   type PlaceRecordMoment,
 } from '../../domain/place/registry';
 
 type GoToTrip = (tripId: string, target?: TripNavigationTarget) => void;
+
+const PUBLIC_GEOCODER_GAP_MS = 1100;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
 
 /** `LocalPlace` → 대장이 아는 최소 모양. 화면은 이 형태만 안다. */
 function toRegistry(p: {
@@ -408,6 +415,202 @@ function openPlaceRecords(place: RegistryPlace, moments: PlaceRecordMoment[], go
   void mediaForPlaceRecordMoments(ids).then(render).catch(() => render(null));
 }
 
+function unusedPlaceSelectionList(
+  items: RegistryPlace[],
+  selected: Set<string>,
+  disabled: boolean,
+  rerender: () => void,
+): HTMLElement {
+  const section = el('div', 'pr-unused-selection');
+  const controls = el('div', 'pr-unused-controls');
+  const selectAllLabel = el('label', 'pr-unused-select-all');
+  const selectAll = el('input') as HTMLInputElement;
+  selectAll.type = 'checkbox';
+  selectAll.checked = selected.size === items.length;
+  selectAll.indeterminate = selected.size > 0 && selected.size < items.length;
+  selectAll.disabled = disabled;
+  selectAll.addEventListener('change', () => {
+    selected.clear();
+    if (selectAll.checked) for (const place of items) selected.add(place.id);
+    rerender();
+  });
+  selectAllLabel.append(selectAll, el('span', undefined, '전체 선택'));
+  controls.append(selectAllLabel, el('span', 'muted small', `${items.length}개 중 ${selected.size}개 선택`));
+  section.appendChild(controls);
+
+  const list = el('div', 'pr-unused-list');
+  for (const place of items) {
+    const label = el('label', 'pr-unused-row');
+    const check = el('input') as HTMLInputElement;
+    check.type = 'checkbox'; check.checked = selected.has(place.id); check.disabled = disabled;
+    check.setAttribute('aria-label', `${place.name} 선택`);
+    check.addEventListener('change', () => {
+      if (check.checked) selected.add(place.id);
+      else selected.delete(place.id);
+      rerender();
+    });
+    const details = el('span', 'pr-unused-details');
+    details.append(
+      el('b', 'pr-name', place.name),
+      el('span', 'muted small', shortAddress(place) ?? (needsAddress(place) ? '주소 아직 못 받음' : '')),
+      el('span', 'pr-coord-label muted small', `${place.latitude.toFixed(4)}, ${place.longitude.toFixed(4)}`),
+    );
+    label.append(check, details);
+    list.appendChild(label);
+  }
+  section.appendChild(list);
+  return section;
+}
+
+/** Separate, safe bulk cleanup dialog for places without a direct moment link. */
+function openUnusedPlacePicker(onChanged: () => void): void {
+  const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const overlay = el('div', 'overlay-base pr-records-overlay');
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', '사진이 없는 장소 정리');
+  const modal = el('div', 'modal-base pr-records-modal pr-unused-modal');
+  const close = el('button', 'guide-close', '×') as HTMLButtonElement;
+  close.type = 'button'; close.setAttribute('aria-label', '사진이 없는 장소 정리 닫기');
+  const header = el('div', 'guide-header');
+  const title = el('div', 'guide-title-wrap');
+  title.append(el('h2', 'guide-title', '사진이 없는 장소'), el('p', 'guide-sub', '선택하여 휴지통으로 보내기'));
+  header.append(title, close);
+  const body = el('div', 'guide-body pr-records-body pr-unused-body');
+  modal.append(header, body); overlay.appendChild(modal); document.body.appendChild(overlay);
+  let dismissed = false;
+  let places: RegistryPlace[] = [];
+  let moments: PlaceRecordMoment[] = [];
+  let selected = new Set<string>();
+  let deleting = false;
+  let verdict: { text: string; kind: 'info' | 'ok' | 'error' } | null = null;
+
+  const dismiss = (): void => {
+    if (dismissed) return;
+    dismissed = true;
+    overlay.remove();
+    document.removeEventListener('keydown', onKey, true);
+    if (previousFocus && document.contains(previousFocus)) previousFocus.focus();
+  };
+  const onKey = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    dismiss();
+  };
+  close.addEventListener('click', dismiss);
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) dismiss(); });
+  document.addEventListener('keydown', onKey, true);
+  const candidates = (): RegistryPlace[] => sortRegistry(unusedRegistryPlaces(places, moments));
+  const noteElement = (value: { text: string; kind: 'info' | 'ok' | 'error' }): HTMLElement => {
+    const note = el('p', 'sync-note');
+    note.setAttribute('role', 'status');
+    setNote(note, value.text, value.kind, null);
+    return note;
+  };
+
+  const render = (): void => {
+    if (dismissed) return;
+    const items = candidates();
+    const allowed = new Set(items.map((place) => place.id));
+    for (const id of selected) if (!allowed.has(id)) selected.delete(id);
+    body.replaceChildren();
+    body.append(
+      el('p', 'guide-note', '장소 ID로 연결된 순간이 없는 장소만 보입니다. 사진이 없는 글 기록도 보호하므로, 연결된 순간이 있으면 이 목록에 넣지 않습니다.'),
+      el('p', 'pr-unused-note', '이름만 같은 미연결 순간은 자동으로 연결하거나 삭제하지 않습니다.'),
+    );
+    if (!items.length) {
+      body.appendChild(el('p', 'guide-note', '정리할 장소가 없어요. 직접 연결된 순간이 없는 장소만 이곳에 나타납니다.'));
+      if (verdict) body.appendChild(noteElement(verdict));
+      return;
+    }
+
+    body.appendChild(unusedPlaceSelectionList(items, selected, deleting, render));
+
+    const actions = el('div', 'pr-unused-actions');
+    const remove = el('button', 'btn-danger', `선택한 ${selected.size}개 휴지통으로`) as HTMLButtonElement;
+    remove.type = 'button'; remove.disabled = deleting || selected.size === 0;
+    remove.addEventListener('click', () => {
+      const chosen = items.filter((place) => selected.has(place.id));
+      if (!chosen.length) return;
+      if (!window.confirm(`선택한 장소 ${chosen.length}개를 휴지통으로 보낼까요?\n연결된 순간과 사진은 삭제하지 않습니다.`)) return;
+      deleting = true;
+      verdict = { text: '삭제 직전에 연결 상태를 다시 확인하는 중…', kind: 'info' };
+      render();
+      void (async () => {
+        let deleted = 0;
+        let protectedCount = 0;
+        try {
+          // Each delete has its own final link check + tombstone + sync op transaction.
+          // Keep them serial so a changed link is reported accurately instead of racing writes.
+          for (const place of chosen) {
+            const result = await deleteUnusedPlace(place.id);
+            if (result.status === 'deleted') deleted += 1;
+            else if (result.status === 'linked') protectedCount += 1;
+          }
+          verdict = {
+            text: protectedCount
+              ? `${deleted}개를 휴지통으로 보냈고, 새로 연결된 ${protectedCount}개는 보호했습니다.`
+              : `${deleted}개를 휴지통으로 보냈습니다. 데이터 관리의 휴지통에서 되살릴 수 있어요.`,
+            kind: protectedCount ? 'info' : 'ok',
+          };
+          if (deleted) onChanged();
+        } catch (error) {
+          verdict = { text: `삭제하지 못했습니다: ${error instanceof Error ? error.message : String(error)}`, kind: 'error' };
+        } finally {
+          deleting = false;
+          await load();
+        }
+      })();
+    });
+    actions.appendChild(remove);
+    body.appendChild(actions);
+    if (verdict) body.appendChild(noteElement(verdict));
+  };
+
+  const load = async (): Promise<void> => {
+    try {
+      const [rows, recordMoments] = await Promise.all([listPlaces(), allPlaceRecordMoments()]);
+      places = rows.map(toRegistry);
+      moments = recordMoments;
+      render();
+    } catch (error) {
+      body.replaceChildren(el('p', 'guide-note', `장소 목록을 불러오지 못했습니다: ${error instanceof Error ? error.message : String(error)}`));
+    }
+  };
+
+  body.appendChild(el('p', 'guide-note', '사진이 없는 장소를 확인하는 중…'));
+  close.focus();
+  void load();
+}
+
+async function fillMissingAddresses(
+  targets: RegistryPlace[],
+  note: HTMLElement,
+): Promise<void> {
+  let filled = 0;
+  let notFilled = 0;
+  // Public reverse geocoder policy: this user-triggered batch deliberately sends one request
+  // at a time. Promise.all would overload the shared service and hide which address failed.
+  for (const [index, place] of targets.entries()) {
+    setNote(
+      note,
+      `주소를 받는 중… ${index + 1}/${targets.length} · ${place.name} (공용 지도 서비스 보호를 위해 한 곳씩 처리합니다)`,
+      'info',
+      null,
+    );
+    if (await fillAddressFromCoords(place.id)) filled += 1;
+    else notFilled += 1;
+    if (index < targets.length - 1) await wait(PUBLIC_GEOCODER_GAP_MS);
+  }
+  setNote(
+    note,
+    notFilled ? `주소 ${filled}개를 받았고, ${notFilled}개는 받지 못했습니다. 좌표와 네트워크를 확인해 주세요.` : `주소 ${filled}개를 모두 받았습니다.`,
+    notFilled ? 'info' : 'ok',
+    null,
+  );
+}
+
 /**
  * 위치관리대장 패널.
  *
@@ -420,6 +623,17 @@ export function placeRegistryPanel(onChanged: () => void, goToTrip: GoToTrip): H
   box.append(
     el('p', 'guide-p', '한 번 등록한 장소가 모두 여기 모입니다. 연결된 장소 이름은 순간과 함께 바뀌며, 연결이 끊긴 순간도 아래에서 찾아 다시 연결할 수 있습니다.'),
   );
+
+  const tools = el('div', 'pr-bulk-actions');
+  const fillAddresses = el('button', 'btn-ghost pr-bulk-button') as HTMLButtonElement;
+  fillAddresses.type = 'button';
+  const emptyPlaces = el('button', 'btn-ghost pr-bulk-button') as HTMLButtonElement;
+  emptyPlaces.type = 'button';
+  const bulkNote = el('p', 'sync-note pr-bulk-note');
+  bulkNote.setAttribute('role', 'status');
+  bulkNote.hidden = true;
+  tools.append(fillAddresses, emptyPlaces);
+  box.append(tools, bulkNote);
 
   const search = el('input', 'pr-search') as HTMLInputElement;
   search.type = 'search';
@@ -434,11 +648,20 @@ export function placeRegistryPanel(onChanged: () => void, goToTrip: GoToTrip): H
 
   let all: RegistryPlace[] = [];
   let moments: PlaceRecordMoment[] = [];
+  let isFillingAddresses = false;
 
   const paint = (): void => {
     const found = sortRegistry(searchRegistry(all, search.value));
     const unlinkedAll = unlinkedPlaceMoments(moments, '');
     const unlinkedFound = unlinkedPlaceMoments(moments, search.value);
+    const missingAddresses = all.filter(needsAddress);
+    const unusedPlaces = unusedRegistryPlaces(all, moments);
+    fillAddresses.textContent = isFillingAddresses
+      ? `일괄 주소받기 진행 중 (${missingAddresses.length}개)`
+      : `일괄 주소받기 (${missingAddresses.length})`;
+    fillAddresses.disabled = isFillingAddresses || missingAddresses.length === 0;
+    emptyPlaces.textContent = `사진이 없는 장소 (${unusedPlaces.length})`;
+    emptyPlaces.disabled = isFillingAddresses;
     list.replaceChildren();
     // 총 개수와 찾은 개수를 **함께** 말한다 — 「3개」만 보면 전체가 3개인 줄 안다(§7-C 한정 생략).
     count.textContent = search.value.trim()
@@ -485,6 +708,23 @@ export function placeRegistryPanel(onChanged: () => void, goToTrip: GoToTrip): H
     })();
   }
 
+  fillAddresses.addEventListener('click', () => {
+    const targets = sortRegistry(all.filter(needsAddress));
+    if (!targets.length || isFillingAddresses) return;
+    isFillingAddresses = true;
+    paint();
+    void (async () => {
+      try {
+        await fillMissingAddresses(targets, bulkNote);
+      } catch (error) {
+        setNote(bulkNote, `일괄 주소받기에 실패했습니다: ${error instanceof Error ? error.message : String(error)}`, 'error', null);
+      } finally {
+        isFillingAddresses = false;
+        reload();
+      }
+    })();
+  });
+  emptyPlaces.addEventListener('click', () => openUnusedPlacePicker(reload));
   search.addEventListener('input', paint);
   reload();
   box.appendChild(

@@ -67,6 +67,7 @@ describe('sync dependency plan', () => {
 
   it('pull은 결과 의존성이 없으므로 여섯 도메인을 한 번에 시작한다', async () => {
     const started: SyncDomain[] = [];
+    const settled: SyncDomain[] = [];
     const tasks = Object.fromEntries(
       SYNC_DOMAINS.map((domain) => [
         domain,
@@ -77,8 +78,9 @@ describe('sync dependency plan', () => {
       ]),
     ) as Record<SyncDomain, () => Promise<SyncDomain>>;
 
-    await runSyncPlan(PULL_SYNC_PLAN, tasks);
+    await runSyncPlan(PULL_SYNC_PLAN, tasks, { onDomainSettled: (domain) => settled.push(domain) });
     expect(started).toEqual(SYNC_DOMAINS);
+    expect(settled.slice().sort()).toEqual(SYNC_DOMAINS.slice().sort());
   });
 
   it('한 형제가 실패해도 같은 단계의 나머지 부수효과가 끝날 때까지 실패를 반환하지 않는다', async () => {

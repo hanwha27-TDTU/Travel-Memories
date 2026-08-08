@@ -8,6 +8,11 @@
 export const SYNC_DOMAINS = ['trip', 'place', 'moment', 'media', 'expense', 'audio'] as const;
 export type SyncDomain = (typeof SYNC_DOMAINS)[number];
 
+export interface SyncPlanObserver {
+  /** 한 도메인이 성공·실패 어느 쪽으로든 정산된 직후 알린다. 관찰 실패는 동기화를 멈추지 않는다. */
+  onDomainSettled?: (domain: SyncDomain) => void;
+}
+
 interface RootSyncLevel {
   id: string;
   domains: readonly SyncDomain[];
@@ -64,6 +69,7 @@ export const PULL_SYNC_PLAN = [
 export async function runSyncPlan<T>(
   plan: readonly SyncLevel[],
   tasks: Record<SyncDomain, () => Promise<T>>,
+  observer: SyncPlanObserver = {},
 ): Promise<Record<SyncDomain, T>> {
   const results: Partial<Record<SyncDomain, T>> = {};
 
@@ -76,6 +82,11 @@ export async function runSyncPlan<T>(
 
     settled.forEach((result, index) => {
       const domain = level.domains[index];
+      try {
+        observer.onDomainSettled?.(domain);
+      } catch {
+        // 진행 표시 관찰자가 실패해도 실제 동기화의 정산·안전 경계를 깨지 않는다.
+      }
       if (result.status === 'fulfilled') results[domain] = result.value;
       else {
         const message = result.reason instanceof Error ? result.reason.message : String(result.reason);

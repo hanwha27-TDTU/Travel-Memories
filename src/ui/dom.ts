@@ -111,7 +111,13 @@ export interface NoteAction {
  * 정확히 그 형태였다. `null`을 적게 만들면 "여긴 갈 곳이 없다"가 **결정**이 되고, 옆에 이유를
  * 적게 된다.
  */
-export function setNote(node: HTMLElement, text: string, state: NoteState, go: NoteAction | null): void {
+export function setNote(
+  node: HTMLElement,
+  text: string,
+  state: NoteState,
+  go: NoteAction | null,
+  progressPercent: number | null = null,
+): void {
   applyText(node, text);
   node.classList.toggle('is-ok', state === 'ok');
   node.classList.toggle('is-info', state === 'info');
@@ -121,6 +127,21 @@ export function setNote(node: HTMLElement, text: string, state: NoteState, go: N
   // 재렌더마다 이전 배선이 남지 않게 **속성 대입**으로 갈아 끼운다(addEventListener는 쌓인다).
   node.onclick = null;
   node.classList.toggle('is-actionable', go !== null);
+  const meterValue = Number.isFinite(progressPercent)
+    ? Math.max(0, Math.min(100, Math.round(progressPercent!)))
+    : null;
+  if (meterValue !== null) {
+    const meter = el('span', 'sync-note-meter');
+    meter.setAttribute('role', 'progressbar');
+    meter.setAttribute('aria-label', `\uB3D9\uAE30\uD654 \uC9C4\uD589\uB960 ${meterValue}%`);
+    meter.setAttribute('aria-valuemin', '0');
+    meter.setAttribute('aria-valuemax', '100');
+    meter.setAttribute('aria-valuenow', String(meterValue));
+    const fill = el('span', 'sync-note-meter-fill');
+    fill.style.width = `${meterValue}%`;
+    meter.append(fill);
+    node.append(meter);
+  }
   if (!go) return;
 
   // **역할을 바꾸지 않는다.** 이 줄은 `role="status"` 라이브 영역이라 글이 바뀌면 화면읽기가
