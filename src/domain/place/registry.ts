@@ -256,3 +256,17 @@ export function placeRecordGroups<T extends PlaceRecordMoment>(
   const usage = momentsUsingPlace(moments, place);
   return { linked: group(usage.linked), sameName: group(usage.sameName) };
 }
+
+/**
+ * "사진이 없는 장소" 정리창에 보여 줄, 직접 연결된 순간이 없는 장소.
+ *
+ * 사진이 없는 순간도 사용자의 글 기록이므로 `media` 개수로 판단하지 않는다. 이름만 같은
+ * 순간 역시 장소 ID 연결의 증거가 아니며, 이 목록에 남더라도 그 순간을 지우거나 연결하지 않는다.
+ * 실제 삭제 직전에는 서비스가 같은 조건을 Dexie 트랜잭션 안에서 다시 확인한다.
+ */
+export function unusedRegistryPlaces<T extends RegistryPlace>(
+  places: readonly T[],
+  moments: readonly PlaceRecordMoment[],
+): T[] {
+  return places.filter((place) => place.deletedAt === null && placeRecordGroups(moments, place).linked.length === 0);
+}

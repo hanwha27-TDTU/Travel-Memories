@@ -4383,6 +4383,20 @@ await page.getByRole('button', { name: /데이터 관리/ }).first().click();
 await page.waitForSelector('.guide-overlay');
 await page.getByRole('button', { name: /위치관리대장/ }).click();
 await page.waitForSelector('.pr-unlinked');
+const bulkAddressButton = page.locator('.pr-bulk-button').filter({ hasText: /주소/ });
+const emptyPlaceButton = page.locator('.pr-bulk-button').filter({ hasText: /사진/ });
+check('v2.00 place registry: bulk address and empty-place controls render',
+  await bulkAddressButton.count() === 1 && await emptyPlaceButton.count() === 1 && !(await bulkAddressButton.isDisabled()),
+  `${await bulkAddressButton.textContent()} | ${await emptyPlaceButton.textContent()}`);
+await emptyPlaceButton.click();
+await page.waitForSelector('.pr-unused-modal');
+const unusedSelectAll = page.locator('.pr-unused-select-all input');
+await unusedSelectAll.check();
+check('v2.00 place registry: empty-place dialog supports select all',
+  await page.locator('.pr-unused-modal').count() === 1 && await unusedSelectAll.isChecked()
+    && await page.locator('.pr-unused-row input:checked').count() === await page.locator('.pr-unused-row input').count(),
+  await page.locator('.pr-unused-modal').textContent() ?? '');
+await page.locator('.pr-unused-modal .guide-close').click();
 if (process.env.PLACE_ORPHAN_SCREENSHOT) {
   await page.screenshot({ path: resolve(process.env.PLACE_ORPHAN_SCREENSHOT), fullPage: false });
 }
