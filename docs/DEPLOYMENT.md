@@ -42,6 +42,32 @@ GitHub Pages는 서버 없이 정적 파일만 제공한다. Bugeon Journey는 �
   진짜 비밀(secret/service_role/DB 비밀번호)은 Secrets에도 넣지 않는다 — 클라이언트 빌드에 쓸 일이 없어야 정상.
   Variables 미설정 시 빈 값으로 빌드되고 앱은 로컬 전용 모드로 동작한다(null 폴백). `.env.example`로 형태만 문서화.
 
+### `media-sign`이 함께 바뀌는 릴리스 — Edge 선배포 계약
+
+헌법 §18-F에 따라 `supabase/functions/media-sign/**` 또는 동기화 릴리스 계약이 바뀌면 일반
+Pages 순서 앞에 다음 의존 간선이 생긴다.
+
+```
+소스·schemas/sync-release-contract.json 확정
+  → npm run gen:sync-release
+  → check-sync-release-contract
+  → 구형 앱 하위 호환을 유지한 media-sign 선배포
+  → npm run verify:sync-release-live
+  → Ready PR Required CI
+  → squash merge → Pages 배포 → version.json read-back
+```
+
+- `FN_VERSION` 일치만으로는 통과하지 않는다. 운영 `capabilities.sourceSha256`가 계약의
+  `sourceSha256`와 정확히 같고, protocol·필수 ops·`secretsOk`도 맞아야 한다.
+- Edge 배포 명령 성공만으로 앱 배포를 열지 않는다. `verify:sync-release-live` 종료코드 0이
+  운영 실물 증거이며, Ready PR harness와 Pages build가 각각 다시 확인한다.
+- 불일치나 조회 불가면 앱 배포를 멈춘다. 운영 앱으로 시험하거나 사용자 데이터를 변경하는
+  우회는 금지한다.
+- 롤백은 앱을 아직 올리지 않은 상태에서 이전 하위 호환 Edge 소스를 다시 배포하는 것이 기본이다.
+  앱 배포까지 끝난 뒤라면 앱·Edge 두 표면의 호환 조합과 각 read-back을 함께 복구한다.
+- 정확한 프로젝트 id·배포 명령·영향 조건·read-back 필드는 `schemas/release-profile.json`이
+  실행 가능한 정본이다. 이 문서는 순서와 실패 경계만 설명한다.
+
 ### 배포 활성화 절차 (1회, 저장소 관리자)
 
 1. **Settings → Pages → Build and deployment → Source = "GitHub Actions"** 로 설정한다. 이 설정 없이는 `deploy-pages.yml`이 실패한다.

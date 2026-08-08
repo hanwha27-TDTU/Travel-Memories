@@ -10,7 +10,7 @@ import { validateProfile } from '../vendor/codex-shared-skills/release-harness-g
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const SOURCE = 'https://github.com/hanwha27-TDTU/Codex-Shared-Skills';
-const APPROVED_COMMIT = '7b601813b6d1a29e0b17f9307f57653593adb505';
+const APPROVED_COMMIT = '8f2baec4e87181942c25615cffc32ae851e0fcc6';
 const EXPECTED_SKILLS = ['bg-codex-autorouter', 'release-harness-governance'];
 
 function markedBlock(text, start, end) {
@@ -106,6 +106,14 @@ export function validateContract({
   }
   if (profile?.fullRequired?.command !== 'npm run build && npm run harness && npm run live') errors.push('전체 Required 명령이 프로젝트 헌법과 다름');
   if (profile?.versioning?.baseline !== 'origin/main' || profile?.versioning?.history !== 'src/app/changelog.ts' || !profile?.versioning?.writer?.includes('+0.01')) errors.push('버전 기준선·이력·+0.01 증가 방식이 저장소 계약과 다름');
+  const releaseNodeIds = new Set((profile?.releaseNodes || []).map((node) => node.id));
+  for (const id of ['provider-predeploy', 'provider-live-readback']) {
+    if (!releaseNodeIds.has(id)) errors.push(`media-sign 제공자 선배포 노드가 없음: ${id}`);
+  }
+  const releaseEdgeIds = new Set((profile?.releaseEdges || []).map((edge) => `${edge.from}->${edge.to}`));
+  for (const edge of ['commit-push->provider-predeploy', 'provider-predeploy->provider-live-readback', 'provider-live-readback->required-ci']) {
+    if (!releaseEdgeIds.has(edge)) errors.push(`media-sign 제공자 선배포 간선이 없음: ${edge}`);
+  }
   const surfaceIds = (profile?.deploymentSurfaces || []).map((surface) => surface.id).sort();
   const expectedSurfaces = ['android-apk-latest', 'github-pages', 'supabase-migrations', ...workflows.functionNames.map((name) => `supabase-${name}`)].sort();
   if (JSON.stringify(surfaceIds) !== JSON.stringify(expectedSurfaces)) errors.push('릴리스 프로필의 배포 표면 목록이 실제 저장소와 다름');
@@ -113,6 +121,9 @@ export function validateContract({
     const surface = profile?.deploymentSurfaces?.find((entry) => entry.id === `supabase-${name}`);
     if (!surface?.affectedBy?.includes(`supabase/functions/${name}/**`) || !surface?.readback?.includes(`FN_VERSION=${version}`)) errors.push(`${name} 함수 표면의 경로·버전 read-back이 실제 소스와 다름`);
   }
+  const mediaSignSurface = profile?.deploymentSurfaces?.find((entry) => entry.id === 'supabase-media-sign');
+  if (!mediaSignSurface?.affectedBy?.includes('schemas/sync-release-contract.json')) errors.push('media-sign 표면이 동기화 릴리스 계약 변경을 영향 조건으로 보지 않음');
+  if (!['sourceSha256', '필수 ops', 'secretsOk'].every((part) => mediaSignSurface?.readback?.includes(part))) errors.push('media-sign 표면의 정확한 운영 정체성 read-back이 불완전함');
   errors.push(...workflowProblems(workflows));
 
   return { errors, counts: profileResult.counts, skillCount: entries.length };
@@ -134,6 +145,10 @@ function selfTest(lock, profile, vendorHashes, adapterText, workflows) {
     ['공통 법 복사 주입', (x) => { x.commonLawCopies = 1; }, '공통 HRL 조문'],
     ['CI 그룹 드리프트 주입', (x) => { x.workflows.ci = x.workflows.ci.replace('npm run live', 'npm run missing'); }, 'CI live-render'],
     ['배포 표면 드리프트 주입', (x) => { x.workflows.apk = x.workflows.apk.replaceAll('--clobber', '--skip'); }, 'Android apk-latest'],
+    ['제공자 선배포 노드 누락 주입', (x) => { x.profile.releaseNodes = x.profile.releaseNodes.filter((node) => node.id !== 'provider-predeploy'); x.profile.releaseEdges = x.profile.releaseEdges.filter((edge) => edge.from !== 'provider-predeploy' && edge.to !== 'provider-predeploy'); }, '제공자 선배포 노드'],
+    ['제공자 운영 대조 간선 누락 주입', (x) => { x.profile.releaseEdges = x.profile.releaseEdges.filter((edge) => !(edge.from === 'provider-live-readback' && edge.to === 'required-ci')); }, '제공자 선배포 간선'],
+    ['동기화 계약 영향 조건 누락 주입', (x) => { const surface = x.profile.deploymentSurfaces.find((entry) => entry.id === 'supabase-media-sign'); surface.affectedBy = surface.affectedBy.filter((path) => path !== 'schemas/sync-release-contract.json'); }, '동기화 릴리스 계약 변경'],
+    ['정확한 운영 정체성 누락 주입', (x) => { const surface = x.profile.deploymentSurfaces.find((entry) => entry.id === 'supabase-media-sign'); surface.readback = 'FN_VERSION=6'; }, '운영 정체성 read-back'],
   ];
   for (const [name, mutate, expected] of cases) {
     const sample = structuredClone(base);

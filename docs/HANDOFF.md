@@ -4,13 +4,22 @@
 
 ---
 
-## HANDOFF-0124 · v2.05 · **동기화 출고 계약·운영 Edge read-back·실행 정체 진단** (2026-08-08 · 릴리스 대상)
+## HANDOFF-0125 · **릴리스법 §18-F — 독립 서버 표면의 하위 호환 선배포와 정확한 운영 대조** (2026-08-08 · 문서 계약)
+
+- **사용자 결정**: v2.05에서 만든 동기화 출고 점검과 Edge 배포 누락 차단을 일회성 구현이 아니라 앱의 정식 릴리스법에 추가한다.
+- **헌법 정본**: `docs/CONSTITUTION.md` §18-F가 앱·서버 독립 배포의 공통 원칙을 소유한다. 버전 번호는 소스 동일성 증거가 아니며, 제공자를 구형 앱과 호환되게 먼저 배포하고 정확한 운영 hash·protocol·ops·시크릿을 되읽은 뒤 소비자 앱을 배포한다. 조회 실패·불일치는 앱 릴리스 차단이다.
+- **실행 절차**: `docs/DEPLOYMENT.md`가 `media-sign` 변경 시 생성→정적 동일성 검사→Edge 선배포→운영 검사→Ready PR→Pages의 실제 순서를 설명한다. 프로젝트 id·영향 조건·read-back 값과 `commit-push → provider-predeploy → provider-live-readback → required-ci` 간선의 실행 정본은 `schemas/release-profile.json`이며 산문에 복제하지 않는다. 프로젝트 계약 게이트는 노드·간선·동기화 계약 영향 조건·정확한 운영 대조를 각각 주입해 누락을 RED로 잡는다.
+- **결정 기록**: ADR-0054가 오늘의 Chrome 장애와 같은 `FN_VERSION` 내부 소스 드리프트를 근거로 선택·기각·롤백 경계를 보존한다. 구조·기계 층은 v2.05에서 이미 배포된 생성기·정적 게이트·운영 verifier·기기 진단이다.
+- **공용 스킬 환류**: `Codex-Shared-Skills` PR #2를 CI 통과 뒤 squash merge해 정본을 `8f2baec4e87181942c25615cffc32ae851e0fcc6`로 올렸다. `release-harness-governance` HRL-16과 프로젝트 프로필 계약에 하위 호환 제공자 선배포·정확한 운영 정체성 대조·실패 시 소비자 차단을 일반 규칙으로 넣고, 전역 설치 4곳과 이 프로젝트 vendored 스냅샷·lock·release profile을 같은 커밋으로 동기화했다.
+- **버전 경계**: 이번 변경은 앱 거동과 배포 산출물을 바꾸지 않는 문서 계약 현행화이므로 v2.05를 유지하며 별도 앱 릴리스를 만들지 않는다.
+
+## HANDOFF-0124 · v2.05 · **동기화 출고 계약·운영 Edge read-back·실행 정체 진단** (2026-08-08 · 배포 완료)
 
 - **사용자 결정**: 오늘 겪은 Chrome 첫 canonical 장애가 코딩 수정이나 Edge Function 배포 누락으로 재발하지 않도록 별도의 사전예방 진단도구를 만든다.
 - **계약 SSOT(M-0132)**: `schemas/sync-release-contract.json`이 media-sign protocol·필수 op·LF 정규화 논리 소스 SHA-256·진행 정체 상한을 한 곳에서 정한다. 생성기는 Edge 상수 블록과 앱 TS 파생물을 함께 쓰고, `check-sync-release-contract`가 정본↔두 생성물과 실제 Edge 본문을 대조한다.
 - **운영 배포 차단**: `capabilities`가 `sourceSha256`를 밝힌다. Ready PR과 Pages 배포가 publishable key로 운영 함수를 읽기 전용 호출해 source hash·protocol·ops·R2 시크릿을 확인하므로, Edge 소스가 바뀌고 함수 배포가 누락된 상태에서는 앱 릴리스가 멈춘다. 순서는 **Edge 선배포 → 운영 대조 → 앱 배포**다.
 - **기기 진단**: 데이터 관리에 별도 「동기화 출고 점검」을 추가했다. 앱/운영 Edge 소스 판, 필수 연산, 시크릿, 현재 회차의 시작·마지막 실제 단계 전진 시각을 판정한다. 5분 미만의 긴 사진 처리는 정상으로 두고, 5분 이상 같은 단계가 전진하지 않을 때만 정체로 말한다. 사용자 자료를 고치는 버튼은 없다.
-- **릴리스 경계**: v2.05는 media-sign을 먼저 배포·되읽고, 그 다음 Ready PR Required CI·squash merge·Pages `version.json` read-back 순으로 닫는다. 이 문서는 릴리스 대상을 말하며 배포 완료를 선행 주장하지 않는다.
+- **릴리스 완료**: 운영 `media-sign` v9을 먼저 배포해 sourceSha256 `b224ae715686…`·protocol v6·필수 ops·시크릿을 되읽었다. PR #240의 최신 SHA에서 Required CI를 통과해 squash merge(`b28d7e2`)했고, Pages 워크플로 성공과 운영 `version.json` v2.05·앱 HTTP 200을 확인했다.
 
 ## HANDOFF-0123 · v2.04 · **첫 canonical 소비 게이지·로컬 반영 read-back·화면 경합 차단** (2026-08-08)
 
