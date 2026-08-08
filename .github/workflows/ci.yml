@@ -71,6 +71,13 @@ jobs:
       # 사용자 결정 2026-08-04: 릴리스 후보 앱을 먼저 재빌드하고 그 산출물 기준으로 하네스.
       - name: Harness (Required gates)
         run: npm run harness
+      # Edge와 앱은 서로 다른 배포 단위다. 소스가 바뀌었는데 함수를 먼저 배포하지 않으면
+      # Ready PR을 통과시키지 않는다 — 옛 함수 + 새 앱 조합이 사진 동기화를 막는다.
+      - name: Deployed sync contract (Edge first)
+        run: npm run verify:sync-release-live
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
 
   # 라이브 렌더 — **이 앱에서 유일하게 도는 런타임 검출층**(CLAUDE.md §10).
   #

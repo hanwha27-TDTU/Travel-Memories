@@ -662,6 +662,17 @@ CPU 스로틀(`Emulation.setCPUThrottlingRate`)은 **이 자리에선 안 통했
 한다. LF로 정규화한 공용 함수를 생성·검사 양쪽이 함께 쓰고, 줄바꿈만 바꾼 대조군은 GREEN,
 실제 문자 변조는 RED인지 주입한다. 생성기와 소비자가 해시 함수를 손으로 두 벌 가지면 다시 갈라진다.
 
+### 동기화 Edge 소스 계약 (2026-08-08 · M-0132)
+
+- `schemas/sync-release-contract.json` 하나가 protocol·필수 op·논리 소스 해시·정체 상한의 정본이다.
+- 생성기는 Edge의 생성 블록과 앱 TS 파생물을 함께 쓰고, 정적 게이트는 둘을 재생성 결과와 대조한다.
+- 해시에서는 생성 블록을 안정된 자리표시자로 바꾼 뒤 LF로 정규화한다. 줄바꿈만 다른 대조군은
+  GREEN, 실제 문자 변조는 RED여야 한다.
+- 정적 초록은 **운영 배포를 증명하지 않는다.** Ready PR과 Pages 배포가 publishable key로
+  `capabilities`를 읽어 sourceSha256·protocol·ops·secrets를 대조한다. 이 요청은 사용자 자료를
+  읽거나 쓰지 않는다.
+- Edge 변경 시 운영 대조가 실패하는 것은 전제 미충족 SKIP이 아니라 **릴리스 차단 FAIL**이다.
+
 ## 4. 과거 결함 등록부
 
 | 사례 | 근본형 | 재발 방지 |

@@ -26,6 +26,12 @@ jobs:
           node-version-file: '.nvmrc'
           cache: 'npm'
       - run: npm ci
+      # main의 앱이 운영 Edge보다 앞서 나가는 것을 마지막으로 차단한다. 사용자 자료는 읽지 않는다.
+      - name: Deployed sync contract (read-only)
+        run: npm run verify:sync-release-live
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
       # 클라이언트 설정 주입: publishable 키는 비밀이 아니므로 Repository Variables 사용
       # (Settings → Secrets and variables → Actions → Variables). 미설정이면 빈 값으로
       # 빌드되고 앱은 로컬 전용 모드로 동작한다(services/supabase/client.ts null 폴백).

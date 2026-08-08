@@ -53,9 +53,22 @@ export interface SyncStatus {
   lastReason: string;
   /** 실행 중인 경우에만 실제 도메인 완료 단위를 담는다. */
   progress: SyncProgress | null;
+  /** 현재 회차가 시작된 시각. 실행이 멎었는지 판정하는 기준이며 완료 뒤에도 마지막 회차 증거로 남긴다. */
+  startedAt: string | null;
+  /** 마지막으로 단계가 실제 전진한 시각. 같은 문구가 오래 붙어 있는 상태를 정상과 가른다. */
+  progressAt: string | null;
 }
 
-let status: SyncStatus = { phase: 'idle', lastOkAt: null, lastError: null, lastResult: null, lastReason: '', progress: null };
+let status: SyncStatus = {
+  phase: 'idle',
+  lastOkAt: null,
+  lastError: null,
+  lastResult: null,
+  lastReason: '',
+  progress: null,
+  startedAt: null,
+  progressAt: null,
+};
 const listeners = new Set<(s: SyncStatus) => void>();
 
 export function syncStatus(): SyncStatus {
@@ -110,12 +123,16 @@ async function runOnce(reason: string): Promise<void> {
     return;
   }
 
-  setStatus({ phase: 'running', lastReason: reason, progress: null });
+  const startedAt = new Date().toISOString();
+  setStatus({ phase: 'running', lastReason: reason, progress: null, startedAt, progressAt: startedAt });
   try {
     // 소비하면서 내린다 — 이 실행이 그 요청을 덮었으므로 다음 실행까지 끌고 가지 않는다.
     const deep = deepPending;
     deepPending = false;
-    const r = await runSync(c, u.id, { deep, onProgress: (progress) => setStatus({ progress }) });
+    const r = await runSync(c, u.id, {
+      deep,
+      onProgress: (progress) => setStatus({ progress, progressAt: new Date().toISOString() }),
+    });
     // **실패한 작업이 있으면 성공이 아니다.** `runSync`는 개별 작업 실패를 예외로 던지지 않고
     // 개수로 돌려준다 — 그걸 안 보면 "3건이 안 갔는데 동기화 성공"이라고 말하게 된다.
     // 실제로 그랬다(2026-07-26): 서버 DELETE 권한이 없어 영구삭제 3건이 막혔는데 화면은
@@ -257,6 +274,15 @@ export function __resetAutoSyncForTests(): void {
   timer = null;
   installed = false;
   initiallyCheckedUsers = new Set<string>();
-  status = { phase: 'idle', lastOkAt: null, lastError: null, lastResult: null, lastReason: '', progress: null };
+  status = {
+    phase: 'idle',
+    lastOkAt: null,
+    lastError: null,
+    lastResult: null,
+    lastReason: '',
+    progress: null,
+    startedAt: null,
+    progressAt: null,
+  };
   listeners.clear();
 }

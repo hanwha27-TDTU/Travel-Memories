@@ -101,6 +101,11 @@ interface SignResult {
   url?: string;
   key?: string;
   error?: string;
+  version?: number;
+  ops?: unknown[];
+  sourceSha256?: string;
+  serverTime?: string;
+  secretsOk?: boolean;
 }
 
 async function callSign(
@@ -111,7 +116,8 @@ async function callSign(
 ): Promise<{ data: SignResult | null; error?: string }> {
   const body: Record<string, unknown> = { op, ...extra };
   if (mediaId) body['mediaId'] = mediaId;
-  const attempts = op === 'get' ? TRANSIENT_ATTEMPTS : 1;
+  // capabilities도 부작용 없는 읽기다. 배포 판정을 한 번의 모바일망 단절로 실패시키지 않는다.
+  const attempts = op === 'get' || op === 'capabilities' ? TRANSIENT_ATTEMPTS : 1;
   let lastError = '함수 요청 실패';
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -132,6 +138,32 @@ async function callSign(
     if (attempt < attempts) await wait(retryDelayMs(attempt));
   }
   return { data: null, error: `함수 요청 ${attempts}회 실패: ${lastError}` };
+}
+
+export interface R2Capabilities {
+  version: number | null;
+  ops: string[] | null;
+  sourceSha256: string | null;
+  serverTime: string | null;
+  secretsOk: boolean | null;
+  error: string | null;
+}
+
+/** 배포된 함수가 밝힌 실제 계약. 사용자 자료를 읽거나 쓰지 않는 read-only probe다. */
+export async function r2Capabilities(client: JourneyClient): Promise<R2Capabilities> {
+  const r = await callSign(client, 'capabilities', null);
+  if (r.error) {
+    return { version: null, ops: null, sourceSha256: null, serverTime: null, secretsOk: null, error: r.error };
+  }
+  const d = r.data;
+  return {
+    version: typeof d?.version === 'number' ? d.version : null,
+    ops: Array.isArray(d?.ops) && d.ops.every((op) => typeof op === 'string') ? d.ops : null,
+    sourceSha256: typeof d?.sourceSha256 === 'string' && /^[0-9a-f]{64}$/.test(d.sourceSha256) ? d.sourceSha256 : null,
+    serverTime: typeof d?.serverTime === 'string' ? d.serverTime : null,
+    secretsOk: typeof d?.secretsOk === 'boolean' ? d.secretsOk : null,
+    error: null,
+  };
 }
 
 function isRetryableDownloadStatus(status: number): boolean {
