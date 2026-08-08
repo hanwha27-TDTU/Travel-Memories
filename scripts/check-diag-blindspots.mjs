@@ -16,6 +16,7 @@
 //   F) 🔴 **도구마다 `group`이 있다** — v1.76이 분류를 만들고 도구에는 안 걸었다(M-0015 재발)
 //   G) 🔴 **도구가 없는 단계는 등록부에 이유가 있다** — 빈 단계는 화면에서 「검사됨」으로 읽힌다
 //   H) 🔴 **단계 아이콘이 흑백 두부로 안 그려진다** — 육안에서 나왔지만 규칙이 정확해 기계로 잡는다
+//   I) 🔴 안정 id·종류·단일 책임 도구가 있고 책임 도구의 그룹이 사각지대 그룹과 같다
 //
 // 🔴 **정직한 한계**: 이 게이트는 *"등록됐다"*까지만 안다. 등록부에 **애초에 안 적은** 사각지대는
 // 볼 수 없다 — 그건 사람이 §9 4단계(세계를 본다)에서 채운다. 이 게이트가 하는 일은
@@ -42,9 +43,12 @@ export function parseBlindSpots(src) {
     };
     const coveredRaw = chunk.match(/\bcoveredBy:\s*(null|'([^']*)')/);
     items.push({
+      id: str('id'),
       what: str('what'),
       whyDevCannot: str('whyDevCannot'),
       group: str('group'),
+      ownerToolId: str('ownerToolId'),
+      kind: str('kind'),
       coveredBy: coveredRaw ? (coveredRaw[1] === 'null' ? null : coveredRaw[2]) : undefined,
       // 여러 줄 문자열 연결(`'a' +\n 'b'`)도 있으므로 존재 여부만 본다.
       hasPendingReason: /\bpendingReason:/.test(chunk),
@@ -148,16 +152,31 @@ export function checkGroupIcons(icons) {
 }
 
 /** 순수 검사 — 셀프테스트가 가짜 입력으로 직접 돌린다. */
-export function checkBlindSpots(items, groups, toolIds) {
+export function checkBlindSpots(items, groups, toolIds, toolGroups = []) {
   const problems = [];
   if (items === null) return ['BLIND_SPOTS를 파싱하지 못함(형식 변경?) — 게이트가 공허해지므로 실패 처리'];
   if (!items.length) problems.push('BLIND_SPOTS가 비어 있음 — 「사각지대가 없다」는 거의 언제나 거짓이다');
+  const seenIds = new Set();
   items.forEach((it, i) => {
     const at = `BLIND_SPOTS[${i}]${it.what ? ` (${it.what.slice(0, 30)}…)` : ''}`;
+    if (!it.id) problems.push(`${at}: id가 비었음 — 문구와 무관한 안정 식별자가 필요하다`);
+    else if (seenIds.has(it.id)) problems.push(`${at}: id '${it.id}'가 중복됨 — 한 사각지대는 한 행이어야 한다`);
+    else seenIds.add(it.id);
     if (!it.what) problems.push(`${at}: what이 비었음 — 무엇을 못 재는지 적어야 한다`);
     if (!it.whyDevCannot) problems.push(`${at}: whyDevCannot이 비었음 — 왜 못 재는지가 이 항목의 근거다`);
     if (!it.group) problems.push(`${at}: group이 비었음`);
     else if (groups && !groups.includes(it.group)) problems.push(`${at}: 알 수 없는 group '${it.group}'`);
+    if (!['structural', 'transient'].includes(it.kind)) {
+      problems.push(`${at}: kind는 structural 또는 transient여야 한다`);
+    }
+    if (!it.ownerToolId) problems.push(`${at}: ownerToolId가 없음 — 화면·보고서 설명 책임이 사라진다`);
+    else if (toolIds && !toolIds.includes(it.ownerToolId)) problems.push(`${at}: ownerToolId '${it.ownerToolId}' 도구가 등록부에 없음`);
+    else {
+      const owner = toolGroups.find((tool) => tool.id === it.ownerToolId);
+      if (owner?.group && it.group && owner.group !== it.group) {
+        problems.push(`${at}: owner '${it.ownerToolId}' 그룹 '${owner.group}'이 사각지대 그룹 '${it.group}'과 다름`);
+      }
+    }
     if (it.coveredBy === undefined) {
       problems.push(`${at}: coveredBy를 안 적었음 — 덮은 도구 id 또는 null을 명시해야 한다`);
     } else if (it.coveredBy === null) {
@@ -174,8 +193,8 @@ export function checkBlindSpots(items, groups, toolIds) {
 // ── 셀프테스트: 알려진 위반을 주입해 RED로 잡히는지 확인(게이트 비공허, §4) ──
 const G = ['local', 'upload'];
 const T = ['roundtrip'];
-const ok = { what: 'x', whyDevCannot: 'y', group: 'local', coveredBy: 'roundtrip', hasPendingReason: false };
-const parseFixture = "export const BLIND_SPOTS = [\n  {\n    what: 'x',\n    whyDevCannot: 'y',\n    group: 'local',\n    coveredBy: 'roundtrip',\n  },\n];";
+const ok = { id: 'X-001', what: 'x', whyDevCannot: 'y', group: 'local', ownerToolId: 'roundtrip', kind: 'structural', coveredBy: 'roundtrip', hasPendingReason: false };
+const parseFixture = "export const BLIND_SPOTS = [\n  {\n    id: 'X-001',\n    what: 'x',\n    whyDevCannot: 'y',\n    group: 'local',\n    ownerToolId: 'roundtrip',\n    kind: 'structural',\n    coveredBy: 'roundtrip',\n  },\n];";
 const parsedLf = parseBlindSpots(parseFixture);
 const parsedCrlf = parseBlindSpots(parseFixture.replace(/\n/g, '\r\n'));
 if (parsedLf?.length !== 1 || parsedCrlf?.length !== 1) {
@@ -194,14 +213,22 @@ const selfCases = [
   { name: '알 수 없는 그룹 검출', items: [{ ...ok, group: 'zzz' }], expectClean: false },
   { name: 'coveredBy 미기재 검출', items: [{ ...ok, coveredBy: undefined }], expectClean: false },
 ];
-const brokenSelf = selfCases.filter((c) => (checkBlindSpots(c.items, G, T).length === 0) !== c.expectClean);
+const selfToolGroups = [{ id: 'roundtrip', group: 'local' }];
+selfCases.push(
+  { name: '안정 id 누락 검출', items: [{ ...ok, id: null }], expectClean: false },
+  { name: '중복 id 검출', items: [ok, { ...ok }], expectClean: false },
+  { name: 'kind 누락 검출', items: [{ ...ok, kind: null }], expectClean: false },
+  { name: 'owner 누락 검출', items: [{ ...ok, ownerToolId: null }], expectClean: false },
+  { name: 'owner 그룹 불일치 검출', items: [{ ...ok, group: 'upload' }], expectClean: false },
+);
+const brokenSelf = selfCases.filter((c) => (checkBlindSpots(c.items, G, T, selfToolGroups).length === 0) !== c.expectClean);
 if (brokenSelf.length) {
   console.error(`check-diag-blindspots: 셀프테스트 실패 — 게이트가 공허함: ${brokenSelf.map((c) => c.name).join(', ')}`);
   process.exit(2);
 }
 
 // F·G 셀프테스트 — 분류가 도구까지 닿았는가.
-const pending = { what: 'x', whyDevCannot: 'y', group: 'upload', coveredBy: null, hasPendingReason: true };
+const pending = { id: 'P-001', what: 'x', whyDevCannot: 'y', group: 'upload', ownerToolId: 'roundtrip', kind: 'structural', coveredBy: null, hasPendingReason: true };
 const groupCases = [
   { name: '정합 통과(두 그룹 다 도구 있음)', tg: [{ id: 'a', group: 'local' }, { id: 'b', group: 'upload' }], items: [], expectClean: true },
   { name: '🔴 group 없는 도구 검출(v1.76이 뚫린 자리)', tg: [{ id: 'a', group: null }, { id: 'b', group: 'upload' }], items: [], expectClean: false },
@@ -240,7 +267,7 @@ const toolIds = parseToolIds(toolsSrc);
 
 const toolGroups = parseToolGroups(toolsSrc);
 
-const problems = checkBlindSpots(items, groups, toolIds);
+const problems = checkBlindSpots(items, groups, toolIds, toolGroups ?? []);
 problems.push(...checkToolGroups(toolGroups, groups, items ?? []));
 problems.push(...checkGroupIcons(parseGroupIcons(groupsSrc)));
 if (groups === null) problems.push('DIAG_GROUPS를 파싱하지 못함');

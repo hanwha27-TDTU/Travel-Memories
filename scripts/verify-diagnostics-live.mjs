@@ -332,8 +332,8 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice
 // A층 — 실제 앱에서 진단 허브를 열고 **등록부의 모든 도구**를 그린다
 // ═══════════════════════════════════════════════════════════════════════════
 /**
- * 앱을 열고 **데이터 관리 → 진단 도구**까지 간다. 라벨로 찾는다(카드에 hook이 없어 텍스트가
- * 유일한 손잡이다). C층도 같은 경로를 쓰므로 **한 곳에만 구현한다**(§7 2층) — 두 곳에 손으로
+ * 앱을 열고 **데이터 관리 → 진단 도구**까지 간다. 안정 hook을 먼저 쓴다. C층도 같은 경로를
+ * 쓰므로 **한 곳에만 구현한다**(§7 2층) — 두 곳에 손으로
  * 적으면 허브 진입이 바뀌는 날 한쪽만 고쳐진다.
  */
 async function openDiagnosticsHub(pg) {
@@ -341,7 +341,7 @@ async function openDiagnosticsHub(pg) {
   await pg.waitForTimeout(400);
   await pg.getByRole('button', { name: /데이터 관리/ }).first().click();
   await pg.waitForTimeout(400);
-  await pg.getByRole('button', { name: /진단 도구/ }).first().click();
+  await pg.locator('[data-hub-card="diagnostics"]').click();
   await pg.waitForSelector('[data-rollup]', { timeout: 10000 });
 }
 await openDiagnosticsHub(page);
@@ -953,7 +953,7 @@ if (hasStore) {
   await hp.waitForTimeout(400);
   await hp.getByRole('button', { name: /진단 도구/ }).first().click();
   await hp.waitForSelector('[data-rollup]', { timeout: 10000 });
-  await hp.waitForTimeout(3000);
+  await hp.waitForFunction(() => !document.querySelector('[data-recheck-all]')?.disabled, null, { timeout: 15000 });
 
   const line = await hp.locator('.vd-rollup-line').innerText();
   // 🔴 여기가 이 판의 본론: 셸에서 persist는 **구조적** 확인 불가다. 예전 판은 이 하나가
@@ -971,18 +971,83 @@ if (hasStore) {
   );
 
   const recheck = hp.locator('[data-recheck-all]');
+  const retry = hp.locator('[data-retry-failed-tools]');
   const copyBtn = hp.locator('[data-copy-all]');
-  const hasBar = (await recheck.count()) === 1 && (await copyBtn.count()) === 1;
-  check('H③ 상단에 [일괄 점검]·[결과 복사]가 나란히 있다', hasBar, `점검 ${await recheck.count()} · 복사 ${await copyBtn.count()}`);
+  const hasBar = (await recheck.count()) === 1 && (await retry.count()) === 1 && (await copyBtn.count()) === 1;
+  check('H③ 상단에 [일괄 점검]·[실패 항목만]·[결과 복사]가 나란히 있다', hasBar, `점검 ${await recheck.count()} · 실패만 ${await retry.count()} · 복사 ${await copyBtn.count()}`);
+  const liveNote = hp.locator('.vd-rollup-slot .vd-msg');
+  check(
+    'H③-2 진행 문장이 aria-live 상태 영역이다',
+    (await liveNote.getAttribute('role')) === 'status' && (await liveNote.getAttribute('aria-live')) === 'polite',
+  );
   if (hasBar) {
     await recheck.click();
-    await hp.waitForTimeout(3000);
+    await hp.waitForFunction(() => !document.querySelector('[data-recheck-all]')?.disabled, null, { timeout: 15000 });
     const msg = await hp.locator('.vd-msg').innerText();
     check(
       '🔴 H④ [일괄 점검]을 누르면 **결과 문장이 화면에 나오고** 버튼이 잠기지 않는다(§13 4항)',
       /다시 쟀어요/.test(msg) && !(await hp.locator('[data-recheck-all]').isDisabled()),
       msg.trim() || '(결과 문장 없음)',
     );
+    await retry.click();
+    await hp.waitForFunction(() => !document.querySelector('[data-retry-failed-tools]')?.disabled, null, { timeout: 15000 });
+    const retryMsg = await hp.locator('.vd-msg').innerText();
+    check(
+      'H④-2 [실패 항목만]은 선택한 실행형 도구 수를 결과 문장으로 말한다',
+      /실패한 실행형 도구 \d+가지만|다시 잴 실패한 실행형 도구가 없어요/.test(retryMsg),
+      retryMsg.trim() || '(결과 문장 없음)',
+    );
+  }
+
+  const firstId = await hp.locator('.guide-card-diag[data-tool-id]').first().getAttribute('data-tool-id');
+  await hp.locator(`.guide-card-diag[data-tool-id="${firstId}"]`).click();
+  await hp.locator('.guide-back').click();
+  const detailReturn = await hp.evaluate(() => document.activeElement?.getAttribute('data-tool-id'));
+  check('H⑤ 상세 → 허브가 **열었던 도구 카드**로 포커스를 돌린다', detailReturn === firstId, `focus=${detailReturn}`);
+
+  await hp.locator('.guide-close').focus();
+  await hp.keyboard.press('Shift+Tab');
+  const trapped = await hp.evaluate(() => Boolean(document.activeElement?.closest('[aria-label="진단 도구"]')));
+  check('H⑥ Shift+Tab도 진단 모달 안에 갇힌다', trapped);
+
+  for (const theme of ['light', 'dark']) {
+    await hp.evaluate((value) => document.documentElement.setAttribute('data-theme', value), theme);
+    for (const width of [375, 768, 1280]) {
+      await hp.setViewportSize({ width, height: 900 });
+      const layout = await hp.evaluate(() => {
+        const visible = (node) => node.getClientRects().length > 0;
+        const parse = (value) => (value.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+        const lum = (rgb) => {
+          const c = rgb.map((n) => n / 255).map((n) => n <= 0.03928 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4);
+          return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+        };
+        const contrast = (a, b) => {
+          const x = lum(a); const y = lum(b);
+          return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+        };
+        const hints = [...document.querySelectorAll('.guide-card-hint')].filter(visible);
+        const ratios = hints.map((hint) => {
+          let bg = hint.parentElement;
+          while (bg && getComputedStyle(bg).backgroundColor === 'rgba(0, 0, 0, 0)') bg = bg.parentElement;
+          return contrast(parse(getComputedStyle(hint).color), parse(getComputedStyle(bg ?? document.body).backgroundColor));
+        });
+        const targets = [...document.querySelectorAll('.guide-close, .vd-rollup-actions .vd-btn, .guide-card-diag')]
+          .filter(visible)
+          .map((node) => node.getBoundingClientRect().height);
+        const modal = document.querySelector('.guide-modal')?.getBoundingClientRect();
+        return {
+          overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          modalInside: Boolean(modal && modal.left >= -1 && modal.right <= innerWidth + 1 && modal.top >= -1 && modal.bottom <= innerHeight + 1),
+          minTarget: Math.min(...targets),
+          minContrast: Math.min(...ratios),
+        };
+      });
+      check(
+        `H⑦ ${width}px ${theme}: 넘침·모달·44px·대비 계약`,
+        layout.overflow <= 1 && layout.modalInside && layout.minTarget >= 44 && layout.minContrast >= 4.5,
+        `overflow=${layout.overflow} · target=${layout.minTarget.toFixed(1)} · contrast=${layout.minContrast.toFixed(2)}`,
+      );
+    }
   }
 
   // 🔴 닫기 → **온 곳(데이터 관리)** 으로. 「메인으로 튕긴다」가 사용자가 겪은 불편이다.
@@ -991,7 +1056,9 @@ if (hasStore) {
   const backTo = await hp.evaluate(() =>
     document.querySelector('[aria-label="데이터 관리"]') ? '데이터 관리' : '(첫 화면)',
   );
-  check('🔴 H⑤ 닫기가 **온 곳으로 돌려보낸다** — 첫 화면으로 튕기지 않는다', backTo === '데이터 관리', `닫은 뒤: ${backTo}`);
+  const returnedFocus = await hp.evaluate(() => document.activeElement?.getAttribute('data-hub-card'));
+  check('🔴 H⑧ 닫기가 **온 곳으로 돌려보낸다** — 첫 화면으로 튕기지 않는다', backTo === '데이터 관리', `닫은 뒤: ${backTo}`);
+  check('H⑨ 닫은 뒤 데이터 관리의 진단 진입점으로 포커스가 돌아간다', returnedFocus === 'diagnostics', `focus=${returnedFocus}`);
   await hp.close();
 }
 

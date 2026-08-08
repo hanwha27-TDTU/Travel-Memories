@@ -1,7 +1,9 @@
 # HANDOFF_CODEX · Bugeon Journey 인계서
 
 > **읽는 사람**: 이 앱 제작에 거의 참여하지 않은 AI(Codex 등) 또는 새 Claude 세션.
-> **작성**: 2026-07-27 · **갱신 2026-08-04**(현재 버전은 `src/app/changelog.ts`가 정본. 바로 아래 최신 절을 **가장 먼저** 읽어라. DB 0028까지 적용 완료)
+> **작성**: 2026-07-27 · **상태 포인터 갱신 2026-08-08**. 현재 버전·migration·배포 상태는
+> `src/app/registry.gen.ts`와 `docs/HANDOFF.md` 맨 위가 정본이다. 이 문서의 버전별 절은 역사·구조 설명이며
+> 현재 상태로 읽지 않는다.
 >
 > 🔴 **헌법은 `docs/CONSTITUTION.md`가 정본이다.** `CLAUDE.md`·`AGENTS.md`는 거기서 자동으로
 > 심어 받는 어댑터라 **글자 단위로 같다**. 헌법을 고칠 때는 정본만 고치고 `npm run gen:adapters`
@@ -13,7 +15,14 @@
 
 ---
 
-## 🆕 v1.75 배포 완료 — Claude/Codex 최신 시작점 (2026-08-04)
+## 🆕 현재 시작점 — 생성 등록부와 최신 인계로 이동 (2026-08-08)
+
+- 앱 버전, 적용 migration, 도구·게이트 개수는 손으로 복제하지 않는다. `src/app/registry.gen.ts`를 읽는다.
+- 현재 작업·검증·배포 상태는 `docs/HANDOFF.md` 맨 위 최신 HANDOFF를 읽는다.
+- 진단 시스템의 재사용 가능한 계약은 `docs/DIAGNOSTIC_TOOL_DESIGN_BLUEPRINT.md`가 정본이다.
+- 아래 v1.75 이하 절은 과거 사건의 근거이며 최신 상태가 아니다.
+
+## 🕰 v1.75 배포 기록 (2026-08-04)
 
 - PR #200 Required CI 성공 뒤 squash 병합, `main`·`origin/main`은 `df6fafe`로 일치하며 공개 Pages `version.json`은 `1.75`다.
 - 작업 트리는 깨끗하다. 최신 상태·검증·미검사 경계와 **복사용 시작 메시지의 정본은 `docs/HANDOFF.md` HANDOFF-0082**다. 아래 HANDOFF-0081은 구현 시점 기록으로 읽는다.

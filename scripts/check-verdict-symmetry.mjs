@@ -194,7 +194,7 @@ export function guideCardContract(src) {
 }
 
 // ── 검사 D: 도구 등록부 필드 완전성 ─────────────────────────────────────────
-const TOOL_FIELDS = ['id:', 'icon:', 'label:', 'hint:', 'lead:', 'probe:'];
+const TOOL_FIELDS = ['id:', 'group:', 'icon:', 'label:', 'hint:', 'question:', 'reads:', 'mode:', 'writes:', 'probe:'];
 export function toolRegistryComplete(src) {
   const bad = [];
   for (const m of src.matchAll(/\{\s*\n\s*id:\s*'([\w-]+)'/g)) {
@@ -539,7 +539,7 @@ let selfTestCount = 0;
     },
     {
       name: '도구 등록부 완전',
-      fn: () => toolRegistryComplete(`const T = [{\n  id: 'a', icon: 'x', label: 'L', hint: 'h', lead: 'l', probe: p,\n}];`),
+      fn: () => toolRegistryComplete(`const T = [{\n  id: 'a', group: 'local', icon: 'x', label: 'L', hint: 'h', question: 'q', reads: 'r', mode: 'summary', writes: 'none', probe: p,\n}];`),
       clean: true,
     },
     {

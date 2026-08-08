@@ -24,11 +24,11 @@ const m = (level: Level, label = 'x', kind: UnknownKind = 'transient'): Metric =
     : { label, actual: 'a', expected: 'b', level };
 
 describe('판정 롤업 — 가장 급한 것이 이긴다', () => {
-  it('문제 > 할 일 > 확인 불가 > 정상 순으로 이긴다', () => {
+  it('문제 > 확인 불가 > 할 일 > 정상 순으로 이긴다', () => {
     expect(worst(['ok', 'todo'])).toBe('todo');
     expect(worst(['todo', 'problem'])).toBe('problem');
     expect(worst(['ok', 'unknown'])).toBe('unknown');
-    expect(worst(['unknown', 'todo'])).toBe('todo');
+    expect(worst(['unknown', 'todo'])).toBe('unknown');
     expect(worst(['ok', 'ok', 'ok'])).toBe('ok');
   });
 
