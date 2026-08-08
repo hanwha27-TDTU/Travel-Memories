@@ -119,6 +119,7 @@ export const SKILL_ROUTES = [
   { match: /^src\/domain\/syncStatusVerdict/, skill: 'diagnostics-dev' },
   // Domain-settled sync progress is part of the sync execution contract, not an elapsed-time estimate.
   { match: /^src\/domain\/syncProgress/, skill: 'sync-offline-dev' },
+  { match: /^src\/domain\/(syncProgress|syncBadgeVerdict)/, skill: 'sync-runtime-dev' },
   // 큐 없는 tombstone의 서버 증거 판정 + 사용자 문장. 삭제/LWW 규율과 진단 전달 규율이
   // 동시에 걸리는 이음매라 두 헌장을 모두 읽는다(M-0095).
   { match: /^src\/domain\/syncTombstoneVerdict/, skill: 'diagnostics-dev' },
@@ -158,6 +159,8 @@ export const SKILL_ROUTES = [
   { match: /^src\/domain\/syncBadgeVerdict/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/syncParity/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/syncParity/, skill: 'sync-offline-dev' },
+  { match: /^src\/services\/(autoSync|syncPlan|syncParity)/, skill: 'sync-runtime-dev' },
+  { match: /^src\/ui\/screens\/home/, skill: 'sync-runtime-dev' },
   // 위치관리대장 — 좌표 순서·역지오코딩은 장소 헌장 소관이다.
   { match: /^src\/domain\/place\/registry/, skill: 'map-place-dev' },
   { match: /^src\/ui\/screens\/placeRegistry/, skill: 'map-place-dev' },

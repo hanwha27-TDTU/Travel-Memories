@@ -481,7 +481,7 @@ main과 같은 자리에서 다시 시작해 뒀다(PR #203·#204·#205가 전�
 
 - **사용자 지적**: *"'동기화됨' 표시도 클라우드랑 동일하게 표시되었을 때에 한해서만 동기화됨으로 표기하면 문제 없을 듯(클라우드가 정본이므로)"* · *"동기화 버튼을 없애도 앱 접속 시마다 자동으로 동기화하도록"* · *"동기화가 만약 안되면 그 배지를 클릭했을 때 진단도구를 돌려서 왜 안되는지"*. 그리고 뒤늦게 *"아까 이야기했던 이거 조치했나요?"*로 **미이행을 지적**받았다 — 진단 재설계로 넘어가며 이 작업이 밀려 있었다.
 - 🔴 **「보낼 게 없다」는 「같다」가 아니다**: 옛 판정은 `pending === 0 && phase !== 'failed'`면 「동기화됨」이었다. **그게 정확히 M-0101이었다** — 서버에 여행 8개가 있는데 이 기기는 0개를 받은 상태에서 보낼 것도 없고 실패도 없어 화면이 「동기화됨」이라 말했다. 이제 `services/syncParity.ts`가 서버와 실제로 대조하고, **대조를 못 했으면 「확인 전」이라고 말한다**(모르는 것을 정상으로 반올림 금지 — §8).
-- **[↻ 동기화] 버튼 제거**: 자동 동기화는 이미 돌고 있었으므로(온라인 복귀·화면 복귀·주기) **일을 배지로 옮겼다**. 「지금 확인」이 필요한 상태에서는 배지를 누르면 동기화가 돌고, 다르면 [저장 상태] 도구로 간다. 버튼을 그냥 지우면 그 수단이 사라지므로 **옮긴 것**이지 없앤 것이 아니다.
+- **[↻ 동기화] 버튼 제거**: 자동 동기화는 로그인 첫 확인과 실제 보류 변경에서만 돌고, 완료 후에는 반복 전체 조회를 하지 않는다. 다른 기기 변경을 확인하고 싶을 때는 배지를 눌러 명시적으로 동기화하며, 다르면 [저장 상태] 도구로 간다. 버튼을 그냥 지우면 그 수단이 사라지므로 **옮긴 것**이지 없앤 것이 아니다.
 - **egress 규율**: 배지는 홈이 다시 그려질 때마다 판정되므로 대조를 **동기화 성공 시에만** 갱신하고(`installParityWatch`), 30분 지난 값은 만료시켜 `null`(모름)로 만든다 — 낡은 초록은 초록이 아니다.
 - 🔴 **주입 중 검사의 구멍을 발견했다**: 「pending이 0일 때만 실패를 본다」는 주입이 **RED로 안 잡혔다**. 실패와 pending이 동시에 있는 갈래를 안 재고 있었다. 갈래를 추가하니 잡혔다 — **통과만으로는 검사가 살아 있는 게 아니다**(§4의 실증).
 - **위치관리대장(사용자 요청)**: [데이터 관리 › 위치관리대장]. 🔴 **대장은 이미 있었다** — `LocalPlace`가 이름·주소·국가·도시·좌표를 다 갖고 `savePlace()`가 자동 등재하고 있었다. 없었던 것은 화면뿐이라 **스키마 변경 0**이다.
@@ -772,7 +772,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->2.00<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->200<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->112<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->2.01<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->201<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->112<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->29<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
@@ -1123,7 +1123,7 @@ SCAN 범위도 `android-shell/android/app/src`(java)로 넓혔다 — node_modul
 4. 도메인 계약: `DATA_MODEL` · `SYNC_PROTOCOL` · `SECURITY` · `MEDIA_PIPELINE` · `PRIVACY` · `DEPLOYMENT` · `ARCHITECTURE` · **`DISASTER_RECOVERY`(백업·복원·복구 우선순위)**
 5. `docs/AGENT_REGISTRY.md` → `docs/DECISIONS.md` + `docs/ASSUMPTIONS.md`
 6. `docs/ROADMAP.md`(Phase 계획) → `docs/ACTIVE_TASKS.md`
-7. **작업 전 필수 스킬**(해당 영역 수정 시 **반드시 로드** — 현재 <!--reg:skillCount-->11<!--/reg-->개):
+7. **작업 전 필수 스킬**(해당 영역 수정 시 **반드시 로드** — 현재 <!--reg:skillCount-->12<!--/reg-->개):
 
 | 만지는 것 | 로드할 스킬 |
 |---|---|

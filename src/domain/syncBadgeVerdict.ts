@@ -163,10 +163,10 @@ export function syncBadge(i: BadgeInput): BadgeView {
     const text = pushed === 0 && pulled === 0
       ? '✓ 동기화 완료 · 변경 없음'
       : `✓ 동기화 완료 · 보냄 ${pushed}건 · 받음 ${pulled}건`;
-    return { text, level: 'info', go: null, syncOnTap: false };
+    return { text, level: 'info', go: null, syncOnTap: true };
   }
 
-  return { text: '☁️ 동기화됨', level: 'ok', go: null, syncOnTap: false };
+  return { text: '☁️ 동기화됨', level: 'ok', go: null, syncOnTap: true };
 }
 
 /** 배지의 화면읽기 라벨 — 「›」만 보이는 이동 버튼이 무엇을 하는지 말한다. */

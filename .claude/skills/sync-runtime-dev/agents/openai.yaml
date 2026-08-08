@@ -1,0 +1,4 @@
+interface:
+  display_name: "동기화 런타임 개발"
+  short_description: "자동 동기화·병렬 계획·상태 표시를 안전하게 다룹니다."
+  default_prompt: "Use $sync-runtime-dev to change Bugeon Journey sync triggers, progress, or runtime feedback safely."

@@ -23,6 +23,7 @@ import {
   listDeletedTrips, listDeletedTripsFromServer, restoreTripFromTrash, purgeTripPermanently, prepareTripForAction,
 } from '../../services/trips';
 import { requestSync } from '../../services/autoSync';
+import { purgeRemote, verifyPurgeReceipt } from '../../services/sync';
 import { computeStorageUsage, formatBytes } from '../../services/storage';
 import { fxBase, setFxBase } from '../../services/fx';
 import { openR2Setup } from './r2Setup';
@@ -464,22 +465,69 @@ function buildBulkTrashControls(args: {
     if (!entries?.length) return;
     confirm.disabled = true; cancel.disabled = true;
     void (async () => {
+      let committed = false;
       try {
         const client = supabase();
         if (client) {
-          // 독립 tombstone은 병렬 준비하고, 하나라도 실패하면 commit 전이라 아무 것도 지우지 않는다.
-          const prepared = await Promise.all(entries.map((entry) => (
-            entry.domain === 'trip' ? prepareTripForAction(entry.id, client) : prepareChildForAction(entry.domain, entry.id, client)
-          )));
+          // 독립 tombstone은 병렬 준비한다. 완료 개수는 실제로 끝난 준비만 세어 진행률에 반영한다.
+          let preparedCount = 0;
+          setNote(args.purgeNote, `영구삭제 준비 중 0/${entries.length}`, 'info', null, 0, '영구삭제 진행률');
+          const prepared = await Promise.all(entries.map(async (entry) => {
+            const ready = await (entry.domain === 'trip'
+              ? prepareTripForAction(entry.id, client)
+              : prepareChildForAction(entry.domain, entry.id, client));
+            preparedCount += 1;
+            setNote(
+              args.purgeNote,
+              `영구삭제 준비 중 ${preparedCount}/${entries.length}`,
+              'info',
+              null,
+              (preparedCount / entries.length) * 35,
+              '영구삭제 진행률',
+            );
+            return ready;
+          }));
           if (prepared.some((ok) => !ok)) throw new Error('현재 휴지통 항목을 이 기기에 준비하지 못했어요. 연결을 확인한 뒤 다시 시도해 주세요.');
         }
+        setNote(args.purgeNote, '이 기기에서 영구삭제를 확정하는 중…', 'info', null, 45, '영구삭제 진행률');
         const result = await purgeTrashedBatch(entries);
-        void requestSync('휴지통 일괄 영구삭제');
-        setNote(args.purgeNote, `이 기기에서 ${result.selected}개 영구삭제를 확정했고, 다른 기기 반영을 요청했어요.`, 'ok', null);
-        args.onChanged(); reset(); args.onCommitted();
+        committed = true;
+        args.onChanged();
+        setNote(args.purgeNote, `이 기기 확정 완료 · 선택 ${result.selected}개, 연결된 항목 포함 ${result.targets}개를 서버에 반영 중…`, 'info', null, 55, '영구삭제 진행률');
+        await requestSync('휴지통 일괄 영구삭제');
+        setNote(args.purgeNote, `서버 삭제 결과를 확인 중… (${result.targets}개)`, 'info', null, 80, '영구삭제 진행률');
+        if (!client) {
+          setNote(args.purgeNote, `이 기기 영구삭제 확정 · 선택 ${result.selected}개, 연결된 항목 포함 ${result.targets}개. 로그인 후 서버 확인이 필요해요.`, 'info', args.toSync);
+        } else {
+          const receipt = await verifyPurgeReceipt(purgeRemote(client), result.targetRefs, (completed, total) => {
+            setNote(
+              args.purgeNote,
+              `서버 삭제 결과를 확인 중… (${completed}/${total})`,
+              'info',
+              null,
+              80 + (completed / total) * 20,
+              '영구삭제 진행률',
+            );
+          });
+          if (receipt.fullyConfirmed === receipt.targets) {
+            setNote(args.purgeNote, `영구삭제 완료 · 선택 ${result.selected}개, 연결된 항목 포함 ${result.targets}개. 서버 행 삭제 ${receipt.rowsAbsent}/${receipt.targets}, 좀비 차단 원장 ${receipt.ledgerConfirmed}/${receipt.targets} 확인.`, 'ok', null);
+          } else {
+            setNote(
+              args.purgeNote,
+              `이 기기 확정 완료 · 서버 확인 완료 ${receipt.fullyConfirmed}/${receipt.targets} (행 삭제 ${receipt.rowsAbsent}/${receipt.targets}, 차단 원장 ${receipt.ledgerConfirmed}/${receipt.targets}, 확인 불가 ${receipt.unverified}개).`,
+              'error',
+              args.toSync,
+            );
+          }
+        }
+        reset(); args.onCommitted();
       } catch (e) {
         setNote(args.purgeNote, (e as Error).message || '일괄 영구삭제에 실패했어요.', 'error', args.toSync);
-        confirm.disabled = false; cancel.disabled = false;
+        if (committed) {
+          reset(); args.onCommitted();
+        } else {
+          confirm.disabled = false; cancel.disabled = false;
+        }
       }
     })();
   });

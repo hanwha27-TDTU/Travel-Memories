@@ -306,9 +306,13 @@ export class PendingTrashSyncError extends Error {
  * `commitPurge` 한 번으로 표식·전파 큐·로컬 행을 함께 바꾼다. 의존 관계가 있는 가족 내부는
  * 기존 `collectPurgeTargets`가 부모→자식 규칙을 결정하고 commit이 자식부터 지운다.
  */
-export async function purgeTrashedBatch(entries: readonly TrashPurgeEntry[]): Promise<{ selected: number; targets: number }> {
+export async function purgeTrashedBatch(entries: readonly TrashPurgeEntry[]): Promise<{
+  selected: number;
+  targets: number;
+  targetRefs: Pick<PurgeTarget, 'id' | 'domain' | 'underRoot'>[];
+}> {
   const unique = [...new Map(entries.map((entry) => [`${entry.domain}:${entry.id}`, entry])).values()];
-  if (!unique.length) return { selected: 0, targets: 0 };
+  if (!unique.length) return { selected: 0, targets: 0, targetRefs: [] };
 
   const families = await Promise.all(unique.map(async (entry) => {
     const table = localTableOf(entry.domain) as unknown as {
@@ -335,7 +339,11 @@ export async function purgeTrashedBatch(entries: readonly TrashPurgeEntry[]): Pr
   if (pending.length) throw new PendingTrashSyncError(pending.length);
 
   await commitPurge(targets, new Date().toISOString());
-  return { selected: unique.length, targets: targets.length };
+  return {
+    selected: unique.length,
+    targets: targets.length,
+    targetRefs: targets.map(({ id, domain, underRoot }) => ({ id, domain, ...(underRoot ? { underRoot } : {}) })),
+  };
 }
 
 /**

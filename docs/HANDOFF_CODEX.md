@@ -364,7 +364,7 @@ npm run brief <고칠 파일들>      # ← 이것부터. 어느 문서를 읽�
 4. **그 영역에서 과거에 낸 실수** (`docs/records/coding-mistakes.md`)
 
 > ⚠️ **스킬 문서를 건너뛰지 마라.** 길다(수백 줄). 하지만 거기 적힌 것을 모르고 동기화를
-> 만지면 **사용자의 기억이 조용히 사라진다.** 특히 `sync-offline-dev`와
+> 만지면 **사용자의 기억이 조용히 사라진다.** 특히 `sync-offline-dev`·`sync-runtime-dev`와
 > `supabase-security-dev`는 이 저장소의 최고 위험 표면을 다룬다.
 
 ### 검증 명령
@@ -1099,7 +1099,7 @@ DB변화·Storage변화·개인정보·보안·실행한 검사·되돌리기·�
 | 🔴 **공통 계약(헌법) 정본** | `docs/CONSTITUTION.md` — `CLAUDE.md`·`AGENTS.md`는 여기서 **자동으로 심어 받는 어댑터**다(§14) |
 | 무엇을 만드는가 | `docs/PROJECT_SPEC.md` |
 | 데이터 모양 | `docs/DATA_MODEL.md` |
-| 동기화 계약 | `docs/SYNC_PROTOCOL.md` (**정본**) + `.claude/skills/sync-offline-dev/SKILL.md` (작업법) |
+| 동기화 계약 | `docs/SYNC_PROTOCOL.md` (**정본**) + `.claude/skills/sync-offline-dev/SKILL.md` (데이터 정합성) + `.claude/skills/sync-runtime-dev/SKILL.md` (실행·병렬·상태 표시) |
 | 보안·RLS | `docs/SECURITY.md` + `.claude/skills/supabase-security-dev/SKILL.md` |
 | 개인정보 | `docs/PRIVACY.md` |
 | 사진 파이프라인 | `docs/MEDIA_PIPELINE.md` |

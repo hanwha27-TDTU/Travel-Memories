@@ -39,6 +39,7 @@ import {
   PARENT_KEY,
   type PurgeDomain,
   type PurgeParent,
+  type PurgeTarget,
 } from './purge';
 
 export interface SyncResult {
@@ -1874,6 +1875,61 @@ export function purgeRemote(client: JourneyClient): PurgeRemote {
         return { count: -1, error: (e as Error).message };
       }
     },
+  };
+}
+
+/** 영구삭제 뒤 사용자에게 보여 줄 서버 read-back 영수증. 응답 성공이 아니라 원장과 행 부재를 모두 센다. */
+export interface PurgeVerification {
+  targets: number;
+  ledgerConfirmed: number;
+  rowsAbsent: number;
+  fullyConfirmed: number;
+  unverified: number;
+}
+
+/**
+ * 방금 영구삭제한 대상이 서버에서도 끝났는지 다시 읽는다.
+ *
+ * `pushPurges`도 같은 read-back을 수행하지만 그 결과는 동기화 전체 결과에 섞인다. 이 함수는
+ * 사용자가 고른 대상만 따로 영수증으로 집계한다. 각 대상은 서로 독립적이므로 병렬로 확인하고,
+ * 부모 대상은 가족 잔여 행도 함께 본다. 조회 오류는 성공으로 반올림하지 않고 `unverified`에 남긴다.
+ */
+export async function verifyPurgeReceipt(
+  remote: PurgeRemote,
+  targets: readonly Pick<PurgeTarget, 'id' | 'domain' | 'underRoot'>[],
+  onSettled?: (completed: number, total: number) => void,
+): Promise<PurgeVerification> {
+  const unique = [...new Map(targets.map((target) => [`${target.domain}:${target.id}`, target])).values()];
+  let settled = 0;
+  const checks = await Promise.all(unique.map(async (target) => {
+    try {
+      const parent = target.underRoot ? null : asPurgeParent(target.domain);
+      const familyCheck: Promise<{ count: number; error?: string | undefined }> = parent
+        ? remote.remainingInFamily(parent, target.id)
+        : Promise.resolve({ count: 0 });
+      const [ledger, row, family] = await Promise.all([
+        remote.ledgerHas(target.id),
+        remote.stillThere(target.domain, target.id),
+        familyCheck,
+      ]);
+      const unknown = !!ledger.error || !!row.error || !!family.error;
+      return {
+        ledgerConfirmed: !ledger.error && ledger.found,
+        rowAbsent: !row.error && !row.found && !family.error && family.count === 0,
+        fullyConfirmed: !unknown && ledger.found && !row.found && family.count === 0,
+        unknown,
+      };
+    } finally {
+      settled += 1;
+      onSettled?.(settled, unique.length);
+    }
+  }));
+  return {
+    targets: unique.length,
+    ledgerConfirmed: checks.filter((check) => check.ledgerConfirmed).length,
+    rowsAbsent: checks.filter((check) => check.rowAbsent).length,
+    fullyConfirmed: checks.filter((check) => check.fullyConfirmed).length,
+    unverified: checks.filter((check) => check.unknown).length,
   };
 }
 

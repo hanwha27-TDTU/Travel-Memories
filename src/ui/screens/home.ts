@@ -774,12 +774,16 @@ function renderSyncNote(status: HTMLElement, pending: number, user: SessionUser 
  * 대조 갱신 자체는 `installParityWatch`가 **같은 신호**로 건다(§7 — 주기를 두 곳에 두지 않는다).
  *
  * 🔴 이 배선이 [↻ 동기화] 버튼을 대신한다(사용자 제안 2026-08-05: *"동기화 버튼을 없애도
- * 앱 접속 시마다 자동으로 동기화하도록"*). 자동 동기화는 이미 돌고 있었고(온라인 복귀·화면
- * 복귀·주기 — `installAutoSync`), 「지금 확인」이 필요할 때는 **배지를 누르면** 된다.
+ * 앱 접속 시마다 자동으로 동기화하도록"*). 자동 동기화는 로그인 첫 확인과 보류 변경에서만
+ * 돌고, 「지금 확인」이 필요할 때는 **배지를 누르면** 된다.
  * 버튼을 그냥 지우면 그 수단이 사라지므로 **일을 옮긴 것**이지 없앤 것이 아니다.
  */
-function wireBadgeWatch(repaint: () => void): void {
-  unsubscribeSync = onSyncStatus(repaint);
+function wireBadgeWatch(repaint: () => void, refreshAfterSync: () => void): void {
+  unsubscribeSync = onSyncStatus((s) => {
+    repaint();
+    // A completed pull must refresh the list as well as the status badge.
+    if (s.phase === 'ok') refreshAfterSync();
+  });
   unsubscribeParity = installParityWatch();
 }
 
@@ -939,28 +943,28 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   wrap.appendChild(section);
   mount.appendChild(wrap);
 
-  wireBadgeWatch(() => renderSyncNote(status, lastPending, user));
+  wireBadgeWatch(
+    () => renderSyncNote(status, lastPending, user),
+    () => void refresh(),
+  );
 
-  // 인증 상태 구독: 로그인되면 동기화 후 갱신.
+  // 인증 상태 구독: 로그인 화면만 갱신한다. 첫 서버 확인은 installAutoSync가 한 번만 맡는다.
   unsubscribeAuth = onAuthChange((u) => {
     void (async () => {
       user = await gateAccess(u, status);
       renderAuth();
-      await trySync();
       await refresh();
     })();
   });
-
-  // 온라인 복귀 시 동기화 시도.
-  window.addEventListener('online', () => void trySync().then(refresh));
 
   // 초기값: 현재 세션 확인(구독이 늦게 올 수 있으므로 즉시 1회).
   void (async () => {
     user = await gateAccess(await currentUser(), status);
     renderAuth();
     await refresh();
-    await trySync();
-    if (user) await refreshParity(); // 안 뜨면 배지가 「확인 전」에 머문다(M-0101을 못 말한다)
-    await refresh();
+    // installAutoSync owns the one initial cloud check. Starting one here would make the
+    // new-device pull run twice; its completion refreshes this list through wireBadgeWatch.
+    if (user) await refreshParity();
+    renderSyncNote(status, lastPending, user);
   })();
 }
