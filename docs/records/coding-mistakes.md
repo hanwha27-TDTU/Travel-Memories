@@ -6,6 +6,15 @@
 
 ---
 
+## M-0131 · **동기화 종료 뒤 0건·「확인 전」을 남길 수 있는 비동기 전달 경합이 있었다**
+- **날짜**: 2026-08-08 · **발견**: 사용자 Android Chrome 시각별 화면 + 운영 Edge Function 로그 · **심각도**: high(서버 수신과 사용자 화면의 완료 판정이 갈릴 수 있음)
+- **자리**: `src/services/canonicalSync.ts`, `src/services/syncParity.ts`, `src/ui/screens/home.ts`, `src/domain/syncProgress.ts`
+- **증상**: 새 Chrome은 18:39에 「동기화 준비·안전 확인 중」과 여행 0건을 보였고, 운영 로그에는 56회의 `media-sign` 요청이 모두 200으로 끝났다. 18:42·18:45에는 실행 배지가 「보낼 것 없음 · 클라우드와 같은지는 확인 전」으로 바뀌었지만 목록은 계속 0건이었다.
+- **원인**: canonical 파일 수신 전체를 분모 없는 `preparing` 한 단계로 숨겼고, Dexie transaction resolve 뒤 실제 로컬 개수·canonical version을 되읽지 않았다. 동시에 인증 복원·초기 parity·동기화 완료가 홈 목록 refresh를 겹쳐 실행해, 먼저 시작한 0건 조회가 늦게 끝나 최신 목록을 덮을 수 있었다. 동기화 전 parity가 이미 실행 중이면 성공 뒤 호출도 같은 single-flight를 재사용해 완료 시점 이후 대조를 보장하지 않았다.
+- **수정**: 사진·소리 파일 완료 수, 원자 반영, 로컬 재확인을 실제 게이지 단계로 분리한다. 원자 transaction 뒤 여섯 표 개수와 canonical version을 기대 snapshot과 read-back하고 다르면 성공하지 않는다. 홈은 refresh 세대로 마지막 요청만 렌더하며, 성공 뒤 parity는 앞선 대조를 기다린 다음 새 대조를 반드시 한 번 실행한다.
+- **예방**: 유닛이 canonical 단계 순서·실제 분모, read-back 불일치 실패, 동기화 전 대조와 성공 후 대조의 2회 실행을 고정한다. 화면 전달은 장시간 첫 소비에서 게이지가 전진하고, 완료 뒤 목록과 parity가 같은 정본에 도달하는지 라이브로 확인한다.
+- **일반형**: 🔴 **작업 완료·자료 반영·화면 전달은 서로 다른 세 상태다.** 원격 요청 성공만으로 완료를 추측하지 말고 로컬 read-back과 최신 렌더 소유권을 각각 증명하며, 완료 이후 대조는 완료 이전 single-flight로 대신하지 않는다.
+
 ## M-0130 · **사진 90장 중 한 번의 브라우저 fetch 단절이 첫 canonical 소비 전체를 0건에 남겼다**
 - **날짜**: 2026-08-08 · **발견**: 사용자 Android Chrome 화면 + 운영 Edge Function 로그 · **심각도**: high(새 브라우저가 서버 기록을 전혀 소비하지 못함)
 - **자리**: `src/services/r2.ts`의 `callSign`·R2 GET, `supabase/functions/media-sign/index.ts`의 CORS preflight

@@ -803,6 +803,38 @@ function clearHomeSubscriptions(): void {
   unsubscribeParityChange = null;
 }
 
+/** 로그인 상태만 그리는 작은 셸. 홈 목록 refresh의 비동기 소유권과 섞지 않는다. */
+function renderHomeAuth(authArea: HTMLElement, user: SessionUser | null, status: HTMLElement): void {
+  authArea.innerHTML = '';
+  if (!isConfigured()) {
+    authArea.appendChild(el('span', 'muted small', '📴 로컬 모드'));
+    return;
+  }
+  if (user) {
+    const who = el('span', 'muted small auth-who');
+    who.textContent = user.email ?? '로그인됨';
+    // 좁은 화면에서는 CSS가 말줄임으로 자른다 — 잘린 값을 확인할 길을 남긴다.
+    if (user.email) who.title = user.email;
+    const out = el('button', 'btn-ghost', '로그아웃') as HTMLButtonElement;
+    out.type = 'button';
+    out.addEventListener('click', () => {
+      void signOut();
+    });
+    authArea.append(who, out);
+    return;
+  }
+  const inBtn = el('button', 'btn-primary', 'Google 로그인') as HTMLButtonElement;
+  inBtn.type = 'button';
+  inBtn.addEventListener('click', () => {
+    inBtn.disabled = true;
+    void signInWithGoogle().catch((err) => {
+      status.textContent = `로그인 실패: ${err instanceof Error ? err.message : String(err)}`;
+      inBtn.disabled = false;
+    });
+  });
+  authArea.appendChild(inBtn);
+}
+
 export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   clearHomeSubscriptions();
   mount.innerHTML = '';
@@ -810,6 +842,9 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   let user: SessionUser | null = null;
   /** 마지막으로 잰 대기 수 — 동기화 구독이 배지를 다시 그릴 때 쓴다. */
   let lastPending = 0;
+  // 인증 복원·첫 대조·동기화 완료가 동시에 refresh를 부를 수 있다. 먼저 시작한 0건 조회가
+  // 나중에 끝나 최신 canonical 목록을 덮지 못하게 "마지막 요청만 그린다"(M-0131).
+  let refreshGeneration = 0;
 
   const wrap = el('main', 'screen screen-home');
   const authArea = el('div', 'auth-area');
@@ -863,41 +898,12 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
 
   const editTrip = (t: LocalTrip): void => editTripFromHome(t, refresh);
 
-  function renderAuth(): void {
-    authArea.innerHTML = '';
-    if (!isConfigured()) {
-      authArea.appendChild(el('span', 'muted small', '📴 로컬 모드'));
-      return;
-    }
-    if (user) {
-      const who = el('span', 'muted small auth-who');
-      who.textContent = user.email ?? '로그인됨';
-      // 좁은 화면에서는 CSS가 말줄임으로 자른다 — 잘린 값을 확인할 길을 남긴다.
-      if (user.email) who.title = user.email;
-      const out = el('button', 'btn-ghost', '로그아웃') as HTMLButtonElement;
-      out.type = 'button';
-      out.addEventListener('click', () => {
-        void signOut();
-      });
-      authArea.append(who, out);
-    } else {
-      const inBtn = el('button', 'btn-primary', 'Google 로그인') as HTMLButtonElement;
-      inBtn.type = 'button';
-      inBtn.addEventListener('click', () => {
-        inBtn.disabled = true;
-        void signInWithGoogle().catch((err) => {
-          status.textContent = `로그인 실패: ${err instanceof Error ? err.message : String(err)}`;
-          inBtn.disabled = false;
-        });
-      });
-      authArea.appendChild(inBtn);
-    }
-  }
-
   async function refresh(): Promise<void> {
+    const generation = ++refreshGeneration;
     const mayViewLocalRecords = canViewLocalRecords(isConfigured(), Boolean(user));
     const query = form.dataset['photoQuery'] ?? '';
     const { pending, all } = await loadHomeSnapshot(query, mayViewLocalRecords);
+    if (generation !== refreshGeneration) return;
     lastPending = pending;
 
     const lockUi = { viewBar: chipBar, fold: periodUi.fold, form, filterNow: periodUi.filterNow, list, clearPeriod: periodUi.clear };
@@ -961,7 +967,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   unsubscribeAuth = onAuthChange((u) => {
     void (async () => {
       user = await gateAccess(u, status);
-      renderAuth();
+      renderHomeAuth(authArea, user, status);
       await refresh();
     })();
   });
@@ -969,7 +975,7 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   // 초기값: 현재 세션 확인(구독이 늦게 올 수 있으므로 즉시 1회).
   void (async () => {
     user = await gateAccess(await currentUser(), status);
-    renderAuth();
+    renderHomeAuth(authArea, user, status);
     await refresh();
     // installAutoSync owns the one initial cloud check. Starting one here would make the
     // new-device pull run twice; its completion refreshes this list through wireBadgeWatch.

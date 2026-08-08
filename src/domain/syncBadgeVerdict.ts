@@ -82,7 +82,7 @@ export interface BadgeView {
    * (사용자 제안 2026-08-05), 「지금 확인」이 필요한 상태에서는 배지가 그 버튼 노릇을 한다.
    */
   syncOnTap: boolean;
-  /** A measurable domain-sync percentage; omitted for preparation/safety work. */
+  /** 실제 완료된 도메인·파일·커밋 단계의 비율. 분모를 모르는 준비 단계에는 없다. */
   progressPercent?: number;
 }
 

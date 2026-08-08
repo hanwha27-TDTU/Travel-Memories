@@ -2305,7 +2305,11 @@ export async function runSync(
   reportProgress(opts, { phase: 'preparing', completed: 0, total: totalStages, phaseCompleted: 0, phaseTotal: 0 });
   // 🔴 어떤 로컬 repair/push보다 먼저 canonical 세대를 본다. 바뀌었으면 클라우드 정확집합만
   // 반영하고 여기서 끝낸다 — 병합 결과를 다시 올리면 사용자가 고른 최종본이 즉시 오염된다.
-  const canonical = await ensureCanonicalBeforeSync(canonicalRemote(client), userId);
+  const canonical = await ensureCanonicalBeforeSync(
+    canonicalRemote(client),
+    userId,
+    (progress) => reportProgress(opts, progress),
+  );
   if (canonical.mode === 'applied') {
     return {
       pushed: 0,

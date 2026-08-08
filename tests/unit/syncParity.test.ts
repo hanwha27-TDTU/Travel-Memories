@@ -17,7 +17,15 @@ vi.mock('../../src/services/storeState', () => ({
 vi.mock('../../src/services/autoSync', () => ({ onSyncStatus: (listener: unknown) => onSyncStatusMock(listener) }));
 
 const mod = await import('../../src/services/syncParity');
-const { __resetParityForTests, installParityWatch, isParityRefreshing, lastParity, onParityChange, refreshParity } = mod;
+const {
+  __resetParityForTests,
+  installParityWatch,
+  isParityRefreshing,
+  lastParity,
+  onParityChange,
+  refreshParity,
+  refreshParityAfterSync,
+} = mod;
 
 beforeEach(() => {
   __resetParityForTests();
@@ -72,5 +80,24 @@ describe('대조 완료 신호', () => {
     await refreshParity();
     expect(repaint).toHaveBeenCalledTimes(2);
     offWatch();
+  });
+
+  it('동기화 전에 시작한 대조가 있으면 성공 뒤 새 스냅샷을 반드시 한 번 더 읽는다', async () => {
+    let release!: () => void;
+    compareStoreMock.mockImplementationOnce(() => new Promise((resolve) => {
+      release = () => resolve({ counts: { trips: { cloud: 1, local: 0 } } });
+    }));
+    compareStoreMock.mockResolvedValueOnce({ counts: { trips: { cloud: 1, local: 1 } } });
+
+    const oldComparison = refreshParity();
+    const afterSync = refreshParityAfterSync();
+    await Promise.resolve();
+    await Promise.resolve();
+    release();
+    await oldComparison;
+    await afterSync;
+
+    expect(compareStoreMock).toHaveBeenCalledTimes(2);
+    expect(lastParity()?.same).toBe(true);
   });
 });

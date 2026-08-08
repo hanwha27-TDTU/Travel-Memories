@@ -18,6 +18,7 @@ import { toMediaRow, fromMediaRow, mediaStoragePath, type MediaRow } from '../do
 import { toAudioRow, fromAudioRow, audioStoragePath, type AudioRow } from '../domain/audio/rowmap';
 import { toPlaceRow, fromPlaceRow, type PlaceRow } from '../domain/place/rowmap';
 import { operationStoragePath } from '../domain/media/naming';
+import type { SyncProgress } from '../domain/syncProgress';
 import { compressForStorage } from '../media/compress';
 import { deviceStamp } from '../app/deviceId';
 import type { JourneyClient } from './supabase/client';
@@ -64,6 +65,8 @@ interface RemoteSnapshot {
   audio: AudioRow[];
   purgedIds: string[];
 }
+
+type CanonicalProgress = (progress: SyncProgress) => void;
 
 export interface CanonicalPreflight {
   mode: 'legacy' | 'normal' | 'applied';
@@ -276,7 +279,12 @@ async function fetchOrMissing(
   return { data: null, missing: true };
 }
 
-async function materializeMedia(rows: MediaRow[], remote: CanonicalRemote, version: string): Promise<LocalMedia[]> {
+async function materializeMedia(
+  rows: MediaRow[],
+  remote: CanonicalRemote,
+  version: string,
+  onItem?: ((completed: number) => void) | undefined,
+): Promise<LocalMedia[]> {
   const d = db();
   const local = new Map((await d.localMedia.toArray()).map((x) => [x.id, x]));
   const out: LocalMedia[] = [];
@@ -322,11 +330,17 @@ async function materializeMedia(rows: MediaRow[], remote: CanonicalRemote, versi
       // canonical 소비 뒤 표시본이 편집 기준이다. 옛 원본 좌표계의 editState는 승계하지 않는다.
       ...(server.clientOperationId ? { clientOperationId: server.clientOperationId } : {}),
     });
+    onItem?.(out.length);
   }
   return out;
 }
 
-async function materializeAudio(rows: AudioRow[], remote: CanonicalRemote, version: string): Promise<LocalAudio[]> {
+async function materializeAudio(
+  rows: AudioRow[],
+  remote: CanonicalRemote,
+  version: string,
+  onItem?: ((completed: number) => void) | undefined,
+): Promise<LocalAudio[]> {
   const d = db();
   const local = new Map((await d.localAudio.toArray()).map((x) => [x.id, x]));
   const out: LocalAudio[] = [];
@@ -358,6 +372,7 @@ async function materializeAudio(rows: AudioRow[], remote: CanonicalRemote, versi
       ...(bytesMissing ? { bytesMissing: true as const } : {}),
       ...(server.clientOperationId ? { clientOperationId: server.clientOperationId } : {}),
     });
+    onItem?.(out.length);
   }
   return out;
 }
@@ -396,10 +411,35 @@ async function replaceLocalSnapshot(
   meta: CanonicalMeta,
   snapshot: RemoteSnapshot,
   remote: CanonicalRemote,
+  onProgress?: CanonicalProgress | undefined,
 ): Promise<number> {
   const d = db();
-  const media = await materializeMedia(snapshot.media, remote, meta.canonicalVersion);
-  const audio = await materializeAudio(snapshot.audio, remote, meta.canonicalVersion);
+  // 파일 수 + 원자 반영 + 로컬 read-back. 시간으로 만든 가짜 퍼센트가 아니라 실제 완료 단위다.
+  const total = snapshot.media.length + snapshot.audio.length + 2;
+  if (snapshot.media.length > 0) {
+    onProgress?.({
+      phase: 'canonical-media', completed: 0, total,
+      phaseCompleted: 0, phaseTotal: snapshot.media.length,
+    });
+  }
+  const media = await materializeMedia(snapshot.media, remote, meta.canonicalVersion, (completed) => {
+    onProgress?.({
+      phase: 'canonical-media', completed, total,
+      phaseCompleted: completed, phaseTotal: snapshot.media.length,
+    });
+  });
+  if (snapshot.audio.length > 0) {
+    onProgress?.({
+      phase: 'canonical-audio', completed: media.length, total,
+      phaseCompleted: 0, phaseTotal: snapshot.audio.length,
+    });
+  }
+  const audio = await materializeAudio(snapshot.audio, remote, meta.canonicalVersion, (completed) => {
+    onProgress?.({
+      phase: 'canonical-audio', completed: media.length + completed, total,
+      phaseCompleted: completed, phaseTotal: snapshot.audio.length,
+    });
+  });
   const beforeCommit = await readMeta(remote);
   if (beforeCommit.canonicalVersion !== meta.canonicalVersion) {
     throw new Error('바이트를 받는 동안 최종본 세대가 다시 바뀌었습니다. 로컬은 바꾸지 않고 재시도합니다.');
@@ -415,6 +455,11 @@ async function replaceLocalSnapshot(
     purgedAt: new Date().toISOString(),
   }));
 
+  const filesDone = media.length + audio.length;
+  onProgress?.({
+    phase: 'canonical-applying', completed: filesDone, total,
+    phaseCompleted: 0, phaseTotal: 1,
+  });
   await d.transaction(
     'rw',[d.localTrips,d.localPlaces,d.localMoments,d.localMedia,d.localExpenses,d.localAudio,
     d.syncQueue,d.purgedIds,d.syncState],
@@ -435,7 +480,30 @@ async function replaceLocalSnapshot(
       });
     },
   );
-  return trips.length + places.length + moments.length + media.length + expenses.length + audio.length;
+  onProgress?.({
+    phase: 'canonical-verifying', completed: filesDone + 1, total,
+    phaseCompleted: 0, phaseTotal: 1,
+  });
+
+  // Dexie transaction resolve만 성공 영수증으로 쓰지 않는다. 이 기기에서 다시 세어야
+  // "동기화 종료 + 홈 0건"을 성공으로 반올림하지 않는다(M-0095의 로컬 적용판).
+  const [tripCount, placeCount, momentCount, mediaCount, expenseCount, audioCount, state] = await Promise.all([
+    d.localTrips.count(), d.localPlaces.count(), d.localMoments.count(), d.localMedia.count(),
+    d.localExpenses.count(), d.localAudio.count(), d.syncState.get(stateId(userId)),
+  ]);
+  const expected = [trips.length, places.length, moments.length, media.length, expenses.length, audio.length];
+  const actual = [tripCount, placeCount, momentCount, mediaCount, expenseCount, audioCount];
+  if (actual.some((count, index) => count !== expected[index]) || state?.canonicalVersion !== meta.canonicalVersion) {
+    throw new Error(
+      `받은 기록의 이 기기 반영 확인 실패: 여행·장소·순간·사진·비용·소리 ` +
+      `${actual.join('/')} (정상 ${expected.join('/')})`,
+    );
+  }
+  onProgress?.({
+    phase: 'canonical-verifying', completed: total, total,
+    phaseCompleted: 1, phaseTotal: 1,
+  });
+  return expected.reduce((sum, count) => sum + count, 0);
 }
 
 async function clearPending(userId: string, canonicalVersion: string): Promise<void> {
@@ -455,6 +523,7 @@ async function cleanupPaths(remote: CanonicalRemote, paths: string[]): Promise<v
 export async function ensureCanonicalBeforeSync(
   remote: CanonicalRemote,
   userId: string,
+  onProgress?: CanonicalProgress | undefined,
 ): Promise<CanonicalPreflight> {
   const state = await db().syncState.get(stateId(userId));
   const metaResult = await remote.ensureMeta();
@@ -478,7 +547,7 @@ export async function ensureCanonicalBeforeSync(
   if (pending) {
     if (meta.canonicalVersion === pending.nextVersion && meta.canonicalOperationId === pending.operationId) {
       await finalizePublishedSnapshot(remote, userId, pending);
-      return ensureCanonicalBeforeSync(remote, userId);
+      return ensureCanonicalBeforeSync(remote, userId, onProgress);
     }
     if (meta.canonicalVersion === pending.expectedVersion) {
       throw new Error('이 기기의 최종본 게시가 미완료입니다. 데이터 관리에서 같은 작업을 재개해 주세요.');
@@ -492,18 +561,18 @@ export async function ensureCanonicalBeforeSync(
     const after = await readMeta(remote);
     return after.canonicalVersion === meta.canonicalVersion
       ? { mode: 'normal', version: meta.canonicalVersion, pulled: 0 }
-      : ensureCanonicalBeforeSync(remote, userId);
+      : ensureCanonicalBeforeSync(remote, userId, onProgress);
   }
   if (state?.canonicalVersion === meta.canonicalVersion) {
     await setLegacyBaseline(userId, meta.canonicalVersion);
     const after = await readMeta(remote);
     return after.canonicalVersion === meta.canonicalVersion
       ? { mode: 'normal', version: meta.canonicalVersion, pulled: 0 }
-      : ensureCanonicalBeforeSync(remote, userId);
+      : ensureCanonicalBeforeSync(remote, userId, onProgress);
   }
 
   const snapshot = await readStableSnapshot(remote, meta.canonicalVersion);
-  const pulled = await replaceLocalSnapshot(userId, meta, snapshot, remote);
+  const pulled = await replaceLocalSnapshot(userId, meta, snapshot, remote, onProgress);
   return { mode: 'applied', version: meta.canonicalVersion, pulled };
 }
 

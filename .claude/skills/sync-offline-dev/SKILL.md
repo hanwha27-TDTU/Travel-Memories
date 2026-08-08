@@ -152,6 +152,10 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·c
     fail-closed하고 tombstone의 `bytesMissing` 완화와 섞지 않는다. 운영 로그에서 반복 성공 뒤
     실패 시각의 함수 요청 자체가 없으면 함수 내부/R2 손상으로 단정하지 말고 브라우저→함수 전송
     경계를 먼저 판정한다.
+16. **canonical exact-set 완료는 로컬 transaction resolve가 아니라 로컬 read-back까지다.** 여섯
+    엔티티 표의 실제 개수와 `syncState.canonicalVersion`을 snapshot 기대값과 다시 대조하고, 하나라도
+    다르면 성공으로 반환하지 않는다. 진행률도 파일 수신·원자 반영·로컬 재확인을 구분한다. 원자성은
+    중간 목록을 공개하지 않는 계약이지, `준비 중` 한 문장으로 장시간 작업을 숨기는 계약이 아니다.
 
 ## 사진 없는 장소를 일괄 정리할 때 (v2.00 · 2026-08-08)
 
