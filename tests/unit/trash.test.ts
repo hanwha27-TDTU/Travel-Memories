@@ -204,7 +204,14 @@ describe('③ 영구삭제는 여행과 같은 규율', () => {
     await expect(purgeTrashedBatch([
       { domain: 'moment', id: momentId },
       { domain: 'moment', id: another.id },
-    ])).resolves.toEqual({ selected: 2, targets: 2 });
+    ])).resolves.toEqual({
+      selected: 2,
+      targets: 2,
+      targetRefs: [
+        { domain: 'moment', id: momentId },
+        { domain: 'moment', id: another.id },
+      ],
+    });
 
     expect(await d.localMoments.bulkGet([momentId, another.id])).toEqual([undefined, undefined]);
     expect(await d.purgedIds.bulkGet([momentId, another.id])).toEqual([expect.anything(), expect.anything()]);

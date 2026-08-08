@@ -32,7 +32,7 @@ import {
   PURGE_DOMAINS,
   cascadeChildDomains,
 } from '../../src/services/purge';
-import { pushPending, pushPendingMoments, pushPendingMedia, pushPurges, purgeRemote, type PurgeRemote } from '../../src/services/sync';
+import { pushPending, pushPendingMoments, pushPendingMedia, pushPurges, purgeRemote, verifyPurgeReceipt, type PurgeRemote } from '../../src/services/sync';
 
 beforeEach(async () => {
   const d = db();
@@ -156,6 +156,34 @@ function fakePurge(over: Partial<PurgeRemote> = {}): PurgeRemote & { calls: stri
   };
   return { ...base, ...over, calls, ledger, deleted };
 }
+
+describe('영구삭제 영수증은 서버 행 부재와 좀비 차단 원장을 따로 다시 읽는다', () => {
+  it('모든 read-back이 맞을 때만 완료로 집계한다', async () => {
+    const progress: string[] = [];
+    const receipt = await verifyPurgeReceipt(fakePurge(), [
+      { domain: 'trip', id: 'trip-1' },
+      { domain: 'moment', id: 'moment-1', underRoot: true },
+    ], (completed, total) => progress.push(`${completed}/${total}`));
+    expect(receipt).toEqual({ targets: 2, ledgerConfirmed: 2, rowsAbsent: 2, fullyConfirmed: 2, unverified: 0 });
+    expect(progress).toEqual(['1/2', '2/2']);
+  });
+
+  it('남은 행이나 원장 누락을 성공으로 반올림하지 않는다', async () => {
+    const receipt = await verifyPurgeReceipt(fakePurge({
+      ledgerHas: () => Promise.resolve({ found: false }),
+      stillThere: () => Promise.resolve({ found: true }),
+      remainingInFamily: () => Promise.resolve({ count: 1 }),
+    }), [{ domain: 'trip', id: 'trip-1' }]);
+    expect(receipt).toEqual({ targets: 1, ledgerConfirmed: 0, rowsAbsent: 0, fullyConfirmed: 0, unverified: 0 });
+  });
+
+  it('서버 조회 오류는 완료가 아니라 확인 불가로 남긴다', async () => {
+    const receipt = await verifyPurgeReceipt(fakePurge({
+      ledgerHas: () => Promise.resolve({ found: false, error: 'network' }),
+    }), [{ domain: 'moment', id: 'moment-1', underRoot: true }]);
+    expect(receipt).toEqual({ targets: 1, ledgerConfirmed: 0, rowsAbsent: 1, fullyConfirmed: 0, unverified: 1 });
+  });
+});
 
 describe('② 전파 push — 서버 행을 지우고 원장에 id만 남긴다 (ADR-0030)', () => {
   it('성공하면 작업이 큐에서 사라지고, 여행·순간 행이 모두 지워진다', async () => {

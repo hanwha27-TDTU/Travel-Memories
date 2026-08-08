@@ -117,6 +117,7 @@ export function setNote(
   state: NoteState,
   go: NoteAction | null,
   progressPercent: number | null = null,
+  progressLabel = '동기화 진행률',
 ): void {
   applyText(node, text);
   node.classList.toggle('is-ok', state === 'ok');
@@ -133,7 +134,7 @@ export function setNote(
   if (meterValue !== null) {
     const meter = el('span', 'sync-note-meter');
     meter.setAttribute('role', 'progressbar');
-    meter.setAttribute('aria-label', `\uB3D9\uAE30\uD654 \uC9C4\uD589\uB960 ${meterValue}%`);
+    meter.setAttribute('aria-label', `${progressLabel} ${meterValue}%`);
     meter.setAttribute('aria-valuemin', '0');
     meter.setAttribute('aria-valuemax', '100');
     meter.setAttribute('aria-valuenow', String(meterValue));
