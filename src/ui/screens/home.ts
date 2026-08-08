@@ -741,6 +741,8 @@ function renderSyncNote(status: HTMLElement, pending: number, user: SessionUser 
     pending,
     phase: engine.phase,
     lastError: engine.lastError,
+    lastResult: engine.lastResult,
+    lastReason: engine.lastReason,
     // **`null`은 「같다」가 아니라 「모른다」**다 — 만료된 대조는 lastParity가 null을 준다.
     parity: lastParity(),
   });

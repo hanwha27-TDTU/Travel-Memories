@@ -2529,6 +2529,27 @@ check('상태 줄: 전폭 배너가 아님(내용 폭만)', Boolean(noteBox && n
   noteBox ? `${noteBox.w}px / ${noteBox.vw}px` : 'none');
 check('상태 줄: 버전 배지 바로 옆에 배치', Boolean(noteBox?.besideVersion),
   noteBox ? `besideVersion=${noteBox.besideVersion}` : 'none');
+// 완료 결과는 상태상태가 아니라 사용자가 다음 행동을 정할 증거다. 412px에서도 잘리거나
+// 가로 스크롤로 사라지지 않는지 실제 DOM 폭으로 확인한다.
+await page.setViewportSize({ width: 412, height: 915 });
+const mobileSyncFeedback = await page.evaluate(() => {
+  const note = document.querySelector('.app-title-row > .sync-note');
+  if (!(note instanceof HTMLElement)) return null;
+  note.className = 'sync-note is-info';
+  note.textContent = '✓ 동기화 완료 · 보냄 123건 · 받음 456건';
+  const rect = note.getBoundingClientRect();
+  return {
+    fullyVisible: rect.left >= 0 && rect.right <= window.innerWidth,
+    uncut: note.scrollWidth <= note.clientWidth,
+    pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    text: note.textContent,
+  };
+});
+check('모바일 동기화 완료 결과: 말줄임·가로 잘림·화면 가로 스크롤 없이 전부 보임',
+  Boolean(mobileSyncFeedback?.fullyVisible && mobileSyncFeedback.uncut && mobileSyncFeedback.pageOverflow === 0 &&
+    mobileSyncFeedback.text?.includes('보냄 123건') && mobileSyncFeedback.text?.includes('받음 456건')),
+  mobileSyncFeedback ? JSON.stringify(mobileSyncFeedback) : 'sync note 없음');
+await page.setViewportSize({ width: 1480, height: 920 });
 check('홈 카드: 높이 136px 이하로 축약', Boolean(noteBox?.cardH && noteBox.cardH <= 136),
   noteBox ? `height=${noteBox.cardH}px` : 'none');
 
