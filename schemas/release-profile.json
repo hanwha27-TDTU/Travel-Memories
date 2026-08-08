@@ -48,6 +48,16 @@
       "writes": ["GitHub 작업 브랜치"]
     },
     {
+      "id": "provider-predeploy",
+      "verdict": "media-sign 영향이 없거나, 영향 시 구형 운영 앱 요청을 유지하는 정확한 작업 브랜치 소스를 먼저 배포",
+      "writes": ["Supabase Edge Function media-sign"]
+    },
+    {
+      "id": "provider-live-readback",
+      "verdict": "media-sign 영향이 없거나, 운영 capabilities의 sourceSha256·FN_VERSION·필수 ops·secretsOk가 릴리스 계약과 정확히 일치",
+      "writes": []
+    },
+    {
       "id": "release-build",
       "verdict": "npm run build 종료코드 0, dist/version.json이 changelog 최신 버전과 일치",
       "writes": ["dist/**", "dist/version.json"]
@@ -64,7 +74,7 @@
     },
     {
       "id": "deploy-affected-surfaces",
-      "verdict": "영향받은 배포 표면마다 배포 결론과 권위 있는 운영 상태를 되읽음",
+      "verdict": "병합 뒤 남은 영향 표면은 배포하고, 선배포한 표면을 포함해 각 권위 있는 운영 상태를 다시 되읽음",
       "writes": ["GitHub Pages", "GitHub release apk-latest", "Supabase Edge Functions", "Supabase journey schema"]
     }
   ],
@@ -72,6 +82,9 @@
     { "from": "source-finalized", "to": "narrow-gates", "reason": "검사 입력을 먼저 고정한다" },
     { "from": "narrow-gates", "to": "commit-push", "reason": "알려진 결함을 잡은 소스를 불변 원격 revision으로 만든다" },
     { "from": "commit-push", "to": "release-build", "reason": "CI와 산출물의 입력이 되는 원격 revision을 고정한다" },
+    { "from": "commit-push", "to": "provider-predeploy", "reason": "운영 제공자가 검증한 불변 작업 브랜치 소스를 품게 한다" },
+    { "from": "provider-predeploy", "to": "provider-live-readback", "reason": "배포 명령이 아니라 운영 capabilities의 정확한 정체성을 완료 증거로 삼는다" },
+    { "from": "provider-live-readback", "to": "required-ci", "reason": "운영 제공자 계약이 맞아야 새 소비자 앱의 Required 검증을 연다" },
     { "from": "release-build", "to": "required-ci", "reason": "최종 소스를 품은 번들 기준으로 전체 검증한다" },
     { "from": "required-ci", "to": "squash-merge", "reason": "최신 PR revision의 Required 초록만 병합 근거다" },
     { "from": "squash-merge", "to": "deploy-affected-surfaces", "reason": "main의 확정 커밋을 영향받은 표면에 배포한다" }
@@ -103,7 +116,7 @@
     },
     {
       "id": "supabase-media-sign",
-      "affectedBy": ["supabase/functions/media-sign/**"],
+      "affectedBy": ["supabase/functions/media-sign/**", "schemas/sync-release-contract.json"],
       "deploy": "Supabase MCP deploy_edge_function 또는 npx supabase functions deploy media-sign --project-ref ihxiywffzmvrwmqvatzt",
       "readback": "capabilities의 sourceSha256를 schemas/sync-release-contract.json과 정확 대조하고 FN_VERSION=6·필수 ops·secretsOk 확인. Ready PR과 Pages 배포가 verify-sync-release-live로 재확인"
     },
