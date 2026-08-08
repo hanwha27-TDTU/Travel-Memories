@@ -4,6 +4,15 @@
 
 ---
 
+## HANDOFF-0121 · v2.02 · **영구삭제 원장 수렴과 동기화 안전확인 종료 보장** (2026-08-08)
+
+- **사용자 지시**: Android 진단의 영구삭제 잔여 19건과 Chrome의 「대장 대조 확인 중」 멈춤을 모두 수정하고, 누르지 말아야 안전한 복구 버튼은 제거하며 동기화 스킬 갱신 뒤 즉시 배포한다.
+- **운영 판정(M-0128)**: 읽기 전용 서버 대조에서 `purged_ids` 96건, 서버 행과 원장 ID 중복 0건이었다. Android가 보고한 사진 1·장소 18 ID는 모두 서버 원장에 있었고 서버 행은 없었다. 활성 여행 10·순간 27·사진 90·비용 3·소리 0·장소 27도 로컬과 같아, 서버 유실이 아니라 이 기기의 오래된 tombstone 정리 결함으로 확정했다.
+- **영구삭제 수정**: `applyPurgedLedger`는 local marker가 이미 있어도 pending unpurge가 아닌 ID의 6도메인 행을 한 transaction에서 제거하고, marker와 행 부재를 되읽는다. `blockedByLedger`는 서버 원장과 명시적 pending unpurge의 교집합만 센다. 로컬 행만 보고 server unpurge를 만들던 `[복원한 항목 되살리기]` 버튼·호출은 완전히 제거했다. 백업 복원이 원자 커밋한 unpurge는 보존되며 공용 `[지금 동기화]`가 read-back까지 처리한다.
+- **완료 배지 수정(M-0129)**: Chrome 실측에서 대조 자체는 활성 157건 일치·오류 0으로 끝났지만 화면만 중간 상태에 남았다. parity 시작·완료·실패 신호와 진행 상태를 추가하고 홈이 이를 구독해 완료·차이·확인 전의 최종 판정으로 반드시 다시 그리게 했다.
+- **스킬 환류**: `sync-offline-dev`에 marker와 행 부재 분리·pending unpurge 유일 예외·tombstone cleanup 규율을, `sync-runtime-dev`에 비동기 완료 전달·「확인 중」 종료 라이브 검사·위험 버튼 금지 규율을 추가했다.
+- **검증/배포 경계**: 관련 유닛 169건, v2.02 build, 전체 harness **55개 게이트·SKIP 0**, 독립 live **편집 383/383·진단 57/57**을 최종 파일 상태에서 통과했다. 릴리스 판정은 이어서 Ready PR Required CI→squash merge→Pages deploy→운영 `version.json` read-back 순서로 닫는다. DB migration·RLS·Edge Function·R2 형식·Android 셸은 바뀌지 않아 배포 표면은 GitHub Pages 하나다.
+
 ## HANDOFF-0120 · v1.99 · **삭제된 장소가 새 UUID로 다시 생기는 좀비 경로 차단** (2026-08-08)
 
 - **사용자 보고**: 모바일에서 장소를 모두 삭제한 뒤 다른 기기 위치관리대장에 장소들이 다시 살아났다. 화면상 장소 45개·연결 필요 0개가 보였고, 이는 연결 누락 표시 문제가 아니었다.
@@ -772,7 +781,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->2.01<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->201<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->112<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->2.02<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->202<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->113<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->29<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

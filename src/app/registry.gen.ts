@@ -63,7 +63,7 @@ export const REGISTRY = {
   ] as const,
   gateCount: 55,
   /** 최신 앱 버전(정본: src/app/changelog.ts의 첫 항목). 첫 로드 화면은 이걸 읽는다. */
-  appVersion: '2.01',
+  appVersion: '2.02',
   /** 에이전트 정의 이름(정본: .claude/agents/ — frontmatter가 있는 파일만). */
   agents: [
   'accessibility-design-auditor',
@@ -100,6 +100,6 @@ export const REGISTRY = {
   skillCount: 12,
   screenCount: 12,
   migrationCount: 29,
-  changelogCount: 201,
-  researchCount: 112,
+  changelogCount: 202,
+  researchCount: 113,
 } as const;

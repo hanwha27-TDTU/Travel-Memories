@@ -24,7 +24,7 @@ import {
 } from '../../services/auth';
 import { requestSync, syncStatus as syncEngineStatus, onSyncStatus } from '../../services/autoSync';
 import { syncBadge, badgeActionLabel } from '../../domain/syncBadgeVerdict';
-import { lastParity, refreshParity, installParityWatch } from '../../services/syncParity';
+import { isParityRefreshing, lastParity, onParityChange, refreshParity, installParityWatch } from '../../services/syncParity';
 import { el, setNote, type NoteAction } from '../dom';
 // 보조 화면은 반드시 lazyScreens를 거친다(정적 import 금지 — check-lazy-screens).
 import { openDiagnosticsHub, openDataManager, openAboutApp } from '../lazyScreens';
@@ -71,6 +71,7 @@ let unsubscribeAuth: (() => void) | null = null;
 /** 동기화 상태·대조 구독 — 홈을 다시 그릴 때 겹치지 않게 모듈에 들고 있다가 해지한다. */
 let unsubscribeSync: (() => void) | null = null;
 let unsubscribeParity: (() => void) | null = null;
+let unsubscribeParityChange: (() => void) | null = null;
 
 /**
  * 카드 껍데기 — 활성·보관함 **두 카드가 이 한 곳**을 쓴다(§7 구조적 강제).
@@ -746,6 +747,7 @@ function renderSyncNote(status: HTMLElement, pending: number, user: SessionUser 
     progress: engine.progress,
     // **`null`은 「같다」가 아니라 「모른다」**다 — 만료된 대조는 lastParity가 null을 준다.
     parity: lastParity(),
+    parityRefreshing: isParityRefreshing(),
   });
   const label = badgeActionLabel(v);
   const action: NoteAction | null =
@@ -785,17 +787,24 @@ function wireBadgeWatch(repaint: () => void, refreshAfterSync: () => void): void
     if (s.phase === 'ok') refreshAfterSync();
   });
   unsubscribeParity = installParityWatch();
+  // 대조는 비동기라 sync 상태 이벤트의 즉시 repaint만으로는 완료값을 못 읽는다.
+  unsubscribeParityChange = onParityChange(repaint);
 }
 
-export function renderHome(mount: HTMLElement, navigate: Navigate): void {
-  if (unsubscribeAuth) {
-    unsubscribeAuth();
-    unsubscribeAuth = null;
-  }
+/** 화면을 다시 만들기 전 모든 모듈 전역 구독을 정확히 해지한다. */
+function clearHomeSubscriptions(): void {
+  unsubscribeAuth?.();
+  unsubscribeAuth = null;
   unsubscribeSync?.();
   unsubscribeSync = null;
   unsubscribeParity?.();
   unsubscribeParity = null;
+  unsubscribeParityChange?.();
+  unsubscribeParityChange = null;
+}
+
+export function renderHome(mount: HTMLElement, navigate: Navigate): void {
+  clearHomeSubscriptions();
   mount.innerHTML = '';
 
   let user: SessionUser | null = null;

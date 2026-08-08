@@ -56,6 +56,8 @@ export interface BadgeInput {
   lastError: string | null;
   /** 서버 대조 결과. **`null`은 「같다」가 아니라 「모른다」**다. */
   parity: ParitySnapshot | null;
+  /** 대조 요청이 진행 중인가. 완료 뒤의 `null`(확인 전)과 구분한다. */
+  parityRefreshing: boolean;
   /** Most recent sync result; shown only after a user-initiated badge sync. */
   lastResult: { pushed: number; pulled: number; failed: number } | null;
   /** Source of the most recent sync request. */
@@ -140,7 +142,7 @@ export function syncBadge(i: BadgeInput): BadgeView {
   //    것이 M-0101이 사용자를 속인 방식이다(§8 · 비타협 원칙 #4).
   if (!i.parity) {
     // Never promote a completed transfer to a full sync before the store comparison returns.
-    if (i.phase === 'ok' && i.lastReason === '배지' && i.lastResult) {
+    if (i.parityRefreshing && i.phase === 'ok' && i.lastReason === '배지' && i.lastResult) {
       return { text: '✓ 전송 완료 · 대장 대조 확인 중', level: 'info', go: 'store', syncOnTap: false };
     }
     return { text: '☁️ 보낼 것 없음 · 클라우드와 같은지는 확인 전', level: 'info', go: 'store', syncOnTap: true };

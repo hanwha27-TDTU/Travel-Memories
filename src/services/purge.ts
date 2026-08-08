@@ -418,34 +418,51 @@ export async function applyRemotePurge(domain: PurgeDomain, id: string): Promise
  * 그래서 어느 도메인인지 모른 채 받아, **네 테이블을 모두 훑어** 지운다. 등록부를 도는 구조라
  * 새 도메인이 생기면 자동으로 따라온다(§7 — 다음 형제가 자동으로 따라오는가).
  *
- * 멱등: 이미 표식이 있는 id는 건너뛴다.
- * @returns 이번에 새로 치운 id 수.
+ * 멱등: 표식도 있고 로컬 행도 없으면 건너뛴다. 표식 뒤에 행이 다시 생겼다면 표식이 이미 있어도
+ * 다시 지운다 — 표식은 삭제 완료 증거가 아니라 pull 차단 장치다.
+ * @returns 이번에 표식을 새로 남겼거나 재등장 행을 치운 id 수.
  */
 export async function applyPurgedLedger(ids: string[]): Promise<number> {
+  if (!ids.length) return 0;
   const d = db();
-  const known = await purgedIdSet();
-  // **복원 대기 중인 id는 건드리지 않는다**(2026-07-26). 사용자가 백업에서 되살린 것을
-  // 원장이 다시 지우면 복원이 조용히 무효화된다 — 실제로 그렇게 됐다. 서버 원장에서 빼는
-  // 작업이 아직 큐에 남아 있으면 그건 "지울 것"이 아니라 "되살릴 것"이다.
-  const restoring = await pendingUnpurgeIds();
-  const fresh = ids.filter((id) => !known.has(id) && !restoring.has(id));
-  if (!fresh.length) return 0;
-
+  const unique = [...new Set(ids)];
   const now = new Date().toISOString();
   const tables = PURGE_DOMAINS.map((dm) => DOMAIN_PURGE[dm].table());
-  await d.transaction('rw', [d.purgedIds, ...tables], async () => {
-    for (const id of fresh) {
+  const applied: string[] = [];
+  // syncQueue를 같은 transaction에 넣는다. pending unpurge 확인과 행 삭제 사이에 백업 복원
+  // 의사가 생기는 창이 있으면, 원장 적용이 방금 복원한 활성 자료를 지울 수 있다(M-0033).
+  await d.transaction('rw', [d.purgedIds, d.syncQueue, ...tables], async () => {
+    const restoring = new Set(
+      (await d.syncQueue.toArray()).filter((q) => q.operationType === 'unpurge').map((q) => q.entityId),
+    );
+    for (const id of unique) {
+      // **명시적 복원 의사만** 서버 영구삭제보다 우선한다. 로컬 tombstone이나 예전 marker는
+      // 복원 의사가 아니며, 원장이 가리키는 삭제를 끝까지 적용해야 한다.
+      if (restoring.has(id)) continue;
+      const known = (await d.purgedIds.get(id)) !== undefined;
+      let localRowExists = false;
+      for (const t of tables) {
+        if (await t.get(id)) localRowExists = true;
+      }
+      if (known && !localRowExists) continue;
+
       // 종류를 모르므로 전부 훑는다. 없는 테이블에서의 delete는 무해하다.
       // entityType은 표식용 라벨일 뿐이라 'unknown'으로 둔다 — 거짓 종류를 적지 않는다(원칙 #4).
       await d.purgedIds.put({ id, entityType: 'unknown', purgedAt: now });
       for (const t of tables) await t.delete(id);
+      applied.push(id);
     }
   });
 
-  for (const id of fresh) {
+  for (const id of applied) {
     if (!(await d.purgedIds.get(id))) throw new Error(`영구삭제 표식 확인 실패: ${id}`);
+    for (const dm of PURGE_DOMAINS) {
+      if (await DOMAIN_PURGE[dm].table().get(id)) {
+        throw new Error(`영구삭제 확인 실패: ${dm} 행이 남아 있음 ${id}`);
+      }
+    }
   }
-  return fresh.length;
+  return applied.length;
 }
 
 /**

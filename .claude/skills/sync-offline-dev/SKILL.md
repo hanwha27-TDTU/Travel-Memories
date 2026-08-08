@@ -139,6 +139,13 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·c
     - 🔴 **exact-set RPC가 최종 신뢰 경계다**(v1.62 · M-0092). 클라이언트가 operation id를 만들고 행/영구삭제 id 겹침을 검사해도 서버가 다시 검사한다. `operation_id IS NOT NULL`과 `(모든 snapshot 행 id) ∩ purged_ids = ∅`를 **기존 행 DELETE 전에** 강제한다. 전자는 응답 유실 재시도의 멱등 근거이고, 후자는 게시 직후 원장이 새 행을 다시 지우는 자기모순을 막는다. RPC 입력 검사는 정상 UI 픽스처만 보지 말고 직접 호출 공격검사를 `BEGIN…ROLLBACK`으로 실행한다.
 11. 🔴 **앱 선배포가 계약이면 새 서버 기능의 부재도 정상 전환 상태로 설계하되, capability 불명은 read-only다**(v1.63 · M-0093). v1.62는 0027보다 먼저 배포해야 했지만 `runSync` 첫 줄에서 아직 없는 `ensure_sync_meta()`를 필수 호출해, 로컬이 빈 기기의 pull까지 통째로 막았다. 그러나 PostgREST `PGRST202`는 migration 미적용의 증명이 아니라 함수 signature/schema cache 불일치일 수도 있다. 먼저 RLS가 적용된 `sync_meta`를 **직접 SELECT**해 non-legacy 세대를 되읽고, 그것도 확인할 수 없으며 로컬 canonical 상태가 absent/`legacy`이고 미완료 게시가 없을 때만 **서버 read-only pull**로 낮춘다. 이 모드는 repair/push, purge·unpurge 원장 변경, DB DELETE/upsert, R2 정리를 전부 금지하고 로컬 큐를 보존한다. 이미 non-legacy 세대를 소비했거나 pending 게시가 있으면 **fail-closed**다. 권한·네트워크·빈 응답 같은 다른 오류는 기능 부재로 반올림하지 않는다. 메시지 문구가 아니라 기계 오류 코드를 쓴다.
 12. 🔴 **성공하면 사라지는 큐는 성공 증거가 아니다**(v1.64 · M-0095). tombstone push가 operation read-back 뒤 큐를 지우면 `로컬 tombstone + 큐 없음`이 정상 완료의 흔적이 된다. 진단·복구·옛 자료 백필은 서버 행의 삭제 상태·version·operation id와 `purged_ids` 원장을 읽기 전용으로 대조하고 canonical 세대도 전후로 확인한다. 서버 tombstone은 재전송하지 않고, 서버 active는 반드시 공용 `mergeDecision`을 거쳐 오래된 삭제와 최신 복원을 가른다. 서버 행·원장 부재, 일부 조회 실패, 세대 변경은 자동 op으로 반올림하지 않는다. capability-unknown의 server-read-only는 서버 쓰기뿐 아니라 로컬 큐 생성도 금지한다. pull이 직접 확인해 만든 삭제 op은 같은 실행의 부모→자식 후행 push 한 번으로 끝내, 첫 버튼이 큐만 만들고 완료라고 말하지 않게 한다.
+13. 🔴 **서버 `purged_ids` 원장이 영구삭제의 권위다.** 로컬 purge marker는 원장 적용의 멱등
+    영수증일 뿐이며 로컬 행 부재의 증거가 아니다. `applyPurgedLedger`는 marker가 이미 있어도
+    해당 로컬 행이 없음을 transaction 안에서 보장하고 되읽는다. 유일한 예외는 같은 id의 명시적
+    pending `unpurge`이며, 이 의사 없이 marker 존재만으로 행을 보존하지 않는다.
+14. **서버 purge와 로컬 tombstone의 공존은 「복원 차단」이 아니라 cleanup 대상이다.** 서버
+    unpurge는 pending `unpurge`처럼 사용자의 명시적 복원 의사가 원자 커밋된 증거가 있을 때만
+    허용한다. tombstone·marker·행 부재를 복원 의사로 추측하거나 자동 unpurge로 반올림하지 않는다.
 
 ## 사진 없는 장소를 일괄 정리할 때 (v2.00 · 2026-08-08)
 

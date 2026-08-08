@@ -17,6 +17,7 @@ const IN = (over: Partial<BadgeInput> = {}): BadgeInput => ({
   phase: 'ok',
   lastError: null,
   parity: { same: true, differing: 0, at: '2026-08-05T12:00:00.000Z' },
+  parityRefreshing: false,
   lastResult: null,
   lastReason: '',
   progress: null,
@@ -128,6 +129,7 @@ describe('수동 동기화 완료 결과', () => {
   it('대조가 끝나지 않았으면 전송 성공을 전체 동기화 성공으로 과장하지 않는다', () => {
     const v = syncBadge(IN({
       parity: null,
+      parityRefreshing: true,
       lastReason: '배지',
       lastResult: { pushed: 1, pulled: 0, failed: 0 },
     }));
@@ -135,6 +137,18 @@ describe('수동 동기화 완료 결과', () => {
     expect(v.level).toBe('info');
     expect(v.go).toBe('store');
     expect(v.syncOnTap).toBe(false);
+  });
+
+  it('대조가 실패해 끝났으면 「확인 중」에 남지 않고 확인 전으로 돌아간다', () => {
+    const v = syncBadge(IN({
+      parity: null,
+      parityRefreshing: false,
+      lastReason: '배지',
+      lastResult: { pushed: 1, pulled: 0, failed: 0 },
+    }));
+    expect(v.text).toContain('확인 전');
+    expect(v.text).not.toContain('확인 중');
+    expect(v.syncOnTap).toBe(true);
   });
 
   it('자동 동기화의 이전 결과는 평소 상태를 시끄럽게 만들지 않는다', () => {

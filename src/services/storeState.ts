@@ -14,7 +14,7 @@
 //    그래서 판정은 '문제'가 아니라 '할 일'이다. 진짜 실패는 동기화 도구가 따로 말한다.
 
 import { db } from '../offline/db';
-import { PURGE_DOMAINS, DOMAIN_PURGE, purgedIdSet, type PurgeDomain } from './purge';
+import { PURGE_DOMAINS, DOMAIN_PURGE, pendingUnpurgeIds, purgedIdSet, type PurgeDomain } from './purge';
 import { parseDeviceStamp, shortDeviceId, deviceId, deviceLabel } from '../app/deviceId';
 import type { JourneyClient } from './supabase/client';
 
@@ -90,15 +90,14 @@ export interface StoreComparison {
    */
   serverPurged: string[];
   /**
-   * **이 기기에 있는데 서버 영구삭제 원장이 막고 있는** id들 — 0이 정상이다.
+   * **명시적 복원 의사가 큐에 있고 서버 영구삭제 원장이 아직 남아 있는** id들 — 0이 정상이다.
    *
    * 왜 있나(2026-07-26 사용자 실기기): 백업을 복원했더니 *"복원 내용은 앱에는 하나도 없고
    * 서버에만 좀비처럼 살아났어요."* 복원이 로컬 표식만 걷어내고 **서버 원장은 그대로 둬서**,
    * push는 트리거에 거부되고 다음 pull이 로컬 행까지 지웠다. 사용자에겐 아무 오류도 안 보였다.
    *
-   * 이 지표가 그 층이다(§10 ② — 상태 의존 결함은 정적 게이트가 못 잡는다. **지금 데이터가
-   * 어떤 모양인지**에 달렸으므로 런타임 진단이 곧 게이트다). 고친 뒤에도 남는다:
-   * 옛 판으로 이미 복원해 둔 사람은 여전히 이 상태이고, 그걸 데려올 것은 이 지표뿐이다.
+   * 로컬 행 존재만으로 복원이라 추측하지 않는다. tombstone이나 오래된 로컬 사본은 서버 원장을
+   * 해제할 근거가 아니며, 백업 복원이 원자적으로 남긴 `unpurge` op만 명시적 의사다.
    */
   blockedByLedger: string[];
   /**
@@ -407,19 +406,6 @@ export async function localActiveCounts(): Promise<Record<PurgeDomain, number>> 
 }
 
 /**
- * 이 기기에 **행이 존재하는** 모든 id(휴지통 포함).
- *
- * 왜 휴지통까지 세나: 서버 영구삭제 원장과 대조하는 데 쓰기 때문이다. 원장에 있는 id의 행이
- * 이 기기에 **있다**는 것 자체가 어긋남이다 — 활성이든 휴지통이든 서버는 그 id를 받지 않는다.
- */
-export async function localIdSet(): Promise<Set<string>> {
-  const rows = await allLocalRows();
-  const ids = new Set<string>();
-  for (const d of PURGE_DOMAINS) for (const r of rows[d]) ids.add(r.id);
-  return ids;
-}
-
-/**
  * **이 기기가 바이트를 들고 있는 id들**(사진·소리). 진단이 「서버에 파일이 없다」를 판정할 때
  * *그것이 기억 손실인지, 그냥 다시 올리면 되는 일인지*를 가르는 유일한 근거다.
  *
@@ -466,7 +452,7 @@ export interface FilesPort {
 }
 
 export async function compareStore(port: StoreStatePort, files?: FilesPort): Promise<StoreComparison> {
-  const [cloud, local, stamps, remnants, serverTombstones, purged, localTrash, serverPurged, localIds, localBytes] =
+  const [cloud, local, stamps, remnants, serverTombstones, purged, localTrash, serverPurged, restoring, localBytes] =
     await Promise.all([
       port.activeCounts(),
       localActiveCounts(),
@@ -476,13 +462,14 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
       purgedIdSet(),
       localTombstoneCount(),
       port.purgedLedgerIds(),
-      localIdSet(),
+      pendingUnpurgeIds(),
       localBytesIds(),
     ]);
   // 내가 지웠다고 믿는데(로컬 표식) 서버엔 tombstone으로 남은 것 = 전파가 안 된 영구삭제.
   const unpropagatedPurges = serverTombstones.filter((id) => purged.has(id));
-  // 이 기기에 행이 있는데 서버 원장이 그 id를 막고 있는 것 = 복원이 서버에 닿지 못한 상태.
-  const blockedByLedger = serverPurged.filter((id) => localIds.has(id));
+  // 서버 원장과 **명시적 복원 의사**가 함께 있는 것만 복원 대기로 판정한다. 단순 로컬 행이나
+  // tombstone은 복원 의사가 아니며, 그 교집합으로 원장을 해제하면 오래된 사본이 되살아난다.
+  const blockedByLedger = serverPurged.filter((id) => restoring.has(id));
   const counts = {} as StoreComparison['counts'];
   for (const d of PURGE_DOMAINS) counts[d] = { cloud: cloud[d], local: local[d] };
   const devices = foldDevices(stamps, shortDeviceId(deviceId()), deviceLabel());
