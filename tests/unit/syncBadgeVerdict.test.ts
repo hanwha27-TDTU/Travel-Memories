@@ -29,6 +29,7 @@ describe('🔴 M-0101 재발 방지 — 「보낼 게 없다」는 「같다」�
     expect(v.text).toBe('☁️ 동기화됨');
     expect(v.level).toBe('ok');
     expect(v.go).toBeNull(); // 정상은 침묵(목적지 없음)
+    expect(v.syncOnTap).toBe(true);
   });
 
   it('🔴 보낼 것이 없어도 **서버와 다르면** 「동기화됨」이 아니다 — 이게 M-0101이었다', () => {
@@ -114,7 +115,7 @@ describe('수동 동기화 완료 결과', () => {
     expect(v.text).toBe('✓ 동기화 완료 · 보냄 3건 · 받음 2건');
     expect(v.level).toBe('info');
     expect(v.go).toBeNull();
-    expect(v.syncOnTap).toBe(false);
+    expect(v.syncOnTap).toBe(true);
   });
 
   it('실제 변경이 없었던 수동 동기화도 성공 여부를 명확히 남긴다', () => {
@@ -138,7 +139,7 @@ describe('수동 동기화 완료 결과', () => {
 
   it('자동 동기화의 이전 결과는 평소 상태를 시끄럽게 만들지 않는다', () => {
     expect(syncBadge(IN({
-      lastReason: '주기',
+      lastReason: '로그인 확인',
       lastResult: { pushed: 3, pulled: 2, failed: 0 },
     })).text).toBe('☁️ 동기화됨');
   });
@@ -162,7 +163,7 @@ describe('화면읽기 라벨', () => {
   });
 
   it('목적지도 동기화도 없으면 빈 라벨(버튼을 안 붙인다)', () => {
-    expect(badgeActionLabel(syncBadge(IN()))).toBe('');
+    expect(badgeActionLabel(syncBadge(IN()))).toBe('지금 동기화');
   });
 });
 

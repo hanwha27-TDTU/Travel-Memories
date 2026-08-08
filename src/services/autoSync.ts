@@ -34,9 +34,11 @@
 //      (push/pull 분리는 후속 — 지금 나누면 "올렸는데 안 받은" 상태가 새로 생긴다.)
 
 import { supabase } from './supabase/client';
-import { currentUser } from './auth';
+import { currentUser, onAuthChange, type SessionUser } from './auth';
 import { runSync, type SyncResult } from './sync';
 import type { SyncProgress } from '../domain/syncProgress';
+import { db, type LocalSyncState, type SyncQueueItem } from '../offline/db';
+import { isRetryDue } from '../sync/merge';
 
 export type SyncPhase = 'idle' | 'running' | 'ok' | 'failed' | 'offline' | 'signed-out';
 
@@ -172,34 +174,77 @@ export function requestSyncSoon(reason: string, opts: { deep?: boolean } = {}): 
 
 // ── 자동 트리거 ─────────────────────────────────────────────────────────────
 let installed = false;
+/** A browser session checks a signed-in account once, then only flushes real queued work. */
+let initiallyCheckedUsers = new Set<string>();
+
+/** True only for work that can safely be retried now, never for permanent failures. */
+export function hasDueAutoSyncWork(
+  queue: readonly SyncQueueItem[],
+  state: Pick<LocalSyncState, 'pendingCanonical'> | undefined,
+  nowIso: string,
+): boolean {
+  if (state?.pendingCanonical) return true;
+  return queue.some((op) => op.state === 'local_only'
+    || (op.state === 'retryable_failed' && isRetryDue(op, nowIso)));
+}
 
 /**
- * 앱 시작 시 1회. **사람이 [동기화]를 기억하지 않아도 되게** 만드는 부분.
+ * online/visibility are recovery signals, not permission for another full pull.
+ *
+ * A first signed-in check receives an existing cloud archive on a new device. Afterwards this
+ * starts only for a pending local operation or canonical job. Server-to-device instant delivery
+ * needs a separate Realtime contract; until then we keep manual badge sync rather than pretend
+ * that a repeated blind pull is change detection.
+ */
+async function requestSyncIfNeeded(reason: string, knownUser?: SessionUser): Promise<void> {
+  if (!supabase()) return;
+  const user = knownUser ?? await currentUser();
+  if (!user || (typeof navigator !== 'undefined' && navigator.onLine === false)) return;
+
+  const initial = !initiallyCheckedUsers.has(user.id);
+  try {
+    const [queue, state] = await Promise.all([
+      db().syncQueue.toArray(),
+      db().syncState.get(`canonical:${user.id}`),
+    ]);
+    if (!initial && !hasDueAutoSyncWork(queue, state, new Date().toISOString())) return;
+  } catch {
+    // A queue-read failure is unknown, not proof of no work. A single sync is safer than skipping it.
+  }
+
+  initiallyCheckedUsers.add(user.id);
+  await requestSync(reason);
+}
+
+/**
+ * 로그인 직후 1회, 또는 실제 미전송 변경이 있을 때만 자동 동기화한다.
  *
  * 트리거를 이렇게 고른 이유:
- *  · `online`     — 오프라인에서 쌓인 것을 연결되자마자 올린다(가장 중요한 트리거).
- *  · `visibility` — 다른 기기에서 생긴 변경을 **화면으로 돌아올 때** 받는다.
- *                   (다른 기기가 우리에게 알려줄 방법이 없으므로 우리가 물어보는 수밖에 없다.)
- *  · 주기          — 앱을 켜 둔 채 오래 두는 경우. 자주 돌면 egress만 먹으므로 넉넉히 잡는다.
+ *  · `online`     — 대기열에 쌓인 변경을 연결되자마자 올린다.
+ *  · `visibility` — 대기열이 남아 있을 때만 복구를 재개한다.
+ *
+ * 완료된 동기화를 5분마다 다시 읽으면 첫 동기화가 느리고 끝나지 않는 것처럼 보인다. 다른
+ * 기기의 즉시 변경 감지는 별도 Realtime 계약의 몫이므로, 이 경로에서 근거 없는 전체 pull로
+ * 흉내 내지 않는다. 필요하면 사용자가 배지에서 명시적으로 지금 확인한다.
  */
-export const POLL_MS = 5 * 60 * 1000;
-
 export function installAutoSync(): () => void {
   if (installed) return () => undefined;
   installed = true;
 
-  const onOnline = (): void => void requestSync('온라인 복귀');
+  const onOnline = (): void => void requestSyncIfNeeded('온라인 복귀');
   const onVisible = (): void => {
-    if (document.visibilityState === 'visible') void requestSync('화면 복귀');
+    if (document.visibilityState === 'visible') void requestSyncIfNeeded('화면 복귀');
   };
+  const stopAuth = onAuthChange((user) => {
+    if (user) void requestSyncIfNeeded('로그인 확인', user);
+  });
   window.addEventListener('online', onOnline);
   document.addEventListener('visibilitychange', onVisible);
-  const iv = setInterval(() => void requestSync('주기'), POLL_MS);
 
   return () => {
     window.removeEventListener('online', onOnline);
     document.removeEventListener('visibilitychange', onVisible);
-    clearInterval(iv);
+    stopAuth();
     installed = false;
   };
 }
@@ -211,6 +256,7 @@ export function __resetAutoSyncForTests(): void {
   if (timer) clearTimeout(timer);
   timer = null;
   installed = false;
+  initiallyCheckedUsers = new Set<string>();
   status = { phase: 'idle', lastOkAt: null, lastError: null, lastResult: null, lastReason: '', progress: null };
   listeners.clear();
 }

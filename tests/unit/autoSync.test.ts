@@ -13,14 +13,26 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 const runSyncMock = vi.fn();
 const currentUserMock = vi.fn();
+const onAuthChangeMock = vi.fn();
 const supabaseMock = vi.fn();
+const queueToArrayMock = vi.fn();
+const syncStateGetMock = vi.fn();
 
 vi.mock('../../src/services/sync', () => ({ runSync: (...a: unknown[]) => runSyncMock(...a) }));
-vi.mock('../../src/services/auth', () => ({ currentUser: () => currentUserMock() }));
+vi.mock('../../src/services/auth', () => ({
+  currentUser: () => currentUserMock(),
+  onAuthChange: (cb: unknown) => onAuthChangeMock(cb),
+}));
 vi.mock('../../src/services/supabase/client', () => ({ supabase: () => supabaseMock() }));
+vi.mock('../../src/offline/db', () => ({
+  db: () => ({
+    syncQueue: { toArray: () => queueToArrayMock() },
+    syncState: { get: (id: string) => syncStateGetMock(id) },
+  }),
+}));
 
 const mod = await import('../../src/services/autoSync');
-const { requestSync, syncStatus, onSyncStatus, __resetAutoSyncForTests } = mod;
+const { requestSync, syncStatus, onSyncStatus, hasDueAutoSyncWork, __resetAutoSyncForTests } = mod;
 
 /** 마이크로태스크를 흘려 보낸다(await 체인이 진행되도록). */
 const flush = async (): Promise<void> => {
@@ -41,7 +53,10 @@ beforeEach(() => {
   __resetAutoSyncForTests();
   runSyncMock.mockReset();
   currentUserMock.mockReset().mockResolvedValue({ id: 'u1', email: null });
+  onAuthChangeMock.mockReset().mockReturnValue(() => undefined);
   supabaseMock.mockReset().mockReturnValue({});
+  queueToArrayMock.mockReset().mockResolvedValue([]);
+  syncStateGetMock.mockReset().mockResolvedValue(undefined);
   runSyncMock.mockResolvedValue({ pushed: 1, failed: 0, pulled: 0, skippedEmptyCloud: false });
   vi.stubGlobal('navigator', { onLine: true });
 });
@@ -231,6 +246,61 @@ describe('오프라인 → 온라인 복귀 (사용자 확인 요청)', () => {
     }
   });
 
+  it('완료 뒤에는 화면 복귀·5분 경과만으로 전체 동기화를 반복하지 않는다', async () => {
+    const host = fakeHost();
+    const interval = vi.spyOn(globalThis, 'setInterval');
+    const uninstall = mod.installAutoSync();
+    try {
+      host.target.dispatchEvent(new Event('online'));
+      await flush();
+      expect(runSyncMock).toHaveBeenCalledTimes(1);
+
+      (globalThis.document as unknown as EventTarget).dispatchEvent(new Event('visibilitychange'));
+      await flush();
+      expect(runSyncMock).toHaveBeenCalledTimes(1);
+      expect(interval).not.toHaveBeenCalled();
+    } finally {
+      interval.mockRestore();
+      uninstall();
+      host.dispose();
+    }
+  });
+
+  it('화면 복귀 때 아직 못 보낸 변경이 있으면 그때만 다시 동기화한다', async () => {
+    const host = fakeHost();
+    const uninstall = mod.installAutoSync();
+    try {
+      host.target.dispatchEvent(new Event('online'));
+      await flush();
+      queueToArrayMock.mockResolvedValueOnce([{ state: 'local_only' }]);
+
+      (globalThis.document as unknown as EventTarget).dispatchEvent(new Event('visibilitychange'));
+      await flush();
+      expect(runSyncMock).toHaveBeenCalledTimes(2);
+      expect(syncStatus().lastReason).toBe('화면 복귀');
+    } finally {
+      uninstall();
+      host.dispose();
+    }
+  });
+
+  it('로그인 완료는 새 기기에서 필요한 첫 서버 확인을 한 번 시작한다', async () => {
+    onAuthChangeMock.mockImplementationOnce((cb: (u: { id: string; email: null }) => void) => {
+      cb({ id: 'u1', email: null });
+      return () => undefined;
+    });
+    const host = fakeHost();
+    const uninstall = mod.installAutoSync();
+    try {
+      await flush();
+      expect(runSyncMock).toHaveBeenCalledTimes(1);
+      expect(syncStatus().lastReason).toBe('로그인 확인');
+    } finally {
+      uninstall();
+      host.dispose();
+    }
+  });
+
   it('🔴 해제하면 더 이상 안 돈다 — 리스너가 쌓이면 한 번의 복귀가 여러 번 돈다', async () => {
     const host = fakeHost();
     vi.stubGlobal('navigator', { onLine: true });
@@ -240,5 +310,17 @@ describe('오프라인 → 온라인 복귀 (사용자 확인 요청)', () => {
     await flush();
     expect(runSyncMock).not.toHaveBeenCalled();
     host.dispose();
+  });
+});
+
+describe('자동 동기화 대상 판정', () => {
+  it('영구 실패·백오프 대기 중인 항목은 자동으로 되풀이하지 않는다', () => {
+    const now = '2026-08-08T00:00:00.000Z';
+    expect(hasDueAutoSyncWork([{ state: 'permanent_failed' } as never], undefined, now)).toBe(false);
+    expect(hasDueAutoSyncWork([{ state: 'retryable_failed', nextRetryAt: '2026-08-08T00:05:00.000Z' } as never], undefined, now)).toBe(false);
+  });
+
+  it('보류된 최종본 작업은 큐가 비어도 자동 재개한다', () => {
+    expect(hasDueAutoSyncWork([], { pendingCanonical: {} } as never, '2026-08-08T00:00:00.000Z')).toBe(true);
   });
 });
