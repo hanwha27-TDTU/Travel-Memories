@@ -18,7 +18,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import 'fake-indexeddb/auto';
 import { db } from '../../src/offline/db';
-import { requeueUnpropagatedPurges, purgeServerOnly, purgeOpType } from '../../src/services/purge';
+import { requeueUnpropagatedPurges, purgeServerOnly, purgeOpType, requestUnpurge } from '../../src/services/purge';
 import { compareStore, type StoreStatePort } from '../../src/services/storeState';
 
 const TRIP = 'e956fd01-8e30-4342-b149-a489773ba0f1'; // 실제로 남아 있던 그 여행
@@ -26,19 +26,22 @@ const OTHER = 'bbbbbbbb-2222-4222-8222-222222222222';
 
 beforeEach(async () => {
   const d = db();
-  await Promise.all([d.localTrips.clear(), d.localMoments.clear(), d.localMedia.clear(), d.localExpenses.clear(), d.syncQueue.clear(), d.purgedIds.clear()]);
+  await Promise.all([
+    d.localTrips.clear(), d.localMoments.clear(), d.localMedia.clear(), d.localExpenses.clear(),
+    d.localAudio.clear(), d.localPlaces.clear(), d.syncQueue.clear(), d.purgedIds.clear(),
+  ]);
 });
 
 /** 개수 대조 쪽은 이 검사의 관심이 아니라 전부 0으로 둔다. */
-function port(tombstoned: string[]): StoreStatePort {
+function port(tombstoned: string[], purged: string[] = []): StoreStatePort {
   return {
     activeCounts: () => Promise.resolve({ trip: 0, moment: 0, media: 0, expense: 0, audio: 0, place: 0 }),
     deviceStamps: () => Promise.resolve([]),
-    remnantCounts: () => Promise.resolve({ tombstoned: tombstoned.length, purged: 0 }),
+    remnantCounts: () => Promise.resolve({ tombstoned: tombstoned.length, purged: purged.length }),
     mediaRowIds: () => Promise.resolve([]),
     audioRowIds: () => Promise.resolve([]),
     tombstonedIds: () => Promise.resolve(tombstoned),
-    purgedLedgerIds: () => Promise.resolve([]),
+    purgedLedgerIds: () => Promise.resolve(purged),
   };
 }
 
@@ -58,6 +61,37 @@ describe('① 어긋남을 찾는다', () => {
     await db().purgedIds.put({ id: TRIP, entityType: 'trip', purgedAt: '2026-07-25T15:00:00.000Z' });
     const cmp = await compareStore(port([]));
     expect(cmp.unpropagatedPurges).toEqual([]);
+  });
+});
+
+describe('①-b 서버 원장 차단은 명시적 복원 의사만 센다', () => {
+  const now = '2026-08-08T00:00:00.000Z';
+
+  it('로컬 tombstone + 로컬 marker는 복원이 아니므로 blocked로 오분류하지 않는다', async () => {
+    await db().localTrips.put({
+      id: TRIP, title: '이미 지운 여행', status: 'completed', startDate: null, endDate: null,
+      createdAt: now, updatedAt: now, deletedAt: now, version: 2,
+    } as never);
+    await db().purgedIds.put({ id: TRIP, entityType: 'trip', purgedAt: now });
+
+    const cmp = await compareStore(port([], [TRIP]));
+    expect(cmp.blockedByLedger).toEqual([]);
+  });
+
+  it('활성 로컬 행만으로 서버 영구삭제를 복원 의사로 추측하지 않는다', async () => {
+    await db().localTrips.put({
+      id: TRIP, title: '의사 불명 사본', status: 'completed', startDate: null, endDate: null,
+      createdAt: now, updatedAt: now, deletedAt: null, version: 2,
+    } as never);
+
+    const cmp = await compareStore(port([], [TRIP]));
+    expect(cmp.blockedByLedger).toEqual([]);
+  });
+
+  it('pending unpurge와 서버 원장이 함께 있을 때만 복원 대기로 판정한다', async () => {
+    await requestUnpurge([TRIP]);
+    const cmp = await compareStore(port([], [TRIP, OTHER]));
+    expect(cmp.blockedByLedger).toEqual([TRIP]);
   });
 });
 

@@ -13,6 +13,7 @@
 //  ④ 목록 prefix는 **검증된 sub에서만** 나온다(supabase-security-dev §2.8).
 
 import { describe, it, expect } from 'vitest';
+import diagnosticsSource from '../../src/ui/panels/diagnostics.ts?raw';
 import { auditMediaFiles, unionListings } from '../../src/services/storeState';
 import {
   storeHeadline,
@@ -390,7 +391,7 @@ describe('⑧ 기록 없는 사진 파일을 **치울 것과 건드리면 안 �
   });
 });
 
-describe('⑧-b 복원이 막혔다는 **문장**이 사용자에게 실제로 나간다 (2026-07-26 M-0032)', () => {
+describe('⑧-b 명시적 복원 대기를 안전한 동기화 경로로 안내한다', () => {
   // 왜 문장을 따로 검사하나(§10 ③): M-0022에서 유닛 15건이 전부 통과했는데 화면 문장은 틀렸다.
   // 숫자는 다 맞았고, **화면에 무엇이 나가는지 검사한 것이 하나도 없었다.**
   it('없으면 침묵한다 — 정상은 화면에서 사라진다(§8)', () => {
@@ -399,12 +400,13 @@ describe('⑧-b 복원이 막혔다는 **문장**이 사용자에게 실제로 �
     expect(m.meaning).toBeUndefined();
   });
 
-  it('있으면 **기억을 잃는다는 사실**과 누를 버튼을 말한다', () => {
+  it('있으면 이미 보호된 의사와 공용 동기화 경로를 말한다', () => {
     const m = blockedByLedgerMetric(3, 0);
-    expect(m.level).toBe('problem'); // 할 일이 아니라 문제다 — 그대로 두면 사라진다
+    expect(m.level).toBe('todo');
     expect(m.actual).toBe('3건');
-    expect(m.meaning).toContain('사라집니다');
-    expect(m.meaning).toContain('복원한 항목 되살리기');
+    expect(m.meaning).toContain('안전하게 남아');
+    expect(m.meaning).toContain('지금 동기화');
+    expect(m.meaning).not.toContain('복원한 항목 되살리기');
   });
 
   it('지켜 둔 사진 파일이 있으면 **왜 안 치우는지** 말한다', () => {
@@ -413,6 +415,12 @@ describe('⑧-b 복원이 막혔다는 **문장**이 사용자에게 실제로 �
 
   it('지켜 둔 파일이 없으면 그 문장을 붙이지 않는다(0개라고 말하지 않는다)', () => {
     expect(blockedByLedgerMetric(3, 0).meaning).not.toContain('0개');
+  });
+
+  it('진단 화면은 관측한 로컬 행으로 server unpurge를 직접 만들지 않는다', () => {
+    expect(diagnosticsSource).not.toContain('requestUnpurge');
+    expect(diagnosticsSource).not.toContain('data-unpurge-restored');
+    expect(diagnosticsSource).not.toContain('복원한 항목 되살리기');
   });
 });
 

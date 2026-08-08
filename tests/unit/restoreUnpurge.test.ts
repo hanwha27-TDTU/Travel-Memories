@@ -36,6 +36,8 @@ beforeEach(async () => {
     d.localMoments.clear(),
     d.localMedia.clear(),
     d.localExpenses.clear(),
+    d.localAudio.clear(),
+    d.localPlaces.clear(),
     d.syncQueue.clear(),
     d.purgedIds.clear(),
   ]);
@@ -109,6 +111,21 @@ describe('② 되돌리기 대기 중인 id를 원장 적용이 건드리지 않
     expect(await applyPurgedLedger([B])).toBe(1);
     expect(await d.localTrips.get(B)).toBeUndefined();
     expect(await d.purgedIds.get(B)).toBeTruthy();
+  });
+
+  it('로컬 표식이 이미 있어도 pending unpurge가 있으면 활성 복원 자료를 보호한다', async () => {
+    const d = db();
+    const now = '2026-07-26T00:00:00.000Z';
+    await d.localTrips.put({
+      id: A, title: '복원한 여행', status: 'completed', startDate: null, endDate: null,
+      createdAt: now, updatedAt: now, deletedAt: null, version: 1,
+    } as never);
+    await d.purgedIds.put({ id: A, entityType: 'trip', purgedAt: now });
+    await requestUnpurge([A]);
+
+    expect(await applyPurgedLedger([A])).toBe(0);
+    expect(await d.localTrips.get(A)).toBeDefined();
+    expect(await d.purgedIds.get(A)).toBeDefined();
   });
 
   it('pendingUnpurgeIds가 대기 중인 id를 그대로 돌려준다', async () => {

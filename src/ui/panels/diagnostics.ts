@@ -63,7 +63,6 @@ import {
   PURGE_DOMAINS,
   requeueUnpropagatedPurges,
   purgeServerOnly,
-  requestUnpurge,
   pendingUnpurgeIds,
 } from '../../services/purge';
 import { supabase, isConfigured } from '../../services/supabase/client';
@@ -894,15 +893,16 @@ export function strandedMetric(stranded: number): Metric {
 }
 
 export function blockedByLedgerMetric(blocked: number, restoringFiles: number): Metric {
-  if (blocked === 0) return { label: '복원했는데 서버가 막은 항목', actual: '없음', expected: '없음', level: 'ok' };
+  if (blocked === 0) return { label: '복원 처리 대기 중인 항목', actual: '없음', expected: '없음', level: 'ok' };
   return {
-    label: '복원했는데 서버가 막은 항목',
+    label: '복원 처리 대기 중인 항목',
     actual: `${blocked}건`,
     expected: '없음',
-    // 그대로 두면 **다음 동기화에서 이 기기에서도 사라진다** — 기억 손실이므로 '문제'다.
-    level: 'problem',
+    // 백업 복원이 명시적 unpurge op을 이미 남겼다. 원장 적용은 이 id를 보호하므로 자료가
+    // 사라지는 상태가 아니고, 일반 동기화로 서버 read-back을 끝내면 되는 '할 일'이다.
+    level: 'todo',
     meaning:
-      '백업에서 되살린 기록인데 서버가 「영구삭제된 것」으로 알고 받지 않고 있어요. 그대로 두면 다음 동기화 때 이 기기에서도 사라집니다 — 아래 [복원한 항목 되살리기]를 눌러 주세요.' +
+      '백업에서 되살린 기록의 복원 의사가 보낼 목록에 안전하게 남아 있어요. [지금 동기화]를 실행하면 서버 원장을 되읽어 확인한 뒤 복원을 이어갑니다.' +
       // 왜 굳이 덧붙이나: 위쪽 「영구삭제 후 남은 사진 파일」이 그만큼 줄어 보이기 때문이다.
       // 숫자가 줄어든 이유를 화면이 말하지 않으면 사용자는 파일이 사라진 줄 안다.
       (restoringFiles ? ` 파일 ${restoringFiles}개는 되살아날 자료라 정리 대상에서 빼 뒀어요.` : ''),
@@ -1064,7 +1064,7 @@ function renameDeviceAction(): Action {
  * 커졌고, 길이 래칫이 이를 막았다(큰 함수는 결함이 숨을 면적이다). 판정(무엇이 문제인가)과
  * 행동(무엇을 눌러 고치나)은 원래 다른 일이므로 여기서 갈라 둔다.
  *
- * **primary는 하나뿐이어야 한다.** 위에서부터 무거운 순 — 되살리기 › 서버 삭제 전파 ›
+ * **primary는 하나뿐이어야 한다.** 위에서부터 무거운 순 — 자료 재업로드 › 서버 삭제 전파 ›
  * 조각 정리 › 파일 정리 › 기록 정리 › 동기화. 순서가 곧 "지금 눌러야 할 것"의 순서다.
  */
 interface StoreActionsInput {
@@ -1218,29 +1218,9 @@ function storeActions(i: StoreActionsInput): Action[] {
           },
         ]
       : []),
-    // 지표를 만들었으면 **고칠 곳도 만든다**(진단 §7-B). 판정만 하고 행동을 못 주면 사용자는
-    // "그래서 어쩌라고"에 남겨진다 — 2026-07-26에 반복해서 나온 지적이 그것이다.
-    ...(blocked
-      ? [
-          {
-            label: '복원한 항목 되살리기',
-            primary: true,
-            hook: 'data-unpurge-restored',
-            run: async (): Promise<string> => {
-              // 로컬 행은 이미 복원돼 있다 — 여기서는 **서버 원장에서 빼 달라는 의사**를 실어 보낸다.
-              // 그 의사는 큐에 남으므로 오프라인이거나 실패해도 다음 동기화에서 다시 시도된다.
-              await requestUnpurge(cmp.blockedByLedger);
-              await requestSync('복원한 항목 되살리기');
-              const st = syncStatus();
-              const n = cmp.blockedByLedger.length;
-              return st.phase === 'failed'
-                ? `${n}건을 큐에 넣었지만 동기화가 실패했어요: ${st.lastError ?? '사유 불명'}`
-                // "보냈다"가 아니라 **다시 대조해서** 확인한다(§8 — 고쳤다고 말하지 말고 다시 읽어라).
-                : `${n}건을 서버에 되살렸다고 알렸어요. 다시 대조합니다.`;
-            },
-          },
-        ]
-      : []),
+    // 복원 의사는 백업 복원 transaction만 만들 수 있다. 진단이 로컬 행만 보고 원장 해제 op을
+    // 만들면 서버의 좀비 차단 원장을 풀게 되므로 별도 액션을 두지 않는다.
+    // 이미 큐에 있는 명시적 복원은 아래 공용 [지금 동기화]가 안전하게 처리한다.
     ...(stranded
       ? [
           {
@@ -1263,7 +1243,8 @@ function storeActions(i: StoreActionsInput): Action[] {
     ...storeCleanupActions(i),
     {
       label: '지금 동기화',
-      primary: level !== 'ok' && !blocked && !stranded && !clearableIds.length && !leftoverFileIds.length,
+      primary:
+        level !== 'ok' && !reup && !stranded && !clearableIds.length && !leftoverFileIds.length,
       hook: 'data-store-sync',
       run: async () => {
         // 의심해서 누른 버튼이다 — 바이트까지 대조한다(§12).
@@ -1547,9 +1528,9 @@ export async function storeStateProbe(): Promise<Verdict> {
   // **복원 대기 중인 id는 손대면 안 된다.** 원장에 있다는 이유로 「치워도 되는 파일」로 분류하면,
   // 되살아나려는 사진의 **마지막 바이트**를 앱이 스스로 지운다. 실제로 2026-07-26에 R2에 남은
   // 파일 10개가 바로 그 사진들이었고, 화면은 그걸 [남은 사진 파일 정리]로 치우라고 권하고 있었다.
-  // 원장(`blockedByLedger`)과 큐(`pendingUnpurgeIds`) 둘 다 본다 — 로컬 행이 이미 지워졌어도
-  // 되돌리기 의사가 남아 있으면 여전히 복원 중이다.
-  const restorePending = new Set<string>([...cmp.blockedByLedger, ...(await pendingUnpurgeIds())]);
+  // 큐의 명시적 복원 의사만 본다 — 로컬 행/tombstone 존재는 복원 의사가 아니다.
+  // 이 집합은 파일 정리 보호에도 그대로 써서 판정과 행동이 서로 다른 근거를 보지 않게 한다.
+  const restorePending = await pendingUnpurgeIds();
 
   const countMetrics = countComparisonMetrics(cmp);
 

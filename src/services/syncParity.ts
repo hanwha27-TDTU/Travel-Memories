@@ -34,6 +34,23 @@ export const PARITY_TTL_MS = 30 * 60 * 1000;
 
 let cached: ParitySnapshot | null = null;
 let inFlight: Promise<ParitySnapshot | null> | null = null;
+const listeners = new Set<() => void>();
+
+/** 대조의 시작·완료·실패를 배지처럼 캐시 소비자에게 알린다. */
+function notifyParityChange(): void {
+  for (const listener of listeners) listener();
+}
+
+/** 대조 캐시가 바뀌었거나 대조 중인지 바뀔 때 화면이 다시 읽을 수 있게 한다. */
+export function onParityChange(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+/** 동기화 성공 직후에는 대조가 끝날 때까지 「확인 중」으로만 보인다. */
+export function isParityRefreshing(): boolean {
+  return inFlight !== null;
+}
 
 /** 마지막 대조 — 만료됐으면 null. **동기 함수**라 화면이 그리는 중에 바로 읽는다. */
 export function lastParity(now = Date.now()): ParitySnapshot | null {
@@ -70,8 +87,12 @@ export function refreshParity(): Promise<ParitySnapshot | null> {
       return null;
     } finally {
       inFlight = null;
+      // 캐시만 갱신하면 화면은 이전의 「대조 확인 중」에 그대로 남는다(M-0022).
+      // 완료·실패 모두 다시 그려야 same/different/unknown 중 최종 판정으로 도달한다.
+      notifyParityChange();
     }
   })();
+  notifyParityChange();
   return inFlight;
 }
 
@@ -103,4 +124,5 @@ export function __resetParityForTests(): void {
   cached = null;
   inFlight = null;
   installed = false;
+  listeners.clear();
 }

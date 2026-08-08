@@ -41,6 +41,8 @@ beforeEach(async () => {
     d.localMoments.clear(),
     d.localMedia.clear(),
     d.localExpenses.clear(),
+    d.localAudio.clear(),
+    d.localPlaces.clear(),
     d.syncQueue.clear(),
     d.purgedIds.clear(),
   ]);
@@ -437,6 +439,24 @@ describe('③ 서버 원장이 알려준 영구삭제를 이 기기에 적용한
     const trip = await createTripLocalFirst({ title: 'x' });
     expect(await applyPurgedLedger([trip.id])).toBe(1);
     expect(await applyPurgedLedger([trip.id])).toBe(0);
+  });
+
+  it('로컬 표식 뒤 다시 생긴 여섯 도메인 행도 원장 기준으로 전부 지운다', async () => {
+    const now = '2026-08-08T00:00:00.000Z';
+    const ids = PURGE_DOMAINS.map((domain, i) => ({
+      domain,
+      id: `0000000${i + 1}-1111-4111-8111-111111111111`,
+    }));
+    for (const { domain, id } of ids) {
+      await DOMAIN_PURGE[domain].table().put({ id, deletedAt: now } as never);
+      await db().purgedIds.put({ id, entityType: domain, purgedAt: now });
+    }
+
+    expect(await applyPurgedLedger(ids.map((x) => x.id))).toBe(PURGE_DOMAINS.length);
+    for (const { domain, id } of ids) {
+      expect(await DOMAIN_PURGE[domain].table().get(id), `${domain} 재등장 행`).toBeUndefined();
+      expect(await db().purgedIds.get(id), `${domain} 표식`).toBeDefined();
+    }
   });
 
   it('로컬에 없는 id여도 표식은 남긴다 — 나중에 pull이 되살리지 못하게', async () => {
