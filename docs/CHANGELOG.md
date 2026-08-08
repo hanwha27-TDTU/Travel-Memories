@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+### Android Chrome 첫 canonical 사진 소비 복원력 (2026-08-08)
+- 운영 Edge Function 로그에서 첫 동기화 중 `media-sign` POST 200이 80회 이어진 뒤, 사용자 오류 시각에는 OPTIONS/POST가 하나도 도착하지 않은 것을 확인했다. Supabase SDK의 `FunctionsFetchError`와 일치해 함수·인증·R2 객체가 아니라 client→Edge fetch 단절로 판정했다.
+- 부작용 없는 `media-sign get`과 서명된 R2 GET만 최대 3회 지수 backoff로 재시도한다. 함수 invoke 15초, R2 응답 body 30초 abort timeout을 두며 401·403·404는 반복하지 않는다. 최종 실패한 활성 사진은 계속 canonical 전체 적용을 막는다.
+- Edge Function OPTIONS에 10분 `Access-Control-Max-Age`를 추가해 90장 첫 소비 중 반복 preflight를 줄였다. 함수 동작·R2 키·DB 스키마는 바뀌지 않는다.
+
 ### Dependabot 보안 업데이트 전용 (2026-08-04)
 - 일반 버전 PR이 Ready 상태로 전체 하네스를 자동 실행하지 않도록 version update를 끄고 security update만 유지한다.
 

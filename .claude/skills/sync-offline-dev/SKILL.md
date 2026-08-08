@@ -146,6 +146,12 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·c
 14. **서버 purge와 로컬 tombstone의 공존은 「복원 차단」이 아니라 cleanup 대상이다.** 서버
     unpurge는 pending `unpurge`처럼 사용자의 명시적 복원 의사가 원자 커밋된 증거가 있을 때만
     허용한다. tombstone·marker·행 부재를 복원 의사로 추측하거나 자동 unpurge로 반올림하지 않는다.
+15. **canonical exact-set의 원자성은 순간 네트워크 단절을 무재시도로 두라는 뜻이 아니다.** 활성
+    사진·소리 바이트는 최종 실패 시 반드시 전체 적용을 막되, 부작용 없는 서명 GET과 바이트 GET의
+    전송/relay/408·429·5xx에는 짧은 제한 재시도와 abort timeout을 둔다. 401·403·404는 즉시
+    fail-closed하고 tombstone의 `bytesMissing` 완화와 섞지 않는다. 운영 로그에서 반복 성공 뒤
+    실패 시각의 함수 요청 자체가 없으면 함수 내부/R2 손상으로 단정하지 말고 브라우저→함수 전송
+    경계를 먼저 판정한다.
 
 ## 사진 없는 장소를 일괄 정리할 때 (v2.00 · 2026-08-08)
 

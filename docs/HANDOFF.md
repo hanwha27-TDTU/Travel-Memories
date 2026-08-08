@@ -4,6 +4,14 @@
 
 ---
 
+## HANDOFF-0122 · v2.03 · **Android Chrome 첫 사진 동기화의 순간 전송 단절 복구** (2026-08-08)
+
+- **사용자 실기기 증거**: 별도 저장소인 설치 앱은 정상이었지만 새 Android Chrome은 클라우드 여행 10·사진 90 등에 로컬 0인 첫 canonical 소비에서 오래 준비 상태에 있다가, 활성 사진 `8c20ea26-0ee9-4eab-9cdd-a2bd65d810d9`의 `Failed to send a request to the Edge Function`으로 종료했다.
+- **운영 원인(M-0130)**: Edge 로그에는 08:36~08:44Z `media-sign` v7 POST 200 약 80건과 OPTIONS 200이 이어졌고 마지막 성공은 08:44:33.907Z였다. 17:49 KST 오류 시각에는 요청이 함수에 도착하지 않았다. 대상 서버 행은 active·storage_path 있음이므로 특정 바이트 누락이나 인증 거부가 아니라 Chrome/모바일망→Supabase fetch 한 번의 단절이며, 무재시도 GET이 전체 원자 적용을 중단한 것이 직접 원인이다.
+- **수정**: `media-sign get`과 R2 GET만 최대 3회 제한 지수 backoff로 재시도한다. invoke 15초·R2 body 30초 abort timeout을 두고, FunctionsFetch/Relay와 408·425·429·5xx만 일시 오류로 본다. 401·403·404와 최종 활성 바이트 실패는 즉시/최종 fail-closed한다. 함수 오류 이름도 사용자 진단 문자열에 보존한다. CORS preflight는 10분 캐시한다.
+- **검증·배포 경계**: 새 `r2Retry`와 `mediaSign` 관련 유닛 34/34, 전체 Vitest 95파일 전부, build v2.03, 빠른 게이트 51/51, 독립 live 편집 383/383·진단 57/57·콘솔 오류 0을 통과했다. `media-sign` v8을 앱보다 먼저 ACTIVE로 배포했고 배포 소스와 실제 OPTIONS HTTP 200(`Max-Age: 600`)을 되읽었다. 이어 v2.03 Ready PR Required CI→squash merge→Pages `version.json` read-back 순으로 닫는다.
+- **스킬 환류**: `sync-runtime-dev`·`sync-offline-dev`에 반복 read-only GET의 오류 분류·제한 재시도·timeout과 활성 바이트 최종 fail-closed 규율을 추가했다.
+
 ## HANDOFF-0121 · v2.02 · **영구삭제 원장 수렴과 동기화 안전확인 종료 보장** (2026-08-08)
 
 - **사용자 지시**: Android 진단의 영구삭제 잔여 19건과 Chrome의 「대장 대조 확인 중」 멈춤을 모두 수정하고, 누르지 말아야 안전한 복구 버튼은 제거하며 동기화 스킬 갱신 뒤 즉시 배포한다.
@@ -781,7 +789,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->2.02<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->202<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->113<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->2.03<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->203<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->114<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->29<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
