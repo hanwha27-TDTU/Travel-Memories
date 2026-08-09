@@ -20,7 +20,61 @@
 //      "이번 실행은 그 층을 재지 않았다"고 말한다(§8 — 모르는 것은 '확인 불가').
 //   ② CI에서는 전제를 **갖춰서** 돌린다(`.github/workflows/ci.yml`의 live-render job).
 //      전제를 갖출 수 있는 곳에서까지 건너뛰면 ①은 그냥 변명이 된다.
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
+
+// ── 통과한 게이트의 **단서**를 버리지 않는다 (2026-08-09 신설) ────────────────────
+//
+// 예전 판은 성공하면 `PASS`만 찍고 게이트가 한 말을 **통째로 버렸다**. 그래서 이런 일이
+// 실제로 벌어지고 있었다:
+//
+//     check-production-artifacts: OK — 운영 소스맵 비활성 **(dist 미생성: 설정 확인)**
+//
+// 게이트는 정직했다 — "산출물이 없어 설정만 봤다"고 스스로 적었다. 그런데 화면에는 `PASS`만
+// 나갔다. 자료구조는 옳고 **전달만 틀린** §10 ③형이고, 그 결과 **반쪽만 잰 검사가 온전히 잰
+// 검사와 같은 얼굴**을 하고 있었다(§2-G — SKIP은 통과가 아니다의 조용한 사촌).
+//
+// 🔴 그렇다고 53줄을 다 찍지는 않는다 — **침묵이 정상**이다(§8). 남기는 것은 게이트가 스스로
+// "이건 못 쟀다"고 말한 줄뿐이다. 남아 있는 것이 곧 확인할 거리다.
+const CAVEAT_RE = /확인 불가|재지 않|안 쟀|못 쟀|검증하지 못|미생성|없어\s|정직한 한계|주의:/;
+
+/**
+ * 자기증명 안내문은 한계가 아니다 — **자기가 잘 돈다는 자랑**이다.
+ * 「주입증명 … 미설치 1은 확인 불가로 갈림」처럼 낱말만 겹치는 줄을 한계로 읽으면
+ * 목록이 소음이 되고, 소음이 된 목록은 사람이 안 읽는다(§11 ③ — 오탐은 틀린 게이트다).
+ */
+const SELF_PROOF_RE = /^(주입증명|자체검사|셀프테스트)/;
+
+/** 게이트 출력에서 **한계를 말한 줄**만 고른다 — 순수 함수(자체검사가 부른다). */
+export function caveatsOf(text) {
+  if (typeof text !== 'string' || !text.trim()) return [];
+  return text
+    .split('\n')
+    // 게이트가 이미 붙인 들여쓰기·화살표를 벗긴다. 안 벗기면 `↳ ↳`가 겹쳐 찍힌다.
+    .map((l) => l.trim().replace(/^[↳·⚠️\s]+/, '').trim())
+    .filter((l) => l && !SELF_PROOF_RE.test(l) && CAVEAT_RE.test(l));
+}
+
+// 자체검사(§4): 잡아야 할 것과 잡으면 안 되는 것을 주입해 본다. 이 함수가 공허하면
+// 위 결함이 **고친 그 자리에서** 되살아난다.
+{
+  const must = [
+    'check-production-artifacts: OK — 운영 소스맵 비활성 (dist 미생성: 설정 확인)',
+    '  ↳ 정직한 한계: 등록까지만 보증합니다',
+    '주의: Codex 전역 설치 경로가 없어 프로젝트 스냅샷만 검증했습니다.',
+    '  ⚠️ 확인 불가: release-harness-governance 전역 설치본이 없습니다',
+  ];
+  const mustNot = [
+    'check-csp: OK (셀프테스트 통과 · CSP 스택 계약 일치)',
+    'check-sw: OK — 서비스워커 계약 일치',
+    // 🔴 실제 오탐(2026-08-09): 자기증명 안내문이 「확인 불가」 낱말을 품어 한계로 잡혔다.
+    '주입증명 17축: 정상 1 · 결함 15 모두 판별 · 미설치 1은 확인 불가로 갈림.',
+    '',
+  ];
+  // 화살표를 벗겨 `↳ ↳`가 겹치지 않는지도 못박는다.
+  if (caveatsOf('  ↳ 정직한 한계: 등록까지만')[0]?.startsWith('↳')) throw new Error('harness 자체검사 실패: 화살표를 안 벗겼다');
+  for (const line of must) if (!caveatsOf(line).length) throw new Error(`harness 자체검사 실패: 한계 문장을 놓쳤다 — ${line}`);
+  for (const line of mustNot) if (caveatsOf(line).length) throw new Error(`harness 자체검사 실패: 정상 문장을 한계로 읽었다 — ${line}`);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 빠른 차선 (`--fast` · `npm run gates`) — 2026-07-29, 실측 후 신설
@@ -156,29 +210,36 @@ const EXIT_PRECONDITION = 2;
 let failed = 0;
 const skipped = [];
 const notMeasured = [];
+/** 통과했지만 **스스로 「일부는 못 쟀다」고 말한** 게이트. 마지막 판정문이 이것을 센다. */
+const partial = [];
 for (const g of gates) {
   if (FAST && g.slow) {
     notMeasured.push(g.name);
     continue;
   }
   process.stdout.write(`▶ ${g.name} ... `);
-  try {
-    execSync(g.cmd, { stdio: 'pipe' });
+  // 🔴 **한 번만 돌린다.** 예전 판은 판정용과 출력용으로 두 번 돌릴 뻔했다 — 같은 검사를
+  // 두 번 재는 것은 시간만 쓰는 게 아니라 두 실행이 갈릴 수 있어 근거가 약해진다.
+  const run = spawnSync(g.cmd, { shell: true, encoding: 'utf8' });
+  const out = `${run.stdout ?? ''}${run.stderr ?? ''}`;
+  if (run.status === 0) {
     console.log('PASS');
-  } catch (e) {
-    const out = `${e.stdout?.toString() ?? ''}${e.stderr?.toString() ?? ''}`;
-    if (g.optional && e.status === EXIT_PRECONDITION) {
-      // 전제가 없어 **재지 못했다**. 통과가 아니다 — 이유를 그대로 보여준다.
-      console.log('SKIP');
-      const why = out.trim().split('\n')[0] || '(이유를 알리지 않음)';
-      console.log(`    ↳ ${why}`);
-      skipped.push({ name: g.name, why });
-      continue;
-    }
-    console.log('FAIL');
-    if (out) process.stderr.write(out);
-    failed++;
+    const said = caveatsOf(out);
+    for (const line of said) console.log(`    ↳ ${line}`);
+    if (said.length) partial.push(g.name);
+    continue;
   }
+  if (g.optional && run.status === EXIT_PRECONDITION) {
+    // 전제가 없어 **재지 못했다**. 통과가 아니다 — 이유를 그대로 보여준다.
+    console.log('SKIP');
+    const why = out.trim().split('\n')[0] || '(이유를 알리지 않음)';
+    console.log(`    ↳ ${why}`);
+    skipped.push({ name: g.name, why });
+    continue;
+  }
+  console.log('FAIL');
+  if (out) process.stderr.write(out);
+  failed++;
 }
 
 if (failed > 0) {
@@ -198,4 +259,11 @@ if (FAST) {
   console.log('  → 이 실행은 위 층을 확인하지 않았습니다. 갖추고 돌리려면: npm run build && npm run live');
 } else {
   console.log('\nharness: 모든 게이트 통과(선택 게이트 포함 — 건너뛴 것 없음)');
+}
+
+// 🔴 「통과」와 「온전히 쟀다」는 다른 말이다. 통과했더라도 게이트가 스스로 못 잰 것을 말했으면
+// 판정문이 그 수를 세고 이름을 댄다 — 안 그러면 반쪽만 잰 검사가 온전히 잰 검사와 같은 얼굴이 된다.
+if (partial.length) {
+  console.log(`  · 통과했지만 **일부만 쟀다고 스스로 말한 게이트 ${partial.length}개**: ${partial.join(', ')}`);
+  console.log('    → 위 ↳ 줄이 그 게이트가 재지 못한 것입니다. 초록이 곧 전수 검증은 아닙니다.');
 }
