@@ -31,6 +31,84 @@
     "writer": "src/app/changelog.ts 맨 앞에 직전 버전 +0.01 항목을 단일 릴리스 오너가 추가",
     "history": "src/app/changelog.ts"
   },
+  "buildStepBaselines": {
+    "measuredAt": "2026-08-09",
+    "environment": "GitHub Actions ubuntu-latest",
+    "howMeasured": "성공한 실행의 step started_at/completed_at 차이. 표본 3회 이상 · 기준선은 중앙값.",
+    "verdictFormula": "소요 > max(기준선 × 1.5, 기준선 + 60초)",
+    "whyBothTerms": "비율만 쓰면 짧은 단계가 과민해지고(9초 → 13.5초에 걸린다) 절대값만 쓰면 긴 단계가 둔해진다.",
+    "🔴 doNotPort": "이 초는 **이 저장소의 CI에서만 참이다.** 다른 앱·다른 러너·개발 컨테이너로 옮겨 적지 마라. 게이트 순위도 환경 사이에서 안 옮겨진다 — 병목은 고칠 환경에서 재라.",
+    "steps": [
+      {
+        "workflow": "ci.yml",
+        "job": "fast-gates",
+        "step": "Fast gates (typecheck + 정적)",
+        "samplesSec": [12, 13, 14],
+        "baselineSec": 13,
+        "thresholdSec": 73
+      },
+      {
+        "workflow": "ci.yml",
+        "job": "harness",
+        "step": "Build",
+        "samplesSec": [9, 9, 9],
+        "baselineSec": 9,
+        "thresholdSec": 69
+      },
+      {
+        "workflow": "ci.yml",
+        "job": "harness",
+        "step": "Harness (Required gates)",
+        "samplesSec": [72, 74, 78],
+        "baselineSec": 74,
+        "thresholdSec": 134
+      },
+      {
+        "workflow": "ci.yml",
+        "job": "live-render",
+        "step": "Install Chromium",
+        "samplesSec": [23, 25, 31],
+        "baselineSec": 25,
+        "thresholdSec": 85
+      },
+      {
+        "workflow": "ci.yml",
+        "job": "live-render",
+        "step": "Live render gates",
+        "samplesSec": [155, 159, 161],
+        "baselineSec": 159,
+        "thresholdSec": 239
+      },
+      {
+        "workflow": "android-apk.yml",
+        "job": "apk",
+        "step": "APK 빌드 (debug 서명 — 사이드로드용)",
+        "samplesSec": [134, 138, 142],
+        "baselineSec": 138,
+        "thresholdSec": 207
+      }
+    ],
+    "evidenceRunIds": {
+      "ci.yml": [31263220823, 31255204796, 31252597644],
+      "android-apk.yml": [31168698543, 30896145442, 30733239238],
+      "deploy-pages.yml": [31263383377, 31254050810, 31252741353]
+    }
+  },
+  "groupBudget": {
+    "measuredAt": "2026-08-09",
+    "environment": "GitHub Actions ubuntu-latest",
+    "ciWallClockSec": { "samples": [200, 204, 209], "baseline": 204 },
+    "criticalPath": "live-render",
+    "whyCriticalPath": "세 잡은 needs 없이 병렬이므로 벽시계는 가장 긴 잡 하나다. live-render 204초 · harness 96초 · fast-gates 23초 — live-render가 벽시계의 약 98%를 차지한다.",
+    "insideCriticalPath": { "Live render gates": 159, "Install Chromium": 25, "Build": 9 },
+    "floorGate": "미측정",
+    "floorGateReason": "live-render 안에서 **어느 라이브 게이트가 바닥인지**는 잡 로그를 파싱해야 나온다. 이 값 없이 최적화하면 틀린 곳을 고친다(로컬 1위가 CI에서 4위였다는 실측이 있다). 재는 법: `actions_get(get_workflow_job)`이 아니라 잡 로그에서 게이트별 구간을 뽑는다.",
+    "remainingLevers": [
+      "harness와 live-render가 각자 npm run build를 한 번씩 돈다(병렬이라 벽시계는 안 늘지만 같은 번들을 두 번 굽는다).",
+      "Install Chromium 25초는 캐시로 줄일 수 있으나, 캐시 무효화가 조용히 틀린 브라우저를 쓰게 만드는 위험과 맞바꿔야 한다."
+    ],
+    "🔴 noTargetYet": "**목표 시간을 정하지 않았다.** 근거 없는 목표는 「미달 = 실패 = 되돌리기」로 오독된다. 목표를 적을 때는 미달이 유지 여부의 판단이 아니라 목표까지의 거리임을 같이 적는다."
+  },
   "regenerationLedger": [
     { "writer": "scripts/gen-adapters.mjs", "check": "node scripts/check-adapter-parity.mjs" },
     { "writer": "scripts/gen-constitution.mjs", "check": "node scripts/check-constitution-gen.mjs" },
