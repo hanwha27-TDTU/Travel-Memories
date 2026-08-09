@@ -185,13 +185,20 @@ if (isMain) {
 
   // 🔴 창은 셋이다 — 커밋됨 · --cached · 작업트리. 둘만 보면 `git add` 직후가 어디에도 안 나온다.
   const git = (args) => execFileSync('git', ['-c', 'core.quotepath=false', ...args], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  // 🔴 **기준 가지가 없을 수 있다.** CI의 얕은 체크아웃(`actions/checkout` 기본값)은 PR ref만
+  // 받아 `origin/main`이 아예 없다 — 실측 2026-08-09, 이 게이트가 CI에서 죽었다.
+  // 없는 것을 **위반으로도 통과로도 반올림하지 않는다**(§8): 그 창을 못 쟀다고 말하고 나머지를 잰다.
+  let hasBase = true;
+  try { git(['rev-parse', '--verify', '--quiet', 'origin/main']); } catch { hasBase = false; }
+
   const windows = [
-    ['커밋됨(origin/main..HEAD)', () => git(['diff', 'origin/main...HEAD'])],
+    ...(hasBase ? [['커밋됨(origin/main...HEAD)', () => git(['diff', 'origin/main...HEAD'])]] : []),
     ['스테이징(--cached)', () => git(['diff', '--cached'])],
     ['작업트리', () => git(['diff'])],
   ];
   const files = [];
   for (const [, get] of windows) {
+    // 파싱 실패는 여전히 던진다 — 조용히 직전 파일에 붙이지 않는다(§1.11).
     try { files.push(...parseDiff(get())); } catch (e) {
       console.error(`🔴 diff 파싱 실패 — 조용히 넘어가지 않습니다: ${e.message}`);
       process.exit(1);
@@ -202,6 +209,9 @@ if (isMain) {
   console.log(`check-review-tier: ${verdict.tier.toUpperCase()} — ${verdict.why}`);
   if (verdict.signals?.length) console.log(`  · 신호: ${verdict.signals.join(' · ')}`);
   if (verdict.mixedGenerated) console.log('  · 생성 블록과 손편집이 섞였습니다 — 제외가 진짜 변경을 삼키지 않았습니다.');
-  console.log(`  ↳ 자체검사 양성 ${SELF.pos}·음성 ${SELF.neg} · 창 3개(커밋됨·스테이징·작업트리) · UI 표면 ${globs.length}패턴`);
+  console.log(`  ↳ 자체검사 양성 ${SELF.pos}·음성 ${SELF.neg} · 창 ${windows.length}개 · UI 표면 ${globs.length}패턴`);
+  if (!hasBase) {
+    console.log('  ↳ 확인 불가: origin/main이 없어 **커밋된 diff는 재지 못했습니다**(얕은 체크아웃). 스테이징·작업트리만 봤습니다.');
+  }
   console.log('  ↳ 정직한 한계: 리뷰가 **실제로 이뤄졌는지**는 보지 못합니다 — 필요 여부만 판정합니다.');
 }
