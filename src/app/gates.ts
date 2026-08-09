@@ -28,6 +28,7 @@ export const GATE_DESC: Record<string, string> = {
   'check-shared-skill-contract':
     '전역 공통 스킬의 승인 커밋·프로젝트 스냅샷·릴리스 프로필·설치본이 서로 갈라지지 않는지',
   'check-input-closeout': '재생성 writer 전부가 읽기 전용 마감 check를 갖는지(비싼 산출물 앞의 고정점 · HRL-17)',
+  'check-gate-promise': '게이트마다 **개수가 아닌 축**을 선언했는지(약속 원장 · 부채는 줄기만 한다)',
   'check-domain-wiring': '도메인↔화면 배선이 죽지 않았는지',
   'check-csp': 'CSP 위반(인라인·외부 리소스) 없는지',
   'check-production-artifacts': '공개 운영 빌드에 원본 TS를 드러내는 소스맵이 없는지(설정 + 실제 dist)',
@@ -98,6 +99,90 @@ export const GATE_DESC: Record<string, string> = {
     '실제 브라우저가 진단 도구를 하나씩 열어 **사용자에게 나가는 문장·자리·버튼**을 확인(자료구조가 옳아도 화면이 틀릴 수 있다 — M-0046)',
 };
 
+/**
+ * 게이트 **약속 원장** — 「이 검사는 무엇을 *세지 않고* 단언하는가」.
+ *
+ * ── 왜 설명 말고 축이 또 필요한가 ────────────────────────────────────────────
+ * `GATE_DESC`는 *무엇을 보는가*를 말한다. 그런데 개수만 세는 게이트는 어느 저장소에서나
+ * **「위반 0」과 「아무것도 안 봤다」에 같은 종료코드**를 준다. 실제로 이 저장소에서
+ * 2026-08-09에 그 형태가 나왔다 — `check-gate-integrity`가 *"52개 전부 보유"*라는 초록을
+ * 내면서 모집단 밖의 게이트 셋(라이브 둘 포함)을 한 번도 보지 않았다.
+ *
+ * 그래서 게이트마다 **개수가 아닌 축**을 하나 적는다. 문체는 「N이 아니라 M」으로 고정한다 —
+ * 거부하는 개수를 **이름 대게** 만들어야, 쓰는 사람이 자기 게이트가 무엇에 기대고 있는지
+ * 한 번은 마주 본다. `check-gate-promise`가 형식을 강제한다.
+ *
+ * 🔴 **정직한 한계**: 기계는 축의 **내용이 참인지** 못 본다. 「아무거나가 아니라 무언가」라고
+ * 적어도 통과한다. 아래 값은 2026-08-09에 게이트 전수를 실제로 돌려 **각자 출력한 판정문에서
+ * 파생**했지, 상상해서 채우지 않았다. 그래도 이 원장은 사람이 정직할 때만 값을 낸다.
+ */
+export const GATE_AXIS: Record<string, string> = {
+  typecheck: '오류 개수가 아니라, 전체 프로그램이 하나의 타입 계약을 만족하는지(부분 통과가 없다)',
+  'check-secret-leak': '적발 건수가 아니라, 스캔 **범위**가 저장소 전체를 덮는지 — 범위 밖은 0건이 아니라 미검사다',
+  'check-hooks-wired': '훅 개수가 아니라, 각 훅의 selfTest를 **실제로 실행해** 통과하는지(등록만으로는 공허)',
+  'check-ci-policy': '워크플로 줄 수가 아니라, Ready PR이 build→harness 순서이고 deploy가 harness를 중복하지 않는지',
+  'check-workflow-pins': '액션 개수가 아니라, 모든 공급망 참조가 태그가 아닌 **commit SHA**에 고정됐는지',
+  'check-dependabot-policy': 'PR 개수가 아니라, 일반 version update가 꺼져 있고 security update만 열려 있는지',
+  'check-shared-skill-contract':
+    '스킬 개수가 아니라, 정본·스냅샷·설치본 해시가 **한 커밋으로 수렴**하는지 — 미설치는 결함이 아니라 확인 불가로 갈린다',
+  'check-input-closeout': '원장 항목 수가 아니라, 디렉터리의 재생성 writer **전수**가 원장에 있고 각자 읽기 전용 check를 갖는지',
+  'check-domain-wiring': '도메인 수가 아니라, 문서가 선언한 배선이 실제 코드에 살아 있는지',
+  'check-csp': '지시자 수가 아니라, CSP 스택이 인라인·외부 리소스를 실제로 막는 한 계약인지',
+  'check-production-artifacts':
+    '설정 항목 수가 아니라, 운영 번들에 원본 소스맵이 없는지 — dist가 없으면 **설정만 본 것**이고 그 한계를 스스로 말한다',
+  'check-base-consistency': '경로 개수가 아니라, BASE·manifest·index.html이 같은 배포 기준을 가리키는지',
+  'check-env-wiring': '변수 개수가 아니라, 코드·워크플로·문서가 같은 이름을 쓰는지',
+  'check-domain-symmetry':
+    '함수 개수가 아니라, 로컬 쓰기 함수 **전부**가 op을 만들거나 등록된 예외인지 — 하나만 조용히 빠지는 형태를 잡는다',
+  'check-sync-parallelism': '단계 수가 아니라, 직렬 간선마다 사유가 있고 실패가 **join-all**로 정산되는지',
+  'check-verdict-symmetry': '도구 개수가 아니라, 모든 판정이 **단일 렌더러**를 지나는지 — 자기 렌더 코드를 갖는 선택지가 없다',
+  'check-skill-routing': '규칙 수가 아니라, 모든 코드 영역이 읽을 문서를 갖거나 **이유 있는** 제외인지',
+  'check-live-coverage':
+    '화면 수가 아니라, 안 덮인 화면이 **조용히 생기지 않는지** — 덮였음의 보증이 아니라 누락의 차단이다',
+  'check-self-eval': '항목 수가 아니라, 자기평가 가중치 합이 100이고 항목이 원장과 일치하는지',
+  'check-schema-parity': '컬럼 수가 아니라, 앱 행 타입과 서버 테이블이 1:1로 대응하는지',
+  'check-migration-grants': 'migration 수가 아니라, 모든 테이블이 RLS·grant 계약을 갖거나 근거 있는 제외인지',
+  'check-report-fields': '필드 수가 아니라, **사용자에게 나가는** 보고 구조가 스키마와 1:1인지',
+  'check-no-synthetic-italic': 'CSS 수가 아니라, 합성 이탤릭이 한글을 뭉개는 자리가 없는지',
+  'check-edge-fn-ops': 'op 수가 아니라, Edge가 처리하는 연산과 클라이언트가 보내는 연산이 대칭이고 초대제 가드가 있는지',
+  'check-sync-release-contract': '연산 수가 아니라, 정본·앱·Edge의 **논리 소스 해시**가 정확히 일치하는지(LF/CRLF 대조군 포함)',
+  'check-node-version': '워크플로 수가 아니라, 개발과 배포가 같은 Node 판을 쓰는지',
+  'check-backup-coverage': '테이블 수가 아니라, **모든** 사용자 테이블이 백업 왕복에 들어 있는지 — 빠진 테이블은 조용히 유실된다',
+  'check-blueprint': '화면 수가 아니라, 설계도 선언이 실제 코드·테이블과 일치하는지',
+  'check-registry-gen':
+    '게이트 수가 아니라, 원장·생성물·편집 메타가 **양방향**으로 일치하는지 — 설명·분류 없는 게이트는 들어올 수 없다',
+  'check-constitution-gen': '조문 수가 아니라, 화면이 헌법을 손으로 옮겨 적지 않고 **생성으로 파생**하는지',
+  'check-adapter-parity': '문서 수가 아니라, 커밋본과 재생성본이 **글자 단위**로 같은지 — 두 AI가 다른 계약을 읽지 못한다',
+  'check-doc-governance': '문서 수가 아니라, 등록되지 않은 문서·지시문이 조용히 생기지 않는지',
+  'check-gate-integrity':
+    '게이트 수가 아니라, **원장이 돌리는 게이트 전수**가 배선·대조군·실패 기대 케이스를 갖는지 — 모집단을 파일명이 아니라 원장에서 뽑는다',
+  'check-diag-blindspots': '사각 수가 아니라, 알려진 사각이 도구로 덮이거나 **이유 있는** 대기인지',
+  'check-page-size-parity': '값이 아니라, 앱과 서버가 같은 페이지 크기를 쓰는지',
+  'check-current-doc-facts': '문서 수가 아니라, 현재 문서가 최신 migration·BACKLOG·릴리스 상태와 일치하는지',
+  'check-platform-map': '행 수가 아니라, 플랫폼 표의 각 행이 **코드에서 실측된** 값인지',
+  'check-lazy-screens': '화면 수가 아니라, 첫 로드에 들어가는 화면이 의도한 둘뿐인지',
+  'check-font-subsets': '조각 수가 아니라, 참조·구간·swap·선언순서가 한 계약으로 맞는지',
+  'check-fn-size': '함수 수가 아니라, 새 함수가 상한을 넘지 않고 기존 부채가 **늘지 않는지** — 래칫은 한 방향이다',
+  'check-sw': '캐시 수가 아니라, 서비스워커가 교차 출처에 개입하지 않고 GET 전용인지',
+  'check-hand-counts': '문서 수가 아니라, 지시문서에 **손편집 개수**가 남아 있지 않은지',
+  'check-doc-counts': '마커 수가 아니라, 각 마커가 실제 카운트와 일치하는지',
+  'check-timezone': '테스트 수가 아니라, 날짜가 UTC가 아닌 **사용자 로컬**로 계산되는지',
+  'check-instant-normalization': '파일 수가 아니라, 서버 경계 **전부**가 시각을 정규화하는지',
+  'check-exif-strip-on-share': '업로드 경로 수가 아니라, 공유 바이트가 canvas 파생본만이고 재인코딩 우회가 0인지',
+  'check-exif-order': '호출 수가 아니라, EXIF를 압축·편집 **전에 원본에서** 읽고 기본 경로가 원본 보존인지',
+  'check-bytes-upload-symmetry': '도메인 수가 아니라, 바이트 도메인 **전부**가 공용 업로드 문과 작업별 불변 키를 지나는지',
+  'check-known-index': '색인 덩어리 수가 아니라, **네 층 전부**가 색인에 들어오는지',
+  'check-apk-release-link': '참조 수가 아니라, 워크플로·상수·가이드가 같은 **고정 주소** 계약을 지키는지',
+  'check-update-signal': '신호 수가 아니라, 빌드 신호·앱 확인·SW 무개입이 한 계약인지',
+  'check-purge-scope': '도메인 수가 아니라, cascadeParents가 migration의 cascade 폐포·rowmap과 일치하는지',
+  'check-real-coord': '파일 수가 아니라, 좌표 판정이 **isRealCoord 한 곳에만** 있는지',
+  'check-ui-color-token': '파일 수가 아니라, 하드코딩 색이 0이고 전부 토큰을 지나는지',
+  'check-gate-promise': '게이트 수가 아니라, **모든 게이트가 개수 아닌 축을 선언**했고 부채가 늘지 않는지 — 래칫은 한 방향이다',
+  'unit-tests': '통과 개수가 아니라, 순수 로직 계약이 유지되는지',
+  'verify-editor-live': '검사 수가 아니라, **실제 브라우저에서** 사용자 경로가 실제로 도는지',
+  'verify-diagnostics-live': '도구 수가 아니라, **실제 DOM에** 판정 문장·자리·버튼이 나오는지',
+};
+
 /** 게이트 카테고리. 없으면 'static'으로 본다. 목록은 registry.gen에서 오므로 개수는 파생. */
 export const GATE_CATEGORY: Record<string, GateCategory> = {
   typecheck: 'static',
@@ -109,6 +194,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-shared-skill-contract': 'generated',
   // 생성물을 대조하지 않고 **원장이 온전한가**를 본다(디렉터리 ↔ 원장). 그래서 static이다.
   'check-input-closeout': 'static',
+  'check-gate-promise': 'static',
   'check-domain-wiring': 'generated',
   'check-csp': 'static',
   'check-production-artifacts': 'generated',

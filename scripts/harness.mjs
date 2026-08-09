@@ -107,6 +107,9 @@ const gates = [
   // 🔴 여기서 도는 것은 **원장 검사만**이다(싸다). 마감을 실제로 돌린 증거는 릴리스 때의
   // `--run`이고, 그게 실행 전후 트리 지문으로 「읽기 전용이다」라는 주장 자체를 검증한다.
   { name: 'check-input-closeout', cmd: 'node scripts/check-input-closeout.mjs' },
+  // 게이트가 **개수가 아니라 뜻**을 단언하는지. 개수만 세는 검사는 「위반 0」과 「아무것도 안
+  // 봤다」에 같은 종료코드를 준다 — 2026-08-09에 실제로 그 형태가 나왔다(check-gate-integrity).
+  { name: 'check-gate-promise', cmd: 'node scripts/check-gate-promise.mjs' },
   { name: 'check-domain-wiring', cmd: 'node scripts/check-domain-wiring.mjs' },
   { name: 'check-csp', cmd: 'node scripts/check-csp.mjs' },
   { name: 'check-production-artifacts', cmd: 'node scripts/check-production-artifacts.mjs' },
