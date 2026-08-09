@@ -8,7 +8,18 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
-## HANDOFF-0129 · **CI 문제의 구조적 해결 — 헌법 §18-G·§18-H** (2026-08-09 · 구현됨·릴리스 대기)
+## HANDOFF-0130 · v2.08 · **릴리스법 통합본(생성물) + 세션 인계** (2026-08-09 · 릴리스 후보)
+
+- **사용자 지시**: *"우리 앱에 별도 하네스 릴리스법을 하나 별도로 만들어서 통합관리하고 올리고 작업한 모든 것들 모두 배포한 후 세션 마무리하고 코덱스가 이어서 할 수 있도록 인계서 작성해주세요."*
+- **요구는 타당했고, 방법만 바꿨다**: 릴리스 규율이 헌법에 **네 곳으로 흩어져** 있어(§18·§15·완료의 정의·검증 명령) 릴리스하려는 사람이 스스로 주워 모아야 했다. 그런데 **손으로 옮겨 적으면 §2 위반**이고, 이 저장소는 그 사고를 이미 겪었다(2026-07-29에 두 어댑터가 네 군데 갈라졌고 그중 「완료의 정의」는 서로를 포함하지 않았다).
+- **그래서 생성물로 만들었다**: `scripts/gen-harness-law.mjs`가 헌법에서 **절만 골라** `docs/HARNESS_RELEASE_LAW.md`를 심는다. `check-adapter-parity`가 「커밋본 == 재생성본」을 강제한다 — 어댑터 둘과 **같은 계약**이고, 새 생성 문서는 `GENERATED_DOCS` 표에 한 줄이면 따라온다(§7 2층).
+- **절 경계를 조용히 놓치지 않는다**: 제목이 바뀌어 절을 못 찾으면 **빈 문서를 내지 않고 RED**를 낸다(결번은 통과가 아니다). 셀프테스트가 ①네 절을 다 모으는가 ②다음 절이 딸려 오지 않는가 ③없는 절에 RED를 내는가 ④정본 frontmatter가 본문에 섞이지 않는가를 주입으로 확인한다.
+- **주입 증명**: 생성물을 손으로 한 줄 고쳐 넣자 게이트가 파일 이름과 재생성 명령을 대며 RED → 원복 GREEN.
+- **코덱스 인계**: `docs/HANDOFF_CODEX.md`의 「현재 시작점」에 **릴리스할 때 바뀐 것 둘**(§18-H 묶음 동결 · §18-G `GATE_WORLD` 선언 의무)을 종료코드 계약과 함께 적었다.
+- **이 릴리스에서 §18-H를 처음 실제로 썼다** — `release:arm` → build → 전체 harness → live → PR → merge → 배포 → `release:close`. 재개방 횟수는 세션 마무리 보고에 적는다(§18-H 4항).
+- **배포 표면**: GitHub Pages v2.08 하나. 앱 런타임 동작 변경 없음(게이트·훅·문서·등록부). DB·RLS·Edge·R2·네이티브 변경 없음.
+
+## HANDOFF-0129 · **CI 문제의 구조적 해결 — 헌법 §18-G·§18-H** (2026-08-09 · 구현됨 → v2.08에 포함)
 
 - **사용자 지시**: *"지금 CI문제 구조적으로 해결할 방법 강구해보자. 그리고 그걸 하네스 릴리스법에 올리고"*
 - **먼저 쟀다(§9-4)**: v2.07의 CI 실이력을 뽑아 보니 **네 번** 돌았다 — `#552 failure`(게이트가 CI에서만 죽음) · `#553 cancelled` · `#554 success` · `#555 success`. 검증 자체는 3~4분인데 첫 Ready부터 마지막 초록까지 **41분**이었다. 즉 CI 문제는 **둘**이었고 원인이 서로 다르다: ①게이트가 세계를 가정한 것 ②내가 검증 중에 커밋을 얹은 것.
@@ -858,7 +869,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->2.07<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->207<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->117<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->2.08<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->208<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->117<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->29<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

@@ -24,8 +24,14 @@ import { readFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SOURCE, ADAPTERS, BEGIN, END, render } from './gen-adapters.mjs';
+import { OUT as LAW_OUT, render as renderLaw } from './gen-harness-law.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+/** 헌법에서 **절만 골라** 생성하는 문서들. 새 문서가 생기면 여기 한 줄(§7 2층). */
+const GENERATED_DOCS = [
+  { out: LAW_OUT, render: renderLaw, cmd: 'node scripts/gen-harness-law.mjs' },
+];
 
 /** 마커 사이만 뽑는다. 없으면 null. 순수 함수라 셀프테스트가 직접 돌린다(§4). */
 export function block(text) {
@@ -83,13 +89,31 @@ if (blocks.length === ADAPTERS.length) {
   }
 }
 
+// ── 헌법에서 **잘라 심는** 생성 문서들도 같은 계약을 진다 ────────────────────
+// 어댑터는 정본을 통째로 싣고, 아래는 **절만 골라** 싣는다. 실어 나르는 양은 달라도
+// 계약은 하나다 — 「커밋본 == 재생성본」. 새 생성 문서가 생기면 이 표에 한 줄이고
+// 나머지는 따라온다(§7 2층). 표에 안 올리면 그 문서만 조용히 낡는다.
+for (const gen of GENERATED_DOCS) {
+  const r = gen.render(constitution);
+  if (r.error) {
+    problems.push(`${gen.out}: ${r.error}`);
+    continue;
+  }
+  const cur = (() => { try { return readFileSync(join(ROOT, gen.out), 'utf8'); } catch { return null; } })();
+  if (cur === null) problems.push(`${gen.out}: 생성 문서가 없습니다 — ${gen.cmd} 로 만든 뒤 커밋하세요.`);
+  else if (cur !== r.text) {
+    problems.push(`${gen.out}: 커밋본이 재생성본과 다릅니다 — ${SOURCE}를 고쳤거나 생성물을 직접 고쳤습니다.\n      → ${gen.cmd} 로 재생성한 뒤 함께 커밋하세요.`);
+  }
+}
+
 if (problems.length) {
   for (const p of problems) console.error(`  ✗ ${p}`);
-  console.error('check-adapter-parity: 두 AI가 다른 계약을 읽고 있습니다.');
+  console.error('check-adapter-parity: 두 AI가 다른 계약을 읽고 있거나, 생성 문서가 정본과 갈라졌습니다.');
   process.exit(1);
 }
 
 const lines = blocks[0] ? blocks[0].b.split('\n').length : 0;
 console.log(
-  `check-adapter-parity: OK (셀프테스트 통과 · 어댑터 ${ADAPTERS.length}개가 ${SOURCE}의 공통 계약 ${lines}줄을 글자 단위로 동일하게 싣고 있음)`,
+  `check-adapter-parity: OK (셀프테스트 통과 · 어댑터 ${ADAPTERS.length}개가 ${SOURCE}의 공통 계약 ${lines}줄을 글자 단위로 동일하게 싣고 있음 · 절 발췌 생성 문서 ${GENERATED_DOCS.length}개도 재생성본과 동일)`,
 );
+console.log('  ↳ 정직한 한계: **마커 밖**(도구별 서문)에 새로 적은 모순은 보지 못합니다 — 그건 사람이 볼 자리입니다.');
