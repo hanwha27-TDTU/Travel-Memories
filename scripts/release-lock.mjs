@@ -101,6 +101,11 @@ const FROZEN = [
   /^git\s+revert\b/,
 ];
 
+/** 막는 명령의 이름들 — **화면 문장이 이 원장에서 나온다**(손으로 적으면 갈라진다 · §17). */
+export function frozenWords(frozen = FROZEN) {
+  return frozen.map((re) => (/git\\s\+([\w-]+)/.exec(String(re))?.[1] ?? String(re)));
+}
+
 /** 산문 줄인가 — 히어독·문서 본문이 명령 문자열에 섞여 들어온다(hook-verify-exit과 같은 규율). */
 export function isProse(line) {
   if (/^[-*>#]/.test(line)) return true;
@@ -180,6 +185,15 @@ export function selfTest() {
     if (blockedBy(c, st, now)) throw new Error(`SELF-TEST 실패: 오탐 — ${label}`);
     SELF.neg += 1;
   }
+
+  // ③ 🔴 **화면 문장 ↔ 실제 동작**(§17). 손으로 적은 안내문이 push를 뺀 뒤에도
+  //    "commit·push를 막습니다"라고 말했다 — 원장에서 파생시켜 모순을 구조적으로 없앤다.
+  const words = frozenWords();
+  if (words.includes('push')) throw new Error('SELF-TEST 실패: 안내문이 막지 않는 명령을 막는다고 말한다');
+  if (!words.includes('commit') || words.some((w) => w.includes('\\'))) {
+    throw new Error(`SELF-TEST 실패: 원장에서 명령 이름을 못 뽑았다 — ${words.join(',')}`);
+  }
+  SELF.pos += 1;
 }
 
 selfTest();
@@ -211,7 +225,9 @@ if (isMain) {
     process.exit(1);
   }
   writeLock(r.state);
-  if (action.endsWith('arm')) console.log(`release-lock: 🔒 저장소를 얼렸습니다 — 후보 ${arg}. 묶음이 닫힐 때까지 commit·push를 막습니다(§18-H).`);
+  // 🔴 막는 것을 **원장(FROZEN)에서 파생시켜 말한다.** 손으로 적었더니 push를 뺀 뒤에도
+  // "commit·push를 막습니다"라고 말했다 — 판정문과 실제가 어긋난 §17의 최빈형이다.
+  if (action.endsWith('arm')) console.log(`release-lock: 🔒 저장소를 얼렸습니다 — 후보 ${arg}. 묶음이 닫힐 때까지 ${frozenWords().join('·')}를 막습니다(§18-H · 조사·읽기·후보 push는 자유).`);
   else if (action.endsWith('reopen')) console.log(`release-lock: 묶음을 다시 엽니다(${r.state.reopens.length}회째) — "${arg}". 검증은 **처음부터 다시** 돕니다.`);
   else console.log(`release-lock: 묶음을 닫았습니다 — 후보 ${r.closed.candidate} · 재개방 ${r.closed.reopens.length}회. 🔴 완료 보고에 이 숫자를 적으세요(§18-H).`);
 }
