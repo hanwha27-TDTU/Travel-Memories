@@ -116,6 +116,11 @@ const gates = [
   // 빌드 단계 기준선이 **판정에 쓸 수 있는 상태인가**(표본 3회 이상·임계가 판정식과 일치).
   // 지어낸 임계는 정상 빌드마다 오탐을 내고, 오탐이 반복되면 사람이 빨간불을 무시한다.
   { name: 'check-step-duration', cmd: 'node scripts/check-step-duration.mjs' },
+  // 머지 뒤 결함을 발견했을 때 **고치기 전에** 수습 경로를 정한다. 세 갈래를 전부 낼 수
+  // 있어야 판정기다 — 갈래 하나가 실제 파일에서 한 번도 안 나오면 죽은 갈래다.
+  { name: 'check-recovery-path', cmd: 'node scripts/check-recovery-path.mjs' },
+  // 독립 리뷰가 필요한 판인지 diff에서 결정적으로 판정한다(빈도 규칙은 사람 기억에 달린다).
+  { name: 'check-review-tier', cmd: 'node scripts/check-review-tier.mjs' },
   { name: 'check-domain-wiring', cmd: 'node scripts/check-domain-wiring.mjs' },
   { name: 'check-csp', cmd: 'node scripts/check-csp.mjs' },
   { name: 'check-production-artifacts', cmd: 'node scripts/check-production-artifacts.mjs' },

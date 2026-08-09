@@ -12,12 +12,22 @@
     {
       "id": "harness",
       "command": "npm audit --audit-level=high && npm run build && npm run harness && npm run verify:sync-release-live",
-      "coverage": ["운영 번들", "전체 Required 하네스", "Vitest", "선택 라이브 게이트의 측정·SKIP 판정", "배포된 media-sign 소스·규약·필수 연산·시크릿 read-back"]
+      "coverage": [
+        "운영 번들",
+        "전체 Required 하네스",
+        "Vitest",
+        "선택 라이브 게이트의 측정·SKIP 판정",
+        "배포된 media-sign 소스·규약·필수 연산·시크릿 read-back"
+      ]
     },
     {
       "id": "live-render",
       "command": "npx playwright install --with-deps chromium && npm run build && npm run live",
-      "coverage": ["Chromium 실렌더", "편집기 상호작용", "진단 도구 사용자 문장·자리·버튼"]
+      "coverage": [
+        "Chromium 실렌더",
+        "편집기 상호작용",
+        "진단 도구 사용자 문장·자리·버튼"
+      ]
     }
   ],
   "fullRequired": {
@@ -31,6 +41,93 @@
     "writer": "src/app/changelog.ts 맨 앞에 직전 버전 +0.01 항목을 단일 릴리스 오너가 추가",
     "history": "src/app/changelog.ts"
   },
+  "changeClasses": {
+    "why": "머지 뒤 결함을 발견했을 때 **고치기 전에** 수습 경로를 판정한다. 판정은 기억이 아니라 **수정 대상 경로**에서 파생한다.",
+    "🔴 precedence": "userData가 appRuntime을 **뒤집는다.** 화면 결함은 기다릴 수 있지만 유실된 기록은 안 기다린다. 섞이면 데이터가 이긴다.",
+    "userData": {
+      "route": "revert-and-fix",
+      "meaning": "되돌리고 고친다 — 사용자 기록에 닿는다",
+      "globs": [
+        "src/services/sync.ts",
+        "src/services/canonicalSync.ts",
+        "src/services/autoSync.ts",
+        "src/services/syncPlan.ts",
+        "src/services/syncParity.ts",
+        "src/services/purge.ts",
+        "src/services/backup.ts",
+        "src/services/backupCrypto.ts",
+        "src/services/backupMeta.ts",
+        "src/services/media.ts",
+        "src/services/r2.ts",
+        "src/offline/db.ts",
+        "src/domain/*/rowmap.ts",
+        "supabase/migrations/**"
+      ]
+    },
+    "appRuntime": {
+      "route": "deploy-then-fix-next",
+      "meaning": "배포 먼저, 수정은 다음 판 — 지금 고치면 검증된 산출물이 무효가 된다",
+      "globs": [
+        "src/**",
+        "index.html",
+        "vite.config.ts",
+        "public/**",
+        "package.json",
+        "package-lock.json",
+        "android-shell/**"
+      ]
+    },
+    "outsideBuild": {
+      "route": "deploy-now",
+      "meaning": "고치고 배포 — 재빌드가 필요 없다",
+      "globs": [
+        "docs/**",
+        "scripts/**",
+        ".github/**",
+        "schemas/**",
+        ".claude/**",
+        "*.md",
+        "tests/**",
+        "vendor/**",
+        "artifacts/**",
+        ".githooks/**",
+        "supabase/functions/**",
+        "supabase/tests/**",
+        ".nvmrc",
+        "tsconfig*.json",
+        ".gitignore",
+        ".env.example"
+      ]
+    },
+    "uiSurface": {
+      "meaning": "리뷰 티어 판정기가 보는 파일 — 사람이 눈으로 봐야 하는 표면",
+      "globs": [
+        "src/ui/**/*.ts",
+        "src/ui/styles/*.css",
+        "index.html"
+      ]
+    },
+    "generatedBlocks": {
+      "why": "문서에서 생성돼 앱 파일에 박히는 구간. 산문에 `Escape` 같은 낱말이 들어가기만 해도 「키보드 흐름 변경」으로 읽혀 모든 문서 판이 리뷰를 부른다.",
+      "🔴 butProveIt": "제외가 **진짜 변경을 삼키지 않는다**는 축을 함께 둔다 — 생성 블록 줄과 손으로 쓴 변경이 섞이면 여전히 필수다.",
+      "markers": [
+        {
+          "begin": "<!--CONSTITUTION:BEGIN",
+          "end": "<!--CONSTITUTION:END-->"
+        },
+        {
+          "begin": "<!--reg:",
+          "end": "<!--/reg-->"
+        }
+      ],
+      "files": [
+        "CLAUDE.md",
+        "AGENTS.md",
+        "src/app/registry.gen.ts",
+        "src/app/syncReleaseContract.gen.ts"
+      ]
+    }
+  },
   "buildStepBaselines": {
     "measuredAt": "2026-08-09",
     "environment": "GitHub Actions ubuntu-latest",
@@ -43,7 +140,11 @@
         "workflow": "ci.yml",
         "job": "fast-gates",
         "step": "Fast gates (typecheck + 정적)",
-        "samplesSec": [12, 13, 14],
+        "samplesSec": [
+          12,
+          13,
+          14
+        ],
         "baselineSec": 13,
         "thresholdSec": 73
       },
@@ -51,7 +152,11 @@
         "workflow": "ci.yml",
         "job": "harness",
         "step": "Build",
-        "samplesSec": [9, 9, 9],
+        "samplesSec": [
+          9,
+          9,
+          9
+        ],
         "baselineSec": 9,
         "thresholdSec": 69
       },
@@ -59,7 +164,11 @@
         "workflow": "ci.yml",
         "job": "harness",
         "step": "Harness (Required gates)",
-        "samplesSec": [72, 74, 78],
+        "samplesSec": [
+          72,
+          74,
+          78
+        ],
         "baselineSec": 74,
         "thresholdSec": 134
       },
@@ -67,7 +176,11 @@
         "workflow": "ci.yml",
         "job": "live-render",
         "step": "Install Chromium",
-        "samplesSec": [23, 25, 31],
+        "samplesSec": [
+          23,
+          25,
+          31
+        ],
         "baselineSec": 25,
         "thresholdSec": 85
       },
@@ -75,7 +188,11 @@
         "workflow": "ci.yml",
         "job": "live-render",
         "step": "Live render gates",
-        "samplesSec": [155, 159, 161],
+        "samplesSec": [
+          155,
+          159,
+          161
+        ],
         "baselineSec": 159,
         "thresholdSec": 239
       },
@@ -83,24 +200,51 @@
         "workflow": "android-apk.yml",
         "job": "apk",
         "step": "APK 빌드 (debug 서명 — 사이드로드용)",
-        "samplesSec": [134, 138, 142],
+        "samplesSec": [
+          134,
+          138,
+          142
+        ],
         "baselineSec": 138,
         "thresholdSec": 207
       }
     ],
     "evidenceRunIds": {
-      "ci.yml": [31263220823, 31255204796, 31252597644],
-      "android-apk.yml": [31168698543, 30896145442, 30733239238],
-      "deploy-pages.yml": [31263383377, 31254050810, 31252741353]
+      "ci.yml": [
+        31263220823,
+        31255204796,
+        31252597644
+      ],
+      "android-apk.yml": [
+        31168698543,
+        30896145442,
+        30733239238
+      ],
+      "deploy-pages.yml": [
+        31263383377,
+        31254050810,
+        31252741353
+      ]
     }
   },
   "groupBudget": {
     "measuredAt": "2026-08-09",
     "environment": "GitHub Actions ubuntu-latest",
-    "ciWallClockSec": { "samples": [200, 204, 209], "baseline": 204 },
+    "ciWallClockSec": {
+      "samples": [
+        200,
+        204,
+        209
+      ],
+      "baseline": 204
+    },
     "criticalPath": "live-render",
     "whyCriticalPath": "세 잡은 needs 없이 병렬이므로 벽시계는 가장 긴 잡 하나다. live-render 204초 · harness 96초 · fast-gates 23초 — live-render가 벽시계의 약 98%를 차지한다.",
-    "insideCriticalPath": { "Live render gates": 159, "Install Chromium": 25, "Build": 9 },
+    "insideCriticalPath": {
+      "Live render gates": 159,
+      "Install Chromium": 25,
+      "Build": 9
+    },
     "floorGate": "verify-editor-live",
     "floorGateSec": 131,
     "floorGateShare": "Live render gates 159초 중 131초(82%). 나머지 verify-diagnostics-live는 24초.",
@@ -119,11 +263,26 @@
     "🔴 noTargetYet": "**목표 시간을 정하지 않았다.** 근거 없는 목표는 「미달 = 실패 = 되돌리기」로 오독된다. 목표를 적을 때는 미달이 유지 여부의 판단이 아니라 목표까지의 거리임을 같이 적는다."
   },
   "regenerationLedger": [
-    { "writer": "scripts/gen-adapters.mjs", "check": "node scripts/check-adapter-parity.mjs" },
-    { "writer": "scripts/gen-constitution.mjs", "check": "node scripts/check-constitution-gen.mjs" },
-    { "writer": "scripts/gen-registry.mjs", "check": "node scripts/check-registry-gen.mjs" },
-    { "writer": "scripts/gen-platform-map.mjs", "check": "node scripts/check-platform-map.mjs" },
-    { "writer": "scripts/gen-sync-release-contract.mjs", "check": "node scripts/check-sync-release-contract.mjs" },
+    {
+      "writer": "scripts/gen-adapters.mjs",
+      "check": "node scripts/check-adapter-parity.mjs"
+    },
+    {
+      "writer": "scripts/gen-constitution.mjs",
+      "check": "node scripts/check-constitution-gen.mjs"
+    },
+    {
+      "writer": "scripts/gen-registry.mjs",
+      "check": "node scripts/check-registry-gen.mjs"
+    },
+    {
+      "writer": "scripts/gen-platform-map.mjs",
+      "check": "node scripts/check-platform-map.mjs"
+    },
+    {
+      "writer": "scripts/gen-sync-release-contract.mjs",
+      "check": "node scripts/check-sync-release-contract.mjs"
+    },
     {
       "writer": "scripts/gen-version-file.mjs",
       "excludedReason": "입력 writer가 아니라 산출물 단계 writer다 — npm run build 안에서 vite build 뒤에 돌아 dist/version.json을 만든다. 마감은 굽기 **앞**의 고정점이므로 굽는 도중에 생기는 산출물은 범위 밖이고, 그 정합은 release-build 노드의 verdict와 check-update-signal이 본다."
@@ -134,7 +293,11 @@
       "id": "source-finalized",
       "kind": "integration",
       "verdict": "소스·생성물·릴리스 대상이면 버전과 이력이 서로 일치",
-      "writes": ["작업 브랜치 소스", "src/app/registry.gen.ts", "src/app/syncReleaseContract.gen.ts"]
+      "writes": [
+        "작업 브랜치 소스",
+        "src/app/registry.gen.ts",
+        "src/app/syncReleaseContract.gen.ts"
+      ]
     },
     {
       "id": "narrow-gates",
@@ -146,7 +309,9 @@
       "id": "commit-push",
       "kind": "integration",
       "verdict": "좁은 검증을 통과한 정확한 작업 브랜치 커밋이 origin에 존재",
-      "writes": ["GitHub 작업 브랜치"]
+      "writes": [
+        "GitHub 작업 브랜치"
+      ]
     },
     {
       "id": "input-closeout",
@@ -158,7 +323,9 @@
       "id": "provider-predeploy",
       "kind": "deployment",
       "verdict": "media-sign 영향이 없거나, 영향 시 구형 운영 앱 요청을 유지하는 정확한 작업 브랜치 소스를 먼저 배포",
-      "writes": ["Supabase Edge Function media-sign"]
+      "writes": [
+        "Supabase Edge Function media-sign"
+      ]
     },
     {
       "id": "provider-live-readback",
@@ -170,7 +337,10 @@
       "id": "release-build",
       "kind": "artifact",
       "verdict": "npm run build 종료코드 0, dist/version.json이 changelog 최신 버전과 일치",
-      "writes": ["dist/**", "dist/version.json"]
+      "writes": [
+        "dist/**",
+        "dist/version.json"
+      ]
     },
     {
       "id": "required-ci",
@@ -182,67 +352,138 @@
       "id": "squash-merge",
       "kind": "integration",
       "verdict": "검증한 PR이 main에 squash merge되고 mergeCommit을 되읽음",
-      "writes": ["origin/main"]
+      "writes": [
+        "origin/main"
+      ]
     },
     {
       "id": "deploy-affected-surfaces",
       "kind": "deployment",
       "verdict": "병합 뒤 남은 영향 표면은 배포하고, 선배포한 표면을 포함해 각 권위 있는 운영 상태를 다시 되읽음",
-      "writes": ["GitHub Pages", "GitHub release apk-latest", "Supabase Edge Functions", "Supabase journey schema"]
+      "writes": [
+        "GitHub Pages",
+        "GitHub release apk-latest",
+        "Supabase Edge Functions",
+        "Supabase journey schema"
+      ]
     }
   ],
   "releaseEdges": [
-    { "from": "source-finalized", "to": "narrow-gates", "reason": "검사 입력을 먼저 고정한다" },
-    { "from": "narrow-gates", "to": "commit-push", "reason": "알려진 결함을 잡은 소스를 불변 원격 revision으로 만든다" },
-    { "from": "commit-push", "to": "input-closeout", "reason": "굽기 직전의 고정점을 정확한 원격 revision 위에서 확인한다" },
-    { "from": "input-closeout", "to": "release-build", "reason": "HRL-17 — 재생성 입력이 고정된 뒤에만 산출물을 굽는다. 마감 뒤 입력이 바뀌면 마감 증거와 산출물을 폐기하고 다시 시작한다" },
-    { "from": "commit-push", "to": "provider-predeploy", "reason": "운영 제공자가 검증한 불변 작업 브랜치 소스를 품게 한다" },
-    { "from": "provider-predeploy", "to": "provider-live-readback", "reason": "배포 명령이 아니라 운영 capabilities의 정확한 정체성을 완료 증거로 삼는다" },
-    { "from": "provider-live-readback", "to": "required-ci", "reason": "운영 제공자 계약이 맞아야 새 소비자 앱의 Required 검증을 연다" },
-    { "from": "release-build", "to": "required-ci", "reason": "최종 소스를 품은 번들 기준으로 전체 검증한다" },
-    { "from": "required-ci", "to": "squash-merge", "reason": "최신 PR revision의 Required 초록만 병합 근거다" },
-    { "from": "squash-merge", "to": "deploy-affected-surfaces", "reason": "main의 확정 커밋을 영향받은 표면에 배포한다" }
+    {
+      "from": "source-finalized",
+      "to": "narrow-gates",
+      "reason": "검사 입력을 먼저 고정한다"
+    },
+    {
+      "from": "narrow-gates",
+      "to": "commit-push",
+      "reason": "알려진 결함을 잡은 소스를 불변 원격 revision으로 만든다"
+    },
+    {
+      "from": "commit-push",
+      "to": "input-closeout",
+      "reason": "굽기 직전의 고정점을 정확한 원격 revision 위에서 확인한다"
+    },
+    {
+      "from": "input-closeout",
+      "to": "release-build",
+      "reason": "HRL-17 — 재생성 입력이 고정된 뒤에만 산출물을 굽는다. 마감 뒤 입력이 바뀌면 마감 증거와 산출물을 폐기하고 다시 시작한다"
+    },
+    {
+      "from": "commit-push",
+      "to": "provider-predeploy",
+      "reason": "운영 제공자가 검증한 불변 작업 브랜치 소스를 품게 한다"
+    },
+    {
+      "from": "provider-predeploy",
+      "to": "provider-live-readback",
+      "reason": "배포 명령이 아니라 운영 capabilities의 정확한 정체성을 완료 증거로 삼는다"
+    },
+    {
+      "from": "provider-live-readback",
+      "to": "required-ci",
+      "reason": "운영 제공자 계약이 맞아야 새 소비자 앱의 Required 검증을 연다"
+    },
+    {
+      "from": "release-build",
+      "to": "required-ci",
+      "reason": "최종 소스를 품은 번들 기준으로 전체 검증한다"
+    },
+    {
+      "from": "required-ci",
+      "to": "squash-merge",
+      "reason": "최신 PR revision의 Required 초록만 병합 근거다"
+    },
+    {
+      "from": "squash-merge",
+      "to": "deploy-affected-surfaces",
+      "reason": "main의 확정 커밋을 영향받은 표면에 배포한다"
+    }
   ],
   "runnerWriters": [
     {
       "id": "github-pages-deploy",
-      "writes": ["GitHub Pages environment", "GitHub Pages artifact"],
+      "writes": [
+        "GitHub Pages environment",
+        "GitHub Pages artifact"
+      ],
       "branchExclusive": true
     },
     {
       "id": "android-apk-release",
-      "writes": ["GitHub Actions artifact bugeon-journey-apk", "GitHub release apk-latest asset and notes"],
+      "writes": [
+        "GitHub Actions artifact bugeon-journey-apk",
+        "GitHub release apk-latest asset and notes"
+      ],
       "branchExclusive": true
     }
   ],
   "deploymentSurfaces": [
     {
       "id": "github-pages",
-      "affectedBy": ["src/**", "public/**", "index.html", "vite.config.ts", "package-lock.json", "배포에 포함되는 생성 문서·레지스트리"],
+      "affectedBy": [
+        "src/**",
+        "public/**",
+        "index.html",
+        "vite.config.ts",
+        "package-lock.json",
+        "배포에 포함되는 생성 문서·레지스트리"
+      ],
       "deploy": ".github/workflows/deploy-pages.yml — main push에서 운영 변수로 build 후 Pages deploy",
       "readback": "workflow conclusion success와 운영 /Travel-Memories/version.json의 HTTP 200·버전"
     },
     {
       "id": "android-apk-latest",
-      "affectedBy": ["android-shell/**", ".github/workflows/android-apk.yml"],
+      "affectedBy": [
+        "android-shell/**",
+        ".github/workflows/android-apk.yml"
+      ],
       "deploy": ".github/workflows/android-apk.yml — debug APK를 만들고 main에서 고정 release apk-latest를 --clobber",
       "readback": "workflow conclusion success, apk-latest asset 존재, release notes의 shell-version marker"
     },
     {
       "id": "supabase-media-sign",
-      "affectedBy": ["supabase/functions/media-sign/**", "schemas/sync-release-contract.json"],
+      "affectedBy": [
+        "supabase/functions/media-sign/**",
+        "schemas/sync-release-contract.json"
+      ],
       "deploy": "Supabase MCP deploy_edge_function 또는 npx supabase functions deploy media-sign --project-ref ihxiywffzmvrwmqvatzt",
       "readback": "capabilities의 sourceSha256를 schemas/sync-release-contract.json과 정확 대조하고 FN_VERSION=6·필수 ops·secretsOk 확인. Ready PR과 Pages 배포가 verify-sync-release-live로 재확인"
     },
     {
       "id": "supabase-geocode",
-      "affectedBy": ["supabase/functions/geocode/**"],
+      "affectedBy": [
+        "supabase/functions/geocode/**"
+      ],
       "deploy": "Supabase MCP deploy_edge_function 또는 npx supabase functions deploy geocode --project-ref ihxiywffzmvrwmqvatzt",
       "readback": "배포 소스를 되받아 대조하고 인증된 capabilities의 FN_VERSION=1·ops·providers 확인"
     },
     {
       "id": "supabase-migrations",
-      "affectedBy": ["supabase/migrations/**", "journey 스키마·RLS·grant 계약"],
+      "affectedBy": [
+        "supabase/migrations/**",
+        "journey 스키마·RLS·grant 계약"
+      ],
       "deploy": "BEGIN/공격검사/ROLLBACK 사전검증과 승인 후 Supabase MCP apply_migration 또는 연결된 CLI로 추가 migration 적용",
       "readback": "authenticated 역할로 catalog·grant·RLS·행수 질의 및 security advisor 확인"
     }

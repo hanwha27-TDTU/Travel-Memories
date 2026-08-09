@@ -16,6 +16,8 @@ export const REGISTRY = {
   'check-gate-promise',
   'check-doc-tree',
   'check-step-duration',
+  'check-recovery-path',
+  'check-review-tier',
   'check-domain-wiring',
   'check-csp',
   'check-production-artifacts',
@@ -66,7 +68,7 @@ export const REGISTRY = {
   'verify-editor-live',
   'verify-diagnostics-live',
   ] as const,
-  gateCount: 60,
+  gateCount: 62,
   /** 최신 앱 버전(정본: src/app/changelog.ts의 첫 항목). 첫 로드 화면은 이걸 읽는다. */
   appVersion: '2.06',
   /** 에이전트 정의 이름(정본: .claude/agents/ — frontmatter가 있는 파일만). */

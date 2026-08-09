@@ -31,6 +31,8 @@ export const GATE_DESC: Record<string, string> = {
   'check-gate-promise': '게이트마다 **개수가 아닌 축**을 선언했는지(약속 원장 · 부채는 줄기만 한다)',
   'check-doc-tree': '거버넌스 문서가 shape를 선언하고, 트리 문서는 축·근거·사각지대를 갖는지(모집단 결번을 보이게)',
   'check-step-duration': '빌드 단계 기준선이 실측 3회 이상에서 파생했고 임계가 판정식과 일치하는지(지어낸 임계 차단)',
+  'check-recovery-path': '머지 뒤 결함의 수습 경로(되돌림·다음판·즉시배포)를 고칠 경로에서 판정할 수 있는지',
+  'check-review-tier': '독립 리뷰 필요 여부를 diff에서 판정하는지(UI 표면·리뷰 신호·생성 블록 제외)',
   'check-domain-wiring': '도메인↔화면 배선이 죽지 않았는지',
   'check-csp': 'CSP 위반(인라인·외부 리소스) 없는지',
   'check-production-artifacts': '공개 운영 빌드에 원본 TS를 드러내는 소스맵이 없는지(설정 + 실제 dist)',
@@ -184,6 +186,10 @@ export const GATE_AXIS: Record<string, string> = {
     '문서 수가 아니라, 형제를 나란히 세워 **빈칸이 모양으로 드러나는지** — 미선언은 통과가 아니고, 이관 부채는 매번 이름째 출력된다',
   'check-step-duration':
     '단계 수가 아니라, 임계의 **출처가 실측인지** — 표본 3회 미만이거나 임계가 판정식과 갈라지면 그 기준선은 지어낸 것이다',
+  'check-recovery-path':
+    '파일 수가 아니라, **세 갈래가 전부 살아 있는지** — 실제 파일에서 한 번도 안 나오는 갈래는 선언만 있고 죽은 것이다',
+  'check-review-tier':
+    '변경 줄 수가 아니라, **리뷰 신호가 있는지** — 못 읽은 줄을 깨끗함으로 반올림하지 않고 안전한 쪽으로 기운다',
   'unit-tests': '통과 개수가 아니라, 순수 로직 계약이 유지되는지',
   'verify-editor-live': '검사 수가 아니라, **실제 브라우저에서** 사용자 경로가 실제로 도는지',
   'verify-diagnostics-live': '도구 수가 아니라, **실제 DOM에** 판정 문장·자리·버튼이 나오는지',
@@ -203,6 +209,8 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-gate-promise': 'static',
   'check-doc-tree': 'static',
   'check-step-duration': 'static',
+  'check-recovery-path': 'static',
+  'check-review-tier': 'static',
   'check-domain-wiring': 'generated',
   'check-csp': 'static',
   'check-production-artifacts': 'generated',
