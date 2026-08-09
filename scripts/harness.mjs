@@ -114,6 +114,10 @@ const gates = [
   // 못 잡는다(자기 세계에서 도니까) — 그래서 origin/main도 dist도 없는 **빈 세계 사본**을
   // 만들어 싼 게이트를 전부 한 번 돌린다. M-0135가 정확히 이 자리에서 CI만 빨갛게 만들었다.
   { name: 'check-env-assumption', cmd: 'node scripts/check-env-assumption.mjs' },
+  // 라이브 게이트가 **시계로 자는 것**이 다시 늘지 않게. 실측(T-016): verify-editor-live의
+  // 벽시계 128.6초 중 고정 대기가 137.3초/351회(겹쳐 돌아 합이 넘는다)였다 — 사실상 자는 검사였다.
+  // 고정 대기는 오류도 경고도 안 내고 그냥 느려지므로 문서로는 안 지켜진다(M-0119가 그 형태).
+  { name: 'check-live-sleep', cmd: 'node scripts/check-live-sleep.mjs' },
   // 거버넌스 문서가 **모집단 결번을 보이게** 서 있는지. 산문은 존재하는 것만 서술하므로
   // 빠진 칸을 볼 방법이 없다 — 형제를 나란히 세우면 빈칸이 모양으로 드러난다(TRE).
   { name: 'check-doc-tree', cmd: 'node scripts/check-doc-tree.mjs' },

@@ -30,6 +30,7 @@ export const GATE_DESC: Record<string, string> = {
   'check-input-closeout': '재생성 writer 전부가 읽기 전용 마감 check를 갖는지(비싼 산출물 앞의 고정점 · HRL-17)',
   'check-gate-promise': '게이트마다 **개수가 아닌 축**을 선언했는지(약속 원장 · 부채는 줄기만 한다)',
   'check-env-assumption': '게이트가 자기가 사는 세계를 가정하는지 — origin/main도 dist도 없는 **빈 세계 사본**에서 실제로 돌려 본다(M-0135)',
+  'check-live-sleep': '라이브 게이트의 고정 대기(시계로 자기)가 기준선 위로 늘지 않는지 — 래칫은 한 방향(T-016 실측)',
   'check-doc-tree': '거버넌스 문서가 shape를 선언하고, 트리 문서는 축·근거·사각지대를 갖는지(모집단 결번을 보이게)',
   'check-step-duration': '빌드 단계 기준선이 실측 3회 이상에서 파생했고 임계가 판정식과 일치하는지(지어낸 임계 차단)',
   'check-recovery-path': '머지 뒤 결함의 수습 경로(되돌림·다음판·즉시배포)를 고칠 경로에서 판정할 수 있는지',
@@ -193,6 +194,8 @@ export const GATE_AXIS: Record<string, string> = {
     '변경 줄 수가 아니라, **리뷰 신호가 있는지** — 못 읽은 줄을 깨끗함으로 반올림하지 않고 안전한 쪽으로 기운다',
   'check-env-assumption':
     '선언 개수가 아니라, **없는 세계에서 게이트가 죽지 않는지** — 전제 미충족을 위반과 같은 종료코드로 내보내면 로컬만 초록이다',
+  'check-live-sleep':
+    '검사 초 수가 아니라, **시계로 자는 자리가 늘었는지** — 고정 대기는 오류도 경고도 안 내고 그냥 느려져서 문서로는 안 지켜진다',
   'unit-tests': '통과 개수가 아니라, 순수 로직 계약이 유지되는지',
   'verify-editor-live': '검사 수가 아니라, **실제 브라우저에서** 사용자 경로가 실제로 도는지',
   'verify-diagnostics-live': '도구 수가 아니라, **실제 DOM에** 판정 문장·자리·버튼이 나오는지',
@@ -279,6 +282,7 @@ export const GATE_WORLD: Record<string, string> = {
   'check-real-coord': '',
   'check-ui-color-token': '',
   'check-env-assumption': '',
+  'check-live-sleep': '',
   'unit-tests': '',
   'verify-editor-live': 'browser dist',
   'verify-diagnostics-live': 'browser dist',
@@ -297,6 +301,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-input-closeout': 'static',
   'check-gate-promise': 'static',
   'check-env-assumption': 'static',
+  'check-live-sleep': 'static',
   'check-doc-tree': 'static',
   'check-step-duration': 'static',
   'check-recovery-path': 'static',
