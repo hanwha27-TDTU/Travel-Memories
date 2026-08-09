@@ -32,6 +32,12 @@
             "command": "node scripts/hook-verify-exit.mjs",
             "timeout": 20,
             "statusMessage": "검증 명령 종료코드 검사"
+          },
+          {
+            "type": "command",
+            "command": "node scripts/hook-release-freeze.mjs",
+            "timeout": 20,
+            "statusMessage": "릴리스 묶음 동결 검사"
           }
         ]
       }

@@ -29,6 +29,7 @@ export const GATE_DESC: Record<string, string> = {
     '전역 공통 스킬의 승인 커밋·프로젝트 스냅샷·릴리스 프로필·설치본이 서로 갈라지지 않는지',
   'check-input-closeout': '재생성 writer 전부가 읽기 전용 마감 check를 갖는지(비싼 산출물 앞의 고정점 · HRL-17)',
   'check-gate-promise': '게이트마다 **개수가 아닌 축**을 선언했는지(약속 원장 · 부채는 줄기만 한다)',
+  'check-env-assumption': '게이트가 자기가 사는 세계를 가정하는지 — origin/main도 dist도 없는 **빈 세계 사본**에서 실제로 돌려 본다(M-0135)',
   'check-doc-tree': '거버넌스 문서가 shape를 선언하고, 트리 문서는 축·근거·사각지대를 갖는지(모집단 결번을 보이게)',
   'check-step-duration': '빌드 단계 기준선이 실측 3회 이상에서 파생했고 임계가 판정식과 일치하는지(지어낸 임계 차단)',
   'check-recovery-path': '머지 뒤 결함의 수습 경로(되돌림·다음판·즉시배포)를 고칠 경로에서 판정할 수 있는지',
@@ -190,9 +191,97 @@ export const GATE_AXIS: Record<string, string> = {
     '파일 수가 아니라, **세 갈래가 전부 살아 있는지** — 실제 파일에서 한 번도 안 나오는 갈래는 선언만 있고 죽은 것이다',
   'check-review-tier':
     '변경 줄 수가 아니라, **리뷰 신호가 있는지** — 못 읽은 줄을 깨끗함으로 반올림하지 않고 안전한 쪽으로 기운다',
+  'check-env-assumption':
+    '선언 개수가 아니라, **없는 세계에서 게이트가 죽지 않는지** — 전제 미충족을 위반과 같은 종료코드로 내보내면 로컬만 초록이다',
   'unit-tests': '통과 개수가 아니라, 순수 로직 계약이 유지되는지',
   'verify-editor-live': '검사 수가 아니라, **실제 브라우저에서** 사용자 경로가 실제로 도는지',
   'verify-diagnostics-live': '도구 수가 아니라, **실제 DOM에** 판정 문장·자리·버튼이 나오는지',
+};
+
+/**
+ * 게이트 **세계 원장** — 「이 검사는 자기가 사는 세계에서 무엇을 가정하는가」(헌법 §18-G).
+ *
+ * ── 왜 이게 필요했나 (M-0135) ────────────────────────────────────────────────
+ * 로컬 하네스가 **전부 초록**인 커밋이 CI에서 죽었다. 범인은 `git diff origin/main...HEAD`
+ * 한 줄이었다 — 로컬엔 `origin/main`이 있고, 얕은 체크아웃엔 없다. 🔴 **로컬 하네스는 이
+ * 부류를 원리적으로 못 잡는다: 자기가 사는 세계에서 도니까.**
+ *
+ * 값은 **공백으로 나눈 세계 이름**이고, 빈 문자열은 *"작업트리 말고는 아무것도 가정하지
+ * 않는다"*는 **선언**이다(빈칸과 「아직 안 봤다」는 다른 말이다 — 그래서 누락은 RED).
+ * 어휘는 `scripts/check-env-assumption.mjs`의 `WORLDS`가 동결한다.
+ *
+ * 🔴 **정직한 한계**: 이 원장은 선언이고 산문이다. 그래서 `check-env-assumption`이 **빈 세계
+ * 사본**(origin 없음 · dist 없음)을 실제로 만들어 싼 게이트를 전부 한 번 돌린다 —
+ * 선언과 어긋나면 RED. 벗기지 못하는 넷(globalSkills·network·browser·runtimeEnv)은
+ * **재지 않았습니다**로만 말한다.
+ */
+export const GATE_WORLD: Record<string, string> = {
+  typecheck: '',
+  'check-secret-leak': '',
+  'check-hooks-wired': '',
+  'check-ci-policy': '',
+  'check-workflow-pins': '',
+  'check-dependabot-policy': '',
+  // 전역 설치본이 없는 runner에서는 프로젝트 스냅샷만 판정하고 설치 드리프트는 「확인 불가」.
+  'check-shared-skill-contract': 'globalSkills',
+  'check-input-closeout': '',
+  'check-gate-promise': '',
+  'check-doc-tree': '',
+  'check-step-duration': '',
+  'check-recovery-path': '',
+  // 🔴 M-0135가 난 자리. 기준 가지가 없으면 커밋된 diff 창을 못 보고 「확인 불가」로 간다.
+  'check-review-tier': 'baseRef',
+  'check-domain-wiring': '',
+  'check-csp': '',
+  // build 전에는 설정만 본다(dist가 있으면 실제 산출물까지). 스스로 그렇게 적는다.
+  'check-production-artifacts': 'dist',
+  'check-base-consistency': '',
+  'check-env-wiring': '',
+  'check-domain-symmetry': '',
+  'check-sync-parallelism': '',
+  'check-verdict-symmetry': '',
+  'check-skill-routing': '',
+  'check-live-coverage': '',
+  'check-self-eval': '',
+  'check-schema-parity': '',
+  'check-migration-grants': '',
+  'check-report-fields': '',
+  'check-no-synthetic-italic': '',
+  'check-edge-fn-ops': 'network',
+  'check-sync-release-contract': '',
+  'check-node-version': '',
+  'check-backup-coverage': '',
+  'check-blueprint': '',
+  'check-registry-gen': '',
+  'check-constitution-gen': '',
+  'check-adapter-parity': '',
+  'check-doc-governance': '',
+  'check-gate-integrity': '',
+  'check-diag-blindspots': '',
+  'check-page-size-parity': '',
+  'check-current-doc-facts': '',
+  'check-platform-map': '',
+  'check-lazy-screens': '',
+  'check-font-subsets': '',
+  'check-fn-size': '',
+  'check-sw': '',
+  'check-hand-counts': '',
+  'check-doc-counts': '',
+  'check-timezone': '',
+  'check-instant-normalization': '',
+  'check-exif-strip-on-share': '',
+  'check-exif-order': '',
+  'check-bytes-upload-symmetry': '',
+  'check-known-index': '',
+  'check-apk-release-link': '',
+  'check-update-signal': '',
+  'check-purge-scope': '',
+  'check-real-coord': '',
+  'check-ui-color-token': '',
+  'check-env-assumption': '',
+  'unit-tests': '',
+  'verify-editor-live': 'browser dist',
+  'verify-diagnostics-live': 'browser dist',
 };
 
 /** 게이트 카테고리. 없으면 'static'으로 본다. 목록은 registry.gen에서 오므로 개수는 파생. */
@@ -207,6 +296,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   // 생성물을 대조하지 않고 **원장이 온전한가**를 본다(디렉터리 ↔ 원장). 그래서 static이다.
   'check-input-closeout': 'static',
   'check-gate-promise': 'static',
+  'check-env-assumption': 'static',
   'check-doc-tree': 'static',
   'check-step-duration': 'static',
   'check-recovery-path': 'static',

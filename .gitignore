@@ -15,6 +15,9 @@ dist/
 # agent run artifacts
 artifacts/agent-reports/
 
+# 릴리스 묶음 동결 상태(헌법 §18-H) — 세션 상태이지 계약이 아니다. 커밋하면 남의 잠금이 딸려 온다.
+.release-lock.json
+
 # os / editor
 .DS_Store
 *.log

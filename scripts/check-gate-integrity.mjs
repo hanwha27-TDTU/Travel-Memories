@@ -15,7 +15,7 @@
 // 둘 다 코드 스타일 관례라 100% 의미론적 보증은 아니다(정직한 한계는 파일 끝에 적는다) — 그래도
 // "새 게이트가 이 둘 중 하나 없이 조용히 생기는 것"은 확실히 잡는다.
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -205,18 +205,25 @@ if (!files.includes(SELF)) {
 const harnessSrc = readFileSync(join(ROOT, 'scripts/harness.mjs'), 'utf8');
 const wired = wiredScriptFiles(harnessSrc);
 const srcOf = (f) => readFileSync(join(scriptsDir, `${f}.mjs`), 'utf8');
-const problems = findProblems(files, wired, srcOf);
+const problems = [];
 
-// 반대 방향도 본다 — harness가 존재하지 않는 파일을 가리키면(이름 오타·삭제 뒤 미정리) 그 줄은
-// 실행 시점에야 죽는다. 여기서 정적으로 먼저 잡는다. `known.mjs`처럼 check- 접두사가 아닌
-// 파일도 게이트일 수 있으므로(위 wiredScriptFiles 주석) 접두사로 거르지 않고 전부 본다.
+// 🔴 **없는 파일부터 본다 — 순서가 결함이었다**(2026-08-09 · 빈 세계 시연이 잡았다).
+// 이 절은 원래 `findProblems` **뒤에** 있었다. 그런데 `srcOf`가 없는 파일을 만나면 그 자리에서
+// 예외를 스택째 뱉고 죽으므로, **여기까지 오지도 못했다.** 정직한 판정문을 적어 두고
+// 그 앞에 죽는 길을 열어 둔 셈이다 — 전제가 없으면 판정하지 말고 말해야 한다(헌법 §18-G).
+// `known.mjs`처럼 check- 접두사가 아닌 파일도 게이트이므로 접두사로 거르지 않는다.
+const missing = new Set();
 for (const w of wired) {
-  try {
-    readFileSync(join(scriptsDir, `${w}.mjs`), 'utf8');
-  } catch {
+  if (!existsSync(join(scriptsDir, `${w}.mjs`))) {
+    missing.add(w);
     problems.push(`harness.mjs가 'scripts/${w}.mjs'를 가리키지만 그런 파일이 없음(이름 변경·삭제 뒤 미정리?)`);
   }
 }
+problems.push(...findProblems(
+  files.filter((f) => !missing.has(f)),
+  new Set([...wired].filter((w) => !missing.has(w))),
+  srcOf,
+));
 
 if (problems.length) {
   console.error(`check-gate-integrity: 게이트 자체의 무결성(대조군·배선) 위반 ${problems.length}건.`);
