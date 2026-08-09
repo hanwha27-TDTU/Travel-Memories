@@ -1,3 +1,7 @@
+---
+shape: prose
+shape_reason: v0.2 원본 사료 — 당시 상태를 그대로 보존한다.
+---
 # Journey Archive 공식 검증 자료
 
 검증 기준일: 2026-07-22

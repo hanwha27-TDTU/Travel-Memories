@@ -22,12 +22,25 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SELF = 'check-gate-integrity'; // 이 파일 자신 — harness 배선·자기 자신 존재 검사에서 제외하지 않는다(자기도 대상이다)
 
-/** scripts/의 check-*.mjs 파일명(확장자 제외) 목록. */
-export function listCheckFiles(dir) {
-  return readdirSync(dir)
+/**
+ * 감사 대상 파일 목록.
+ *
+ * 🔴 **모집단을 파일명 glob으로 잡으면 이름을 안 따르는 형제가 통째로 빠진다**
+ * (2026-08-09 실측). 예전 판은 `check-*.mjs`만 셌고, 그래서 *"52개 전부 배선+대조군 보유"*라는
+ * 초록을 내면서 **하네스에 배선된 게이트 셋을 한 번도 안 봤다** — `known.mjs`와, 하필
+ * **라이브 검사 둘**(`verify-editor-live`·`verify-diagnostics-live`)이었다. 이 저장소에서
+ * 라이브는 *유일하게 도는 런타임 검출층*이라(§10), 가장 중요한 층이 감사 밖에 있었던 셈이다.
+ *
+ * 그래서 모집단은 **두 출처의 합집합**이다:
+ *   ① 원장(harness.mjs)이 실제로 돌리는 스크립트 — 이름이 무엇이든 감사한다(HRL-1)
+ *   ② 디렉터리의 `check-*.mjs` — 원장에 **배선되지 않은 고아**를 잡기 위해 남긴다
+ * 한쪽만으로는 각각 「이름 안 따르는 게이트」와 「안 도는 게이트」를 놓친다.
+ */
+export function listCheckFiles(dir, wired = new Set()) {
+  const onDisk = readdirSync(dir)
     .filter((f) => f.startsWith('check-') && f.endsWith('.mjs'))
-    .map((f) => f.slice(0, -4))
-    .sort();
+    .map((f) => f.slice(0, -4));
+  return [...new Set([...onDisk, ...wired])].sort();
 }
 
 /**
@@ -40,9 +53,19 @@ export function wiredScriptFiles(harnessSrc) {
   return new Set([...harnessSrc.matchAll(/cmd:\s*'[^']*scripts\/([A-Za-z0-9_-]+)\.mjs/g)].map((m) => m[1]));
 }
 
-/** §4 규율의 실행 흔적 — "셀프테스트/자체검사/SELF-TEST" + "실패/공허" 근접 등장. */
+/**
+ * §4 규율의 실행 흔적 — "셀프테스트/자체검사/자기점검/SELF-TEST" + "실패/공허" 근접 등장.
+ *
+ * 🔴 **어휘를 좁게 잡으면 멀쩡한 대조군을 「없음」으로 읽는다**(2026-08-09). 이 저장소는
+ * 같은 규율을 네 가지 말로 쓴다 — 셀프테스트·자체검사·자기점검·SELF-TEST. 그리고 라이브
+ * 검사는 아예 **「주입」**이라는 말로 대조군을 세운다(§10 ③의 B층). 어휘가 빠지면 그 게이트는
+ * 「규율을 안 지킨 것」이 아니라 **「내 정규식이 못 본 것」**이다 — 그 둘을 같은 빨간불로 내면
+ * 사람이 게이트를 안 믿게 된다(§11 ③ — 오탐은 틀린 게이트다).
+ */
 export function hasSelfTestMarker(src) {
-  return /(셀프테스트|자체검사|SELF-TEST)[\s\S]{0,10}(실패|공허)/.test(src);
+  if (/(셀프테스트|자체검사|자기점검|SELF-TEST)[\s\S]{0,10}(실패|공허|건)/.test(src)) return true;
+  // 라이브 검사의 대조군 문체: 「알려진 실패를 **주입**해 RED를 본다」.
+  return /주입[\s\S]{0,20}(판정|검증|확인|실패|RED)/.test(src);
 }
 
 /**
@@ -139,6 +162,21 @@ const selfCases = [
     expectClean: false, // "셀프테스트" 뒤 10자 이내에 "실패/공허"가 없으므로 여전히 걸려야 한다
   },
 ];
+// 🔴 **모집단 자체에 주입한다**(2026-08-09). 위 케이스들은 전부 `files`를 손으로 넘기므로
+// *"목록을 어떻게 뽑는가"*는 한 번도 재지 않았다 — 그리고 실제 결함은 정확히 거기 있었다
+// (glob이 `verify-*`를 통째로 빠뜨렸다). 판정 로직만 재고 모집단을 안 재면, 게이트는
+// **자기가 무엇을 안 보고 있는지**를 영원히 모른다(§11 ① — 넓힐 때 다시 공허해진다).
+{
+  const wiredOnly = listCheckFiles(scriptsDir0(), new Set(['verify-something-live']));
+  if (!wiredOnly.includes('verify-something-live')) {
+    console.error('check-gate-integrity: 셀프테스트 실패 — 원장에 배선된 비 check-* 게이트가 모집단에 안 들어옴.');
+    process.exit(2);
+  }
+}
+function scriptsDir0() {
+  return join(ROOT, 'scripts');
+}
+
 const brokenSelf = selfCases.filter(
   (c) => (findProblems(c.files, c.wired, (f) => c.src[f]).length === 0) !== c.expectClean,
 );
@@ -153,7 +191,8 @@ const scriptsDir = join(ROOT, 'scripts');
 // 위 주석은 *"제외하지 않는다(자기도 대상이다)"*라고 적혀 있었다 — 주석과 코드가 반대였고,
 // 보고 숫자도 하나 적었다(47 vs 실제 48). §11의 대상은 **이 게이트 자신도 포함**이다.
 // 실측으로 자기도 두 관례를 지킨다(하네스 배선 ✅ · 대조군 표식 ✅)이므로 뺄 이유가 없었다.
-const files = listCheckFiles(scriptsDir);
+const harnessSrcForFiles = readFileSync(join(ROOT, 'scripts/harness.mjs'), 'utf8');
+const files = listCheckFiles(scriptsDir, wiredScriptFiles(harnessSrcForFiles));
 
 // 🔴 **자기 자신이 목록에 있는지 못을 박는다**(2026-08-05 · §4 주입에서 나옴).
 // 위 제외를 되돌리는 주입을 해 봤더니 **초록이었다** — 대상이 하나 줄었을 뿐 남은 것들은
@@ -184,4 +223,8 @@ if (problems.length) {
   for (const p of problems) console.error(`  ✗ ${p}`);
   process.exit(1);
 }
-console.log(`check-gate-integrity: OK (셀프테스트 통과 · check-*.mjs ${files.length}개 전부 배선+대조군 보유)`);
+// 판정문은 모집단을 **정확히** 말한다 — 「check-*.mjs N개」라고 쓰면 이름을 안 따르는 형제를
+// 세고도 안 센 것처럼 들린다(§17 판정문↔값 모순).
+console.log(
+  `check-gate-integrity: OK (셀프테스트 통과 · 원장 배선 + 디렉터리 합집합 ${files.length}개 전부 배선+대조군 보유)`,
+);

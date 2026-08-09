@@ -1,3 +1,6 @@
+---
+shape: prose-debt
+---
 # AGENT REGISTRY · Bugeon Journey
 
 전체 서브에이전트 등록부. 설계지시서 §19의 123개 역할에 디자인 확장 16개(124~139)를 더한 **<!--reg:logicalRoleCount-->139<!--/reg-->개 논리 역할**을 정의한다.

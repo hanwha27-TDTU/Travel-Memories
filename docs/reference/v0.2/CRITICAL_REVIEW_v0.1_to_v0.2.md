@@ -1,3 +1,7 @@
+---
+shape: prose
+shape_reason: v0.2 원본 사료 — 비평의 흐름이 값이다.
+---
 # Journey Archive 버전 0.1 비판적 검증 보고서
 
 검증 기준일: 2026-07-22  

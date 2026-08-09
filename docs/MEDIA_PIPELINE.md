@@ -1,3 +1,6 @@
+---
+shape: prose-debt
+---
 # MEDIA PIPELINE · Bugeon Journey
 
 설계지시서 §9 + LESSONS §2·§5. **압축 전 EXIF 먼저**, **클라우드 바이트 read-back 뒤 로컬 원본 정리**, **기계 파생값은 needs_review**가 핵심.

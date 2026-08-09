@@ -4,6 +4,10 @@ import { pathToFileURL } from 'node:url';
 const 문자열 = (v) => typeof v === 'string' && v.trim().length > 0;
 const 배열 = (v) => Array.isArray(v) && v.length > 0;
 
+// HRL-17 — 릴리스 노드의 역할 원장. `artifact`는 굽는 순간 입력을 굳히는 불변 산출물이고,
+// `input-closeout`은 그 앞에 서는 읽기 전용 고정점이다.
+const NODE_KINDS = Object.freeze(['integration', 'verification', 'input-closeout', 'artifact', 'deployment']);
+
 export function validateProfile(profile) {
   const errors = [];
   if (profile?.schemaVersion !== 1) errors.push('schemaVersion은 1이어야 한다');
@@ -40,6 +44,7 @@ export function validateProfile(profile) {
     nodeIds.add(node?.id);
     if (!문자열(node?.verdict)) errors.push(`${node?.id || '(노드)'} verdict가 비었다`);
     if (!Array.isArray(node?.writes)) errors.push(`${node?.id || '(노드)'} writes가 배열이 아니다`);
+    if (!NODE_KINDS.includes(node?.kind)) errors.push(`${node?.id || '(노드)'} kind가 ${NODE_KINDS.join('·')} 중 하나가 아니다`);
   }
 
   const edges = Array.isArray(profile?.releaseEdges) ? profile.releaseEdges : [];
@@ -59,6 +64,26 @@ export function validateProfile(profile) {
   };
   if ([...nodeIds].some(visit)) errors.push('releaseEdges에 순환이 있다');
 
+  // HRL-17 — 산출물 노드로 들어오는 모든 경로가 입력 마감을 지나는지 그래프에서 판정한다.
+  // 선행 노드가 아예 없는 산출물(자기가 뿌리인 경우)도 마감을 안 지났으므로 위반이다.
+  const kindOf = new Map(nodes.filter((n) => 문자열(n?.id)).map((n) => [n.id, n.kind]));
+  const closeoutIds = [...kindOf].filter(([, kind]) => kind === 'input-closeout').map(([id]) => id);
+  const artifactIds = [...kindOf].filter(([, kind]) => kind === 'artifact').map(([id]) => id);
+  const incoming = new Map([...nodeIds].map((id) => [id, []]));
+  for (const edge of edges) if (nodeIds.has(edge?.from) && nodeIds.has(edge?.to)) incoming.get(edge.to).push(edge.from);
+  const closedOff = (id, seen = new Set()) => {
+    if (kindOf.get(id) === 'input-closeout') return true;
+    if (seen.has(id)) return false;
+    const preds = incoming.get(id) || [];
+    if (!preds.length) return false;
+    const next = new Set(seen).add(id);
+    return preds.every((pred) => closedOff(pred, next));
+  };
+  if (artifactIds.length && !closeoutIds.length) errors.push('artifact 노드가 있는데 릴리스 입력 마감(input-closeout) 노드가 없다');
+  for (const id of artifactIds) {
+    if (!closedOff(id)) errors.push(`릴리스 입력 마감 뒤에 오지 않는 산출물 노드다: ${id}`);
+  }
+
   const writers = Array.isArray(profile?.runnerWriters) ? profile.runnerWriters : [];
   for (const writer of writers) {
     if (!문자열(writer?.id) || !배열(writer?.writes)) errors.push('runnerWriter의 id 또는 writes가 비었다');
@@ -76,7 +101,14 @@ export function validateProfile(profile) {
     if (!문자열(surface?.readback)) errors.push(`${surface?.id || '(표면)'} readback이 비었다`);
   }
   if (!Array.isArray(profile?.exceptions)) errors.push('exceptions가 배열이 아니다');
-  return { errors, counts: { groups: groups.length, nodes: nodes.length, edges: edges.length, writers: writers.length, surfaces: surfaces.length } };
+  return {
+    errors,
+    counts: {
+      groups: groups.length, nodes: nodes.length, edges: edges.length,
+      writers: writers.length, surfaces: surfaces.length,
+      closeouts: closeoutIds.length, artifacts: artifactIds.length,
+    },
+  };
 }
 
 function selfTest() {
@@ -86,8 +118,15 @@ function selfTest() {
     gateRegistry: 'scripts/gates.mjs', groups: [{ id: 'static', command: 'node check.mjs', coverage: ['source'] }],
     fullRequired: { command: 'node harness.mjs', evidence: 'ci', latestRevision: true },
     versioning: { trigger: 'app.html', baseline: 'origin/main', writer: 'node bump.mjs', history: 'app.html#history' },
-    releaseNodes: [{ id: 'build', verdict: 'exit-code', writes: ['artifact'] }, { id: 'deploy', verdict: 'live-readback', writes: ['live'] }],
-    releaseEdges: [{ from: 'build', to: 'deploy', reason: '배포 입력' }],
+    releaseNodes: [
+      { id: 'closeout', kind: 'input-closeout', verdict: 'exit-code', writes: [] },
+      { id: 'build', kind: 'artifact', verdict: 'exit-code', writes: ['artifact'] },
+      { id: 'deploy', kind: 'deployment', verdict: 'live-readback', writes: ['live'] },
+    ],
+    releaseEdges: [
+      { from: 'closeout', to: 'build', reason: '입력 마감 뒤에만 굽는다' },
+      { from: 'build', to: 'deploy', reason: '배포 입력' },
+    ],
     runnerWriters: [{ id: 'builder', writes: ['artifact'], branchExclusive: true }],
     deploymentSurfaces: [{ id: 'web', affectedBy: ['app.html'], deploy: 'deploy', readback: 'readback' }], exceptions: []
   };
@@ -99,7 +138,11 @@ function selfTest() {
     ['순환', (p) => { p.releaseEdges.push({ from: 'deploy', to: 'build', reason: '잘못된 순환' }); }, '순환'],
     ['러너 비독점', (p) => { p.runnerWriters[0].branchExclusive = false; }, 'branchExclusive'],
     ['배포 되읽기 없음', (p) => { p.deploymentSurfaces[0].readback = ''; }, 'readback'],
-    ['가변 커밋', (p) => { p.sharedLaw.commit = 'main'; }, '40자리']
+    ['가변 커밋', (p) => { p.sharedLaw.commit = 'main'; }, '40자리'],
+    ['노드 kind 누락', (p) => { delete p.releaseNodes[1].kind; }, 'kind가'],
+    ['마감 노드 없음', (p) => { p.releaseNodes[0].kind = 'verification'; }, '입력 마감(input-closeout) 노드가 없다'],
+    ['산출물이 마감보다 앞', (p) => { p.releaseEdges = [{ from: 'build', to: 'closeout', reason: '뒤집힌 순서' }, { from: 'closeout', to: 'deploy', reason: '배포 입력' }]; }, '입력 마감 뒤에 오지 않는'],
+    ['마감을 우회하는 곁길', (p) => { p.releaseNodes.push({ id: 'hotfix', kind: 'integration', verdict: 'exit-code', writes: [] }); p.releaseEdges.push({ from: 'hotfix', to: 'build', reason: '마감을 건너뛴 곁길' }); }, '입력 마감 뒤에 오지 않는']
   ];
   for (const [name, mutate, expected] of cases) {
     const sample = structuredClone(base); mutate(sample);
@@ -117,5 +160,5 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
     for (const error of result.errors) console.error(`❌ ${error}`);
     process.exit(1);
   }
-  console.log(`✅ 릴리스 프로필 통과 — 그룹 ${result.counts.groups} · 노드 ${result.counts.nodes} · 간선 ${result.counts.edges} · 러너 ${result.counts.writers} · 배포 표면 ${result.counts.surfaces}.`);
+  console.log(`✅ 릴리스 프로필 통과 — 그룹 ${result.counts.groups} · 노드 ${result.counts.nodes}(입력 마감 ${result.counts.closeouts} · 산출물 ${result.counts.artifacts}) · 간선 ${result.counts.edges} · 러너 ${result.counts.writers} · 배포 표면 ${result.counts.surfaces}.`);
 }

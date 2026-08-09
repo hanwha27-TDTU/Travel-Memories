@@ -1,3 +1,7 @@
+---
+shape: prose
+shape_reason: v0.2 원본 사료 — 당시 상태를 그대로 보존한다.
+---
 # Claude Code 최초 실행 프롬프트
 
 아래 작업은 Journey Archive Gate 0A다. 제품 기능, dependency 설치, migration 적용, Storage 생성 또는 배포를 수행하지 마라.

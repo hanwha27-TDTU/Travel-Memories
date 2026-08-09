@@ -623,6 +623,99 @@ await page.getByRole('button', { name: '순간 저장' }).click();
 await page.waitForSelector('.pe-overlay', { timeout: 10000 });
 check('편집기 모달 열림', true);
 
+
+// ── 🔴 v2.07: [초기화]가 **화면 표시 상태까지** 되돌리는가 (사용자 보고 2026-08-09) ──
+// 사용자: *"버튼 누르면 원래 로딩되었던 사진으로 돌아가는 게 아니라 이상하게 확대된다."*
+// 의심: `fitMode`(폭 채우기)와 `perspMode`는 **EditState 밖 클로저 변수**라
+// `Object.assign(state, DEFAULT_EDIT)`가 못 건드린다. 눌러서 잰다(§13 4항).
+{
+  const fillBtn = page.getByRole('button', { name: '폭 채우기' });
+  await fillBtn.click();
+  await page.waitForTimeout(200);
+  const afterFill = await page.evaluate(() => ({
+    stage: document.querySelector('.pe-stage')?.classList.contains('is-fill') ?? null,
+    label: document.querySelector('.pe-geo button[aria-pressed]')?.textContent ?? '',
+  }));
+  check('폭 채우기를 누르면 실제로 채움 모드가 된다(전제 확인 — 아니면 아래 판정이 공허하다)', afterFill.stage === true, JSON.stringify(afterFill));
+
+  await page.getByRole('button', { name: '초기화', exact: true }).click();
+  await page.waitForTimeout(250);
+  const afterReset = await page.evaluate(() => {
+    const st = document.querySelector('.pe-stage');
+    const wrap = document.querySelector('.pe-canvas-wrap');
+    const fit = [...document.querySelectorAll('button')].find((b) => /폭 채우기|높이 맞춤/.test(b.textContent || ''));
+    return {
+      stageFill: st?.classList.contains('is-fill') ?? null,
+      wrapFill: wrap?.classList.contains('is-fill') ?? null,
+      fitLabel: (fit?.textContent || '').trim(),
+      fitPressed: fit?.getAttribute('aria-pressed') ?? null,
+    };
+  });
+  check('🔴 초기화 뒤 채움 모드가 풀린다(원래 보이던 크기로 돌아온다)', afterReset.stageFill === false && afterReset.wrapFill === false, JSON.stringify(afterReset));
+  check('🔴 초기화 뒤 버튼 라벨·눌림 표시도 원래대로다(화면과 상태가 어긋나지 않는다)', afterReset.fitLabel.includes('폭 채우기') && afterReset.fitPressed === 'false', JSON.stringify(afterReset));
+}
+
+
+// ── 🔴 v2.07: **핀치 줌 뒤 초기화**도 원래 화면으로 돌아오는가 (사용자 요청 2026-08-09) ──
+// 앞 검사는 「폭 채우기 ↔ 초기화」만 쟀다. 확대는 `state.zoom`으로도 생기고 그건 EditState
+// **안**이라 원래 되돌아가야 하지만, **되어야 하는 것과 되는 것은 다른 말**이다 — 눌러서 잰다.
+// 판정은 내부 값이 아니라 **캔버스 픽셀**로 한다(WYSIWYG — 사용자가 보는 것이 진실이다).
+{
+  const sig = () =>
+    page.evaluate(() => {
+      const c = document.querySelector('.pe-canvas');
+      if (!c) return null;
+      const ctx = c.getContext('2d');
+      const d = ctx.getImageData(0, 0, Math.min(64, c.width), Math.min(64, c.height)).data;
+      let h = 0;
+      for (let i = 0; i < d.length; i += 7) h = (h * 31 + d[i]) >>> 0;
+      return `${c.width}x${c.height}:${h}`;
+    });
+
+  const before = await sig();
+  // 두 손가락 핀치(포인터 두 개가 벌어짐) — 앱이 실제로 듣는 이벤트로 흉내 낸다.
+  await page.evaluate(() => {
+    const cv = document.querySelector('.pe-canvas');
+    const r = cv.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const send = (type, id, x, y) =>
+      cv.dispatchEvent(new PointerEvent(type, { pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: 'touch' }));
+    send('pointerdown', 1, cx - 20, cy);
+    send('pointerdown', 2, cx + 20, cy);
+    for (let k = 1; k <= 6; k += 1) {
+      send('pointermove', 1, cx - 20 - k * 12, cy);
+      send('pointermove', 2, cx + 20 + k * 12, cy);
+    }
+    send('pointerup', 1, cx - 92, cy);
+    send('pointerup', 2, cx + 92, cy);
+  });
+  await page.waitForTimeout(400);
+  const zoomed = await sig();
+  const zoomVal = await page.evaluate(() => document.querySelector('.pe-zoom')?.value ?? null);
+  // 전제 확인 — 확대가 실제로 걸리지 않았다면 아래 판정은 **공허하다**(§4).
+  check('핀치로 실제 확대된다(전제 확인 — 아니면 아래 판정이 공허하다)', zoomed !== before && Number(zoomVal) > 1, JSON.stringify({ before, zoomed, zoomVal }));
+
+  await page.getByRole('button', { name: '초기화', exact: true }).click();
+  await page.waitForTimeout(400);
+  const after = await sig();
+  const zoomAfter = await page.evaluate(() => document.querySelector('.pe-zoom')?.value ?? null);
+  check('🔴 핀치 줌 뒤 초기화하면 **원래 보이던 화면**으로 돌아온다(픽셀 대조)', after === before, JSON.stringify({ before, after }));
+  check('🔴 확대 슬라이더 값도 1로 돌아온다(화면과 상태가 어긋나지 않는다)', Number(zoomAfter) === 1, String(zoomAfter));
+
+  // 🔴 **검사는 뒤 형제의 전제를 건드리지 않고 물러난다.** 실측(2026-08-09): 이 probe를 넣자
+  // 한참 뒤의 「이력 소진 → 실행취소 비활성」이 FAIL로 돌아섰다 — 핀치로 상태가 바뀐 뒤
+  // [초기화]가 이력을 **하나 쌓기** 때문이다. 검사가 검사를 깨뜨리면 그 빨간불은 제품 결함이
+  // 아니라 **내 흔적**이고, 그걸 못 가리면 다음 사람이 엉뚱한 데를 고친다.
+  for (let k = 0; k < 20; k += 1) {
+    const undo = page.locator('.pe-undo');
+    if (await undo.isDisabled()) break;
+    await undo.click();
+    await page.waitForTimeout(60);
+  }
+  check('핀치 probe가 이력을 남기지 않고 물러난다(뒤 검사의 전제 보존)', await page.locator('.pe-undo').isDisabled(), null);
+}
+
 // ── v0.72: 짧은 뷰포트(가로 태블릿)에서 모달이 잘리지 않는가 ──
 // 실제 사고(2026-07-26, 사용자 실기기 가로 태블릿): 편집기 상하가 잘리고 여백이 없었다.
 // 원인은 `.pe-overlay`가 `vh`(주소창 포함 높이)를 쓰고 오버레이가 스크롤하지 않은 것.

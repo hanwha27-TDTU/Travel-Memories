@@ -3076,6 +3076,8 @@ async function processPhotosIntoMoment(
   if (!files.length) return 0;
   const states: (EditorResult['state'] | undefined)[] = new Array(files.length);
   const blobs: (Blob | null)[] = new Array(files.length).fill(null);
+  // 🔴 「버린 사진」 — 기록에 담지 않는다. 기기의 원본 파일에는 손대지 않는다(§0).
+  const discarded = new Set<number>();
   let i = 0;
   while (i < files.length) {
     onProgress(`사진 편집… (${i + 1}/${files.length})`);
@@ -3090,12 +3092,18 @@ async function processPhotosIntoMoment(
       i -= 1;
       continue;
     }
+    if (r.action === 'discard') {
+      discarded.add(i);
+      i += 1;
+      continue;
+    }
     if (r.action === 'skipAll') break; // 이 사진 포함 나머지 전부 원본
     blobs[i] = r.blob; // apply→편집본(무편집 null), skip→null(원본)
     i += 1;
   }
   let saved = 0;
   for (let k = 0; k < files.length; k += 1) {
+    if (discarded.has(k)) continue; // 버린 사진은 저장 대상이 아니다
     onProgress(`사진 저장… (${k + 1}/${files.length})`);
     try {
       await addPhotoToMoment(

@@ -1,3 +1,7 @@
+---
+shape: prose
+shape_reason: 판별 이력은 시간순 서사이며 항목의 완전성이 아니라 연속성이 값이다.
+---
 # CHANGELOG · Bugeon Journey
 
 [Keep a Changelog] 형식. 최신이 위. 이 파일은 손편집이 아니라 릴리스 시 갱신하며, 열거 가능한 사실(카운트 등)은 파생·게이트로 잠근다(LESSONS §7).

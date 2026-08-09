@@ -25,6 +25,7 @@ import {
   type Quad,
 } from '../media/editor-core';
 import { isNoAdjust } from '../media/pixelops';
+import { autoHealPoints } from '../media/editor-core';
 
 const PREVIEW_MAX = 900; // 미리보기 해상도(표시 폭에 맞춰 선명하게 — 확대 시 흐려짐 방지)
 const FAST_MAX = 420; // 드래그 중 임시 해상도 — 프레임당 픽셀 연산을 줄여 슬라이더가 즉답하게
@@ -89,8 +90,14 @@ async function decodeBitmap(file: Blob): Promise<{ bmp: ImageBitmap | HTMLImageE
 }
 
 export interface EditorResult {
-  /** apply=편집 적용, skip=원본 사용/닫기, back=이전 사진으로, skipAll=이 사진 포함 나머지 모두 원본. */
-  action: 'apply' | 'skip' | 'back' | 'skipAll';
+  /**
+   * apply=편집 적용, skip=원본 사용/닫기, back=이전 사진으로,
+   * skipAll=이 사진 포함 나머지 모두 원본, discard=**이 사진을 아예 담지 않는다**.
+   *
+   * 🔴 `discard`는 「저장하지 않는다」이지 「지운다」가 아니다. 사용자 기기의 원본 파일에는
+   * 손대지 않는다(§0 — 원본 자료를 임의로 삭제하지 않는다). 고르는 중에 빼는 것뿐이다.
+   */
+  action: 'apply' | 'skip' | 'back' | 'skipAll' | 'discard';
   /** 이 사진의 편집 상태(재방문 시 복원용). */
   state: EditState;
   /** apply일 때 편집본(무편집이면 null), 그 외 null. */
@@ -126,6 +133,112 @@ function fmtSliderVal(spec: SliderSpec, v: number): string {
  * 편집 모달을 열고 사용자의 선택을 기다린다(배치 편집: 이전/다음/닫기).
  * 반환: EditorResult(action + state + blob).
  */
+/** 미리보기 캔버스의 현재 픽셀. 자동 보정이 「지금 화면에 보이는 것」을 재게 한다(WYSIWYG). */
+function readPreviewPixels(preview: HTMLCanvasElement): ImageData | null {
+  const rect = preview.getBoundingClientRect();
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(1, Math.round(rect.width));
+  cv.height = Math.max(1, Math.round(rect.height));
+  const ctx = cv.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(preview, 0, 0, cv.width, cv.height);
+  return ctx.getImageData(0, 0, cv.width, cv.height);
+}
+
+/**
+ * 표시 방식(높이 맞춤 ↔ 폭 채우기) 전환기를 만든다 — **바꾸는 길은 이 하나뿐**이다.
+ *
+ * 🔴 예전엔 이 로직이 클릭 핸들러 안에 손으로 박혀 있었다. 그래서 [초기화]가 재사용할 수
+ * 없었고, `fitMode`는 `EditState` 밖 변수라 `Object.assign(state, DEFAULT_EDIT)`도 못
+ * 건드렸다 — **초기화를 눌러도 사진이 확대된 채 남았다**(사용자 보고 2026-08-09, 라이브에서
+ * 눌러 재현). 상태를 바꾸는 길이 둘이면 하나는 반드시 빠진다(§7 2층).
+ */
+function makeFitMode(
+  fitBtn: HTMLButtonElement,
+  stage: HTMLElement,
+  canvasWrap: HTMLElement,
+  store: (m: 'contain' | 'width') => void,
+  repaint: () => void,
+): (on: boolean) => void {
+  return (on: boolean) => {
+    store(on ? 'width' : 'contain');
+    fitBtn.textContent = on ? '\uD83D\uDD33 높이 맞춤' : '\u2195 폭 채우기';
+    fitBtn.setAttribute('aria-pressed', String(on));
+    stage.classList.toggle('is-fill', on);
+    canvasWrap.classList.toggle('is-fill', on);
+    repaint();
+  };
+}
+
+/** 잡티 브러시 크기 슬라이더. 값 변경만 바깥에 알린다(표시 로직은 여기 가둔다). */
+function makeBrushSlider(initial: number, onChange: (v: number) => void): HTMLLabelElement {
+  const brush = el('input') as HTMLInputElement;
+  brush.type = 'range';
+  brush.min = '1';
+  brush.max = '8';
+  brush.step = '0.5';
+  brush.value = String(initial);
+  brush.setAttribute('aria-label', '브러시 크기');
+  brush.addEventListener('input', () => onChange(Number(brush.value)));
+  const wrap = el('label', 'pe-zoom-wrap') as HTMLLabelElement;
+  wrap.append(el('span', 'pe-slider-label', '크기'), brush);
+  wrap.hidden = true;
+  return wrap;
+}
+
+/**
+ * 「✨ 자동 보정」 버튼 — 어두운 작은 얼룩을 찾아 한 번에 지운다.
+ *
+ * 🔴 셋을 함께 지킨다. ①실행 **직전** 이력을 남겨 ↺ 한 번으로 전부 원복되게 하고
+ * ②결과를 **문장으로 말한다**(조용히 아무 일도 안 일어나면 사용자는 고장으로 읽는다 · §8)
+ * ③찾은 게 없으면 그 사실도 말한다 — 「없음」과 「안 해봄」을 같은 침묵으로 두지 않는다.
+ */
+function makeAutoHealButton(d: {
+  preview: HTMLCanvasElement;
+  healHint: HTMLElement;
+  state: EditState;
+  srcW: number;
+  srcH: number;
+  pushHistory: () => void;
+  repaint: () => void;
+}): HTMLButtonElement {
+  const btn = el('button', 'btn-ghost', '\u2728 자동 보정') as HTMLButtonElement;
+  btn.type = 'button';
+  btn.title = '어두운 작은 얼룩을 찾아 한 번에 지웁니다 (↺로 되돌릴 수 있어요)';
+  btn.addEventListener('click', () => {
+    const img = readPreviewPixels(d.preview);
+    const pts = img ? autoHealPoints(img.data, img.width, img.height, d.srcW, d.srcH, d.state) : [];
+    d.healHint.hidden = false;
+    if (!pts.length) {
+      d.healHint.textContent = '자동으로 찾을 만한 얼룩이 안 보여요. 지우고 싶은 곳을 직접 톡 눌러 주세요.';
+      return;
+    }
+    d.pushHistory();
+    d.state.heals.push(...pts);
+    d.healHint.textContent = `얼룩 ${pts.length}곳을 지웠어요. 마음에 안 들면 상단 ↺로 되돌리세요.`;
+    d.repaint();
+  });
+  return btn;
+}
+
+/**
+ * 「이 사진 버리기」 버튼.
+ *
+ * 🔴 **되돌릴 수 없는 방향이라 묻는다**(닫기 보호와 같은 자세). 그리고 문장이 반드시
+ * *「기기의 원본 파일은 지워지지 않는다」*를 말한다 — 이 앱에서 「버린다」는 낱말은
+ * 사용자에게 원본 삭제로 읽힐 수 있고, 그건 §0이 절대 금지하는 일이다.
+ */
+function makeDiscardButton(onDiscard: () => void): HTMLButtonElement {
+  const btn = el('button', 'btn-ghost pe-discard', '\uD83D\uDDD1 이 사진 버리기') as HTMLButtonElement;
+  btn.type = 'button';
+  btn.title = '이 사진을 기록에 담지 않습니다 (기기의 원본 파일은 그대로예요)';
+  btn.addEventListener('click', () => {
+    if (!confirm('이 사진을 기록에 담지 않을까요?\n\n기기에 있는 원본 사진 파일은 지워지지 않습니다.')) return;
+    onDiscard();
+  });
+  return btn;
+}
+
 export async function openPhotoEditor(
   file: Blob,
   fileLabel: string,
@@ -647,14 +760,9 @@ export async function openPhotoEditor(
     fitBtn.type = 'button';
     fitBtn.setAttribute('aria-pressed', 'false');
     fitBtn.title = '세로로 긴 사진을 폭에 꽉 채워 크게 보기(세로 스크롤)';
+    const setFitMode = makeFitMode(fitBtn, stage, canvasWrap, (m) => { fitMode = m; }, () => repaint());
     fitBtn.addEventListener('click', () => {
-      fitMode = fitMode === 'width' ? 'contain' : 'width';
-      const on = fitMode === 'width';
-      fitBtn.textContent = on ? '🔳 높이 맞춤' : '↕ 폭 채우기';
-      fitBtn.setAttribute('aria-pressed', String(on));
-      stage.classList.toggle('is-fill', on);
-      canvasWrap.classList.toggle('is-fill', on);
-      repaint();
+      setFitMode(fitMode !== 'width');
     });
     geoRow.append(rotBtn, flipBtn, perspBtn, fitBtn);
     // 비율 칩 활성 표시를 state.aspect 기준으로 일괄 동기화(개별 손편집 대신 단일 경로).
@@ -712,31 +820,20 @@ export async function openPhotoEditor(
     const healBtn = el('button', 'pe-chip', '🩹 잡티 제거') as HTMLButtonElement;
     healBtn.type = 'button';
     healBtn.setAttribute('aria-pressed', 'false');
-    const brush = el('input') as HTMLInputElement;
-    brush.type = 'range';
-    brush.min = '1';
-    brush.max = '8';
-    brush.step = '0.5';
-    brush.value = String(brushPct);
-    brush.setAttribute('aria-label', '브러시 크기');
-    brush.addEventListener('input', () => {
-      brushPct = Number(brush.value);
-      // 화면 중앙에 실제 적용 반경을 잠깐 보여준다(크기 감 잡기).
+    const brushWrap = makeBrushSlider(brushPct, (v) => {
+      brushPct = v;
       const rect = canvasWrap.getBoundingClientRect();
       showBrushDot(rect.width / 2, rect.height / 2, (brushPct / 50) * rect.width, 600);
     });
-    const brushWrap = el('label', 'pe-zoom-wrap');
-    brushWrap.append(el('span', 'pe-slider-label', '크기'), brush);
-    brushWrap.hidden = true;
     const healHint = el('span', 'pe-hint muted small', '지우고 싶은 점을 사진에서 톡 누르세요 · 되돌리기는 상단 ↺');
     healHint.hidden = true;
-    function setHealMode(on: boolean): void {
+    const setHealMode = (on: boolean): void => {
       healMode = on;
       healBtn.setAttribute('aria-pressed', String(on));
       brushWrap.hidden = !on;
       healHint.hidden = !on;
       preview.classList.toggle('pe-heal-cursor', on);
-    }
+    };
     healBtn.addEventListener('click', () => {
       if (perspMode) setPerspMode(false); // 펴기 모드와 잡티 모드는 동시 불가
       if (isCropMode()) {
@@ -750,7 +847,8 @@ export async function openPhotoEditor(
       }
       setHealMode(!healMode);
     });
-    healRow.append(healBtn, brushWrap, healHint);
+    const autoHealBtn = makeAutoHealButton({ preview, healHint, state, srcW: w, srcH: h, pushHistory, repaint });
+    healRow.append(healBtn, autoHealBtn, brushWrap, healHint);
     sheet.appendChild(healRow);
 
     // ── 슬라이더들(값 표시 + 라벨 두 번 탭 = 그 항목만 초기화) ──
@@ -805,12 +903,17 @@ export async function openPhotoEditor(
     const actions = el('div', 'pe-actions');
     const resetBtn = el('button', 'btn-ghost', '초기화') as HTMLButtonElement;
     resetBtn.type = 'button';
+    // 「해당 사진에 한해서」를 화면에 적는다 — 배치 편집에서 다른 사진까지 지워질까 봐 못 누른다.
+    resetBtn.title = '이 사진의 편집만 처음 상태로 되돌립니다 (다른 사진은 그대로)';
     resetBtn.addEventListener('click', () => {
       if (!isIdentity(state)) pushHistory(); // 초기화 전 상태를 이력에 — ↺로 복구 가능
       Object.assign(state, DEFAULT_EDIT, { heals: [], freeCrop: null });
       zoom.value = '1';
       cropApplied = false;
       setHealMode(false);
+      // 🔴 EditState 밖 표시 상태도 함께 되돌린다 — 안 되돌리면 「초기화했는데 확대된 채」가 된다.
+      setFitMode(false);
+      setPerspMode(false);
       setPresetActive('원본');
       syncSliders();
       syncAspectChips();
@@ -835,6 +938,9 @@ export async function openPhotoEditor(
       skipAllBtn.addEventListener('click', () => finish('skipAll', null));
       actions.appendChild(skipAllBtn);
     }
+    // 🔴 배치에서만 「이 사진 버리기」를 준다. 한 장짜리에는 없다 — 그 자리에선 ✕(원본 사용)가
+    // 이미 「담지 않고 닫기」와 같은 뜻이고, 버튼을 하나 더 두면 뜻이 겹쳐 오히려 헷갈린다.
+    if (opts.batchRemaining !== undefined) actions.appendChild(makeDiscardButton(() => finish('discard', null)));
     actions.appendChild(applyBtn);
     sheet.appendChild(actions);
 

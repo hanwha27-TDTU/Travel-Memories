@@ -2243,3 +2243,10 @@ select.zone-input { text-overflow: ellipsis; }
   margin-bottom: var(--space-2);
   overflow-wrap: anywhere;
 }
+
+/* 「이 사진 버리기」 — 되돌릴 수 없는 방향이라 다른 보조 버튼과 구분한다.
+   색만으로 말하지 않게 글리프(🗑)를 라벨에 함께 둔다(§7 사용자 대면 대칭). */
+.pe-discard {
+  color: var(--danger, #e05252);
+  border-color: color-mix(in srgb, var(--danger, #e05252) 45%, transparent);
+}

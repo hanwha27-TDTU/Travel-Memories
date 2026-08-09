@@ -66,6 +66,8 @@ description: 사진 편집기 개발 프롬프트 — photoEditor.ts·editor-cor
 | 0.39 | (예방) 새 기하 단계(원근 펴기 quad) 추가 시 크롭·잡티 어긋남 위험 | 기하 공간 크기가 바뀌는데 창·heal 재투영이 옛 공간(rd) 기준이면 좌표 어긋남 | 기하 공간을 **gd**(=quad 적용 후 크기 `quadOutputDims`)로 정의하고 `resolveWindow`·heal 재투영·회전/반전 변환을 모두 gd 기준으로 일치. 새 기하 변형을 넣으면 이 치환을 빠뜨리지 말 것 |
 | 0.41 | 가로 태블릿에서 가로 사진 전체보기 위아래 잘림 | 뷰어 컨테이너가 `display:grid; place-items:center`일 때 `img{max-height:100%}`가 auto-sized grid 트랙에 대해 해석되지 않아 높이 제약 실패 → 폭만 맞고 세로 오버플로(세로 화면은 폭 제약이라 안 드러남) | `.photo-viewer`를 **flex 중앙정렬**(definite-height 컨테이너에서 max-height:100% 신뢰) + img에 `object-fit:contain` 안전망 + `height:100dvh` 과잉제약 제거. 라이브 검증은 **가로 뷰포트(1600×1000)**에서 렌더 rect가 뷰포트에 들어오는지 측정(세로 뷰포트만 보면 이 부류 결함을 놓친다) |
 
+| 🔴 2.07 | **[초기화]를 눌러도 사진이 확대된 채 남음** | `fitMode`가 **EditState 밖 클로저 변수**라 `Object.assign(state, DEFAULT_EDIT)`가 못 건드림 + 토글 로직이 클릭 핸들러에 박혀 초기화가 재사용 불가 | `makeFitMode()` 단일 진입점(§7 2층) · 초기화가 `setFitMode(false)`·`setPerspMode(false)` 호출 · 라이브에 「폭 채우기→초기화」 + **전제 확인** 추가(M-0133) |
+
 ### 🔴 미수정 — 알려진 불일치 (2026-07-27 이식 명세 작성 중 발견)
 
 **잡티 탭 좌표가 `rd` 공간에 기록되는데 bake는 `gd` 공간으로 재투영한다.**
@@ -112,6 +114,13 @@ description: 사진 편집기 개발 프롬프트 — photoEditor.ts·editor-cor
 라이브 렌더(dist 서빙 + Playwright/Chromium — **`node scripts/verify-editor-live.mjs`** 를 실행·확장한다):
 - 편집기 열기 → 슬라이더 조작 시 **캔버스 픽셀 read-back으로 실제 변화** 확인(스크린샷 육안 아님).
 - 비교 홀드 왕복(픽셀 원복), Esc confirm(`page.on('dialog')`), 배치 2장 진행, 적용 후 저장·썸네일, 뷰어 탐색, **콘솔 에러 0**.
+- 🔴 **probe는 원상복구까지가 probe다**(M-0134). 순차 검사에서 상태를 바꾼 probe가 물러나지
+  않으면 **한참 뒤 형제 검사가 FAIL**로 돌아선다(실측: [초기화]가 이력을 하나 쌓아 「이력 소진」
+  검사가 깨졌다). 그 빨간불은 제품 결함이 아니라 **내 흔적**이고, 구분 못 하면 다음 사람이
+  엉뚱한 데를 고친다. 원복한 뒤 **「전제를 보존했는가」 자체를 검사로** 남겨라.
+- 🔴 **표시 상태는 유닛이 못 본다.** `EditState` 밖에 사는 값(`fitMode`·`perspMode` 같은
+  「화면에만 있는 모드」)은 자료구조 검사로 원리적으로 안 보인다 — **새 표시 모드를 만들면
+  「초기화가 이것도 되돌리는가」를 라이브에서 눌러 재라**(M-0133).
 - 함정(실제로 겪음): ① `적용` 클릭 직후 `.pe-overlay` 존재 확인은 **이전 모달**과 매칭된다 — `.pe-file` 라벨 텍스트(`2/2`)로 대기할 것. ② `원본 사용` 셀렉터는 ✕(aria-label "닫기(원본 사용)")와 겹친다 — `exact: true`. ③ 파일 input은 hidden — `state: 'attached'`로 대기.
 
 수동(사용자 확인 권장으로 분리 표기):

@@ -10,7 +10,10 @@ import { validateProfile } from '../vendor/codex-shared-skills/release-harness-g
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const SOURCE = 'https://github.com/hanwha27-TDTU/Codex-Shared-Skills';
-const APPROVED_COMMIT = '8f2baec4e87181942c25615cffc32ae851e0fcc6';
+// 🔴 HRL-17(입력 마감)을 쓰기 위해 이 저장소만 먼저 올린 커밋이다. 공통 저장소 main은 아직
+// 8f2baec이고, **머지하지 않았다** — 머지는 다른 앱 프로필이 준비된 뒤의 일이다.
+// 각 앱의 lock이 커밋을 고정하므로, 우리만 새 법을 쓰고 나머지는 자기 커밋에 머문다.
+const APPROVED_COMMIT = '1cebdaaa699678e21d001467f1a784aaa73f3e12';
 const EXPECTED_SKILLS = ['bg-codex-autorouter', 'release-harness-governance'];
 
 function markedBlock(text, start, end) {
@@ -66,6 +69,7 @@ export function validateContract({
   commonLawCopies = 0,
 }) {
   const errors = [];
+  const unknowns = [];
   if (lock?.schemaVersion !== 1 || lock?.policyApi !== 1) errors.push('공통 스킬 lock의 schemaVersion·policyApi가 1이 아님');
   if (lock?.source !== SOURCE) errors.push('공통 정본 GitHub 주소가 승인값과 다름');
   if (lock?.commit !== APPROVED_COMMIT) errors.push('공통 정본 커밋이 승인된 고정 커밋과 다름');
@@ -76,8 +80,8 @@ export function validateContract({
   if (JSON.stringify(names) !== JSON.stringify(EXPECTED_SKILLS)) errors.push('공통 스킬 목록이 승인된 두 스킬과 다름');
   for (const entry of entries) {
     if (vendorHashes?.[entry.name] !== entry.contentSha256) errors.push(`${entry.name} 프로젝트 스냅샷 해시가 lock과 다름`);
-    if (installedHashes && installedHashes[entry.name] !== entry.contentSha256) errors.push(`${entry.name} Codex 전역 설치본 해시가 lock과 다름`);
-    if (claudeHashes && claudeHashes[entry.name] !== entry.contentSha256) errors.push(`${entry.name} Claude 전역 설치본 해시가 lock과 다름`);
+    auditInstalled('Codex', entry, installedHashes, errors, unknowns);
+    auditInstalled('Claude', entry, claudeHashes, errors, unknowns);
   }
 
   const adapter = lock?.adapter || {};
@@ -126,7 +130,32 @@ export function validateContract({
   if (!['sourceSha256', '필수 ops', 'secretsOk'].every((part) => mediaSignSurface?.readback?.includes(part))) errors.push('media-sign 표면의 정확한 운영 정체성 read-back이 불완전함');
   errors.push(...workflowProblems(workflows));
 
-  return { errors, counts: profileResult.counts, skillCount: entries.length };
+  return { errors, unknowns, counts: profileResult.counts, skillCount: entries.length };
+}
+
+/**
+ * 전역 설치본 한 건을 판정한다.
+ *
+ * 🔴 **미설치와 변조는 다른 사실이다**(2026-08-09 · §8 「모르는 것은 확인 불가다」).
+ * 예전 판은 `null !== 해시`가 참이라는 이유만으로 **설치되지 않은 것을 「해시가 lock과 다름」**
+ * 이라고 보고했다. 그 문장을 읽은 사람은 변조를 의심하며 해시를 뒤지지, **설치를 하지 않는다**
+ * — 판정 문장이 엉뚱한 곳을 가리키는 M-0021형이다.
+ *
+ * 게다가 판정이 **무관한 조건에 달려 있었다**: 스킬 디렉터리가 아예 없으면 경고만 내고
+ * 통과하는데(일반 GitHub 러너), 디렉터리는 있고 우리 스킬만 없으면 실패였다(Claude Code
+ * 컨테이너는 기본 스킬을 깔아 둔다). **같은 「미설치」가 환경에 따라 반대 판정을 냈다** — §7이
+ * 금지하는 비대칭이고, 그래서 이 저장소 상태와 무관하게 빨간불이 켜져 있었다.
+ *
+ * 이제 갈래는 셋이다: 설치 경로 없음(호출부가 경고) · **미설치(확인 불가)** · 설치됐는데 다름(결함).
+ */
+function auditInstalled(tool, entry, hashes, errors, unknowns) {
+  if (!hashes) return; // 설치 경로 자체가 없다 — 호출부가 이미 경고했다
+  const actual = hashes[entry.name];
+  if (actual === null || actual === undefined) {
+    unknowns.push(`${entry.name} ${tool} 전역 설치본이 없습니다 — 이 실행은 그 설치본을 **재지 않았습니다**(확인 불가)`);
+  } else if (actual !== entry.contentSha256) {
+    errors.push(`${entry.name} ${tool} 전역 설치본 해시가 lock과 다름`);
+  }
 }
 
 function selfTest(lock, profile, vendorHashes, adapterText, workflows) {
@@ -155,7 +184,14 @@ function selfTest(lock, profile, vendorHashes, adapterText, workflows) {
     mutate(sample);
     if (!validateContract(sample).errors.some((error) => error.includes(expected))) throw new Error(`셀프테스트 실패: ${name} 결함을 못 잡음`);
   }
-  console.log(`주입증명 ${cases.length + 1}축: 정상 1 · 결함 ${cases.length} 모두 판별.`);
+  // 🔴 **미설치는 결함이 아니라 확인 불가다**(§8). 위 드리프트 두 축과 **짝으로** 둔다 —
+  // 짝이 없으면 다음 사람이 「엄격하게」 고치는 순간 미설치가 다시 결함으로 돌아온다.
+  const absent = structuredClone(base);
+  absent.claudeHashes = Object.fromEntries(absent.lock.skills.map((skill) => [skill.name, null]));
+  const absentResult = validateContract(absent);
+  if (absentResult.errors.some((error) => error.includes('전역 설치본 해시가 lock과 다름'))) throw new Error('셀프테스트 실패: 미설치를 변조로 보고함');
+  if (absentResult.unknowns.length !== absent.lock.skills.length) throw new Error('셀프테스트 실패: 미설치를 확인 불가로 세지 않음');
+  console.log(`주입증명 ${cases.length + 2}축: 정상 1 · 결함 ${cases.length} 모두 판별 · 미설치 1은 확인 불가로 갈림.`);
 }
 
 const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
@@ -228,3 +264,5 @@ if (result.errors.length) {
   process.exit(1);
 }
 console.log(`공통 스킬 계약 OK — 스킬 ${result.skillCount} · CI 그룹 ${result.counts.groups} · 릴리스 노드 ${result.counts.nodes} · 배포 표면 ${result.counts.surfaces} · 커밋 ${lock.commit.slice(0, 8)}.`);
+// 🔴 **못 잰 것은 통과가 아니다**(HRL-2 · §15). 확인 불가를 초록 뒤에 숨기지 않고 이름까지 말한다.
+for (const unknown of result.unknowns) console.warn(`  ⚠️ 확인 불가: ${unknown}`);
