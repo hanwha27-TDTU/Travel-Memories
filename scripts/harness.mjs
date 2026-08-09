@@ -110,6 +110,9 @@ const gates = [
   // 게이트가 **개수가 아니라 뜻**을 단언하는지. 개수만 세는 검사는 「위반 0」과 「아무것도 안
   // 봤다」에 같은 종료코드를 준다 — 2026-08-09에 실제로 그 형태가 나왔다(check-gate-integrity).
   { name: 'check-gate-promise', cmd: 'node scripts/check-gate-promise.mjs' },
+  // 거버넌스 문서가 **모집단 결번을 보이게** 서 있는지. 산문은 존재하는 것만 서술하므로
+  // 빠진 칸을 볼 방법이 없다 — 형제를 나란히 세우면 빈칸이 모양으로 드러난다(TRE).
+  { name: 'check-doc-tree', cmd: 'node scripts/check-doc-tree.mjs' },
   { name: 'check-domain-wiring', cmd: 'node scripts/check-domain-wiring.mjs' },
   { name: 'check-csp', cmd: 'node scripts/check-csp.mjs' },
   { name: 'check-production-artifacts', cmd: 'node scripts/check-production-artifacts.mjs' },

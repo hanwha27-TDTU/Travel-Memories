@@ -1,3 +1,6 @@
+---
+shape: prose-debt
+---
 # DATA MODEL · Bugeon Journey
 
 설계지시서 §8 + MASTER_SPEC_v0.2 §10~§12 기준.

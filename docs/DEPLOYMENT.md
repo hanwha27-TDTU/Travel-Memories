@@ -1,3 +1,6 @@
+---
+shape: prose-debt
+---
 # DEPLOYMENT · Bugeon Journey
 
 **GitHub Pages 정적 배포가 필수 목표다** (ADR-0010). 모든 설계는 정적 호스팅 제약에 맞춘다.

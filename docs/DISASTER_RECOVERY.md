@@ -1,3 +1,6 @@
+---
+shape: prose-debt
+---
 # DISASTER_RECOVERY · Bugeon Journey
 
 > 비상 상황에서 **사용자의 기억(여행·순간·사진·비용)을 어떻게 되살리는가**의 단일 절차서.

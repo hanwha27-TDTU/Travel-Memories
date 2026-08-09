@@ -1,3 +1,6 @@
+---
+shape: prose-debt
+---
 # 헌법 · Bugeon Journey (공통 계약)
 
 > 🔴 **이 파일이 정본이다.** `CLAUDE.md`(Claude Code)와 `AGENTS.md`(Codex)는 이 내용을

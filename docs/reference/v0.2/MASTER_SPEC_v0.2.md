@@ -1,3 +1,7 @@
+---
+shape: prose
+shape_reason: v0.2 원본 사료 — 당시 상태를 그대로 보존한다.
+---
 # Journey Archive 통합 제품·설계 기준서 및 개발 실행지시서
 
 문서 버전: 0.2  

@@ -1,3 +1,6 @@
+---
+shape: prose-debt
+---
 # PROJECT SPEC · Bugeon Journey
 
 **최상위 제품·설계 기준.** 설계지시서(개인 여행기록 앱 통합 설계제안서 v0.1)를 저장소 SSOT로 반영한다. 충돌 시 이 문서가 이긴다. 세부는 각 도메인 문서(`DATA_MODEL`, `SECURITY`, `PRIVACY`, `SYNC_PROTOCOL`, `MEDIA_PIPELINE`, `ARCHITECTURE`) 참조.

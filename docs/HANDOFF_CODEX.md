@@ -1,3 +1,7 @@
+---
+shape: prose
+shape_reason: 맥락 없는 AI가 처음부터 따라 읽는 문서다 — 순서 자체가 내용이다.
+---
 # HANDOFF_CODEX · Bugeon Journey 인계서
 
 > **읽는 사람**: 이 앱 제작에 거의 참여하지 않은 AI(Codex 등) 또는 새 Claude 세션.

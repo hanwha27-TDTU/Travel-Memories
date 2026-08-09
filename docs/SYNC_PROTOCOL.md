@@ -1,3 +1,6 @@
+---
+shape: prose-debt
+---
 # SYNC PROTOCOL · Bugeon Journey
 
 오프라인 우선 동기화 계약. **최고 위험·비가역 표면.** 동기화 코드를 쓰기 전에 이 계약을 확정하고 신성하게 다룬다. (설계지시서 §12 + LESSONS §1)

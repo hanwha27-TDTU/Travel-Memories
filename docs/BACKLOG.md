@@ -1,3 +1,6 @@
+---
+shape: prose-debt
+---
 # BACKLOG · Bugeon Journey — 미완료 과제 단일 정본(SSOT)
 
 > 🔴 **미완료 과제의 상태는 이 파일 한 곳에만 산다.** 다른 문서(ROADMAP·HANDOFF·ASSUMPTIONS 등)는

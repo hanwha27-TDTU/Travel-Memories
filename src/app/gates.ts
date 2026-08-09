@@ -29,6 +29,7 @@ export const GATE_DESC: Record<string, string> = {
     '전역 공통 스킬의 승인 커밋·프로젝트 스냅샷·릴리스 프로필·설치본이 서로 갈라지지 않는지',
   'check-input-closeout': '재생성 writer 전부가 읽기 전용 마감 check를 갖는지(비싼 산출물 앞의 고정점 · HRL-17)',
   'check-gate-promise': '게이트마다 **개수가 아닌 축**을 선언했는지(약속 원장 · 부채는 줄기만 한다)',
+  'check-doc-tree': '거버넌스 문서가 shape를 선언하고, 트리 문서는 축·근거·사각지대를 갖는지(모집단 결번을 보이게)',
   'check-domain-wiring': '도메인↔화면 배선이 죽지 않았는지',
   'check-csp': 'CSP 위반(인라인·외부 리소스) 없는지',
   'check-production-artifacts': '공개 운영 빌드에 원본 TS를 드러내는 소스맵이 없는지(설정 + 실제 dist)',
@@ -178,6 +179,8 @@ export const GATE_AXIS: Record<string, string> = {
   'check-real-coord': '파일 수가 아니라, 좌표 판정이 **isRealCoord 한 곳에만** 있는지',
   'check-ui-color-token': '파일 수가 아니라, 하드코딩 색이 0이고 전부 토큰을 지나는지',
   'check-gate-promise': '게이트 수가 아니라, **모든 게이트가 개수 아닌 축을 선언**했고 부채가 늘지 않는지 — 래칫은 한 방향이다',
+  'check-doc-tree':
+    '문서 수가 아니라, 형제를 나란히 세워 **빈칸이 모양으로 드러나는지** — 미선언은 통과가 아니고, 이관 부채는 매번 이름째 출력된다',
   'unit-tests': '통과 개수가 아니라, 순수 로직 계약이 유지되는지',
   'verify-editor-live': '검사 수가 아니라, **실제 브라우저에서** 사용자 경로가 실제로 도는지',
   'verify-diagnostics-live': '도구 수가 아니라, **실제 DOM에** 판정 문장·자리·버튼이 나오는지',
@@ -195,6 +198,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   // 생성물을 대조하지 않고 **원장이 온전한가**를 본다(디렉터리 ↔ 원장). 그래서 static이다.
   'check-input-closeout': 'static',
   'check-gate-promise': 'static',
+  'check-doc-tree': 'static',
   'check-domain-wiring': 'generated',
   'check-csp': 'static',
   'check-production-artifacts': 'generated',

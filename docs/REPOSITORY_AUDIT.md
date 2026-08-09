@@ -1,3 +1,6 @@
+---
+shape: prose-debt
+---
 # REPOSITORY AUDIT · Bugeon Journey
 
 문서 버전: Gate 0A  

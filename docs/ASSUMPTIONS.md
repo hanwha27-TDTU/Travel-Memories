@@ -1,3 +1,6 @@
+---
+shape: prose-debt
+---
 # ASSUMPTIONS · Bugeon Journey
 
 > 설계지시서 §0 원칙: "불명확한 사항이 있어도 개발을 중단하지 말고, 가장 보수적이고 복구 가능한 기본값을 선택한 뒤 이 문서에 기록한다."
