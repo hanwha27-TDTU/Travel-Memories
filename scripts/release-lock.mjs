@@ -84,12 +84,17 @@ export function blockedBy(command, state, now) {
 }
 
 /**
- * 얼어 있는 동안 막는 명령. **저장소의 머리를 움직이는 것**만 고른다 —
+ * 얼어 있는 동안 막는 명령. **새 이력을 만드는 것**만 고른다 —
  * 조사·읽기는 자유여야 한다(막으면 사람이 잠금을 꺼 버리고, 꺼진 장치는 없는 장치다).
+ *
+ * 🔴 **`git push`는 여기 없다 — 첫 실사용에서 이 장치가 자기 발을 밟았다**(2026-08-09, v2.08).
+ * 첫 판은 push도 막았고, 그래서 **릴리스 후보를 올려 PR을 여는 일 자체가 막혔다.**
+ * 다시 보니 규율이 막으려는 것은 「push」가 아니라 **검증 뒤에 생긴 새 커밋**이다. 그리고
+ * 커밋이 막혀 있는 동안 push가 나를 수 있는 것은 **이미 검증된 이력뿐**이다. 릴리스 흐름을
+ * 끊는 장치는 꺼진다 — 그래서 뺐다(이 재개방은 원장에 이유와 함께 1회로 기록돼 있다).
  */
 const FROZEN = [
   /^git\s+commit\b/,
-  /^git\s+push\b/,
   /^git\s+merge\b/,
   /^git\s+rebase\b/,
   /^git\s+cherry-pick\b/,
@@ -146,15 +151,18 @@ export function selfTest() {
   // ② 차단 판정
   const mustBlock = [
     'git commit -m "docs: 후속과제"',
-    'git push -u origin claude/x',
     'git add -A && git commit -m x',
     'git rebase origin/main',
+    'git merge origin/main',
   ];
   for (const c of mustBlock) {
     if (!blockedBy(c, armed, T0)) throw new Error(`SELF-TEST 실패: 막아야 할 것을 놓쳤다 — ${c}`);
     SELF.pos += 1;
   }
   const mustPass = [
+    // 🔴 **실사용에서 나온 것**(v2.08): push를 막으면 릴리스 후보를 올릴 수가 없다.
+    //    커밋이 막혀 있는 동안 push가 나를 수 있는 것은 이미 검증된 이력뿐이다.
+    ['릴리스 후보 push', 'git push -u origin claude/x', armed],
     ['조사는 자유', 'git status --porcelain', armed],
     ['읽기는 자유', 'git log --oneline -5', armed],
     ['닫혀 있으면 자유', 'git commit -m x', EMPTY],
