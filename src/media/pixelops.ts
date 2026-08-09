@@ -196,3 +196,96 @@ export function warpPerspective(
   }
   return out;
 }
+
+/** 자동 잡티 감지 결과 — 0..1 정규화 좌표(감지한 캔버스 기준)와 반경(폭 대비 비율). */
+export interface DetectedSpot {
+  x: number;
+  y: number;
+  r: number;
+}
+
+/**
+ * 자동 잡티 감지 — **주변보다 어두운 작은 얼룩**을 찾는다.
+ *
+ * ── 왜 「어두운 것만」인가 ────────────────────────────────────────────────────
+ * 잡티·점·먼지는 주변 피부·배경보다 어둡다. 밝은 쪽까지 잡으면 **하이라이트·반사·치아**가
+ * 걸려 사람 얼굴이 뭉개진다. 한쪽만 보는 것은 성능이 아니라 **오탐을 줄이는 선택**이고,
+ * 그래서 여기 적는다(§7 — 의도적 비대칭에는 이유를 남긴다).
+ *
+ * ── 판정 ─────────────────────────────────────────────────────────────────────
+ * 격자를 훑으며 중심 원반 평균과 그 바깥 고리 평균을 비교한다. 고리가 충분히 더 밝으면
+ * (`ring - center > threshold`) 얼룩으로 본다. 겹치는 후보는 점수가 높은 것만 남긴다(NMS).
+ *
+ * 🔴 **결정적이다** — 난수를 쓰지 않는다. 같은 사진에 두 번 누르면 같은 결과가 나와야
+ * 사용자가 「되돌리기 → 다시」를 신뢰할 수 있다(§2-3의 같은 규율).
+ *
+ * 🔴 **한계**: 이건 「얼굴의 잡티」를 아는 게 아니라 **작고 어두운 얼룩**을 아는 것이다.
+ * 점·모공·글자·작은 그림자를 구분하지 못한다. 그래서 결과는 항상 실행취소로 되돌릴 수
+ * 있어야 하고(호출부 책임), 개수 상한을 둔다 — 사진 전체를 문지르지 않는다.
+ */
+export function detectBlemishes(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  opts: { maxSpots?: number; strength?: number } = {},
+): DetectedSpot[] {
+  const maxSpots = opts.maxSpots ?? 24;
+  const strength = Math.min(1, Math.max(0, opts.strength ?? 0.5));
+  const short = Math.min(width, height);
+  if (short < 24) return []; // 너무 작으면 판정하지 않는다 — 억지로 찾지 않는다
+  const rPx = Math.max(2, Math.round(short * 0.01)); // 얼룩 반경 후보(짧은 변의 1%)
+  // 강도가 셀수록 문턱이 낮아진다(더 옅은 얼룩까지). 0.5에서 18/255.
+  const threshold = 30 - strength * 24;
+
+  const lum = (i: number): number => 0.299 * data[i]! + 0.587 * data[i + 1]! + 0.114 * data[i + 2]!;
+  /** 원반/고리의 평균과 표준편차. 표준편차가 「주변이 균일한가」를 말한다. */
+  const stat = (cx: number, cy: number, r0: number, r1: number): { mean: number; std: number } => {
+    let sum = 0;
+    let sq = 0;
+    let n = 0;
+    for (let dy = -r1; dy <= r1; dy += 1) {
+      const y = cy + dy;
+      if (y < 0 || y >= height) continue;
+      for (let dx = -r1; dx <= r1; dx += 1) {
+        const x = cx + dx;
+        if (x < 0 || x >= width) continue;
+        const d = Math.hypot(dx, dy);
+        if (d < r0 || d > r1) continue;
+        const l = lum((y * width + x) * 4);
+        sum += l;
+        sq += l * l;
+        n += 1;
+      }
+    }
+    if (!n) return { mean: 0, std: 0 };
+    const mean = sum / n;
+    return { mean, std: Math.sqrt(Math.max(0, sq / n - mean * mean)) };
+  };
+
+  const found: Array<DetectedSpot & { score: number }> = [];
+  for (let cy = rPx * 2; cy < height - rPx * 2; cy += rPx) {
+    for (let cx = rPx * 2; cx < width - rPx * 2; cx += rPx) {
+      const center = stat(cx, cy, 0, rPx);
+      const ring = stat(cx, cy, rPx * 2, rPx * 3);
+      const score = ring.mean - center.mean; // 주변이 더 밝다 = 가운데가 어둡다
+      if (score <= threshold) continue;
+      // 🔴 **고리가 균일할 때만 얼룩이다.** 밝은 영역(하이라이트·치아·창문) 바로 바깥을 재면
+      // 고리가 그 경계를 걸쳐 중심이 상대적으로 어두워 보인다 — 얼룩이 아니라 **헤일로**다.
+      // 유닛이 이 오탐을 실제로 잡았다: 밝은 사각형 하나에 12건이 검출됐다.
+      // 얼룩은 균일한 피부 위에 있고, 헤일로는 **경계** 위에 있다. 그 차이가 고리의 표준편차다.
+      if (ring.std > score * 0.8) continue;
+      found.push({ x: cx / width, y: cy / height, r: (rPx * 1.3) / width, score });
+    }
+  }
+
+  // 겹치는 후보는 점수가 높은 것만 남긴다 — 같은 얼룩을 여러 번 문지르지 않게.
+  found.sort((a, b) => b.score - a.score);
+  const kept: DetectedSpot[] = [];
+  const minGap = (rPx * 2) / width;
+  for (const cand of found) {
+    if (kept.length >= maxSpots) break;
+    if (kept.some((k) => Math.hypot(k.x - cand.x, (k.y - cand.y) * (height / width)) < minGap)) continue;
+    kept.push({ x: cand.x, y: cand.y, r: cand.r });
+  }
+  return kept;
+}

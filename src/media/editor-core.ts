@@ -2,7 +2,7 @@
 // 비파괴: 입력 비트맵(원본)은 읽기만 하고, 결과는 항상 새 canvas.
 // 미리보기와 최종 저장이 같은 bakeToCanvas를 사용한다(WYSIWYG 단일 경로).
 
-import { applyColorAdjust, sharpen, grain, healSpot, warpPerspective, isNoAdjust, type ColorAdjust } from './pixelops';
+import { detectBlemishes, applyColorAdjust, sharpen, grain, healSpot, warpPerspective, isNoAdjust, type ColorAdjust } from './pixelops';
 
 export type CropAspect = 'orig' | '1:1' | '4:5' | '16:9' | 'free';
 
@@ -415,4 +415,22 @@ export function bakeToCanvas(
   }
 
   return out;
+}
+
+/**
+ * 자동 잡티 — 미리보기 픽셀에서 얼룩을 찾아 **상태 좌표(gd 0..1)의 heal 점**으로 돌려준다.
+ *
+ * 🔴 화면→상태 변환을 여기서 `screenToGeo`로 지나게 한 이유: 수동 탭과 **같은 함수**를 써야
+ * 자동과 수동이 같은 자리에 찍힌다. 두 곳에 손으로 구현하면 드리프트는 시간 문제다(§7 2층).
+ * 이 파일의 §4 등록부에 「원근 펴기 후 잡티가 엉뚱한 곳에 찍힌」 사고가 그 형태로 남아 있다.
+ */
+export function autoHealPoints(
+  data: Uint8ClampedArray,
+  cw: number,
+  ch: number,
+  srcW: number,
+  srcH: number,
+  s: EditState,
+): HealPoint[] {
+  return detectBlemishes(data, cw, ch).map((sp) => screenToGeo(sp.x, sp.y, srcW, srcH, s, sp.r * 100));
 }
