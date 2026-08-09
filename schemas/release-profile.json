@@ -269,6 +269,10 @@
       "check": "node scripts/check-adapter-parity.mjs"
     },
     {
+      "writer": "scripts/gen-harness-law.mjs",
+      "check": "node scripts/check-adapter-parity.mjs"
+    },
+    {
       "writer": "scripts/gen-constitution.mjs",
       "check": "node scripts/check-constitution-gen.mjs"
     },

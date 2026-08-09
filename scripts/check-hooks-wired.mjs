@@ -35,6 +35,18 @@ const REQUIRED = [
     script: 'scripts/hook-secret-guard.mjs',
     why: 'service_role 키·DB 비밀번호가 파일에 쓰이는 것을 막는다(헌법 §0)',
   },
+  {
+    event: 'PreToolUse',
+    matcherIncludes: 'Bash',
+    script: 'scripts/hook-verify-exit.mjs',
+    why: '검증 명령을 파이프에 넣어 종료코드를 잃는 것을 막는다(헌법 §18-A)',
+  },
+  {
+    event: 'PreToolUse',
+    matcherIncludes: 'Bash',
+    script: 'scripts/hook-release-freeze.mjs',
+    why: '릴리스 검증이 도는 중에 커밋을 얹어 검증을 취소·재시작시키는 것을 막는다(헌법 §18-H)',
+  },
 ];
 
 /** settings.json에서 (event, matcher, command) 삼중항을 전부 뽑는다. */
@@ -63,10 +75,13 @@ export function findMissing(hooks, required = REQUIRED) {
 
 // ── 셀프테스트: 알려진 실패를 주입해 잡히는지 확인한 뒤에만 이 게이트를 신뢰한다(§4) ──
 (() => {
-  const good = { hooks: { PreToolUse: [
-    { matcher: 'mcp__Supabase__execute_sql|mcp__Supabase__apply_migration', hooks: [{ type: 'command', command: 'node scripts/hook-sql-safe.mjs' }] },
-    { matcher: 'Write|Edit', hooks: [{ type: 'command', command: 'node scripts/hook-secret-guard.mjs' }] },
-  ] } };
+  // 🔴 정상 픽스처를 **손으로 나열하지 않는다.** 예전 판은 훅 둘을 베껴 적어 뒀고,
+  // REQUIRED에 셋째를 더한 순간 「정상 설정을 결함으로 판정」하며 셀프테스트가 터졌다 —
+  // 게이트를 넓히면 셀프테스트가 옛 전제를 못박고 있다(§11 ②). 원장에서 파생시킨다.
+  const good = { hooks: { PreToolUse: REQUIRED.map((r) => ({
+    matcher: r.matcherIncludes,
+    hooks: [{ type: 'command', command: `node ${r.script}` }],
+  })) } };
   if (findMissing(collectHooks(good)).length !== 0) throw new Error('SELF-TEST 실패: 정상 설정을 결함으로 판정(오탐).');
   if (findMissing(collectHooks({ hooks: {} })).length !== REQUIRED.length) {
     throw new Error('SELF-TEST 실패: 빈 hooks를 통과시킨다(게이트 공허) — T-003이 정확히 이 상태였다.');

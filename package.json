@@ -16,7 +16,12 @@
     "compare:geocoders": "node scripts/compare-geocoders.mjs",
     "check:secrets": "node scripts/check-secret-leak.mjs",
     "gates": "node scripts/harness.mjs --fast",
+    "release:arm": "node scripts/release-lock.mjs arm",
+    "release:reopen": "node scripts/release-lock.mjs reopen",
+    "release:close": "node scripts/release-lock.mjs close",
+    "release:status": "node scripts/release-lock.mjs status",
     "gen:adapters": "node scripts/gen-adapters.mjs",
+    "gen:harness-law": "node scripts/gen-harness-law.mjs",
     "gen:sync-release": "node scripts/gen-sync-release-contract.mjs",
     "verify:sync-release-live": "node scripts/verify-sync-release-live.mjs",
     "known": "node scripts/known.mjs"

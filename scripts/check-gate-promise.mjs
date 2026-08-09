@@ -55,7 +55,10 @@ export function recordValues(source, constName) {
   // 그렇게 빠졌다. 모집단이 하나 모자란 채로 도는 것이 이 저장소의 최빈 결함이다.
   const body = `${source.slice(open, source.indexOf('\n};', open))}\n}`;
   const out = {};
-  for (const m of body.matchAll(/^\s*(?:'([^']+)'|([A-Za-z_$][\w$]*))\s*:\s*([\s\S]*?),\n(?=\s*(?:'|[A-Za-z_$]|\}))/gm)) {
+  // 🔴 `//`를 다음 항목의 시작으로 인정하지 않으면, **주석이 달린 항목의 값이 다음 항목까지
+  // 통째로 삼켜진다**(2026-08-09에 `GATE_WORLD`에서 실제로 났다 — 값이 산문 한 문단이 됐다).
+  // 조용히 틀린 게 아니라 요란하게 틀린 건 값을 **동결 어휘로 검증**하는 쪽이 있었기 때문이다.
+  for (const m of body.matchAll(/^\s*(?:'([^']+)'|([A-Za-z_$][\w$]*))\s*:\s*([\s\S]*?),\n(?=\s*(?:'|\/\/|[A-Za-z_$]|\}))/gm)) {
     out[m[1] ?? m[2]] = (m[3] ?? '').replace(/^\s*'|'\s*$/g, '').replace(/'\s*\+\s*\n\s*'/g, '');
   }
   return out;
