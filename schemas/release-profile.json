@@ -101,8 +101,17 @@
     "criticalPath": "live-render",
     "whyCriticalPath": "세 잡은 needs 없이 병렬이므로 벽시계는 가장 긴 잡 하나다. live-render 204초 · harness 96초 · fast-gates 23초 — live-render가 벽시계의 약 98%를 차지한다.",
     "insideCriticalPath": { "Live render gates": 159, "Install Chromium": 25, "Build": 9 },
-    "floorGate": "미측정",
-    "floorGateReason": "live-render 안에서 **어느 라이브 게이트가 바닥인지**는 잡 로그를 파싱해야 나온다. 이 값 없이 최적화하면 틀린 곳을 고친다(로컬 1위가 CI에서 4위였다는 실측이 있다). 재는 법: `actions_get(get_workflow_job)`이 아니라 잡 로그에서 게이트별 구간을 뽑는다.",
+    "floorGate": "verify-editor-live",
+    "floorGateSec": 131,
+    "floorGateShare": "Live render gates 159초 중 131초(82%). 나머지 verify-diagnostics-live는 24초.",
+    "floorGateEvidence": {
+      "runId": 31263220823,
+      "jobId": 93117128956,
+      "how": "잡 로그에서 두 스크립트의 종료 표시 시각으로 갈랐다 — `383/383 PASS`(editor) 14:59:51, `68/68 PASS`(diagnostics) 15:00:15, 단계 시작 14:57:40.",
+      "samples": 1,
+      "🔴 honestLimit": "**표본 1회다.** 단계 기준선(표본 3회)과 달리 이 값은 판정 임계로 쓰지 않고 「어디를 볼지」 가리키는 데만 쓴다. 임계로 승격하려면 3회로 늘려라.",
+      "corroboration": "검사 수도 같은 방향을 가리킨다 — editor 383건 · diagnostics 68건."
+    },
     "remainingLevers": [
       "harness와 live-render가 각자 npm run build를 한 번씩 돈다(병렬이라 벽시계는 안 늘지만 같은 번들을 두 번 굽는다).",
       "Install Chromium 25초는 캐시로 줄일 수 있으나, 캐시 무효화가 조용히 틀린 브라우저를 쓰게 만드는 위험과 맞바꿔야 한다."
