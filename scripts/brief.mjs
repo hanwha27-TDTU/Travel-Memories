@@ -42,6 +42,10 @@ export const SKILL_ROUTES = [
   // 개별 스킬 문서는 아래 skillsFor()가 자기 자신도 함께 라우팅한다.
   { match: /^\.claude\/skills\//, skill: 'gates-mechanization-dev' },
   { match: /^docs\/(CONSTITUTION|HANDOFF(?:_CODEX)?)\.md$/, skill: 'gates-mechanization-dev' },
+  // 계약 스키마는 게이트가 읽는 **기계 계약**이다. 특히 release-profile.json은 릴리스 그래프·
+  // 재생성 원장의 정본이라, 여기를 고치는 것은 게이트를 고치는 것과 같은 규율을 받는다.
+  // (2026-08-09: 이 영역이 라우팅 표에 아예 없어 브리핑이 「읽을 문서 없음」을 냈다 — §9 2단계)
+  { match: /^schemas\//, skill: 'gates-mechanization-dev' },
   // A portable diagnostic blueprint changes both diagnostic semantics and the
   // gates that prove those semantics. Route it to both contracts explicitly.
   { match: /^docs\/DIAGNOSTIC_TOOL_DESIGN_BLUEPRINT\.md$/, skill: 'diagnostics-dev' },

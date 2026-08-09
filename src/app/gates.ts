@@ -27,6 +27,7 @@ export const GATE_DESC: Record<string, string> = {
   'check-dependabot-policy': 'Dependabot이 비긴급 일반 버전 PR로 전체 릴리스 검사를 자동 실행하지 않는지',
   'check-shared-skill-contract':
     '전역 공통 스킬의 승인 커밋·프로젝트 스냅샷·릴리스 프로필·설치본이 서로 갈라지지 않는지',
+  'check-input-closeout': '재생성 writer 전부가 읽기 전용 마감 check를 갖는지(비싼 산출물 앞의 고정점 · HRL-17)',
   'check-domain-wiring': '도메인↔화면 배선이 죽지 않았는지',
   'check-csp': 'CSP 위반(인라인·외부 리소스) 없는지',
   'check-production-artifacts': '공개 운영 빌드에 원본 TS를 드러내는 소스맵이 없는지(설정 + 실제 dist)',
@@ -106,6 +107,8 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-workflow-pins': 'static',
   'check-dependabot-policy': 'static',
   'check-shared-skill-contract': 'generated',
+  // 생성물을 대조하지 않고 **원장이 온전한가**를 본다(디렉터리 ↔ 원장). 그래서 static이다.
+  'check-input-closeout': 'static',
   'check-domain-wiring': 'generated',
   'check-csp': 'static',
   'check-production-artifacts': 'generated',

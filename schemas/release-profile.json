@@ -31,49 +31,75 @@
     "writer": "src/app/changelog.ts 맨 앞에 직전 버전 +0.01 항목을 단일 릴리스 오너가 추가",
     "history": "src/app/changelog.ts"
   },
+  "regenerationLedger": [
+    { "writer": "scripts/gen-adapters.mjs", "check": "node scripts/check-adapter-parity.mjs" },
+    { "writer": "scripts/gen-constitution.mjs", "check": "node scripts/check-constitution-gen.mjs" },
+    { "writer": "scripts/gen-registry.mjs", "check": "node scripts/check-registry-gen.mjs" },
+    { "writer": "scripts/gen-platform-map.mjs", "check": "node scripts/check-platform-map.mjs" },
+    { "writer": "scripts/gen-sync-release-contract.mjs", "check": "node scripts/check-sync-release-contract.mjs" },
+    {
+      "writer": "scripts/gen-version-file.mjs",
+      "excludedReason": "입력 writer가 아니라 산출물 단계 writer다 — npm run build 안에서 vite build 뒤에 돌아 dist/version.json을 만든다. 마감은 굽기 **앞**의 고정점이므로 굽는 도중에 생기는 산출물은 범위 밖이고, 그 정합은 release-build 노드의 verdict와 check-update-signal이 본다."
+    }
+  ],
   "releaseNodes": [
     {
       "id": "source-finalized",
+      "kind": "integration",
       "verdict": "소스·생성물·릴리스 대상이면 버전과 이력이 서로 일치",
       "writes": ["작업 브랜치 소스", "src/app/registry.gen.ts", "src/app/syncReleaseContract.gen.ts"]
     },
     {
       "id": "narrow-gates",
+      "kind": "verification",
       "verdict": "영향받은 게이트와 주입증명이 종료코드 0",
       "writes": []
     },
     {
       "id": "commit-push",
+      "kind": "integration",
       "verdict": "좁은 검증을 통과한 정확한 작업 브랜치 커밋이 origin에 존재",
       "writes": ["GitHub 작업 브랜치"]
     },
     {
+      "id": "input-closeout",
+      "kind": "input-closeout",
+      "verdict": "node scripts/check-input-closeout.mjs --run 종료코드 0 — 재생성 원장의 모든 writer가 읽기 전용 check를 갖고, 마감 실행 전후의 추적 파일 내용·미추적 파일 이름 지문이 같음",
+      "writes": []
+    },
+    {
       "id": "provider-predeploy",
+      "kind": "deployment",
       "verdict": "media-sign 영향이 없거나, 영향 시 구형 운영 앱 요청을 유지하는 정확한 작업 브랜치 소스를 먼저 배포",
       "writes": ["Supabase Edge Function media-sign"]
     },
     {
       "id": "provider-live-readback",
+      "kind": "verification",
       "verdict": "media-sign 영향이 없거나, 운영 capabilities의 sourceSha256·FN_VERSION·필수 ops·secretsOk가 릴리스 계약과 정확히 일치",
       "writes": []
     },
     {
       "id": "release-build",
+      "kind": "artifact",
       "verdict": "npm run build 종료코드 0, dist/version.json이 changelog 최신 버전과 일치",
       "writes": ["dist/**", "dist/version.json"]
     },
     {
       "id": "required-ci",
+      "kind": "verification",
       "verdict": "Ready PR 최신 revision에서 fast-gates·harness·live-render 모두 success",
       "writes": []
     },
     {
       "id": "squash-merge",
+      "kind": "integration",
       "verdict": "검증한 PR이 main에 squash merge되고 mergeCommit을 되읽음",
       "writes": ["origin/main"]
     },
     {
       "id": "deploy-affected-surfaces",
+      "kind": "deployment",
       "verdict": "병합 뒤 남은 영향 표면은 배포하고, 선배포한 표면을 포함해 각 권위 있는 운영 상태를 다시 되읽음",
       "writes": ["GitHub Pages", "GitHub release apk-latest", "Supabase Edge Functions", "Supabase journey schema"]
     }
@@ -81,7 +107,8 @@
   "releaseEdges": [
     { "from": "source-finalized", "to": "narrow-gates", "reason": "검사 입력을 먼저 고정한다" },
     { "from": "narrow-gates", "to": "commit-push", "reason": "알려진 결함을 잡은 소스를 불변 원격 revision으로 만든다" },
-    { "from": "commit-push", "to": "release-build", "reason": "CI와 산출물의 입력이 되는 원격 revision을 고정한다" },
+    { "from": "commit-push", "to": "input-closeout", "reason": "굽기 직전의 고정점을 정확한 원격 revision 위에서 확인한다" },
+    { "from": "input-closeout", "to": "release-build", "reason": "HRL-17 — 재생성 입력이 고정된 뒤에만 산출물을 굽는다. 마감 뒤 입력이 바뀌면 마감 증거와 산출물을 폐기하고 다시 시작한다" },
     { "from": "commit-push", "to": "provider-predeploy", "reason": "운영 제공자가 검증한 불변 작업 브랜치 소스를 품게 한다" },
     { "from": "provider-predeploy", "to": "provider-live-readback", "reason": "배포 명령이 아니라 운영 capabilities의 정확한 정체성을 완료 증거로 삼는다" },
     { "from": "provider-live-readback", "to": "required-ci", "reason": "운영 제공자 계약이 맞아야 새 소비자 앱의 Required 검증을 연다" },

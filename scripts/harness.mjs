@@ -49,6 +49,10 @@ const gates = [
   // 고정 스냅샷·해시·이 저장소 전용 릴리스 프로필만 둔다. CI가 전역 설치본까지 볼 수 있는
   // 환경에서는 설치 드리프트도 잡고, 일반 GitHub runner에서는 프로젝트 스냅샷·프로필을 판정한다.
   { name: 'check-shared-skill-contract', cmd: 'node scripts/check-shared-skill-contract.mjs' },
+  // HRL-17 — 비싼 산출물 **앞**의 고정점. HRL-9(§18-E)가 산출물 뒤를 막는다면 이쪽은 앞을 맡는다.
+  // 🔴 여기서 도는 것은 **원장 검사만**이다(싸다). 마감을 실제로 돌린 증거는 릴리스 때의
+  // `--run`이고, 그게 실행 전후 트리 지문으로 「읽기 전용이다」라는 주장 자체를 검증한다.
+  { name: 'check-input-closeout', cmd: 'node scripts/check-input-closeout.mjs' },
   { name: 'check-domain-wiring', cmd: 'node scripts/check-domain-wiring.mjs' },
   { name: 'check-csp', cmd: 'node scripts/check-csp.mjs' },
   { name: 'check-production-artifacts', cmd: 'node scripts/check-production-artifacts.mjs' },
