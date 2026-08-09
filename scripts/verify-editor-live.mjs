@@ -623,6 +623,38 @@ await page.getByRole('button', { name: '순간 저장' }).click();
 await page.waitForSelector('.pe-overlay', { timeout: 10000 });
 check('편집기 모달 열림', true);
 
+
+// ── 🔴 v2.07: [초기화]가 **화면 표시 상태까지** 되돌리는가 (사용자 보고 2026-08-09) ──
+// 사용자: *"버튼 누르면 원래 로딩되었던 사진으로 돌아가는 게 아니라 이상하게 확대된다."*
+// 의심: `fitMode`(폭 채우기)와 `perspMode`는 **EditState 밖 클로저 변수**라
+// `Object.assign(state, DEFAULT_EDIT)`가 못 건드린다. 눌러서 잰다(§13 4항).
+{
+  const fillBtn = page.getByRole('button', { name: '폭 채우기' });
+  await fillBtn.click();
+  await page.waitForTimeout(200);
+  const afterFill = await page.evaluate(() => ({
+    stage: document.querySelector('.pe-stage')?.classList.contains('is-fill') ?? null,
+    label: document.querySelector('.pe-geo button[aria-pressed]')?.textContent ?? '',
+  }));
+  check('폭 채우기를 누르면 실제로 채움 모드가 된다(전제 확인 — 아니면 아래 판정이 공허하다)', afterFill.stage === true, JSON.stringify(afterFill));
+
+  await page.getByRole('button', { name: '초기화', exact: true }).click();
+  await page.waitForTimeout(250);
+  const afterReset = await page.evaluate(() => {
+    const st = document.querySelector('.pe-stage');
+    const wrap = document.querySelector('.pe-canvas-wrap');
+    const fit = [...document.querySelectorAll('button')].find((b) => /폭 채우기|높이 맞춤/.test(b.textContent || ''));
+    return {
+      stageFill: st?.classList.contains('is-fill') ?? null,
+      wrapFill: wrap?.classList.contains('is-fill') ?? null,
+      fitLabel: (fit?.textContent || '').trim(),
+      fitPressed: fit?.getAttribute('aria-pressed') ?? null,
+    };
+  });
+  check('🔴 초기화 뒤 채움 모드가 풀린다(원래 보이던 크기로 돌아온다)', afterReset.stageFill === false && afterReset.wrapFill === false, JSON.stringify(afterReset));
+  check('🔴 초기화 뒤 버튼 라벨·눌림 표시도 원래대로다(화면과 상태가 어긋나지 않는다)', afterReset.fitLabel.includes('폭 채우기') && afterReset.fitPressed === 'false', JSON.stringify(afterReset));
+}
+
 // ── v0.72: 짧은 뷰포트(가로 태블릿)에서 모달이 잘리지 않는가 ──
 // 실제 사고(2026-07-26, 사용자 실기기 가로 태블릿): 편집기 상하가 잘리고 여백이 없었다.
 // 원인은 `.pe-overlay`가 `vh`(주소창 포함 높이)를 쓰고 오버레이가 스크롤하지 않은 것.

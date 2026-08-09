@@ -145,6 +145,31 @@ function readPreviewPixels(preview: HTMLCanvasElement): ImageData | null {
   return ctx.getImageData(0, 0, cv.width, cv.height);
 }
 
+/**
+ * 표시 방식(높이 맞춤 ↔ 폭 채우기) 전환기를 만든다 — **바꾸는 길은 이 하나뿐**이다.
+ *
+ * 🔴 예전엔 이 로직이 클릭 핸들러 안에 손으로 박혀 있었다. 그래서 [초기화]가 재사용할 수
+ * 없었고, `fitMode`는 `EditState` 밖 변수라 `Object.assign(state, DEFAULT_EDIT)`도 못
+ * 건드렸다 — **초기화를 눌러도 사진이 확대된 채 남았다**(사용자 보고 2026-08-09, 라이브에서
+ * 눌러 재현). 상태를 바꾸는 길이 둘이면 하나는 반드시 빠진다(§7 2층).
+ */
+function makeFitMode(
+  fitBtn: HTMLButtonElement,
+  stage: HTMLElement,
+  canvasWrap: HTMLElement,
+  store: (m: 'contain' | 'width') => void,
+  repaint: () => void,
+): (on: boolean) => void {
+  return (on: boolean) => {
+    store(on ? 'width' : 'contain');
+    fitBtn.textContent = on ? '\uD83D\uDD33 높이 맞춤' : '\u2195 폭 채우기';
+    fitBtn.setAttribute('aria-pressed', String(on));
+    stage.classList.toggle('is-fill', on);
+    canvasWrap.classList.toggle('is-fill', on);
+    repaint();
+  };
+}
+
 /** 잡티 브러시 크기 슬라이더. 값 변경만 바깥에 알린다(표시 로직은 여기 가둔다). */
 function makeBrushSlider(initial: number, onChange: (v: number) => void): HTMLLabelElement {
   const brush = el('input') as HTMLInputElement;
@@ -735,14 +760,9 @@ export async function openPhotoEditor(
     fitBtn.type = 'button';
     fitBtn.setAttribute('aria-pressed', 'false');
     fitBtn.title = '세로로 긴 사진을 폭에 꽉 채워 크게 보기(세로 스크롤)';
+    const setFitMode = makeFitMode(fitBtn, stage, canvasWrap, (m) => { fitMode = m; }, () => repaint());
     fitBtn.addEventListener('click', () => {
-      fitMode = fitMode === 'width' ? 'contain' : 'width';
-      const on = fitMode === 'width';
-      fitBtn.textContent = on ? '🔳 높이 맞춤' : '↕ 폭 채우기';
-      fitBtn.setAttribute('aria-pressed', String(on));
-      stage.classList.toggle('is-fill', on);
-      canvasWrap.classList.toggle('is-fill', on);
-      repaint();
+      setFitMode(fitMode !== 'width');
     });
     geoRow.append(rotBtn, flipBtn, perspBtn, fitBtn);
     // 비율 칩 활성 표시를 state.aspect 기준으로 일괄 동기화(개별 손편집 대신 단일 경로).
@@ -802,19 +822,18 @@ export async function openPhotoEditor(
     healBtn.setAttribute('aria-pressed', 'false');
     const brushWrap = makeBrushSlider(brushPct, (v) => {
       brushPct = v;
-      // 화면 중앙에 실제 적용 반경을 잠깐 보여준다(크기 감 잡기).
       const rect = canvasWrap.getBoundingClientRect();
       showBrushDot(rect.width / 2, rect.height / 2, (brushPct / 50) * rect.width, 600);
     });
     const healHint = el('span', 'pe-hint muted small', '지우고 싶은 점을 사진에서 톡 누르세요 · 되돌리기는 상단 ↺');
     healHint.hidden = true;
-    function setHealMode(on: boolean): void {
+    const setHealMode = (on: boolean): void => {
       healMode = on;
       healBtn.setAttribute('aria-pressed', String(on));
       brushWrap.hidden = !on;
       healHint.hidden = !on;
       preview.classList.toggle('pe-heal-cursor', on);
-    }
+    };
     healBtn.addEventListener('click', () => {
       if (perspMode) setPerspMode(false); // 펴기 모드와 잡티 모드는 동시 불가
       if (isCropMode()) {
@@ -892,6 +911,9 @@ export async function openPhotoEditor(
       zoom.value = '1';
       cropApplied = false;
       setHealMode(false);
+      // 🔴 EditState 밖 표시 상태도 함께 되돌린다 — 안 되돌리면 「초기화했는데 확대된 채」가 된다.
+      setFitMode(false);
+      setPerspMode(false);
       setPresetActive('원본');
       syncSliders();
       syncAspectChips();
