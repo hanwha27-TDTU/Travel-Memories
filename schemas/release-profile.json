@@ -55,6 +55,7 @@
         "src/services/syncParity.ts",
         "src/services/purge.ts",
         "src/services/backup.ts",
+        "src/services/backupRoundTrip.ts",
         "src/services/backupCrypto.ts",
         "src/services/backupMeta.ts",
         "src/services/media.ts",
