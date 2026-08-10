@@ -42,7 +42,7 @@ const LEGACY = {
   'src/ui/screens/r2Setup.ts::openR2Setup': 138,
   'src/ui/screens/researchNote.ts::openResearchNote': 126,
   'src/ui/screens/tripDetail.ts::buildMomentEditForm': 83,
-  'src/ui/panels/verdict.ts::renderTool': 121,
+  'src/ui/panels/verdict.ts::renderTool': 83,
   // 종류별 파일 감사 — 지표 넷이 한 자리에서 같은 목록을 나눠 읽어야 해서 붙어 있다.
   // 쪼개면 같은 스캔을 네 번 하게 된다(§7-F 처방 ③의 반대 방향 비용).
   'src/ui/panels/diagnostics.ts::fileAuditMetrics': 121,

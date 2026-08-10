@@ -8,6 +8,41 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0136 · v2.10 · **백업 복원 왕복·라이브 게이트·공용 릴리스 법 묶음** (2026-08-10 · 릴리스 후보)
+
+- HANDOFF-0133~0135의 구현을 하나의 릴리스로 묶는다. 사용자 화면의 새 기능은 진단 허브 「백업·복원」의 실제 파일 왕복 시험이며, 같은 묶음에 라이브 게이트 완료조건 전환과 공용 릴리스 법 정합을 포함한다.
+- 사용자 자료를 시험 파일에 복제하지 않고 고유 진단 trip 한 건만 production 복원 경로로 되읽은 뒤 transaction을 의도적으로 abort한다. 성공 조건은 read-back 일치와 trip·queue·purged 잔재 0건이다.
+- 배포 표면: GitHub Pages v2.10. Supabase DB·RLS·Edge Function·R2·Android 셸 변경 없음.
+- 검증 경로: 표적 백업·복원 유닛 → 빠른 게이트 → 생성물 재생성 → build·전체 harness·두 라이브 게이트 → Ready PR 최신 revision CI → squash merge → Pages workflow와 운영 `version.json` read-back.
+
+## HANDOFF-0135 · **T-017 공용 릴리스 법·전역 설치본 정합 복구** (2026-08-10 · 구현됨 → v2.10에 포함)
+
+- 빠른 하네스의 유일한 실패는 제품 코드가 아니라 프로젝트 lock(`1cebdaa`)과 Codex/Claude 전역 설치본(`e273327` 계열)의 공용 `release-harness-governance` 버전 드리프트였다. 전역 설치본의 내용 해시는 공용 저장소의 깨끗한 원격 추적 커밋과 일치했으므로 구버전으로 내리지 않았다.
+- 사용자 승인("유일한 실패를 해결하자")에 따라 공용 정본 `e27332798191a376875cab8353be7064fea76b8a`을 승인점으로 삼았다. 공식 `sync-skills.mjs`만 사용해 프로젝트 vendor/lock, release profile, Codex·Claude 전역 4개 설치본과 전역 출처 상태를 같은 커밋·논리 내용 해시로 맞췄다.
+- 이로써 프로젝트 §18-G·§18-H의 공통법 승인을 기다리던 T-017도 닫혔다. 공용 정본에는 HRL-18(산출물 전제), HRL-19(위험 기반 전체 하네스), HRL-20(브라우저 실패 격리)과 Windows 공급망 경계가 포함된다.
+- 검증: 공용 정본 검사, LF/CRLF 내용 해시 주입 3축, 프로필 주입 19축, 설치 왕복 9축, `check-shared-skill-contract` 통과. 이어 최신 빌드에서 전체 하네스 **64/64 PASS·SKIP 0**을 확인했다. 전역 설치 전 사본은 `C:\Users\lands\.agents\skill-backups\before-shared-skills`에 보존된다.
+- 앱 런타임·사용자 데이터·DB·R2·배포 표면은 변경하지 않았다. 이 변경은 공급망 정책과 파생 설치본 정합만 다룬다.
+
+## HANDOFF-0134 · **T-012 실제 백업 파일 복원 왕복** (2026-08-10 · 구현됨 → v2.10에 포함)
+
+- 「백업 신선도」를 **「백업·복원」**으로 확장했다. 최근 파일 유무와 실제 파일 왕복은 다른 지표이며, 둘을 모두 통과해야 완료형 판정을 쓴다.
+- [왕복 시험 파일 만들기]는 **사용자 자료를 복제하지 않고** 고유 시험 trip 한 건만 든 production 형식의 진단 전용 JSON을 만든다. 사용자가 고른 파일은 SHA-256으로 방금 받은 파일인지 먼저 확인한다.
+- 실제 복원은 production `importMergeRows`와 원장 되돌리기 큐를 그대로 통과해 transaction 안에서 전 필드를 되읽은 뒤 **의도적으로 abort**한다. 성공 응답이 아니라 원래 값 일치와 abort 뒤 trip·queue·purged 잔재 0건이 통과 조건이다. import를 시작하기 전 실패는 기존 상태를 정리하지 않고, 실제 import 뒤 정리도 정확한 시험 id 하나만 대상으로 한다.
+- 공용 Verdict 렌더러에 discriminated file action을 넣어 다음 파일 입력 도구도 같은 접근성·미선택 오류·결과 문장·재판정 규율을 자동으로 받는다.
+- 복구 감사에서 ① preflight 실패의 과삭제 ② 평문 전체 사용자 백업 ③ 새 파일에 옛 초록 재사용 ④ 앱·백업 형식 버전과 무관한 영구 초록 ⑤ 선택 동기화 메타 필드 미검증을 찾았고 모두 수정했다. 기존 동일 id 기록·큐·원장 보존, 새 파일 생성 시 통과 무효화, 현재 앱·백업 형식 결합과 24시간 만료를 회귀로 잠갔다.
+- 전체 하네스의 비UTC 시간대 검사가 진단 trip 날짜를 ISO 문자열 앞 10자로 자른 새 위반을 잡았다. `domain/time.ts`의 `localDate()`를 통과시켜 서울·호놀룰루 양쪽 전체 유닛에서도 같은 계약을 확인했다.
+- 검증: 백업·복원 표적 유닛 8파일 50/50, 전체 유닛 104파일 1,552/1,552, 진단 라이브 70/70, build 통과. 독립 복구 재감사도 범위 내 잔여 P0/P1/P2 없이 HOLD를 해제했다. 실제 사용자 데이터·서버·R2·migration은 변경하지 않았다. 사진·소리 바이트와 전 도메인 왕복은 기존 자동 유닛층이 맡고, 이 런타임 도구의 쓰기 범위는 진단 trip 한 건이다.
+- v2.10 릴리스 묶음에 포함했다.
+
+## HANDOFF-0133 · **T-018 라이브 게이트 고정 대기 제거** (2026-08-10 · 구현됨 → v2.10에 포함)
+
+- `verify-editor-live`의 실행 고정 대기 126곳을 canvas 서명·DOM 상태·IndexedDB read-back·파일 처리·네트워크 응답 소비 등 **실제 완료 조건**으로 교체했다. 동기 렌더만 `settle()`을 썼고, 실행 `waitForTimeout`은 0이 됐다.
+- 같은 방식의 전후 계측: 390/390 유지, 137.4초 → **63.4초(약 54% 단축)**. `check-live-sleep` 래칫의 editor 기준도 0으로 낮췄다.
+- 계측기 자체가 Windows CLI 경로를 bare import해 측정 0건을 성공 보고하고, 실패 뒤 preview 서버 때문에 끝나지 않는 M-0137도 함께 수정했다. 경로는 resolve→존재 확인→file URL import, 오류는 확정 종료한다.
+- 빠른 게이트 재실행에서 Windows CRLF를 못 읽어 축·frontmatter를 전부 누락하던 두 파서와 권한 없는 `dir` symlink 생성 실패도 함께 드러났다(M-0138). 입력 줄바꿈을 정규화하고 Windows 디렉터리 링크는 junction으로 만들며 각각 CRLF·플랫폼 대조군을 셀프테스트에 넣었다.
+- 첫 무고정대기 라이브에서 `zoom 값>1`과 「옛 시각 행이 사라짐」을 완료로 너무 일찍 본 경합이 387/390·388/390으로 재현됐다. 핀치는 두 위치 모두 실제 canvas 픽셀 변화, 시간대 저장은 완성된 여행지 시각+집 시각 환산 문장까지 기다리게 고쳐 최종 **390/390·콘솔 오류 0**으로 read-back했다. 완료 조건도 중간 상태면 고정 sleep과 다른 형태의 거짓 판정이다.
+- 앱 런타임 동작은 바뀌지 않았다. v2.10 릴리스 묶음에 포함했다.
+
 ## HANDOFF-0132 · v2.09 · **T-016 릴리스 묶음** (2026-08-09 · 릴리스 후보)
 
 - HANDOFF-0131의 구현을 묶어 배포한다. 새 코드 변경 없음 — v2.09는 순수 릴리스 절차 커밋.
@@ -886,7 +921,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리·라이브 v<!--reg:appVersion-->2.09<!--/reg-->**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->209<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->117<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.10<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->210<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->121<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->29<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

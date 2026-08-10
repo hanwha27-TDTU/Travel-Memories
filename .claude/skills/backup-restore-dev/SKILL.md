@@ -17,6 +17,7 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 | `src/services/zip.ts` | 의존성 0 store(무압축) ZIP 리더/라이터 + CRC32 | 순수 → 유닛테스트 대상 |
 | `src/services/backupCrypto.ts` | AES-GCM-256 + PBKDF2 210k 봉투(MAGIC `BGJENC1\n`) | WebCrypto. **키를 저장하지 않는다** |
 | `src/services/backupMeta.ts` | 마지막 백업 시각·신선도(localStorage) | 캐시성 메타(기억 아님) |
+| `src/services/backupRoundTrip.ts` | 실제 내려받기→파일 선택→파싱→Dexie 병합→read-back 왕복 시험 | 고유 시험 id 한 건만 복원하고 바깥 transaction을 의도적으로 abort |
 
 ## 1. 불변 계약
 
@@ -57,6 +58,7 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 | 1.03 | **복원이 서버 영구삭제 원장에 막혀 조용히 무효화**(M-0032). 앱엔 아무것도 없고 서버엔 원장 24건·R2에 고아 파일 10개만 남았다 | **규칙을 한쪽(로컬)에만 구현**(§7 비대칭). 차단 장치를 만들며 **정당한 예외의 문**을 안 만들었다 | migration `0017` 좁은 문(`journey.unpurge_ids` — 자기 행만·명시한 id만, **테이블 DELETE는 여전히 안 준다**) + `unpurge` 큐 op + 되읽기 확인 + `applyPurgedLedger` 가드 + **런타임 지표**「복원했는데 서버가 막은 항목」 |
 | 1.03 | 복원 중인 사진의 R2 파일 10개를 「치워도 되는 잔재」로 분류하고 **정리 버튼까지 내어 줬다** | 성격이 정반대인 것을 한 숫자에 섞음(근본형 C) — **기억 손실 직전까지** 갔다 | `classifyOrphanFiles(orphans, ledger, restorePending)`이 `restoring`을 따로 가른다. 분류 판단을 화면 코드의 `filter` 한 줄로 흩지 않는다 |
 | 1.04 | **v1.03의 수정이 반쪽이었다**(M-0033). 「복원됨 · 13건 되살립니다」를 띄우고도 홈은 비어 있었다. 원장은 24→11로 줄었으니 되돌리기는 성공했고, **행은 그 전에 이미 지워져** 있었다 | 의사를 행과 **다른 커밋**에 넣어 창을 만들었다. 헌법이 이미 "entity+operation **atomic** commit"이라 못박은 그 규율을, **새로 만든 op에만** 적용하지 않았다(§7 비대칭) | `requestUnpurge`를 트랜잭션 콜백의 **반환값**으로(밖으로 옮기면 반환 경로가 끊긴다) + `revivePushOps` + `tests/unit/restoreAtomicity.test.ts`(*"의사를 못 남기면 행도 남지 않는다"* — 옛 배치 주입 시 2건 RED) |
+| 2.09 이후 | 유닛은 만든 백업을 메모리에서 곧바로 읽어 **실제 파일 선택 경계**를 못 쟀다(T-012) | 브라우저 파일 경계와 production 병합 이음매가 분리돼 각각 초록이어도 조립은 미검사 | 사용자 자료를 복제하지 않는 **진단 trip 한 건 전용 파일**을 만들고, 선택 파일 SHA-256 대조 뒤 `importMergeRows`+선택 SyncMeta 포함 전 필드 read-back을 **바깥 transaction에서 의도적으로 abort**. abort 뒤 trip·queue·purged 잔재 0건을 다시 읽는다. preflight·해시·파싱 실패처럼 import 전 실패는 기존 상태를 절대 정리하지 않는다. 통과 캐시는 fixture·digest뿐 아니라 현재 앱·백업 형식에 결합하고 짧은 TTL 뒤 무효화한다 |
 
 ## 3-B. 🔴 **복원이 안 됐을 때 확인 순서** (이 절차가 없어서 두 번 헤맸다)
 
@@ -94,6 +96,8 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 5. `tests/unit/restoreAtomicity`: **행과 되돌리기 의사가 같은 커밋인가.** 의사 쓰기를 실패시켰을 때 **행도 남지 않아야** 한다 — 반쪽 복원이 「성공」으로 보이면 안 된다
 6. `tests/unit/zip`: CRC 벡터(`0xCBF43926`)·왕복·한글 폴더·오프셋·손상 감지
 7. `tests/unit/backupNaming`: 파일명 형식·FS 금지문자·충돌 방지
+8. `tests/unit/backupFileRoundTrip`: 실제 `File` 바이트를 production 병합으로 복원·되읽고 abort 뒤 사용자 행·큐·원장 불변 확인
+9. `verify-diagnostics-live` 파일 행동: 미선택 실패 + 실제 `FileList`가 공용 렌더러를 지나 action에 전달되는지 확인
 
 외부 도구 상호운용(권장):
 - 생성된 ZIP에 **표준 `unzip -l` / `unzip -t`** 를 돌려 `No errors detected` 확인 — 우리 구현만의 착각이 아님을 증명하고, 사용자가 탐색기에서 여행별 폴더로 사진을 바로 열 수 있음을 보증.

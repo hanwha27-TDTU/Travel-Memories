@@ -38,6 +38,7 @@ export function governedDocs(root) {
 
 /** frontmatter를 읽는다. 없으면 `null` — **미선언은 실패**이지 통과가 아니다. */
 export function parseFrontmatter(text) {
+  text = text.replace(/\r\n?/g, '\n');
   if (!text.startsWith('---\n')) return null;
   const end = text.indexOf('\n---\n', 3);
   if (end < 0) return null;
@@ -123,6 +124,9 @@ export function selfTest() {
   // shape 파서 축
   if (parseFrontmatter('# 제목') !== null) throw new Error('SELF-TEST 실패: frontmatter 없는 문서를 선언된 것으로 읽었다');
   if (parseFrontmatter('---\nshape: tree\n---\n본문').shape !== 'tree') throw new Error('SELF-TEST 실패: shape를 못 읽었다');
+  if (parseFrontmatter('---\r\nshape: prose\r\nshape_reason: 인과\r\n---\r\n본문').shape !== 'prose') {
+    throw new Error('SELF-TEST 실패: Windows CRLF frontmatter를 못 읽었다');
+  }
   SELF.pos += 2;
 }
 

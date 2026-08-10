@@ -32,10 +32,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
  * 🔴 **동결 기준선 — 숫자를 올리지 마라.** 줄일 때만 고친다.
- * 값은 2026-08-09 실측 뒤의 상태다(클릭 직후 300ms 이하 38곳을 `settle()`로 바꾼 뒤).
+ * 값은 T-018 완료 상태다. 편집기 라이브 게이트는 모든 고정 대기를 실제 완료 조건으로 바꿨다.
  */
 export const SLEEP_BASELINE = Object.freeze({
-  'verify-editor-live': 126,
+  'verify-editor-live': 0,
   'verify-diagnostics-live': 11,
 });
 

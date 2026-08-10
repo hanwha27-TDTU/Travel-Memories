@@ -37,9 +37,11 @@ export const SOURCE = 'docs/CONSTITUTION.md';
  * 즉시 RED로 잡았다). 순수 함수로 두어 셀프테스트가 부를 수 있게 한다.
  */
 export function stripFrontmatter(text) {
-  if (!text.startsWith('---\n')) return text;
-  const end = text.indexOf('\n---\n', 3);
-  return end < 0 ? text : text.slice(end + 5);
+  const opening = text.match(/^---\r?\n/);
+  if (!opening) return text;
+  const rest = text.slice(opening[0].length);
+  const closing = rest.match(/\r?\n---\r?\n/);
+  return closing ? rest.slice(closing.index + closing[0].length) : text;
 }
 export const BEGIN = '<!--CONSTITUTION:BEGIN — 생성됨. 고치려면 docs/CONSTITUTION.md를 고치고 node scripts/gen-adapters.mjs-->';
 export const END = '<!--CONSTITUTION:END-->';
@@ -65,8 +67,13 @@ export function render(adapterText, constitutionText) {
   const ok = render(`A\n${BEGIN}\n옛 내용\n${END}\nB`, '새 내용');
   // frontmatter가 계약 본문에 섞여 나가지 않는지(2026-08-09 실측 결함).
   const fm = render(`A\n${BEGIN}\n옛\n${END}\nB`, '---\nshape: prose-debt\n---\n# 계약');
+  const fmCrlf = render(`A\n${BEGIN}\n옛\n${END}\nB`, '---\r\nshape: prose-debt\r\n---\r\n# 계약');
   if (fm.includes('shape: prose-debt')) {
     console.error('gen-adapters: 셀프테스트 실패 — frontmatter가 어댑터 본문에 실려 나간다.');
+    process.exit(2);
+  }
+  if (fmCrlf.includes('shape: prose-debt')) {
+    console.error('gen-adapters: 셀프테스트 실패 — CRLF frontmatter가 어댑터 본문에 실려 나간다.');
     process.exit(2);
   }
   if (!ok || !ok.includes('새 내용') || ok.includes('옛 내용')) {

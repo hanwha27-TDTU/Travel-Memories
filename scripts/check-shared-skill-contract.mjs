@@ -10,10 +10,9 @@ import { validateProfile } from '../vendor/codex-shared-skills/release-harness-g
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const SOURCE = 'https://github.com/hanwha27-TDTU/Codex-Shared-Skills';
-// 🔴 HRL-17(입력 마감)을 쓰기 위해 이 저장소만 먼저 올린 커밋이다. 공통 저장소 main은 아직
-// 8f2baec이고, **머지하지 않았다** — 머지는 다른 앱 프로필이 준비된 뒤의 일이다.
-// 각 앱의 lock이 커밋을 고정하므로, 우리만 새 법을 쓰고 나머지는 자기 커밋에 머문다.
-const APPROVED_COMMIT = '1cebdaaa699678e21d001467f1a784aaa73f3e12';
+// 🔴 HRL-18~20과 Windows 공급망 경계까지 검증된 공통 정본 커밋이다.
+// 각 앱의 lock이 커밋을 고정하므로 다른 앱은 자기 승인 커밋에 계속 머문다.
+const APPROVED_COMMIT = 'e27332798191a376875cab8353be7064fea76b8a';
 const EXPECTED_SKILLS = ['bg-codex-autorouter', 'release-harness-governance'];
 
 function markedBlock(text, start, end) {

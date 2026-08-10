@@ -71,6 +71,7 @@ import {
 import { supabase, isConfigured } from '../../services/supabase/client';
 import { auditPlaceZombies } from '../../services/placeZombieAudit';
 import { exportBackup } from '../../services/backup';
+import { createBackupRoundTripFile, lastBackupRoundTrip, runBackupFileRoundTrip } from '../../services/backupRoundTrip';
 import { recordBackupNow, getLastBackupAt, backupFreshness, STALE_DAYS } from '../../services/backupMeta';
 import { collectTrashState } from '../../services/trashState';
 import { trashMetrics, trashHeadline, TRASH_ITEM_CAP } from '../../domain/trashVerdict';
@@ -2061,9 +2062,36 @@ export async function summaryProbe(): Promise<Verdict> {
 // 살아남는 것은 **이 기기 밖으로 나간 파일**뿐이다. 그래서 로컬 전용 모드(`!isConfigured()`)
 // 에서 오래됐거나 없으면 '문제'(다른 사본이 전혀 없음), 클라우드 모드에서는 '할 일'(클라우드가
 // 있지만 독립 사본도 있으면 더 안전함)로 급을 가른다 — §7: 같은 "없음"도 사정에 따라 다르다.
+export function backupHeadline(input: {
+  cloud: boolean;
+  stale: boolean;
+  roundTrip: 'pass' | 'fail' | null;
+}): string {
+  if (!input.cloud && input.stale) return '백업 파일이 없어요 — 이 기기가 유일한 사본입니다';
+  if (input.roundTrip === 'fail') return '백업 파일의 복원 왕복에 실패했어요';
+  if (input.stale) return '백업을 받아 두면 더 안전해요';
+  if (input.roundTrip === null) return '백업 파일을 실제로 되읽어 확인해 보세요';
+  return '최근 백업과 실제 파일 복원 왕복을 모두 통과했습니다';
+}
+
+export function backupBecause(input: {
+  cloud: boolean;
+  stale: boolean;
+  roundTrip: 'pass' | 'fail' | null;
+  roundTripError?: string | null;
+}): string {
+  if (!input.cloud && input.stale) return '이 배포는 클라우드 동기화가 꺼져 있어요 — 백업 파일이 유일한 사본입니다.';
+  if (input.roundTrip === 'fail') return input.roundTripError ?? '파일 선택·파싱·복원·되읽기·자동 롤백 중 한 단계를 통과하지 못했습니다.';
+  if (input.roundTrip === null && !input.stale) return '파일이 있다는 것과 실제로 다시 읽힌다는 것은 다릅니다. 시험 파일은 복원 확인 직후 모든 변경을 자동 롤백합니다.';
+  return input.cloud
+    ? '클라우드 동기화와 별개로, 이 기기 밖으로 받아 둔 파일만이 계정·서버 사고에서도 살아남습니다.'
+    : '이 배포는 클라우드 동기화가 꺼져 있어요 — 백업 파일이 유일한 사본입니다.';
+}
+
 export function backupProbe(): Promise<Verdict> {
   const last = getLastBackupAt();
   const fresh = backupFreshness(last);
+  const roundTrip = lastBackupRoundTrip();
   const cloud = isConfigured();
   const noOtherCopy = !cloud && fresh.stale; // 클라우드도 없고 백업도 없거나 낡음 = 사본이 전혀 없다
   const metrics: Metric[] = [
@@ -2080,17 +2108,28 @@ export function backupProbe(): Promise<Verdict> {
           }
         : {}),
     },
+    {
+      label: '복원 파일 왕복',
+      actual: roundTrip
+        ? roundTrip.state === 'pass'
+          ? `통과 · ${new Date(roundTrip.at).toLocaleString()}`
+          : `실패 · ${roundTrip.error ?? '원인 미상'}`
+        : '아직 실행하지 않음',
+      expected: '실제 파일 선택 왕복 통과',
+      level: roundTrip ? (roundTrip.state === 'pass' ? 'ok' : 'problem') : 'todo',
+      ...(roundTrip?.state === 'fail'
+        ? { meaning: roundTrip.leftover ? `시험 잔재가 남았습니다: ${roundTrip.leftover}` : '파일 선택·파싱·복원·되읽기·자동 롤백 중 한 단계가 실패했습니다.' }
+        : !roundTrip
+          ? { meaning: '메모리 안 왕복이 아니라, 내려받은 파일을 다시 골라 실제 복원 경계와 자동 롤백까지 확인합니다.' }
+          : {}),
+    },
   ];
   const level = levelFromMetrics(metrics);
+  const headlineInput = { cloud, stale: fresh.stale, roundTrip: roundTrip?.state ?? null };
   const v: Verdict = {
     level,
-    headline:
-      level === 'problem'
-        ? '백업 파일이 없어요 — 이 기기가 유일한 사본입니다'
-        : level === 'todo'
-          ? '백업을 받아 두면 더 안전해요'
-          : '최근 백업 파일이 있습니다',
-    because: cloud ? '클라우드 동기화와 별개로, 이 기기 밖으로 받아 둔 파일만이 계정·서버 사고에서도 살아남습니다.' : '이 배포는 클라우드 동기화가 꺼져 있어요 — 백업 파일이 유일한 사본입니다.',
+    headline: backupHeadline(headlineInput),
+    because: backupBecause({ ...headlineInput, roundTripError: roundTrip?.error ?? null }),
     metrics,
     actions: [
       {
@@ -2107,9 +2146,34 @@ export function backupProbe(): Promise<Verdict> {
           return `내려받았어요 · 여행 ${stats.trips} · 순간 ${stats.moments} · 사진 ${stats.media} · 비용 ${stats.expenses} · 소리 ${stats.audio}`;
         },
       },
+      {
+        label: '왕복 시험 파일 만들기',
+        hook: 'data-backup-roundtrip-create',
+        run: async () => {
+          const made = await createBackupRoundTripFile();
+          downloadBlob(made.blob, made.filename);
+          return `시험 파일을 내려받았어요 · 여행 ${made.stats.trips} · 순간 ${made.stats.moments} · 사진 ${made.stats.media}. 이제 방금 받은 파일을 아래에서 골라 주세요.`;
+        },
+      },
+      {
+        label: '선택한 파일 왕복 확인',
+        hook: 'data-backup-roundtrip-run',
+        input: {
+          type: 'file',
+          label: '방금 받은 복원 왕복 시험 파일',
+          accept: '.json,application/json',
+        },
+        run: async (file: File) => {
+          await runBackupFileRoundTrip(file);
+          return '파일 선택·파싱·복원·되읽기를 통과했고 시험 변경은 모두 자동 롤백됐어요.';
+        },
+      },
     ],
     evidence: [],
-    context: [{ label: '이 기기의 자료 사본 경로', value: cloud ? '클라우드 동기화 + 백업 파일(선택)' : '백업 파일뿐(로컬 전용 배포)' }],
+    context: [
+      { label: '이 기기의 자료 사본 경로', value: cloud ? '클라우드 동기화 + 백업 파일(선택)' : '백업 파일뿐(로컬 전용 배포)' },
+      { label: '복원 왕복 범위', value: '진단용 여행 1건 · 사진·소리 바이트와 전 도메인은 자동 왕복 검사' },
+    ],
   };
   return Promise.resolve(v);
 }
@@ -2660,12 +2724,12 @@ export const CORE_TOOLS: DiagTool[] = [
     id: 'backup',
     group: 'safety',
     icon: '🗄️',
-    label: '백업 신선도',
-    hint: '이 손에 있는 사본이 있나',
-    question: '클라우드와 별개로 최근 백업 사본을 사용자가 갖고 있는가?',
-    reads: '마지막 완전백업 시각과 현재 클라우드 사용 여부',
+    label: '백업·복원',
+    hint: '사본이 있고 실제로 되읽히나',
+    question: '최근 백업 사본이 있고, 실제 파일을 골라 원래 기록으로 되읽을 수 있는가?',
+    reads: '마지막 완전백업 시각·클라우드 사용 여부·마지막 복원 파일 왕복 결과',
     mode: 'summary',
-    writes: '사용자가 누를 때 완전백업 파일만 생성',
+    writes: '사용자가 누를 때 완전백업 파일 생성 또는 고유 시험 기록을 트랜잭션 안에서 복원·되읽은 뒤 자동 롤백',
     probe: backupProbe,
   },
 ];
