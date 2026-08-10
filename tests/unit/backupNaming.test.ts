@@ -1,6 +1,21 @@
 // 백업 사진 파일명 규칙(순수) — 날짜_시간_제목_용도__id8. 충돌 방지·FS 안전.
 import { describe, it, expect } from 'vitest';
-import { stampFromISO, photoFileBase } from '../../src/services/backup';
+import { backupFilename, stampFromISO, photoFileBase } from '../../src/services/backup';
+
+describe('backupFilename', () => {
+  const now = new Date(2026, 7, 10, 2, 31, 45);
+
+  it('전체 ZIP은 날짜_시간_앱이름 순서다', () => {
+    expect(backupFilename(now, 'zip')).toBe('20260810_0231_Bugeon-Journey.zip');
+  });
+
+  it('접미사와 암호화 확장자는 앱이름 뒤에만 붙는다', () => {
+    expect(backupFilename(now, 'zip', { suffix: '표시본만', encrypted: true }))
+      .toBe('20260810_0231_Bugeon-Journey_표시본만.zip.enc');
+    expect(backupFilename(now, 'json', { encrypted: true }))
+      .toBe('20260810_0231_Bugeon-Journey.json.enc');
+  });
+});
 
 describe('stampFromISO', () => {
   it('로컬 시각 기준 YYYYMMDD_HHMM', () => {

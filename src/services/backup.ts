@@ -31,6 +31,7 @@ import { extForAudioMime } from '../domain/audio/note';
 export { photoFileBase, stampFromISO } from '../domain/media/naming';
 
 export const BACKUP_APP_TAG = 'bugeon-journey';
+export const BACKUP_APP_FILENAME = 'Bugeon-Journey';
 export const BACKUP_VERSION = 2;
 /**
  * Browser restore reads the selected file into memory and may create a second
@@ -155,6 +156,8 @@ export interface BackupStats {
   audio: number;
   videos: number;
   places: number;
+  /** 앱이 행은 보유하지만 정본 바이트가 이미 없다고 확인한 사진·소리·영상 수. */
+  missingFiles: number;
 }
 
 export interface ImportResult {
@@ -175,8 +178,30 @@ export interface ImportResult {
   unpurged?: number;
 }
 
+export type BackupFileFormat = 'zip' | 'json';
+
+/**
+ * 사용자 대면 백업 파일명의 SSOT.
+ *
+ * 기본 규칙은 사용자가 정한 `날짜_시간_앱이름`이며, 형식·암호화·진단 표식은 그 뒤에만 붙는다.
+ * 화면마다 문자열을 조립하면 ZIP/JSON/진단 파일이 다시 서로 다른 순서로 갈라진다(§7).
+ */
+export function backupFilename(
+  now: Date,
+  format: BackupFileFormat,
+  options: { encrypted?: boolean; suffix?: string } = {},
+): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  const stamp = `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}`;
+  const suffix = options.suffix ? `_${options.suffix.replace(/[^\p{L}\p{N}_-]+/gu, '_').replace(/^_+|_+$/g, '')}` : '';
+  return `${stamp}_${BACKUP_APP_FILENAME}${suffix}.${format}${options.encrypted ? '.enc' : ''}`;
+}
+
 function statsOf(rows: CollectedRows): BackupStats {
-  return { trips: rows.trips.length, moments: rows.moments.length, media: rows.media.length, expenses: rows.expenses.length, audio: rows.audio.length, videos: rows.videos?.length ?? 0, places: rows.places.length };
+  const missingFiles = rows.media.filter((row) => row.bytesMissing === true || row.displayBlob.size === 0 || row.thumbBlob.size === 0).length
+    + rows.audio.filter((row) => row.bytesMissing === true || row.blob.size === 0).length
+    + (rows.videos ?? []).filter((row) => row.bytesMissing === true || row.blob.size === 0 || row.posterBlob.size === 0).length;
+  return { trips: rows.trips.length, moments: rows.moments.length, media: rows.media.length, expenses: rows.expenses.length, audio: rows.audio.length, videos: rows.videos?.length ?? 0, places: rows.places.length, missingFiles };
 }
 
 // ═══════════════ db 접근층: 모든 사용자 데이터 테이블을 여기서만 읽고/병합한다 ═══════════════
@@ -628,22 +653,60 @@ export async function serializeZip(rows: CollectedRows, includeOriginals = true)
   return zipStore(entries);
 }
 
+type ZipFilesByName = Map<string, Uint8Array<ArrayBuffer>>;
+
+function readZipManifest(files: ZipEntry[], byName: ZipFilesByName): ZipManifest {
+  const raw = byName.get('manifest.json');
+  if (!raw) throw new Error('이 앱의 폴더 백업(ZIP)이 아닙니다(manifest 없음).');
+  let manifest: ZipManifest;
+  try {
+    manifest = JSON.parse(new TextDecoder().decode(raw)) as ZipManifest;
+  } catch {
+    throw new Error('manifest.json을 읽을 수 없습니다.');
+  }
+  if (manifest.app !== BACKUP_APP_TAG || manifest.format !== ZIP_FORMAT) throw new Error('이 앱의 백업이 아닙니다.');
+  assertSupportedBackupVersion(manifest.backupVersion);
+  if (!Array.isArray(manifest.folders) || manifest.folders.some((folder) => typeof folder !== 'string' || folder.length === 0)) {
+    throw new Error('manifest.json의 여행 폴더 목록이 올바르지 않습니다.');
+  }
+  const declaredFolders = new Set(manifest.folders);
+  if (declaredFolders.size !== manifest.folders.length) throw new Error('manifest.json에 같은 여행 폴더가 두 번 있습니다.');
+  const declaredBundles = new Set(manifest.folders.map((folder) =>
+    folder === ORPHAN_FOLDER ? `${ORPHAN_FOLDER}/orphans.json` : `${folder}/trip.json`,
+  ));
+  for (const path of declaredBundles) {
+    if (!byName.has(path)) throw new Error(`manifest.json이 선언한 백업 조각 ${path}이 없습니다(손상).`);
+  }
+  const actualBundles = files.filter((file) => file.name.endsWith('/trip.json') || file.name === `${ORPHAN_FOLDER}/orphans.json`);
+  for (const file of actualBundles) {
+    if (!declaredBundles.has(file.name)) throw new Error(`manifest.json에 없는 백업 조각 ${file.name}이 있습니다(손상).`);
+  }
+  return manifest;
+}
+
+function readZipPlaces(byName: ZipFilesByName, backupVersion: number): LocalPlace[] {
+  const raw = byName.get(PLACES_JSON);
+  if (!raw) {
+    if (backupVersion >= 2) throw new Error(`${PLACES_JSON}이 없습니다(손상).`);
+    return [];
+  }
+  let parsed: { app?: unknown; places?: unknown };
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(raw)) as { app?: unknown; places?: unknown };
+  } catch {
+    throw new Error(`${PLACES_JSON}을 읽을 수 없습니다(손상).`);
+  }
+  if (parsed.app !== BACKUP_APP_TAG || !Array.isArray(parsed.places)) throw new Error(`${PLACES_JSON} 형식이 올바르지 않습니다.`);
+  return parsed.places as LocalPlace[];
+}
+
 /** 순수: ZIP → CollectedRows(사진 파일에서 blob 재구성). db 접근 없음. */
 export function deserializeZip(buf: ArrayBuffer): CollectedRows {
   assertBackupImportSize(buf.byteLength);
   const files = unzip(buf);
   const byName = new Map<string, Uint8Array<ArrayBuffer>>(files.map((f) => [f.name, f.data]));
 
-  const manifestRaw = byName.get('manifest.json');
-  if (!manifestRaw) throw new Error('이 앱의 폴더 백업(ZIP)이 아닙니다(manifest 없음).');
-  let manifest: ZipManifest;
-  try {
-    manifest = JSON.parse(new TextDecoder().decode(manifestRaw)) as ZipManifest;
-  } catch {
-    throw new Error('manifest.json을 읽을 수 없습니다.');
-  }
-  if (manifest.app !== BACKUP_APP_TAG || manifest.format !== ZIP_FORMAT) throw new Error('이 앱의 백업이 아닙니다.');
-  assertSupportedBackupVersion(manifest.backupVersion);
+  const manifest = readZipManifest(files, byName);
 
   const dec = new TextDecoder();
   const trips: LocalTrip[] = [];
@@ -653,19 +716,8 @@ export function deserializeZip(buf: ArrayBuffer): CollectedRows {
   const audio: LocalAudio[] = [];
   const videos: LocalVideo[] = [];
 
-  // 최상위 장소 파일. **옛 백업에는 없다** — 없으면 빈 배열이고 그건 결함이 아니다.
-  const places: LocalPlace[] = (() => {
-    const raw = byName.get(PLACES_JSON);
-    if (!raw) return [];
-    let parsed: { app?: unknown; places?: unknown };
-    try {
-      parsed = JSON.parse(dec.decode(raw)) as { app?: unknown; places?: unknown };
-    } catch {
-      throw new Error(`${PLACES_JSON}을 읽을 수 없습니다(손상).`);
-    }
-    if (parsed.app !== BACKUP_APP_TAG || !Array.isArray(parsed.places)) throw new Error(`${PLACES_JSON} 형식이 올바르지 않습니다.`);
-    return parsed.places as LocalPlace[];
-  })();
+  // v2인데 places.json이 없으면 "장소 0건"이 아니라 파일 하나가 빠진 손상이다.
+  const places = readZipPlaces(byName, manifest.backupVersion);
 
   for (const f of files) {
     const isTrip = f.name.endsWith('/trip.json');
@@ -681,23 +733,34 @@ export function deserializeZip(buf: ArrayBuffer): CollectedRows {
     }
     if (bundle.app !== BACKUP_APP_TAG) throw new Error(`${f.name}은 이 앱의 백업 조각이 아닙니다.`);
     assertSupportedBackupVersion(bundle.backupVersion);
-    if (!Array.isArray(bundle.moments) || !Array.isArray(bundle.media) || !Array.isArray(bundle.expenses)) {
+    if (bundle.backupVersion !== manifest.backupVersion) throw new Error(`${f.name}의 백업 버전이 manifest와 다릅니다.`);
+    if (!Array.isArray(bundle.moments) || !Array.isArray(bundle.media) || !Array.isArray(bundle.expenses) ||
+        (manifest.backupVersion >= 2 && (!Array.isArray(bundle.audio) || !Array.isArray(bundle.videos)))) {
       throw new Error(`${f.name}의 목록 형식이 올바르지 않습니다.`);
+    }
+    if (folder === ORPHAN_FOLDER ? bundle.trip !== null : !bundle.trip || tripFolderName(bundle.trip) !== folder) {
+      throw new Error(`${f.name}의 여행과 폴더가 서로 맞지 않습니다.`);
     }
 
     if (bundle.trip) trips.push(bundle.trip);
-    // 오디오 — 파일이 없으면 **건너뛴다**(사진과 같은 규율: 반쪽 행을 만들지 않는다).
+    // 참조된 바이트가 없으면 조용히 행을 버리지 않는다. 백업 파일은 마지막 복구선이라
+    // 일부만 복원하고 성공으로 말하는 것보다 손상으로 닫는 편이 안전하다.
     for (const meta of bundle.audio ?? []) {
       const { file, ...rest } = meta;
       const data = byName.get(`${folder}/${file}`);
-      if (!data) continue;
+      if (!data) throw new Error(`${f.name}: 소리 파일 ${file}이 없습니다(손상).`);
+      if (data.byteLength === 0 && rest.bytesMissing !== true) throw new Error(`${f.name}: 소리 파일 ${file}이 비어 있습니다(손상).`);
       audio.push({ ...rest, blob: new Blob([data], { type: rest.mime }) });
     }
     for (const meta of bundle.videos ?? []) {
       const { file, posterFile, ...rest } = meta;
       const data = byName.get(`${folder}/${file}`);
       const poster = byName.get(`${folder}/${posterFile}`);
-      if (!data || !poster) continue;
+      if (!data) throw new Error(`${f.name}: 영상 파일 ${file}이 없습니다(손상).`);
+      if (!poster) throw new Error(`${f.name}: 영상 포스터 ${posterFile}이 없습니다(손상).`);
+      if ((data.byteLength === 0 || poster.byteLength === 0) && rest.bytesMissing !== true) {
+        throw new Error(`${f.name}: 영상 본체 또는 포스터가 비어 있습니다(손상).`);
+      }
       videos.push({ ...rest, blob: new Blob([data], { type: rest.mime }), posterBlob: new Blob([poster], { type: 'image/webp' }) });
     }
     if (Array.isArray(bundle.moments)) moments.push(...bundle.moments);
@@ -707,7 +770,14 @@ export function deserializeZip(buf: ArrayBuffer): CollectedRows {
       const { displayFile, thumbFile, originalFile, ...rest } = meta;
       const displayData = byName.get(`${folder}/${displayFile}`);
       const thumbData = byName.get(`${folder}/${thumbFile}`);
-      if (!displayData || !thumbData) continue;
+      if (!displayData) throw new Error(`${f.name}: 사진 표시본 ${displayFile}이 없습니다(손상).`);
+      if (!thumbData) throw new Error(`${f.name}: 사진 썸네일 ${thumbFile}이 없습니다(손상).`);
+      if ((displayData.byteLength === 0 || thumbData.byteLength === 0) && rest.bytesMissing !== true) {
+        throw new Error(`${f.name}: 사진 표시본 또는 썸네일이 비어 있습니다(손상).`);
+      }
+      if (originalFile && !byName.has(`${folder}/${originalFile}`)) {
+        throw new Error(`${f.name}: 사진 임시 원본 ${originalFile}이 없습니다(손상).`);
+      }
       const displayBlob = new Blob([displayData], { type: 'image/webp' });
       const thumbBlob = new Blob([thumbData], { type: 'image/webp' });
       const origData = originalFile ? byName.get(`${folder}/${originalFile}`) : undefined;

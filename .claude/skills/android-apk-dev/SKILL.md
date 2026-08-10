@@ -16,6 +16,7 @@ description: 안드로이드 APK 생성·배포 개발 프롬프트 — android-
 | `android-shell/capacitor.config.json` | `server.url`이 배포된 웹사이트를 가리킴 | **웹 자산을 번들하지 않는다**는 계약의 심장 |
 | `android-shell/android/app/src/main/java/app/bugeon/journey/MainActivity.java` | Capacitor 표준 진입점 | 거의 손대지 않음(딥링크 처리 정도) |
 | `android-shell/android/app/src/main/java/app/bugeon/journey/OriginalPhotosPlugin.java` | **셸의 존재 이유** — SAF+MediaStore+`ACCESS_MEDIA_LOCATION`으로 원본 사진 바이트를 base64로 웹에 넘김 | 네이티브 플러그인 예시. 실패해도 사진은 돌려주고 사유(`reason`)만 적는다(§8 — 판정 안 함) |
+| `android-shell/android/app/src/main/java/app/bugeon/journey/BackupFilesPlugin.java` | SAF `ACTION_CREATE_DOCUMENT` 백업 저장 + 같은 URI 길이·SHA-256 되읽기 | 큰 파일은 청크 append, 실패한 부분 문서만 정리 |
 | `.github/workflows/android-apk.yml` | CI가 Gradle로 debug APK를 굽고, main이면 고정 릴리스에 `--clobber` | 「항상 최신」 계약의 ①번 자리 |
 | `src/app/apk.ts` | 고정 다운로드 URL(`APK_LATEST_URL`)·설치 안내 데이터 | 「항상 최신」 계약의 ②번 자리 — **SSOT, 손편집 중복 금지** |
 | `src/ui/screens/guide.ts` | 위 상수를 import해서 버튼 href로 씀 | 계약의 ③번 자리 |
@@ -65,6 +66,10 @@ description: 안드로이드 APK 생성·배포 개발 프롬프트 — android-
    `build.gradle`이 `APP_VERSION_CODE` 속성을 읽는다 · `apk.ts`가 `APK_RELEASE_API`(api.github.com —
    자산 URL은 CORS로 막힘·함정 D)+`parseShellBuild`를 가진다. `check-apk-release-link`가 넷을
    대조한다. 🔴 「닫기」는 세션 한정(함정 E) — 저장하면 미루는 사용자를 영영 놓친다.
+10. **사용자 파일 저장은 시스템 문서 생성기로 끝까지 확인한다** — 백업처럼 큰 Blob은
+    `ACTION_CREATE_DOCUMENT`로 위치를 사용자가 고르게 하고, 고정 크기 청크로 순서대로 쓴 뒤
+    같은 URI를 다시 열어 길이+SHA-256이 모두 맞아야 성공이다. WebView의 `<a download>` 클릭은
+    저장 완료 증거가 아니며, 네이티브 문이 없는 브라우저 fallback은 요청 상태로만 보고한다.
 
 ## 2. 코드 관례 (실제로 걸렸던 것)
 
@@ -80,6 +85,12 @@ description: 안드로이드 APK 생성·배포 개발 프롬프트 — android-
   돌려줘서, 실기기에서 결과가 이상할 때 **스크린샷 한 장이 어디서 무너졌는지 말하게** 한다.
 - **버전의 SSOT는 changelog다**: `gen-version-file.mjs`가 `dist/version.json`을 만들 때도,
   APK 안내 문구도, 버전을 다른 곳에 손으로 다시 적지 않는다(§7).
+- **대용량 브리지는 `begin → append* → finish`**: 전체 Blob을 한 번에 base64로 넘기면 JS·Java
+  양쪽 피크 메모리가 커진다. 청크마다 JS 원본 SHA-256을 함께 보내 네이티브 수신값과 먼저
+  결박하고, 청크 순서·활성 URI·picker 대기 락은 플러그인이 소유한다. 중간 실패·취소 때는
+  그 호출이 만든 부분 문서만 지운다. 사용자 기존 파일이나 외부 원본은 건드리지 않는다.
+- **네이티브 성공은 되읽기까지**: 출력 스트림 close 성공만으로 끝내지 않는다. 동일 URI를 다시
+  읽어 길이와 digest를 확인하고, 불일치·재열기 실패는 성공으로 반올림하지 않는다.
 
 ## 3. 결정 기록 (ADR) 요약
 

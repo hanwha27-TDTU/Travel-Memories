@@ -19,11 +19,19 @@ shape_reason: 맥락 없는 AI가 처음부터 따라 읽는 문서다 — 순�
 
 ---
 
-## 🆕 현재 시작점 — 생성 등록부와 최신 인계로 이동 (2026-08-08 · **2026-08-09 릴리스법 갱신**)
+## 🆕 현재 시작점 — 생성 등록부와 최신 인계로 이동 (2026-08-10 · **v2.13 ZIP 저장·운영 영상 왕복 릴리스 후보**)
 
 - 앱 버전, 적용 migration, 도구·게이트 개수는 손으로 복제하지 않는다. `src/app/registry.gen.ts`를 읽는다.
 - 현재 작업·검증·배포 상태는 `docs/HANDOFF.md` 맨 위 최신 HANDOFF를 읽는다.
 - 진단 시스템의 재사용 가능한 계약은 `docs/DIAGNOSTIC_TOOL_DESIGN_BLUEPRINT.md`가 정본이다.
+- 전체 백업은 `YYYYMMDD_HHMM_Bugeon-Journey.zip`이 기본이다. Android 셸은 사용자가 고른
+  문서 URI에 쓰고 길이+SHA-256으로 되읽으며, 진단 파일 왕복은 trip·moment·video 본문·poster를
+  실제 ZIP으로 복원·되읽고 abort 뒤 잔재 0건을 확인한다. 상세는 `docs/HANDOFF.md` HANDOFF-0140,
+  ADR-0056, `docs/DISASTER_RECOVERY.md`를 읽는다. **네이티브 플러그인이 추가됐으므로 다음 출시에
+  APK 재빌드·재설치가 필요하다.**
+- 별도 「영상 서버 왕복」은 사용자 영상을 읽지 않고 합성 WebM을 운영 DB/R2에 실제로 올린다.
+  영상+poster SHA-256·재생·다른 기기식 pull·tombstone·restore·purge·exact cleanup을 확인하며,
+  운영 저장 계약도 두 객체가 모두 되읽혀야 완료하도록 바뀌었다. 상세는 HANDOFF-0141·ADR-0057.
 - 아래 v1.75 이하 절은 과거 사건의 근거이며 최신 상태가 아니다.
 
 ### 🔴 릴리스를 하려면 이 문서 하나부터 — `docs/HARNESS_RELEASE_LAW.md` (2026-08-09 신설)

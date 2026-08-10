@@ -14,7 +14,7 @@
 
 import { describe, it, expect } from 'vitest';
 import diagnosticsSource from '../../src/ui/panels/diagnostics.ts?raw';
-import { auditMediaFiles, unionListings } from '../../src/services/storeState';
+import { auditMediaFiles, auditPairedVideoFiles, unionListings } from '../../src/services/storeState';
 import {
   storeHeadline,
   storeBecause,
@@ -62,6 +62,27 @@ describe('① 두 방향을 섞지 않는다', () => {
     const r = auditMediaFiles([A, A, A], [A]);
     expect(r.files).toBe(1);
     expect(r.orphans).toEqual([]);
+  });
+});
+
+describe('영상 본체·포스터 쌍 대조', () => {
+  it('두 객체가 모두 있을 때만 완전한 영상 파일로 센다', () => {
+    const result = auditPairedVideoFiles([A, B], [A], [A, B]);
+    expect(result.files).toBe(1);
+    expect(result.missing).toEqual([B]);
+    expect(result.orphans).toEqual([]);
+  });
+
+  it('행이 없는 한쪽짜리 객체도 고아로 숨기지 않는다', () => {
+    const result = auditPairedVideoFiles([A, B], [A, C], [A]);
+    expect(new Set(result.orphans)).toEqual(new Set([B, C]));
+  });
+
+  it('합집합은 영상 포스터 목록을 제공자 하나라도 모르면 확인 불가로 유지한다', () => {
+    const known = unionListings([{ ids: [], videoIds: [A], videoPosterIds: [A] }]);
+    expect(known.videoPosterIds).toEqual([A]);
+    const unknown = unionListings([{ ids: [], videoIds: [A], videoPosterIds: [A] }, { ids: [], videoIds: [B] }]);
+    expect(unknown.videoPosterIds).toBeUndefined();
   });
 });
 

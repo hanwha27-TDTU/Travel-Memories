@@ -53,4 +53,19 @@ describe('zip store', () => {
   it('ZIP이 아닌 버퍼는 명확히 실패', () => {
     expect(() => unzip(enc.encode('not a zip at all').buffer)).toThrow();
   });
+
+  it('같은 크기의 파일 바이트가 바뀌면 CRC 불일치로 거절한다', async () => {
+    const raw = new Uint8Array(await zipStore([{ name: 'payload.bin', data: new Uint8Array([1, 2, 3, 4]) }]).arrayBuffer());
+    const view = new DataView(raw.buffer);
+    const dataStart = 30 + view.getUint16(26, true) + view.getUint16(28, true);
+    raw[dataStart] ^= 0xff;
+    expect(() => unzip(raw.buffer)).toThrow(/CRC/);
+  });
+
+  it('같은 경로를 두 번 쓰는 모호한 ZIP을 만들지 않는다', () => {
+    expect(() => zipStore([
+      { name: 'same.bin', data: new Uint8Array([1]) },
+      { name: 'same.bin', data: new Uint8Array([2]) },
+    ])).toThrow(/같은 경로/);
+  });
 });

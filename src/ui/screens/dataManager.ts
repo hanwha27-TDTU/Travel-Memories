@@ -2,7 +2,7 @@
 // 비타협 원칙 #1(기억을 잃지 않는다)의 사용자 도구. 가이드 모달과 같은 시각 시스템(.guide-*) 재사용.
 // 모든 자유 텍스트는 textContent로만(innerHTML 금지 — CSP·XSS 게이트).
 
-import { el, setNote, downloadBlob } from '../dom';
+import { el, setNote } from '../dom';
 import type { LocalTrip } from '../../offline/db';
 import { openDiagnosticsHub } from './diagnosticsHub';
 import { openGuide } from './guide';
@@ -17,7 +17,8 @@ import {
   type TrashPurgeEntry,
   type TrashedChild,
 } from '../../services/trash';
-import { assertBackupImportSize, exportBackup, exportBackupZip, importBackupAuto, type BackupStats } from '../../services/backup';
+import { assertBackupImportSize, backupFilename, exportBackup, exportBackupZip, importBackupAuto, type BackupStats } from '../../services/backup';
+import { backupSaveMessage, saveBackupBlob } from '../../services/fileSave';
 import { recordBackupNow, getLastBackupAt, backupFreshness } from '../../services/backupMeta';
 import {
   listDeletedTrips, listDeletedTripsFromServer, restoreTripFromTrash, purgeTripPermanently, prepareTripForAction,
@@ -125,7 +126,7 @@ function backupPanel(): HTMLElement {
   const box = el('div', 'guide-detail-body');
   box.append(
     el('h3', 'guide-h', '완전 백업 파일 만들기'),
-    el('p', 'guide-p', '여행·순간·장소·감정과 클라우드 정본용 사진 표시본을 하나의 JSON 파일로 내려받습니다. 다른 기기로 옮기거나, 브라우저 데이터가 지워져도 이 파일로 되살릴 수 있어요.'),
+    el('p', 'guide-p', '여행·순간·장소·감정·비용과 사진·소리·영상 파일을 하나의 ZIP으로 저장합니다. Android 앱에서는 저장할 폴더를 직접 고르고, 저장 뒤 파일을 다시 읽어 확인합니다.'),
   );
   const status = el('p', 'dm-status');
   status.setAttribute('role', 'status');
@@ -145,7 +146,7 @@ function backupPanel(): HTMLElement {
     // 백업이 소리를 담기 시작한 뒤에도 **화면 문장만 그 사실을 몰랐다** — 사용자가
     // "백업에 오디오도 들어 있나?"를 물어야 했던 이유다(§12). 필드가 늘면 여기도 따라온다.
     make: () => Promise<{ blob: Blob; stats: BackupStats }>,
-    filename: (stamp: string) => string,
+    filename: (now: Date) => string,
   ) => {
     btn.disabled = true;
     status.textContent = '백업 만드는 중…';
@@ -153,13 +154,14 @@ function backupPanel(): HTMLElement {
       try {
         const { blob, stats } = await make();
         const now = new Date();
-        const p = (n: number) => String(n).padStart(2, '0');
-        // 날짜_시간: YYYYMMDD_HHMM (파일명 규칙 '날짜_시간_…'의 상위 형태).
-        const stamp = `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}`;
-        downloadBlob(blob, filename(stamp));
-        recordBackupNow();
-        renderFresh();
-        status.textContent = `✅ 내보냄 · 여행 ${stats.trips} · 순간 ${stats.moments} · 사진 ${stats.media} · 비용 ${stats.expenses} · 소리 ${stats.audio} · 영상 ${stats.videos} · ${fmtBytes(blob.size)}`;
+        const receipt = await saveBackupBlob(blob, filename(now));
+        if (receipt.state === 'verified' && stats.missingFiles === 0) {
+          recordBackupNow();
+          renderFresh();
+        }
+        const counts = `여행 ${stats.trips} · 순간 ${stats.moments} · 사진 ${stats.media} · 비용 ${stats.expenses} · 소리 ${stats.audio} · 영상 ${stats.videos} · ${fmtBytes(blob.size)}`;
+        const missing = stats.missingFiles > 0 ? ` · ⚠ 이 기기에 실물 파일이 없는 항목 ${stats.missingFiles}개는 메타만 포함` : '';
+        status.textContent = receipt.state === 'cancelled' ? backupSaveMessage(receipt) : `${backupSaveMessage(receipt)} · ${counts}${missing}`;
       } catch (err) {
         status.textContent = `내보내기 실패: ${err instanceof Error ? err.message : String(err)}`;
       } finally {
@@ -184,7 +186,7 @@ function backupPanel(): HTMLElement {
   // 동기화 전 임시 원본 포함 토글. 클라우드 확인이 끝난 사진에는 별도 원본이 없고 표시본이 정본이다.
   const incOrig = el('input') as HTMLInputElement;
   incOrig.type = 'checkbox';
-  incOrig.checked = false;
+  incOrig.checked = true;
   incOrig.id = 'dm-inc-orig';
   const incOrigLabel = el('label', 'dm-check');
   incOrigLabel.htmlFor = 'dm-inc-orig';
@@ -199,7 +201,7 @@ function backupPanel(): HTMLElement {
     runExport(
       btnZip,
       () => exportBackupZip(withOrig, p),
-      (s) => `bugeon-journey_${s}${withOrig ? '' : '_표시본만'}${p ? '.zip.enc' : '.zip'}`,
+      (now) => backupFilename(now, 'zip', withOrig ? { encrypted: !!p } : { encrypted: !!p, suffix: '표시본만' }),
     );
   });
 
@@ -208,11 +210,11 @@ function backupPanel(): HTMLElement {
   btnJson.addEventListener('click', () => {
     const p = pass();
     if (!confirmPlaintext(p)) return;
-    runExport(btnJson, () => exportBackup(true, p), (s) => `bugeon-journey_${s}${p ? '.json.enc' : '.json'}`);
+    runExport(btnJson, () => exportBackup(true, p), (now) => backupFilename(now, 'json', { encrypted: !!p }));
   });
 
   box.append(
-    el('p', 'guide-p', 'ZIP은 여행마다 폴더로 나뉘고 클라우드 정본과 같은 표시본이 실제 이미지 파일로 들어갑니다. 아직 전송 확인 전인 사진만 임시 원본을 선택적으로 함께 담을 수 있어요. JSON은 전 여행을 파일 하나에 담는 가장 단순한 백업입니다. 둘 다 되살릴 수 있어요.'),
+    el('p', 'guide-p', 'ZIP은 여행마다 폴더로 나뉘고 사진 표시본·썸네일, 소리, 영상 본체·포스터가 실제 파일로 들어갑니다. 아직 전송 확인 전인 사진의 임시 원본도 기본으로 함께 담습니다. JSON도 같은 데이터를 담는 호환 형식이며 둘 다 자동 복원할 수 있어요.'),
     fresh,
     passInput,
     incOrigLabel,

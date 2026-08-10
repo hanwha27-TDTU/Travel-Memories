@@ -160,6 +160,7 @@ export interface Listing {
    */
   audioIds?: string[] | undefined;
   videoIds?: string[] | undefined;
+  videoPosterIds?: string[] | undefined;
   foreign?: number;
   truncated?: boolean;
   /** 내 폴더 **밖**의 최상위 항목 수. `outsideKnown`이 false면 이 값을 쓰지 않는다. */
@@ -190,10 +191,12 @@ export function unionListings(listings: Listing[]): Listing {
   // 소리 목록은 **모두가 알려줄 때만** 합친다 — 하나라도 모르면 전체를 모른다(truncated와 같은 규율).
   const audioKnown = listings.length > 0 && listings.every((l) => l.audioIds !== undefined);
   const videoKnown = listings.length > 0 && listings.every((l) => l.videoIds !== undefined);
+  const videoPosterKnown = listings.length > 0 && listings.every((l) => l.videoPosterIds !== undefined);
   return {
     ids: [...new Set(listings.flatMap((l) => l.ids))],
     audioIds: audioKnown ? [...new Set(listings.flatMap((l) => l.audioIds ?? []))] : undefined,
     videoIds: videoKnown ? [...new Set(listings.flatMap((l) => l.videoIds ?? []))] : undefined,
+    videoPosterIds: videoPosterKnown ? [...new Set(listings.flatMap((l) => l.videoPosterIds ?? []))] : undefined,
     foreign: listings.reduce((a, l) => a + (l.foreign ?? 0), 0),
     truncated: listings.some((l) => l.truncated === true),
     outside: listings.reduce((a, l) => a + (l.outside ?? 0), 0),
@@ -229,6 +232,28 @@ export function auditMediaFiles(
     // 모르는 것을 문제로 반올림하지 않는다(비타협 원칙 #4). 판정은 호출부가 unknown으로 낸다.
     missing: opts.truncated ? [] : [...rows].filter((id) => !files.has(id)),
     foreign: opts.foreign ?? 0,
+    truncated: opts.truncated === true,
+  };
+}
+
+/** 영상은 본체와 포스터가 모두 있어야 한 파일 세트다. 어느 한쪽 누락도 복원 가능으로 세지 않는다. */
+export function auditPairedVideoFiles(
+  videoIds: string[],
+  posterIds: string[],
+  rowIds: string[],
+  opts: { truncated?: boolean } = {},
+): MediaFileAudit {
+  const bodies = new Set(videoIds);
+  const posters = new Set(posterIds);
+  const complete = new Set([...bodies].filter((id) => posters.has(id)));
+  const objects = new Set([...bodies, ...posters]);
+  const rows = new Set(rowIds);
+  return {
+    files: complete.size,
+    rows: rows.size,
+    orphans: [...objects].filter((id) => !rows.has(id)),
+    missing: opts.truncated ? [] : [...rows].filter((id) => !complete.has(id)),
+    foreign: 0,
     truncated: opts.truncated === true,
   };
 }
@@ -440,7 +465,7 @@ export async function localBytesIds(): Promise<Record<PurgeDomain, Set<string>>>
     if ((a.blob?.size ?? 0) > 0) out.audio.add(a.id);
   }
   for (const v of await d.localVideos.toArray()) {
-    if ((v.blob?.size ?? 0) > 0) out.video.add(v.id);
+    if ((v.blob?.size ?? 0) > 0 && (v.posterBlob?.size ?? 0) > 0) out.video.add(v.id);
   }
   return out;
 }
@@ -518,10 +543,10 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
         } else {
           audioAudit = auditMediaFiles(listing.audioIds, audioIds, { truncated: listing.truncated === true });
         }
-        if (listing.videoIds === undefined) {
-          videoAuditNote = '서버 함수가 아직 영상 파일 목록을 알려주지 않아요 — 함수를 최신으로 배포하면 대조할 수 있습니다';
+        if (listing.videoIds === undefined || listing.videoPosterIds === undefined) {
+          videoAuditNote = '서버 함수가 아직 영상 본체·포스터 목록을 모두 알려주지 않아요 — 함수를 최신으로 배포하면 대조할 수 있습니다';
         } else {
-          videoAudit = auditMediaFiles(listing.videoIds, videoIds, { truncated: listing.truncated === true });
+          videoAudit = auditPairedVideoFiles(listing.videoIds, listing.videoPosterIds, videoIds, { truncated: listing.truncated === true });
         }
         outside = { count: listing.outside ?? 0, known: listing.outsideKnown === true };
         bytes = listing.bytes ?? 0;

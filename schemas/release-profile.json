@@ -476,7 +476,7 @@
         "schemas/sync-release-contract.json"
       ],
       "deploy": "Supabase MCP deploy_edge_function 또는 npx supabase functions deploy media-sign --project-ref ihxiywffzmvrwmqvatzt",
-      "readback": "capabilities의 sourceSha256를 schemas/sync-release-contract.json과 정확 대조하고 FN_VERSION=7·필수 ops·secretsOk 확인. Ready PR과 Pages 배포가 verify-sync-release-live로 재확인"
+      "readback": "capabilities의 sourceSha256를 schemas/sync-release-contract.json과 정확 대조하고 FN_VERSION=8·필수 ops·secretsOk 확인. Ready PR과 Pages 배포가 verify-sync-release-live로 재확인"
     },
     {
       "id": "supabase-geocode",

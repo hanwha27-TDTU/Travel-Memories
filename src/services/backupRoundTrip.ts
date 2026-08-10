@@ -8,18 +8,20 @@
 //  ② 복원·큐 생성·read-back은 바깥 Dexie 트랜잭션 안에서 실행하고, 확인 직후 의도적으로
 //     abort한다. 따라서 성공해도 엔티티·syncQueue·purgedIds가 한 건도 커밋되지 않는다.
 //  ③ abort 뒤 권위 저장소를 다시 읽는다. 남았다면 이 id만 정리하고 `leftover`로 말한다.
-//  ④ 사진·소리·영상은 만들지 않는다. 파일 바이트 왕복은 기존 backupRoundtrip 유닛이 맡고,
-//     이 도구는 실제 브라우저의 내려받기→파일 선택→파싱→Dexie 병합 경계를 맡는다.
+//  ④ ZIP 안에 진단용 영상 본체+포스터를 실제 파일로 넣는다. 내려받기→파일 선택→ZIP 파싱→
+//     Dexie 병합→두 Blob의 정확 바이트 되읽기까지 지난 뒤 전체를 abort한다.
 
-import { db, type JourneyDB, type LocalTrip } from '../offline/db';
+import Dexie from 'dexie';
+import { db, type JourneyDB, type LocalMoment, type LocalTrip, type LocalVideo } from '../offline/db';
 import { APP_VERSION } from '../app/changelog';
 import { localDate } from '../domain/time';
 import {
   assertBackupImportSize,
+  backupFilename,
   BACKUP_VERSION,
-  deserializeJson,
+  deserializeZip,
   importMergeRows,
-  serializeJson,
+  serializeZip,
   type BackupStats,
   type CollectedRows,
 } from './backup';
@@ -31,8 +33,12 @@ const LAST_RUN_KEY = 'bugeon:lastBackupRoundTrip';
 
 interface PendingBackupRoundTrip {
   fixtureId: string;
+  momentId: string;
+  videoId: string;
   title: string;
   digest: string;
+  videoDigest: string;
+  posterDigest: string;
   filename: string;
   createdAt: string;
   appVersion: string;
@@ -80,7 +86,8 @@ function writeJson(key: string, value: unknown): void {
 
 function pendingRun(): PendingBackupRoundTrip | null {
   const value = volatilePending ?? readJson<PendingBackupRoundTrip>(PENDING_KEY);
-  if (!value || typeof value.fixtureId !== 'string' || typeof value.digest !== 'string') return null;
+  if (!value || typeof value.fixtureId !== 'string' || typeof value.momentId !== 'string' || typeof value.videoId !== 'string' ||
+      typeof value.digest !== 'string' || typeof value.videoDigest !== 'string' || typeof value.posterDigest !== 'string') return null;
   if (value.appVersion !== APP_VERSION || value.backupVersion !== BACKUP_VERSION) return null;
   return value;
 }
@@ -137,6 +144,7 @@ function statsOf(rows: CollectedRows): BackupStats {
     audio: rows.audio.length,
     videos: rows.videos?.length ?? 0,
     places: rows.places.length,
+    missingFiles: 0,
   };
 }
 
@@ -145,26 +153,26 @@ async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
   return [...digest].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function filenameAt(now: Date): string {
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `bugeon-journey_restore-roundtrip_${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}.json`;
-}
-
 /**
- * production 직렬화 형식과 같은 **진단 전용 JSON**을 만든다. 고유 시험 trip 한 건만 담으므로
- * 사용자의 사진·소리·영상·위치·메모가 평문 시험 파일로 한 번 더 복제되지 않는다.
+ * production ZIP 형식과 같은 **진단 전용 ZIP**을 만든다. 고유 시험 trip·moment·video 한 건만
+ * 담으므로 사용자의 사진·소리·영상·위치·메모가 시험 파일로 한 번 더 복제되지 않는다.
  */
 export async function createBackupRoundTripFile(): Promise<BackupRoundTripFile> {
   const now = new Date();
   const fixture = fixtureTrip(now);
-  const rows = exactFixtureRows(fixture);
-  const json = await serializeJson(rows);
-  const bytes = new TextEncoder().encode(json);
-  const filename = filenameAt(now);
+  const rows = fixtureRows(fixture, now);
+  const blob = await serializeZip(rows, true);
+  const bytes = await blob.arrayBuffer();
+  const video = rows.videos![0]!;
+  const filename = backupFilename(now, 'zip', { suffix: '왕복검사' });
   const pending: PendingBackupRoundTrip = {
     fixtureId: fixture.id,
+    momentId: rows.moments[0]!.id,
+    videoId: video.id,
     title: fixture.title,
-    digest: await sha256Hex(bytes.buffer),
+    digest: await sha256Hex(bytes),
+    videoDigest: await sha256Hex(await video.blob.arrayBuffer()),
+    posterDigest: await sha256Hex(await video.posterBlob.arrayBuffer()),
     filename,
     createdAt: now.toISOString(),
     appVersion: APP_VERSION,
@@ -179,7 +187,7 @@ export async function createBackupRoundTripFile(): Promise<BackupRoundTripFile> 
   } catch {
     /* 캐시 삭제 실패는 시험 파일 생성 자체를 막지 않는다. pending 대조가 옛 결과를 무효화한다. */
   }
-  return { blob: new Blob([bytes], { type: 'application/json' }), filename, stats: statsOf(rows) };
+  return { blob, filename, stats: statsOf(rows) };
 }
 
 class VerifiedRollback extends Error {
@@ -189,41 +197,74 @@ class VerifiedRollback extends Error {
   }
 }
 
-function exactFixtureRows(fixture: LocalTrip): CollectedRows {
-  return { trips: [fixture], moments: [], media: [], expenses: [], audio: [], videos: [], places: [] };
+function fixtureRows(fixture: LocalTrip, now: Date): CollectedRows {
+  const at = now.toISOString();
+  const moment: LocalMoment = {
+    id: crypto.randomUUID(), tripId: fixture.id, occurredAt: at,
+    title: '백업 영상 왕복 검사', note: '', emotion: '', placeName: '',
+    createdAt: at, updatedAt: at, version: 1, deletedAt: null,
+    updatedByDevice: 'backup-round-trip-diagnostic', clientOperationId: crypto.randomUUID(),
+  };
+  const videoBytes = new Uint8Array([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0x01, 0x23, 0x45, 0x67]);
+  const posterBytes = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0x08, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50, 0x89, 0xab, 0xcd, 0xef]);
+  const video: LocalVideo = {
+    id: crypto.randomUUID(), momentId: moment.id, tripId: fixture.id,
+    blob: new Blob([videoBytes], { type: 'video/mp4' }),
+    posterBlob: new Blob([posterBytes], { type: 'image/webp' }),
+    mime: 'video/mp4', durationSec: 1, width: 16, height: 16, takenAt: at,
+    bytesOriginal: videoBytes.byteLength, bytesVideo: videoBytes.byteLength,
+    createdAt: at, updatedAt: at, version: 1, deletedAt: null,
+    updatedByDevice: 'backup-round-trip-diagnostic', clientOperationId: crypto.randomUUID(),
+  };
+  return { trips: [fixture], moments: [moment], media: [], expenses: [], audio: [], videos: [video], places: [] };
 }
 
-function sameFixtureTrip(actual: LocalTrip, expected: LocalTrip): boolean {
-  return actual.id === expected.id && actual.title === expected.title &&
-    actual.startDate === expected.startDate && actual.endDate === expected.endDate &&
-    actual.status === expected.status && actual.createdAt === expected.createdAt &&
-    actual.updatedAt === expected.updatedAt && actual.version === expected.version &&
-    actual.deletedAt === expected.deletedAt && actual.timeZone === expected.timeZone &&
-    actual.updatedByDevice === expected.updatedByDevice && actual.baseVersion === expected.baseVersion &&
-    actual.baseCanonicalVersion === expected.baseCanonicalVersion &&
-    actual.clientOperationId === expected.clientOperationId;
+function sameRecord(actual: object, expected: object, ignored = new Set<string>()): boolean {
+  const keys = new Set([...Object.keys(actual), ...Object.keys(expected)]);
+  for (const key of keys) {
+    if (ignored.has(key)) continue;
+    if (!Object.is((actual as Record<string, unknown>)[key], (expected as Record<string, unknown>)[key])) return false;
+  }
+  return true;
 }
 
-async function artifactIds(id: string): Promise<string[]> {
+async function artifactIds(pending: PendingBackupRoundTrip): Promise<string[]> {
   const d = db();
-  const [trip, queue, purged] = await Promise.all([
-    d.localTrips.get(id),
-    d.syncQueue.where('entityId').equals(id).toArray(),
-    d.purgedIds.get(id),
+  const ids = [pending.fixtureId, pending.momentId, pending.videoId];
+  const [trip, moment, video, queues, purged] = await Promise.all([
+    d.localTrips.get(pending.fixtureId),
+    d.localMoments.get(pending.momentId),
+    d.localVideos.get(pending.videoId),
+    Promise.all(ids.map((id) => d.syncQueue.where('entityId').equals(id).toArray())),
+    Promise.all(ids.map((id) => d.purgedIds.get(id))),
   ]);
-  return [...(trip ? [`trip:${id}`] : []), ...queue.map((q) => `queue:${q.operationId}`), ...(purged ? [`purged:${id}`] : [])];
+  return [
+    ...(trip ? [`trip:${pending.fixtureId}`] : []),
+    ...(moment ? [`moment:${pending.momentId}`] : []),
+    ...(video ? [`video:${pending.videoId}`] : []),
+    ...queues.flat().map((q) => `queue:${q.operationId}`),
+    ...purged.flatMap((row, index) => row ? [`purged:${ids[index]}`] : []),
+  ];
 }
 
-/** 실패 경로에서도 **이 시험 id만** 치운다. 사용자 id를 접두사 검색으로 넓게 지우지 않는다. */
-async function cleanupExactFixture(id: string): Promise<string[]> {
+/** 실패 경로에서도 **이 시험의 정확한 세 id만** 치운다. 접두사 검색으로 넓게 지우지 않는다. */
+async function cleanupExactFixture(pending: PendingBackupRoundTrip): Promise<string[]> {
   const d = db();
-  await d.transaction('rw', [d.localTrips, d.syncQueue], async () => {
-    const trip = await d.localTrips.get(id);
-    if (trip?.title.startsWith(BACKUP_ROUND_TRIP_TITLE_PREFIX)) await d.localTrips.delete(id);
-    const mine = await d.syncQueue.where('entityId').equals(id).primaryKeys();
-    if (mine.length) await d.syncQueue.bulkDelete(mine);
+  const ids = [pending.fixtureId, pending.momentId, pending.videoId];
+  await d.transaction('rw', [d.localTrips, d.localMoments, d.localVideos, d.syncQueue, d.purgedIds], async () => {
+    const trip = await d.localTrips.get(pending.fixtureId);
+    if (trip?.title.startsWith(BACKUP_ROUND_TRIP_TITLE_PREFIX)) {
+      await d.localVideos.delete(pending.videoId);
+      await d.localMoments.delete(pending.momentId);
+      await d.localTrips.delete(pending.fixtureId);
+      for (const id of ids) {
+        const mine = await d.syncQueue.where('entityId').equals(id).primaryKeys();
+        if (mine.length) await d.syncQueue.bulkDelete(mine);
+        await d.purgedIds.delete(id);
+      }
+    }
   });
-  return artifactIds(id);
+  return artifactIds(pending);
 }
 
 /**
@@ -243,25 +284,60 @@ export async function runBackupFileRoundTrip(file: File): Promise<BackupRoundTri
     const digest = await sha256Hex(buf);
     if (digest !== pending.digest) throw new Error('방금 만든 왕복 시험 파일과 바이트가 다릅니다. 올바른 파일을 다시 골라 주세요.');
 
-    const rows = deserializeJson(new TextDecoder().decode(buf));
+    const rows = deserializeZip(buf);
     const fixture = rows.trips.find((t) => t.id === pending.fixtureId);
+    const moment = rows.moments.find((m) => m.id === pending.momentId);
+    const video = (rows.videos ?? []).find((v) => v.id === pending.videoId);
     if (!fixture || fixture.title !== pending.title || !fixture.title.startsWith(BACKUP_ROUND_TRIP_TITLE_PREFIX)) {
       throw new Error('시험 표식이 없거나 달라 복원 왕복 파일로 확인할 수 없습니다.');
     }
-    if ((await artifactIds(fixture.id)).length) throw new Error('시험을 시작하기 전부터 같은 id의 잔재가 있습니다. 먼저 다시 확인해 주세요.');
+    if (!moment || moment.tripId !== fixture.id || !video || video.tripId !== fixture.id || video.momentId !== moment.id) {
+      throw new Error('시험 영상 또는 부모 기록이 없거나 연결이 달라 왕복 파일로 확인할 수 없습니다.');
+    }
+    if (await sha256Hex(await video.blob.arrayBuffer()) !== pending.videoDigest ||
+        await sha256Hex(await video.posterBlob.arrayBuffer()) !== pending.posterDigest) {
+      throw new Error('시험 영상 본체 또는 포스터 바이트가 원래 파일과 다릅니다.');
+    }
+    if ((await artifactIds(pending)).length) throw new Error('시험을 시작하기 전부터 같은 id의 잔재가 있습니다. 먼저 다시 확인해 주세요.');
 
     const d = db();
     try {
       importStarted = true;
       await d.transaction('rw', restoreTables(d), async () => {
-        const result = await importMergeRows(exactFixtureRows(fixture));
-        if (result.skippedEmptyGuard || result.trips !== 1) throw new Error('파일은 읽었지만 시험 기록 한 건을 복원하지 못했습니다.');
-        const restored = await d.localTrips.get(fixture.id);
-        if (!restored || !sameFixtureTrip(restored, fixture)) {
+        const result = await importMergeRows(rows);
+        if (result.skippedEmptyGuard || result.trips !== 1 || result.moments !== 1 || result.videos !== 1) {
+          throw new Error('파일은 읽었지만 시험 여행·순간·영상 한 묶음을 모두 복원하지 못했습니다.');
+        }
+        const [restored, restoredMoment, restoredVideo] = await Promise.all([
+          d.localTrips.get(fixture.id), d.localMoments.get(moment.id), d.localVideos.get(video.id),
+        ]);
+        if (!restored || !restoredMoment || !restoredVideo ||
+            !sameRecord(restored, fixture) || !sameRecord(restoredMoment, moment) ||
+            !sameRecord(restoredVideo, video, new Set(['blob', 'posterBlob', 'sourceBlob']))) {
           throw new Error('복원한 기록을 되읽었더니 원래 파일과 값이 다릅니다.');
         }
-        const queued = await d.syncQueue.where('entityId').equals(fixture.id).count();
-        if (queued < 2) throw new Error('복원 기록과 서버 원장 되돌리기 의사가 같은 커밋에 남지 않았습니다.');
+        // Blob.arrayBuffer/WebCrypto는 Dexie가 추적하지 않는 비-IDB promise다. `waitFor` 없이 await하면
+        // 트랜잭션이 먼저 커밋되어 "자동 롤백"이 거짓이 된다. 실제로 영상 검사를 처음 붙였을 때
+        // 여행·순간·영상+큐 9건이 남았고 이 좁은 검사가 RED로 잡았다.
+        const [restoredVideoDigest, restoredPosterDigest] = await Dexie.waitFor(Promise.all([
+          restoredVideo.blob.arrayBuffer().then(sha256Hex),
+          restoredVideo.posterBlob.arrayBuffer().then(sha256Hex),
+        ]));
+        if (restoredVideoDigest !== pending.videoDigest || restoredPosterDigest !== pending.posterDigest) {
+          throw new Error('복원한 영상 본체 또는 포스터를 되읽었더니 바이트가 달라졌습니다.');
+        }
+        const expectedTypes = new Map([
+          [fixture.id, 'trip'], [moment.id, 'moment'], [video.id, 'video'],
+        ]);
+        for (const [id, entityType] of expectedTypes) {
+          const queued = await d.syncQueue.where('entityId').equals(id).toArray();
+          const entityOps = queued.filter((op) => op.operationType === 'update' && op.entityType === entityType);
+          const unpurgeOps = queued.filter((op) => op.operationType === 'unpurge' && op.entityType === 'unpurge:ledger');
+          if (queued.length !== 2 || entityOps.length !== 1 || unpurgeOps.length !== 1 ||
+              queued.some((op) => op.state !== 'local_only' || op.attempts !== 0)) {
+            throw new Error('복원 기록의 update와 서버 원장 unpurge 의사가 정확히 같은 커밋에 남지 않았습니다.');
+          }
+        }
         throw new VerifiedRollback();
       });
       throw new Error('검증 트랜잭션이 롤백되지 않았습니다.');
@@ -269,7 +345,7 @@ export async function runBackupFileRoundTrip(file: File): Promise<BackupRoundTri
       if (!(error instanceof VerifiedRollback)) throw error;
     }
 
-    const leftover = await artifactIds(fixture.id);
+    const leftover = await artifactIds(pending);
     if (leftover.length) throw new Error(`시험 뒤 잔재 ${leftover.length}건이 남았습니다.`);
   } catch (error) {
     failure = error as Error;
@@ -279,7 +355,7 @@ export async function runBackupFileRoundTrip(file: File): Promise<BackupRoundTri
   try {
     // preflight·해시·파싱 실패는 DB를 쓰지 않았다. 그때 보이는 같은 id의 기록·큐·원장은
     // **기존 상태**이므로 절대 지우지 않는다. 실제 import를 시작한 판만 자기 잔재를 치운다.
-    leftover = importStarted ? await cleanupExactFixture(pending.fixtureId) : await artifactIds(pending.fixtureId);
+    leftover = importStarted ? await cleanupExactFixture(pending) : await artifactIds(pending);
   } catch (cleanupError) {
     const message = (cleanupError as Error).message || '알 수 없는 정리 오류';
     failure = failure ?? new Error(`시험 뒤 정리를 확인하지 못했습니다: ${message}`);

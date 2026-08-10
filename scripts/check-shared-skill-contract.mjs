@@ -21,6 +21,12 @@ function markedBlock(text, start, end) {
   return begin >= 0 && finish >= 0 ? text.slice(begin, finish + end.length) : null;
 }
 
+// 내용 계약은 checkout·전역 설치본의 CRLF/LF 차이를 변조로 세지 않는다(M-0121).
+// 실제 문장 차이는 그대로 남아 self-test의 드리프트 주입이 계속 RED다.
+function normalizedText(text) {
+  return String(text || '').replaceAll('\r\n', '\n').trim();
+}
+
 function jobBlock(workflow, id) {
   workflow = workflow.replaceAll('\r', '');
   const startToken = `\n  ${id}:\n`;
@@ -85,7 +91,7 @@ export function validateContract({
 
   const adapter = lock?.adapter || {};
   if (!markedBlock(adapterText || '', adapter.start, adapter.end)) errors.push('프로젝트 어댑터 스냅샷의 마커가 없음');
-  if (globalBlock !== null && globalBlock !== adapterText) errors.push('전역 Codex AutoRouter 어댑터가 프로젝트 스냅샷과 다름');
+  if (globalBlock !== null && normalizedText(globalBlock) !== normalizedText(adapterText)) errors.push('전역 Codex AutoRouter 어댑터가 프로젝트 스냅샷과 다름');
   if (installState !== null) {
     if (installState?.source !== SOURCE || installState?.commit !== APPROVED_COMMIT) errors.push('전역 설치 상태의 출처·커밋이 승인값과 다름');
     if (installState?.policyApi !== lock?.policyApi || installState?.manifestSha256 !== lock?.manifestSha256) errors.push('전역 설치 상태의 정책 API·manifest 해시가 lock과 다름');

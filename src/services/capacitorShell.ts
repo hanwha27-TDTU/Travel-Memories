@@ -55,6 +55,18 @@ export function iconSwitcher(): IconSwitcher | null {
   return shellPlugin<IconSwitcher>('IconSwitcher');
 }
 
+/** Android SAF 문서에 큰 백업을 청크로 쓰고, 닫은 뒤 다시 읽어 검증하는 셸 문. */
+export interface BackupFileWriter {
+  begin(options: { filename: string; mime: string }): Promise<{ cancelled?: boolean; token?: string; name?: string }>;
+  append(options: { token: string; data: string; sha256: string }): Promise<{ bytes: number }>;
+  finish(options: { token: string }): Promise<{ verified: boolean; bytes: number; name: string }>;
+  abort(options: { token: string }): Promise<void>;
+}
+
+export function backupFileWriter(): BackupFileWriter | null {
+  return shellPlugin<BackupFileWriter>('BackupFiles');
+}
+
 /**
  * 🔎 **지금 어느 문으로 실행 중인가** — 셸/설치된 PWA/브라우저 탭(T-005).
  *

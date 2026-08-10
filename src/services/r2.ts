@@ -247,6 +247,8 @@ export interface R2Listing {
    */
   audioIds?: string[] | undefined;
   videoIds?: string[] | undefined;
+  /** 서버에 파일이 있는 영상 포스터 id들. 없으면 옛 함수라서 확인 불가다. */
+  videoPosterIds?: string[] | undefined;
   /** 우리 형식(`{uuid}.webp`)이 아닌 키의 수. 조용히 버리지 않고 개수로 보고한다. */
   foreign: number;
   /** 페이지 상한에 걸려 **다 못 봤다**. true면 "고아 0건"이라 말하면 안 된다. */
@@ -275,6 +277,7 @@ export async function r2ListObjects(client: JourneyClient): Promise<R2Listing> {
     ids: [],
     audioIds: undefined,
     videoIds: undefined,
+    videoPosterIds: undefined,
     foreign: 0,
     truncated: false,
     outside: 0,
@@ -289,6 +292,7 @@ export async function r2ListObjects(client: JourneyClient): Promise<R2Listing> {
         ids?: unknown;
         audioIds?: unknown;
         videoIds?: unknown;
+        videoPosterIds?: unknown;
         foreign?: unknown;
         truncated?: unknown;
         outside?: unknown;
@@ -308,6 +312,9 @@ export async function r2ListObjects(client: JourneyClient): Promise<R2Listing> {
       : undefined,
     videoIds: Array.isArray(d.videoIds)
       ? (d.videoIds as unknown[]).filter((x): x is string => typeof x === 'string')
+      : undefined,
+    videoPosterIds: Array.isArray(d.videoPosterIds)
+      ? (d.videoPosterIds as unknown[]).filter((x): x is string => typeof x === 'string')
       : undefined,
     foreign: typeof d.foreign === 'number' ? d.foreign : 0,
     truncated: d.truncated === true,

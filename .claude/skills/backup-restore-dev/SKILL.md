@@ -17,7 +17,8 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 | `src/services/zip.ts` | 의존성 0 store(무압축) ZIP 리더/라이터 + CRC32 | 순수 → 유닛테스트 대상 |
 | `src/services/backupCrypto.ts` | AES-GCM-256 + PBKDF2 210k 봉투(MAGIC `BGJENC1\n`) | WebCrypto. **키를 저장하지 않는다** |
 | `src/services/backupMeta.ts` | 마지막 백업 시각·신선도(localStorage) | 캐시성 메타(기억 아님) |
-| `src/services/backupRoundTrip.ts` | 실제 내려받기→파일 선택→파싱→Dexie 병합→read-back 왕복 시험 | 고유 시험 id 한 건만 복원하고 바깥 transaction을 의도적으로 abort |
+| `src/services/fileSave.ts` | Android SAF·브라우저 저장 선택기·anchor fallback의 공용 저장 경계 | 되읽어 검증한 저장과 다운로드 요청을 구분 |
+| `src/services/backupRoundTrip.ts` | 실제 내려받기→파일 선택→파싱→Dexie 병합→read-back 왕복 시험 | 고유 trip·moment·video만 복원하고 바깥 transaction을 의도적으로 abort |
 
 ## 1. 불변 계약
 
@@ -43,6 +44,18 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 12. **완료 문장도 백업 표면이다**: export/import가 영상을 처리해도 성공 문장의 개수에서 빼면
     사용자는 무엇이 보호됐는지 알 수 없다. 사진·소리·영상 개수는 공용 backup stats에서 파생하고
     serializer·복원 read-back·사용자 문장이 같은 값을 쓴다.
+13. **파일 저장 요청과 저장 완료는 다르다**: 기본 이름은 `backupFilename()` 한 곳에서
+    `YYYYMMDD_HHMM_Bugeon-Journey.zip`으로 만든다. Android 셸은 SAF로 사용자가 위치를 고르게 하고
+    같은 URI를 길이+SHA-256으로 되읽는다. 브라우저 저장 선택기도 쓴 바이트를 다시 비교한다.
+    anchor fallback은 브라우저에 다운로드를 **요청**했을 뿐이므로 「저장했어요」라고 말하거나
+    마지막 백업 시각을 갱신하지 않는다. 실제 경로를 앱이 모르면 보통 Download라고만 안내하고
+    파일 앱 확인을 요청한다.
+14. **참조한 바이트가 없으면 ZIP 전체를 거절한다**: manifest가 사진·소리·영상 본문 또는 poster를
+    가리키는데 엔트리가 없으면 빈 Blob으로 보정하거나 행을 건너뛰지 않는다. 일부 복원 성공은
+    자족 백업 계약을 깨므로 손상 파일로 닫는다.
+15. **ZIP의 주장을 전부 소비한다**: 중앙 디렉터리 CRC·크기·offset, 중복 경로,
+    `manifest.folders`와 실제 bundle 정확집합, 현재 형식의 필수 top-level/도메인 목록을 읽을 때
+    대조한다. writer가 값을 기록했다는 사실은 reader가 검증했다는 뜻이 아니다(M-0141).
 
 ## 2. 코드 관례 (실제로 걸렸던 것)
 
@@ -50,6 +63,10 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 - **`Uint8Array<ArrayBuffer>`로 타입 고정**: 기본 `Uint8Array<ArrayBufferLike>`는 `SharedArrayBuffer` 변성 때문에 `BlobPart`에 대입되지 않는다. ZIP·암호화 바이트는 단일 신규 버퍼로 모아 이 타입으로 다룬다.
 - **ZIP은 store(무압축)**: 백업 대부분이 이미 압축된 WebP라 재압축 이득이 미미하고, 구현·검증이 단순해진다. UTF-8 파일명 비트(범용비트 11)로 한글 폴더를 그대로 쓴다. DOS date는 고정(재현성).
 - **고아 행은 버리지 않는다**: 부모 없는 행은 `_orphans/`에 담아 유실을 막는다.
+- **큰 Blob을 단일 base64로 브리지하지 않는다**: Android 저장은 청크로 전달해 매 호출 메모리를
+  제한하고, `finish`에서 네이티브가 같은 문서를 다시 열어 길이+SHA-256을 확인한다.
+- **Dexie transaction 안의 비-IDB 비동기는 `Dexie.waitFor`로 붙든다**: Blob 해시처럼 일반
+  Promise를 그냥 await하면 트랜잭션이 먼저 커밋되어 왕복 시험 데이터가 남을 수 있다(M-0140).
 
 ## 3. 과거 결함 등록부
 
@@ -66,6 +83,8 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 | 1.04 | **v1.03의 수정이 반쪽이었다**(M-0033). 「복원됨 · 13건 되살립니다」를 띄우고도 홈은 비어 있었다. 원장은 24→11로 줄었으니 되돌리기는 성공했고, **행은 그 전에 이미 지워져** 있었다 | 의사를 행과 **다른 커밋**에 넣어 창을 만들었다. 헌법이 이미 "entity+operation **atomic** commit"이라 못박은 그 규율을, **새로 만든 op에만** 적용하지 않았다(§7 비대칭) | `requestUnpurge`를 트랜잭션 콜백의 **반환값**으로(밖으로 옮기면 반환 경로가 끊긴다) + `revivePushOps` + `tests/unit/restoreAtomicity.test.ts`(*"의사를 못 남기면 행도 남지 않는다"* — 옛 배치 주입 시 2건 RED) |
 | 2.09 이후 | 유닛은 만든 백업을 메모리에서 곧바로 읽어 **실제 파일 선택 경계**를 못 쟀다(T-012) | 브라우저 파일 경계와 production 병합 이음매가 분리돼 각각 초록이어도 조립은 미검사 | 사용자 자료를 복제하지 않는 **진단 trip 한 건 전용 파일**을 만들고, 선택 파일 SHA-256 대조 뒤 `importMergeRows`+선택 SyncMeta 포함 전 필드 read-back을 **바깥 transaction에서 의도적으로 abort**. abort 뒤 trip·queue·purged 잔재 0건을 다시 읽는다. preflight·해시·파싱 실패처럼 import 전 실패는 기존 상태를 절대 정리하지 않는다. 통과 캐시는 fixture·digest뿐 아니라 현재 앱·백업 형식에 결합하고 짧은 TTL 뒤 무효화한다 |
 | 2.11 | 백업 코어에는 영상을 넣었지만 첫 사용자 대면 성공 요약에서 영상 개수가 빠질 수 있었음 | 파일 형식 대칭만 검사하고 **전달 문장도 같은 완료 표면**이라는 역방향 규율을 놓침 | 공용 backup stats에서 serializer·복원 read-back·성공 문장을 함께 파생하고, 영상 파생본+poster·옛 백업의 videos 부재·미래 버전 거부를 왕복 픽스처로 확인 |
+| 2.12 예정 | `<a download>` 클릭 직후 「내려받았어요」라고 했고 실제 파일 왕복은 JSON trip 한 건만 검사 | **브라우저 요청을 파일 존재로 반올림**했고, 바이트 형제인 영상을 진단 경계에서 제외 | Android SAF/브라우저 picker 되읽기 검증 + anchor 요청 상태 분리. 왕복 fixture를 ZIP trip+moment+video 본문+poster로 확장하고 production 병합·Dexie read-back·abort 잔재 0건을 검사 |
+| 2.12 예정 | ZIP writer의 CRC·manifest를 reader가 소비하지 않아 동일크기 바이트 변조와 여행 폴더 통째 누락이 성공 | **무결성 메타를 기록한 것을 검증한 것으로 착각** | 중앙/로컬 헤더+CRC+중복 경로 대조, manifest bundle 정확집합·필수 목록·0바이트 주입 RED(M-0141) |
 
 ## 3-B. 🔴 **복원이 안 됐을 때 확인 순서** (이 절차가 없어서 두 번 헤맸다)
 

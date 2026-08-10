@@ -19,10 +19,9 @@ import { toMediaRow, fromMediaRow, mediaStoragePath, type MediaRow } from '../do
 import { toAudioRow, fromAudioRow, audioStoragePath, type AudioRow } from '../domain/audio/rowmap';
 import { toVideoRow, fromVideoRow, videoStoragePath, type VideoRow } from '../domain/video/rowmap';
 import { toPlaceRow, fromPlaceRow, type PlaceRow } from '../domain/place/rowmap';
-import { operationStoragePath } from '../domain/media/naming';
+import { operationStoragePath, videoPosterStoragePath } from '../domain/media/naming';
 import type { SyncProgress } from '../domain/syncProgress';
 import { compressForStorage } from '../media/compress';
-import { createVideoPoster } from '../media/video';
 import { deviceStamp } from '../app/deviceId';
 import type { JourneyClient } from './supabase/client';
 import { r2BlobStore } from './r2';
@@ -406,7 +405,12 @@ async function materializeVideos(
       bytesMissing = fetched.missing;
       blob = fetched.data ?? new Blob([], { type: server.mime || 'video/mp4' });
     }
-    if (!posterBlob?.size && blob.size > 0) posterBlob = await createVideoPoster(blob);
+    if (!posterBlob?.size) {
+      const posterPath = server.storagePath ? videoPosterStoragePath(server.storagePath) : null;
+      const fetched = await fetchOrMissing(remote, posterPath, server.deletedAt, '영상 포스터', server.id);
+      bytesMissing = bytesMissing || fetched.missing;
+      posterBlob = fetched.data ?? new Blob([], { type: 'image/webp' });
+    }
     out.push({
       id: server.id,
       momentId: server.momentId,
@@ -686,6 +690,7 @@ async function capturePending(
       });
       const videoRows = videos.map((x) => {
         if (!x.blob || x.blob.size === 0) throw new Error(`영상 ${x.id}: 경량본 바이트가 비었습니다.`);
+        if (!x.posterBlob || x.posterBlob.size === 0) throw new Error(`영상 ${x.id}: 포스터 바이트가 비었습니다.`);
         const stable = x.storagePath ?? videoStoragePath(userId, x, titles.get(x.tripId));
         if (!stable) throw new Error(`영상 ${x.id}: 지원하지 않는 MIME(${x.mime})입니다.`);
         const path = operationStoragePath(stable, x.id, operationId);
@@ -697,8 +702,14 @@ async function capturePending(
       const snapshot: PendingCanonicalSnapshot = {
         expectedVersion: meta.canonicalVersion,nextVersion,operationId,device,stage:'uploading',
         createdAt:new Date().toISOString(),queuedOperationIds:queue.map((x) => x.operationId),
-        stagedPaths:[...mediaRows,...audioRows,...videoRows].flatMap((x) => x.storage_path ? [x.storage_path] : []),
-        previousPaths:[...oldMedia,...oldAudio,...oldVideos].flatMap((x) => x.storage_path ? [x.storage_path] : []),
+        stagedPaths:[
+          ...[...mediaRows,...audioRows,...videoRows].flatMap((x) => x.storage_path ? [x.storage_path] : []),
+          ...videoRows.flatMap((x) => x.storage_path ? [videoPosterStoragePath(x.storage_path)].filter((p): p is string => !!p) : []),
+        ],
+        previousPaths:[
+          ...[...oldMedia,...oldAudio,...oldVideos].flatMap((x) => x.storage_path ? [x.storage_path] : []),
+          ...oldVideos.flatMap((x) => x.storage_path ? [videoPosterStoragePath(x.storage_path)].filter((p): p is string => !!p) : []),
+        ],
         trips:asRecord(trips.map((x) => toRow({ ...x, baseCanonicalVersion: nextVersion },userId,device))),
         places:asRecord(places.map((x) => toPlaceRow({ ...x, baseCanonicalVersion: nextVersion },userId,device))),
         moments:asRecord(moments.map((x) => toMomentRow({ ...x, baseCanonicalVersion: nextVersion },userId,device))),
@@ -751,15 +762,17 @@ async function uploadPending(remote: CanonicalRemote, pending: PendingCanonicalS
     }
     audioTasks.push({ row, blob: local.blob });
   }
-  const videoTasks: { row: VideoRow; blob: Blob }[] = [];
+  const videoTasks: { row: VideoRow; blob: Blob; posterBlob: Blob; posterPath: string }[] = [];
   for (const row of (pending.videos ?? []) as unknown as VideoRow[]) {
     if (!row.storage_path) throw new CanonicalSnapshotChangedError(`영상 ${row.id}: staging 경로가 없습니다.`);
     const local = await d.localVideos.get(row.id);
-    if (!local?.blob) throw new CanonicalSnapshotChangedError(`영상 ${row.id}: 게시할 경량본을 찾지 못했습니다.`);
+    if (!local?.blob || !local.posterBlob?.size) throw new CanonicalSnapshotChangedError(`영상 ${row.id}: 게시할 경량본 또는 포스터를 찾지 못했습니다.`);
     if (local.updatedAt !== row.updated_at || local.blob.size !== row.bytes) {
       throw new CanonicalSnapshotChangedError(`영상 ${row.id}: 최종본 캡처 뒤 내용이 바뀌었습니다.`);
     }
-    videoTasks.push({ row, blob: local.blob });
+    const posterPath = videoPosterStoragePath(row.storage_path);
+    if (!posterPath) throw new CanonicalSnapshotChangedError(`영상 ${row.id}: 포스터 staging 경로를 만들 수 없습니다.`);
+    videoTasks.push({ row, blob: local.blob, posterBlob: local.posterBlob, posterPath });
   }
   for (const { row, blob } of mediaTasks) {
     const r = await remote.upload(row.storage_path!, blob, 'image/webp');
@@ -769,10 +782,26 @@ async function uploadPending(remote: CanonicalRemote, pending: PendingCanonicalS
     const r = await remote.upload(row.storage_path!, blob, row.mime);
     if (r.error) throw new Error(`소리 ${row.id} 업로드 실패: ${r.error}`);
   }
-  for (const { row, blob } of videoTasks) {
+  for (const { row, blob, posterBlob, posterPath } of videoTasks) {
     const r = await remote.upload(row.storage_path!, blob, row.mime);
     if (r.error) throw new Error(`영상 ${row.id} 업로드 실패: ${r.error}`);
+    const poster = await remote.upload(posterPath, posterBlob, 'image/webp');
+    if (poster.error) throw new Error(`영상 ${row.id} 포스터 업로드 실패: ${poster.error}`);
+    const [videoBack, posterBack] = await Promise.all([remote.download(row.storage_path!), remote.download(posterPath)]);
+    if (videoBack.error || !videoBack.data || !(await sameBlobBytes(blob, videoBack.data)) ||
+        posterBack.error || !posterBack.data || !(await sameBlobBytes(posterBlob, posterBack.data))) {
+      throw new Error(`영상 ${row.id} 본체 또는 포스터 read-back 불일치`);
+    }
   }
+}
+
+async function sameBlobBytes(left: Blob, right: Blob): Promise<boolean> {
+  if (left.size === 0 || left.size !== right.size) return false;
+  const [a, b] = await Promise.all([left.arrayBuffer(), right.arrayBuffer()]);
+  const av = new Uint8Array(a);
+  const bv = new Uint8Array(b);
+  for (let i = 0; i < av.length; i += 1) if (av[i] !== bv[i]) return false;
+  return true;
 }
 
 async function finalizePublishedSnapshot(

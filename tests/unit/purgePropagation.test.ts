@@ -349,14 +349,17 @@ describe('② 사진 바이트는 **영구삭제 때만** 지운다 (정책 2026
     expect(removed.sort()).toEqual(['u/a.webp', 'u/b.webp']);
   });
 
-  it('바이트 삭제가 실패해도 작업을 되돌리지 않는다 — 잉여 파일은 기억 손실이 아니다', async () => {
+  it('바이트 삭제가 실패하면 purge op을 남겨 정확 경로 삭제를 재시도한다', async () => {
     const { tripId } = await deletedTripWithChild();
     await purgeTripPermanently(tripId);
     const r = await pushPurges(withPaths(['u/a.webp']), {
       remove: () => Promise.resolve({ error: '네트워크 실패' }),
     });
-    expect(r.failed).toBe(0); // 행 삭제는 이미 끝났고 되읽어 확인했다
-    expect((await db().syncQueue.toArray()).filter((o) => o.operationType === 'purge')).toEqual([]);
+    expect(r.failed).toBe(1);
+    const queued = (await db().syncQueue.toArray()).filter((o) => o.operationType === 'purge');
+    expect(queued).toHaveLength(1);
+    expect(queued[0]?.state).toBe('retryable_failed');
+    expect(queued[0]?.lastError).toContain('저장소 파일 삭제 실패');
   });
 
   it('바이트 포트를 안 주면 파일은 건드리지 않는다(행 삭제만)', async () => {
