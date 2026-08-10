@@ -4774,6 +4774,79 @@ check('v1.97 연결 이름: 순간 편집이 placeId·당시 좌표를 보존하
     && linkedNameReadBack?.moment?.placeLat === 41.3111
     && linkedNameReadBack?.moment?.placeLng === 69.2797,
   JSON.stringify(linkedNameReadBack));
+
+// ── v2.11 영상: 실제 브라우저 생성 파일 → 변환 → Dexie → 재생 ──────────────
+// 정적 픽스처를 저장소에 넣지 않고 Chromium의 MediaRecorder로 1초 WebM을 만든다. 이 파일을
+// 실제 <input type=file>에 넣어 Mediabunny/WebCodecs 경계를 통과시키므로, 행만 심는 미러 검사가 아니다.
+const tinyVideoDataUrl = await page.evaluate(async () => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 96; canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  const stream = canvas.captureStream(12);
+  const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp8') ? 'video/webm;codecs=vp8' : 'video/webm';
+  const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 180_000 });
+  const chunks = [];
+  recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+  const stopped = new Promise((resolve) => { recorder.onstop = resolve; });
+  recorder.start(100);
+  for (let frame = 0; frame < 12; frame += 1) {
+    ctx.fillStyle = frame % 2 ? '#2367d1' : '#e8792d';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#fff'; ctx.font = '20px sans-serif'; ctx.fillText(`V${frame}`, 30, 38);
+    await new Promise((resolve) => setTimeout(resolve, 85));
+  }
+  recorder.stop();
+  await stopped;
+  stream.getTracks().forEach((track) => track.stop());
+  const blob = new Blob(chunks, { type: 'video/webm' });
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(blob);
+  });
+});
+const tinyVideoBuffer = Buffer.from(tinyVideoDataUrl.split(',')[1], 'base64');
+await page.locator('.moment-form .moment-input').fill('라이브 영상 순간');
+await page.locator('.moment-form .moment-video-input').setInputFiles({
+  name: 'live-video.webm', mimeType: 'video/webm', buffer: tinyVideoBuffer,
+});
+await page.locator('.moment-form button[type="submit"]').click();
+const videoCard = page.locator('.moment-card').filter({ hasText: '라이브 영상 순간' }).first();
+await videoCard.locator('.video-thumb-button').waitFor({ state: 'visible', timeout: 60_000 });
+const videoReadBack = await page.evaluate(async () => await new Promise((resolve) => {
+  const req = indexedDB.open('journey-archive');
+  req.onsuccess = () => {
+    const tx = req.result.transaction('localVideos', 'readonly');
+    const all = tx.objectStore('localVideos').getAll();
+    all.onsuccess = () => {
+      const row = all.result.find((item) => item.tripId === 'pr-nav-trip-direct');
+      resolve(row ? {
+        mime: row.mime, durationSec: row.durationSec, width: row.width, height: row.height,
+        bytesOriginal: row.bytesOriginal, bytesVideo: row.bytesVideo,
+        blobSize: row.blob?.size ?? 0, posterSize: row.posterBlob?.size ?? 0,
+      } : null);
+    };
+    all.onerror = () => resolve(null);
+  };
+  req.onerror = () => resolve(null);
+}));
+check('v2.11 영상: 실제 File 입력이 압축·포스터 생성 뒤 localVideos에 내구성 저장된다',
+  videoReadBack?.blobSize > 0 && videoReadBack?.posterSize > 0 && videoReadBack?.bytesVideo === videoReadBack?.blobSize
+    && videoReadBack?.bytesOriginal === tinyVideoBuffer.length && videoReadBack?.durationSec > 0
+    && videoReadBack?.durationSec <= 60.1 && videoReadBack?.width <= 1280 && videoReadBack?.height <= 1280
+    && videoReadBack?.blobSize <= 25 * 1024 * 1024,
+  JSON.stringify(videoReadBack));
+await videoCard.locator('.video-thumb-button').click();
+await page.waitForSelector('.video-viewer .video-viewer-player');
+const videoViewer = await page.locator('.video-viewer').evaluate((overlay) => ({
+  role: overlay.getAttribute('role'), modal: overlay.getAttribute('aria-modal'),
+  controls: overlay.querySelector('video')?.controls, src: overlay.querySelector('video')?.src.startsWith('blob:'),
+}));
+check('v2.11 영상: 포스터를 누르면 접근 가능한 blob 재생기가 열린다',
+  videoViewer.role === 'dialog' && videoViewer.modal === 'true' && videoViewer.controls === true && videoViewer.src === true,
+  JSON.stringify(videoViewer));
+await page.keyboard.press('Escape');
+check('v2.11 영상: Esc로 재생기를 닫아 object URL 생명주기를 끝낸다', await page.locator('.video-viewer').count() === 0);
+
 await page.evaluate(async (ids) => {
   await new Promise((resolve) => {
     const req = indexedDB.open('journey-archive');

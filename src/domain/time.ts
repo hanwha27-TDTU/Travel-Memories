@@ -429,7 +429,7 @@ export function zoneLabel(instant: string, timeZone: string): string {
 }
 
 /**
- * 🔴 **기억 시각을 화면에 내보내는 유일한 함수.** 순간·사진·소리·비용이 전부 이 문을 지난다.
+ * 🔴 **기억 시각을 화면에 내보내는 유일한 함수.** 순간·사진·소리·영상·비용이 전부 이 문을 지난다.
  *
  * @param momentOffsetMin 이 항목에 **직접 적힌** 오프셋(EXIF `OffsetTimeOriginal` 또는 사용자
  *   예외). 없으면 `null`/`undefined` — 사다리가 여행 시간대로 내려간다.

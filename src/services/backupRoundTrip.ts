@@ -8,7 +8,7 @@
 //  ② 복원·큐 생성·read-back은 바깥 Dexie 트랜잭션 안에서 실행하고, 확인 직후 의도적으로
 //     abort한다. 따라서 성공해도 엔티티·syncQueue·purgedIds가 한 건도 커밋되지 않는다.
 //  ③ abort 뒤 권위 저장소를 다시 읽는다. 남았다면 이 id만 정리하고 `leftover`로 말한다.
-//  ④ 사진·소리는 만들지 않는다. 파일 바이트 왕복은 기존 backupRoundtrip 유닛이 맡고,
+//  ④ 사진·소리·영상은 만들지 않는다. 파일 바이트 왕복은 기존 backupRoundtrip 유닛이 맡고,
 //     이 도구는 실제 브라우저의 내려받기→파일 선택→파싱→Dexie 병합 경계를 맡는다.
 
 import { db, type JourneyDB, type LocalTrip } from '../offline/db';
@@ -103,7 +103,7 @@ function saveLastRun(run: BackupRoundTripRun): void {
 }
 
 function restoreTables(d: JourneyDB) {
-  return [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.localPlaces, d.syncQueue, d.purgedIds] as const;
+  return [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.localVideos, d.localPlaces, d.syncQueue, d.purgedIds] as const;
 }
 
 function fixtureTrip(now: Date): LocalTrip {
@@ -135,6 +135,7 @@ function statsOf(rows: CollectedRows): BackupStats {
     media: rows.media.length,
     expenses: rows.expenses.length,
     audio: rows.audio.length,
+    videos: rows.videos?.length ?? 0,
     places: rows.places.length,
   };
 }
@@ -151,7 +152,7 @@ function filenameAt(now: Date): string {
 
 /**
  * production 직렬화 형식과 같은 **진단 전용 JSON**을 만든다. 고유 시험 trip 한 건만 담으므로
- * 사용자의 사진·소리·위치·메모가 평문 시험 파일로 한 번 더 복제되지 않는다.
+ * 사용자의 사진·소리·영상·위치·메모가 평문 시험 파일로 한 번 더 복제되지 않는다.
  */
 export async function createBackupRoundTripFile(): Promise<BackupRoundTripFile> {
   const now = new Date();
@@ -189,7 +190,7 @@ class VerifiedRollback extends Error {
 }
 
 function exactFixtureRows(fixture: LocalTrip): CollectedRows {
-  return { trips: [fixture], moments: [], media: [], expenses: [], audio: [], places: [] };
+  return { trips: [fixture], moments: [], media: [], expenses: [], audio: [], videos: [], places: [] };
 }
 
 function sameFixtureTrip(actual: LocalTrip, expected: LocalTrip): boolean {

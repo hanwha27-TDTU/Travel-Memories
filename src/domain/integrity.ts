@@ -68,6 +68,7 @@ export interface IntegritySnapshot {
   media: MediaRowLike[];
   expenses: ExpenseRowLike[];
   audio: AudioRowLike[];
+  videos?: AudioRowLike[];
   /** 장소(2026-08-01 · M-2). 소리가 2026-07-27에 겪은 「안 봐서 0건」을 장소가 그대로 반복했다. */
   places: PlaceRowLike[];
 }
@@ -120,6 +121,7 @@ function parentChecks(s: IntegritySnapshot, add: AddFinding): void {
     ...s.media.filter((m) => m.deletedAt === null).map((m) => ({ tripId: m.tripId, momentId: m.momentId, id: m.id })),
     ...s.expenses.filter((e) => e.deletedAt === null).map((e) => ({ tripId: e.tripId, momentId: e.momentId, id: e.id })),
     ...s.audio.filter((a) => a.deletedAt === null).map((a) => ({ tripId: a.tripId, momentId: a.momentId, id: a.id })),
+    ...(s.videos ?? []).filter((v) => v.deletedAt === null).map((v) => ({ tripId: v.tripId, momentId: v.momentId, id: v.id })),
   ];
   const missing = (c: { tripId: string; momentId?: string }): boolean =>
     !tripById.has(c.tripId) || (c.momentId !== undefined && !momentById.has(c.momentId));
@@ -226,7 +228,7 @@ export function checkIntegrity(s: IntegritySnapshot): IntegrityReport {
 
   const mediaIds = new Set(s.media.map((m) => m.id));
   // 소리·장소도 `all`에 든다 — id 형식·중복·시각 표기·세대 점검은 **도메인을 가리지 않는다**(M-2).
-  const all = [...s.trips, ...s.moments, ...s.media, ...s.expenses, ...s.audio, ...s.places];
+  const all = [...s.trips, ...s.moments, ...s.media, ...s.expenses, ...s.audio, ...(s.videos ?? []), ...s.places];
 
   // 1·2. 부모-자식 참조 점검 — 자식 종류가 늘 때 **한 곳만** 늘어나게 곁 함수로 뺐다.
   parentChecks(s, add);

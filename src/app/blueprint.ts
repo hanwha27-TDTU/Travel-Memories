@@ -19,7 +19,7 @@ export interface SourceDomain {
   readonly form: StorageForm;
   readonly implemented: boolean;
   /** 실카운트용 Dexie 프로퍼티(implemented일 때). */
-  readonly localTable?: 'localTrips' | 'localMoments' | 'localMedia' | 'localExpenses' | 'localAudio' | 'localPlaces';
+  readonly localTable?: 'localTrips' | 'localMoments' | 'localMedia' | 'localExpenses' | 'localAudio' | 'localVideos' | 'localPlaces';
   readonly hasRowmap?: boolean; // src/domain/<key>/rowmap.ts 존재(게이트 검증)
   readonly hasSync?: boolean; // sync.ts에 table push/pull 배선(게이트 검증)
   // 🔴 여기 `localOnlyReason?: string`이 있었다(2026-07-27 오전). 오디오가 서버 테이블 없이
@@ -37,6 +37,7 @@ export const SOURCES: readonly SourceDomain[] = [
   { key: 'expense', label: '비용', table: 'expenses', form: 'table', implemented: true, localTable: 'localExpenses', hasRowmap: true, hasSync: true },
   { key: 'media', label: '사진', table: 'media', form: 'bundle', implemented: true, localTable: 'localMedia', hasRowmap: true, hasSync: true },
   { key: 'audio', label: '소리', table: 'audio', form: 'bundle', implemented: true, localTable: 'localAudio', hasRowmap: true, hasSync: true },
+  { key: 'video', label: '영상', table: 'videos', form: 'bundle', implemented: true, localTable: 'localVideos', hasRowmap: true, hasSync: true },
   // 오디오 노트 — 2026-07-27부터 **로컬+서버+백업 세 계층**(사진과 같다). 예전엔 여기 `localOnlyReason`이
   // 붙어 있었다; 그 예외는 사용자 결정으로 사라졌다(마이그레이션 0019 · services/audio.ts 머리주석).
   // 장소 — 2026-07-30부터 **1급 도메인**(마이그레이션 0022·0023). 순간의 장소 필드를
@@ -76,9 +77,9 @@ export interface ScreenNode {
 }
 export const SCREENS: readonly ScreenNode[] = [
   { key: 'home', label: '홈 · 여행 목록', file: 'home.ts', route: 'home', feeds: ['trip'] },
-  { key: 'tripDetail', label: '여행 상세 · 타임라인', file: 'tripDetail.ts', route: 'trip-detail', feeds: ['trip', 'moment', 'media', 'expense', 'audio', 'place'] },
+  { key: 'tripDetail', label: '여행 상세 · 타임라인', file: 'tripDetail.ts', route: 'trip-detail', feeds: ['trip', 'moment', 'media', 'expense', 'audio', 'video', 'place'] },
   { key: 'mapView', label: '지도', file: 'mapView.ts', route: 'map', feeds: ['moment', 'media'] },
-  { key: 'dataManager', label: '데이터 관리 · 백업·최종본', file: 'dataManager.ts', feeds: ['trip', 'moment', 'media', 'expense', 'audio', 'place'] },
+  { key: 'dataManager', label: '데이터 관리 · 백업·최종본', file: 'dataManager.ts', feeds: ['trip', 'moment', 'media', 'expense', 'audio', 'video', 'place'] },
   { key: 'aboutApp', label: '개발자 정보', file: 'aboutApp.ts', feeds: [] },
   { key: 'designOverview', label: '설계 개요도', file: 'designOverview.ts', feeds: [] },
   { key: 'r2Setup', label: 'R2 저장소 설정 가이드', file: 'r2Setup.ts', feeds: [] },

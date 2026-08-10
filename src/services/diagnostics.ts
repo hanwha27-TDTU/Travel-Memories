@@ -269,13 +269,14 @@ export async function auditOpLessTombstones(
  */
 export async function loadIntegritySnapshot(): Promise<IntegritySnapshot> {
   const d = db();
-  const [trips, moments, media, expenses, audio, places] = await Promise.all([
+  const [trips, moments, media, expenses, audio, videos, places] = await Promise.all([
     d.localTrips.toArray(),
     d.localMoments.toArray(),
     d.localMedia.toArray(),
     d.localExpenses.toArray(),
     d.localAudio.toArray(),
+    d.localVideos.toArray(),
     d.localPlaces.toArray(), // 🔴 M-2 — 장소를 스냅샷에 넣는다(소리가 겪은 「안 봐서 0건」 반복 방지)
   ]);
-  return { trips, moments, media, expenses, audio, places };
+  return { trips, moments, media, expenses, audio, videos, places };
 }

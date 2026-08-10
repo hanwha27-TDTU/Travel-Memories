@@ -92,7 +92,7 @@ const deadOp = (entityId: string): SyncQueueItem => ({
 describe('등록부가 부모를 안다 (손으로 적은 `=== \'trip\'`을 대신한다)', () => {
   it('순간도 부모다 — 자식은 사진·비용·소리', () => {
     expect(asPurgeParent('moment')).toBe('moment');
-    expect(cascadeChildDomains('moment').sort()).toEqual(['audio', 'expense', 'media']);
+    expect(cascadeChildDomains('moment').sort()).toEqual(['audio', 'expense', 'media', 'video']);
   });
 
   it('사진·비용·소리·장소는 잎이다 — 가족 쓸기를 하지 않는다', () => {

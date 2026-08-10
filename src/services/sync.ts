@@ -4,7 +4,7 @@
 // 순수 결정 로직(sync/merge.ts)을 직접 테스트할 수 있게 한다(LESSONS §6).
 
 import type { Table } from 'dexie';
-import { db, type SyncQueueItem, type LocalMedia, type LocalAudio, type SyncMeta } from '../offline/db';
+import { db, type SyncQueueItem, type LocalMedia, type LocalAudio, type LocalVideo, type SyncMeta } from '../offline/db';
 // 시각 표기의 SSOT — rowmap(서버 경계)·백업 복원과 **같은 함수**를 쓴다(§7: 규율은 한 곳에).
 import { withCanonicalStamps } from '../domain/time';
 import { toRow, fromRow, type TripRow } from '../domain/trip/rowmap';
@@ -12,6 +12,8 @@ import { toMomentRow, fromMomentRow, type MomentRow } from '../domain/moment/row
 import { toExpenseRow, fromExpenseRow, type ExpenseRow } from '../domain/expense/rowmap';
 import { toMediaRow, fromMediaRow, mediaStoragePath, type MediaRow } from '../domain/media/rowmap';
 import { toAudioRow, fromAudioRow, audioStoragePath, type AudioRow } from '../domain/audio/rowmap';
+import { toVideoRow, fromVideoRow, videoStoragePath, type VideoRow } from '../domain/video/rowmap';
+import { createVideoPoster } from '../media/video';
 import { operationStoragePath } from '../domain/media/naming';
 import { toPlaceRow, fromPlaceRow, type PlaceRow } from '../domain/place/rowmap';
 import { isRealCoord } from '../domain/place/coordInput';
@@ -229,6 +231,41 @@ export function audioRemote(client: JourneyClient): AudioRemote {
   };
 }
 
+export interface VideoRemote {
+  upsert(row: VideoRow): Promise<{ error?: string | undefined; status?: number | undefined }>;
+  getById(id: string): Promise<{ data: VideoRow | null; error?: string | undefined; status?: number | undefined }>;
+  listAll(): Promise<{ data: VideoRow[]; error?: string | undefined }>;
+  upload(path: string, blob: Blob, contentType: string): Promise<{ error?: string | undefined; status?: number | undefined }>;
+  download(path: string): Promise<{ data: Blob | null; error?: string | undefined; status?: number | undefined }>;
+  remove(path: string): Promise<{ error?: string | undefined }>;
+}
+
+export function videoRemote(client: JourneyClient): VideoRemote {
+  const blobs = r2BlobStore(client);
+  return {
+    async upsert(row) {
+      try {
+        const r = await client.from('videos').upsert(row, { onConflict: 'id' });
+        return { error: r.error?.message, status: r.status };
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+    },
+    async getById(id) {
+      try {
+        const r = await client.from('videos').select('*').eq('id', id).maybeSingle();
+        return { data: (r.data as VideoRow | null) ?? null, error: r.error?.message, status: r.status };
+      } catch (e) {
+        return { data: null, error: (e as Error).message };
+      }
+    },
+    async listAll() { return fetchAllRows<VideoRow>(client, 'videos'); },
+    upload: (path, blob, contentType) => blobs.upload(path, blob, contentType),
+    download: (path) => blobs.download(path),
+    remove: (path) => blobs.remove(path),
+  };
+}
+
 /**
  * 실패를 큐에 적는다. **왜 실패했는지도 함께 적는다**(2026-08-05 · M-0107).
  *
@@ -254,7 +291,7 @@ async function markFail(op: SyncQueueItem, status: number | undefined, reason?: 
   });
 }
 
-type SyncEntityType = 'trip' | 'moment' | 'media' | 'expense' | 'audio' | 'place';
+type SyncEntityType = 'trip' | 'moment' | 'media' | 'expense' | 'audio' | 'video' | 'place';
 
 /**
  * `merge`는 평상시 양방향 동기화다. `server-read-only`는 서버 capability를 확인할 수 없는
@@ -1261,6 +1298,159 @@ export async function pullAudio(remote: AudioRemote, mode: PullMode): Promise<{ 
   return { pulled, skippedEmptyCloud: false };
 }
 
+export async function pushPendingVideos(remote: VideoRemote, userId: string): Promise<{ pushed: number; failed: number }> {
+  const d = db();
+  const attempts = collapseSyncAttempts(await d.syncQueue.orderBy('createdAt').toArray(), 'video');
+  let pushed = 0;
+  let failed = 0;
+  for (const attempt of attempts) {
+    const { op } = attempt;
+    await removeSuperseded(attempt);
+    const video = await d.localVideos.get(op.entityId);
+    if (!video) {
+      await d.syncQueue.delete(op.operationId);
+      continue;
+    }
+    const trip = await d.localTrips.get(video.tripId);
+    const previousPath = video.storagePath;
+    const stablePath = previousPath ?? videoStoragePath(userId, video, trip?.title ?? null);
+    if (!stablePath) {
+      await markFail(op, 400, '이 영상 형식은 서버가 받지 않아요.');
+      failed++;
+      continue;
+    }
+    const uploadsBytes = mustUploadBytes(video, true);
+    const path = uploadsBytes ? operationStoragePath(stablePath, video.id, op.operationId) : stablePath;
+    if (uploadsBytes) {
+      const up = await remote.upload(path, video.sourceBlob ?? video.blob, video.mime);
+      if (up.error) {
+        await markFail(op, up.status, up.error);
+        failed++;
+        continue;
+      }
+    }
+    const sent = withSyncOperation(video, op.operationId);
+    const res = await remote.upsert(toVideoRow(sent, userId, path, deviceStamp()));
+    if (res.error) {
+      await markFail(op, res.status, res.error);
+      failed++;
+      continue;
+    }
+    const back = await remote.getById(video.id);
+    if (back.error || !back.data) {
+      await markFail(op, back.status, back.error);
+      failed++;
+      continue;
+    }
+    const server = fromVideoRow(back.data);
+    if (!writeLanded(server, sent.version, op.operationId, path)) {
+      await removeUnreferencedBytes(remote, uploadsBytes ? path : undefined, server.storagePath);
+      await rebaseRejectedLocal(d.localVideos, video, op.operationId, server);
+      await markFail(op, undefined, '다른 기기의 변경과 겹쳐 내 영상 쓰기가 착지하지 못했어요.');
+      failed++;
+      continue;
+    }
+    const verified = await remote.download(path);
+    if (verified.error || !verified.data || !(await sameBlobBytes(video.blob, verified.data))) {
+      await markFail(op, verified.status, verified.error ?? '영상 바이트 read-back 불일치');
+      failed++;
+      continue;
+    }
+    await d.transaction('rw', d.localVideos, d.syncQueue, async () => {
+      const cur = await d.localVideos.get(video.id);
+      if (isSameSnapshot(cur, video)) {
+        const { bytesMissing: _missing, sourceBlob: _staged, ...keep } = cur!;
+        await d.localVideos.put({
+          ...keep,
+          storagePath: path,
+          updatedAt: server.updatedAt,
+          version: server.version,
+          baseVersion: server.version,
+          clientOperationId: op.operationId,
+        });
+      }
+      await d.syncQueue.delete(op.operationId);
+    });
+    if (uploadsBytes) await removeUnreferencedBytes(remote, previousPath, path);
+    pushed++;
+  }
+  return { pushed, failed };
+}
+
+export async function pullVideos(remote: VideoRemote, mode: PullMode): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
+  const d = db();
+  const res = await remote.listAll();
+  if (res.error) throw new Error(res.error);
+  const rows = res.data;
+  const purged = await purgedIdSet();
+  const localActive = (await d.localVideos.toArray()).filter((v) => v.deletedAt === null).length;
+  if (isEmptyCloudAnomaly(rows.length, localActive)) return { pulled: 0, skippedEmptyCloud: true };
+
+  let pulled = 0;
+  for (const row of rows) {
+    if (purged.has(row.id)) continue;
+    const server = fromVideoRow(row);
+    const local = await d.localVideos.get(server.id);
+    if (mergeDecision(local, server) !== 'take-server') {
+      await requeueIfServerStillActive('video', local, server, mode);
+      continue;
+    }
+    if (server.deletedAt !== null) {
+      if (local) {
+        const next = {
+          ...local,
+          deletedAt: server.deletedAt,
+          version: server.version,
+          updatedAt: server.updatedAt,
+          baseVersion: server.version,
+          ...(server.clientOperationId ? { clientOperationId: server.clientOperationId } : {}),
+        };
+        if (await applyServerWinner(d.localVideos, 'video', local, next, mode)) pulled++;
+      }
+      continue;
+    }
+    if (!server.storagePath) continue;
+    let blob = local?.blob;
+    let posterBlob = local?.posterBlob;
+    if (!blob || blob.size === 0 || local?.storagePath !== server.storagePath) {
+      const dl = await remote.download(server.storagePath);
+      if (dl.error || !dl.data) continue;
+      blob = dl.data;
+      try {
+        posterBlob = await createVideoPoster(blob);
+      } catch {
+        continue;
+      }
+    }
+    if (!posterBlob?.size) {
+      try { posterBlob = await createVideoPoster(blob); } catch { continue; }
+    }
+    const next: LocalVideo = {
+      id: server.id,
+      momentId: server.momentId,
+      tripId: server.tripId,
+      blob,
+      posterBlob,
+      mime: server.mime === 'video/mp4' ? 'video/mp4' : 'video/webm',
+      durationSec: server.durationSec,
+      width: server.width,
+      height: server.height,
+      takenAt: server.takenAt,
+      bytesOriginal: local?.bytesOriginal ?? blob.size,
+      bytesVideo: blob.size,
+      version: server.version,
+      baseVersion: server.version,
+      ...(server.clientOperationId ? { clientOperationId: server.clientOperationId } : {}),
+      createdAt: server.createdAt,
+      updatedAt: server.updatedAt,
+      deletedAt: null,
+      storagePath: server.storagePath,
+    };
+    if (await applyServerWinner(d.localVideos, 'video', local, next, mode)) pulled++;
+  }
+  return { pulled, skippedEmptyCloud: false };
+}
+
 /**
  * 로그인/온라인 시 전체 동기화. push 먼저(로컬 우선 전송) → pull 병합.
  * push 순서: 여행 → 순간 → 사진·비용·소리(자식의 복합 FK가 서버의 부모 존재를 요구).
@@ -1387,7 +1577,7 @@ export async function backfillMediaGpsOps(
 /**
  * **서버에 파일이 없는 기록의 바이트를 다시 올린다**(2026-07-28, M-0046 복구 경로).
  *
- * 언제 쓰나: 진단이 「서버에 없는 사진/소리」를 짚었을 때. 그 상태는 *서버 행은 경로를 적어
+ * 언제 쓰나: 진단이 「서버에 없는 사진/소리/영상」을 짚었을 때. 그 상태는 *서버 행은 경로를 적어
  * 놓았는데 그 자리에 파일이 없다*는 뜻이고, **이 기기에 사본이 남아 있으면 고칠 수 있다.**
  *
  * 어떻게: 이 기기가 기억하는 착지 키(`storagePath`)를 **잊게 한다.** 그 기억이 곧 push의
@@ -1616,7 +1806,7 @@ export async function backfillMediaGpsOnce(
  * 알 수 없다는 게 뿌리였다 — 서버와 대조하면 그 모호함이 사라진다.
  */
 async function requeueIfServerStillActive(
-  entityType: 'trip' | 'moment' | 'media' | 'expense' | 'audio' | 'place',
+  entityType: SyncEntityType,
   local: { id: string; deletedAt: string | null } | undefined,
   server: { deletedAt: string | null },
   mode: PullMode,
@@ -2047,7 +2237,7 @@ export async function pushPurges(remote: PurgeRemote, bytes?: BytesRemote): Prom
       }
     }
 
-    // ⑤ **여기가 사진·소리 바이트를 지우는 유일한 자리다**(정책 2026-07-26).
+    // ⑤ **여기가 사진·소리·영상 바이트를 지우는 유일한 자리다**(정책 2026-07-26).
     //    휴지통에 있는 동안은 서버에 남겨 두었다가, 휴지통을 비울 때 지운다 —
     //    그래야 휴지통이 진짜 휴지통이고, 어느 기기에서 복원해도 사진이 돌아온다.
     if (bytes) {
@@ -2106,7 +2296,7 @@ async function normalizeTableStamps(table: Table<SyncMeta & { id: string }, stri
 /** 로컬 테이블 전부 — 형제를 손으로 세지 않는다(§7). 고친 행 수를 돌려준다. */
 export async function normalizeStamps(): Promise<number> {
   const d = db();
-  const tables = [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.localAudio] as unknown as Table<SyncMeta & { id: string }, string>[];
+  const tables = [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.localVideos, d.localPlaces] as unknown as Table<SyncMeta & { id: string }, string>[];
   let fixed = 0;
   for (const t of tables) fixed += await normalizeTableStamps(t);
   return fixed;
@@ -2215,6 +2405,7 @@ interface EntityRemotes {
   media: MediaRemote;
   expenses: ExpensesRemote;
   audio: AudioRemote;
+  video: VideoRemote;
 }
 
 /** 부모→자식 순서를 한 곳에 둔다. pull이 만든 삭제 op의 안전한 후행 전송도 같은 문을 지난다. */
@@ -2230,6 +2421,7 @@ async function pushEntityOps(
     media: () => pushPendingMedia(remotes.media, userId),
     expense: () => pushPendingExpenses(remotes.expenses, userId),
     audio: () => pushPendingAudio(remotes.audio, userId),
+    video: () => pushPendingVideos(remotes.video, userId),
   }, onDomainSettled ? { onDomainSettled } : {});
   return {
     pushed: SYNC_DOMAINS.reduce((sum, domain) => sum + result[domain].pushed, 0),
@@ -2249,6 +2441,7 @@ async function pullEntityRows(
     media: () => pullMedia(remotes.media, mode),
     expense: () => pullExpenses(remotes.expenses, mode),
     audio: () => pullAudio(remotes.audio, mode),
+    video: () => pullVideos(remotes.video, mode),
   }, onDomainSettled ? { onDomainSettled } : {});
 }
 
@@ -2277,6 +2470,7 @@ async function runServerReadOnlySync(client: JourneyClient, opts: SyncOptions): 
         media: mediaRemote(client),
         expenses: expensesRemote(client),
         audio: audioRemote(client),
+        video: videoRemote(client),
       },
       'server-read-only',
       () => {
@@ -2325,6 +2519,7 @@ export async function runSync(
   const eRemote = expensesRemote(client);
   const dRemote = mediaRemote(client);
   const aRemote = audioRemote(client);
+  const vRemote = videoRemote(client);
   const plRemote = placesRemote(client);
   const pRemote0 = purgeRemote(client);
   const entityRemotes: EntityRemotes = {
@@ -2334,6 +2529,7 @@ export async function runSync(
     media: dRemote,
     expenses: eRemote,
     audio: aRemote,
+    video: vRemote,
   };
   // 옛 cascade 복구는 로컬 tombstone만 보고 재큐잉하지 않는다(M-0095). 각 pull이 이미
   // 서버 active를 직접 본 뒤에만 `requeueIfServerStillActive`로 삭제 op을 만든다.

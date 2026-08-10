@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // 이 도구가 묻는 것 — 한 문장으로
 // ─────────────────────────────────────────────────────────────────────────────
-// **기록이 가리키는 사진·소리 바이트가 실제로 있고, 실제로 열리는가.**
+// **기록이 가리키는 사진·소리·영상 바이트가 실제로 있고, 실제로 열리는가.**
 //
 // 경로축의 🖼️ `files` 단계는 v1.76에 이름만 생기고 **도구가 하나도 없었다.** 허브가 그 자리에
 // 「아직 이 단계를 보는 도구가 없어요」를 띄우고 있었고(§8 — 빈 자리를 조용히 지우지 않는다),
@@ -32,7 +32,7 @@
 // 「모른다」가 아니라 **「안 해 봤다」**이고, 사용자가 한 번 누르면 해소된다(§8 · M-0035:
 // 과도한 `unknown`은 정상 화면을 이상하게 보이게 만든다).
 
-/** 한 종류(사진·소리)의 로컬 바이트 실측. */
+/** 한 종류(사진·소리·영상)의 로컬 바이트 실측. */
 export interface KindTally {
   /** 이 기기에 기록이 있는 것 전부(휴지통 포함 — 되살릴 수 있어야 하므로 바이트도 성해야 한다). */
   rows: number;
@@ -60,6 +60,7 @@ export interface OpenSweep {
 export interface FileRealityInput {
   photo: KindTally;
   audio: KindTally;
+  video: KindTally;
   sweep: OpenSweep | null;
 }
 
@@ -73,7 +74,7 @@ export interface FileMetric {
   meaning?: string;
 }
 
-const KO = { photo: '사진', audio: '소리' } as const;
+const KO = { photo: '사진', audio: '소리', video: '영상' } as const;
 
 /** 「N개」 — 숫자 0도 값이다(금액·개수에서 0을 falsy로 뭉개지 않는다). */
 const n = (v: number): string => `${v}개`;
@@ -89,7 +90,7 @@ const n = (v: number): string => `${v}개`;
 const gaOf = (unit: string): string => (/[가-힣]$/.test(unit) && (unit.charCodeAt(unit.length - 1) - 0xac00) % 28 > 0 ? '이' : '가');
 
 /** 한 종류의 「바이트가 비어 있는 기록」 지표. */
-function emptyMetric(kind: 'photo' | 'audio', t: KindTally): FileMetric {
+function emptyMetric(kind: 'photo' | 'audio' | 'video', t: KindTally): FileMetric {
   const bad = t.empty > 0;
   return {
     label: `바이트가 비어 있는 ${KO[kind]} 기록`,
@@ -120,7 +121,7 @@ function openMetric(sweep: OpenSweep | null, totalNow: number): FileMetric {
       actual: '아직 안 열어 봤어요',
       expected: '0개',
       level: 'todo',
-      meaning: '아래 [사진·소리 실제로 열어 보기]를 누르면 이 기기의 파일을 하나씩 실제로 열어 확인해요.',
+      meaning: '아래 [사진·소리·영상 실제로 열어 보기]를 누르면 이 기기의 파일을 하나씩 실제로 열어 확인해요.',
     };
   }
   if (sweep.failed.length > 0) {
@@ -161,8 +162,13 @@ export function worstOf(levels: readonly FileLevel[]): FileLevel {
 }
 
 export function fileRealityMetrics(i: FileRealityInput): FileMetric[] {
-  const totalNow = i.photo.rows + i.audio.rows;
-  return [emptyMetric('photo', i.photo), emptyMetric('audio', i.audio), openMetric(i.sweep, totalNow)];
+  const totalNow = i.photo.rows + i.audio.rows + i.video.rows;
+  return [
+    emptyMetric('photo', i.photo),
+    emptyMetric('audio', i.audio),
+    emptyMetric('video', i.video),
+    openMetric(i.sweep, totalNow),
+  ];
 }
 
 /**
@@ -173,9 +179,9 @@ export function fileRealityMetrics(i: FileRealityInput): FileMetric[] {
  * 문장이 그 경계를 말한다.
  */
 export function fileRealityHeadline(i: FileRealityInput): string {
-  const total = i.photo.rows + i.audio.rows;
-  if (total === 0) return '이 기기에 사진·소리가 아직 없어요';
-  const empty = i.photo.empty + i.audio.empty;
+  const total = i.photo.rows + i.audio.rows + i.video.rows;
+  if (total === 0) return '이 기기에 사진·소리·영상이 아직 없어요';
+  const empty = i.photo.empty + i.audio.empty + i.video.empty;
   const broken = i.sweep?.failed.length ?? 0;
   const unchecked = uncheckedSinceSweep(i.sweep, total);
   if (empty + broken > 0) {
@@ -185,9 +191,9 @@ export function fileRealityHeadline(i: FileRealityInput): string {
     if (unchecked > 0) parts.push(`새 ${n(unchecked)}는 아직 확인 전`);
     return `이 기기의 파일에 확인할 것이 있어요 — ${parts.join(' · ')}`;
   }
-  if (!i.sweep) return `이 기기의 사진·소리 ${n(total)}에 빈 파일은 없어요 — 실제로 열리는지는 아직 확인 전`;
-  if (unchecked > 0) return `이 기기의 사진·소리: 확인한 ${n(i.sweep.checked)}는 모두 성하고, 새 ${n(unchecked)}는 아직 확인 전이에요`;
-  return `이 기기의 사진·소리 ${n(total)}${gaOf(n(total))} 모두 성해요`;
+  if (!i.sweep) return `이 기기의 사진·소리·영상 ${n(total)}에 빈 파일은 없어요 — 실제로 열리는지는 아직 확인 전`;
+  if (unchecked > 0) return `이 기기의 사진·소리·영상: 확인한 ${n(i.sweep.checked)}는 모두 성하고, 새 ${n(unchecked)}는 아직 확인 전이에요`;
+  return `이 기기의 사진·소리·영상 ${n(total)}${gaOf(n(total))} 모두 성해요`;
 }
 
 /**

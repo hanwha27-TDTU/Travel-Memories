@@ -79,6 +79,7 @@ describe('② 되살려도 자료가 비는 항목 (bytesMissing)', () => {
           { domain: 'media', label: '사진 aaaaaaaa' },
           { domain: 'media', label: '사진 bbbbbbbb' },
           { domain: 'audio', label: '소리 cccccccc' },
+          { domain: 'video', label: '영상 dddddddd' },
         ],
       }),
     );
@@ -86,6 +87,7 @@ describe('② 되살려도 자료가 비는 항목 (bytesMissing)', () => {
     // §7-G 곁가지: **숫자를 합치면 이름이 사라진다.** 종류를 부를 수 있어야 한다.
     expect(m.actual).toContain('사진 2');
     expect(m.actual).toContain('소리 1');
+    expect(m.actual).toContain('영상 1');
   });
 
   it('🔴 원인을 못박지 않는다 — 관측까지만 말한다(§7-I)', () => {

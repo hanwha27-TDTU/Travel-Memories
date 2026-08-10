@@ -73,6 +73,8 @@ export const SKILL_ROUTES = [
   // 「자동으로 넣지 않는다」는 결정이 전부 domain/place/here.ts와 한 몸이다.
   { match: /^src\/services\/here/, skill: 'map-place-dev' },
   { match: /^src\/ui\/(photoEditor|photoViewer|editor)/, skill: 'photo-editor-dev' },
+  { match: /^src\/ui\/videoViewer/, skill: 'ui-responsive-dev' },
+  { match: /^src\/ui\/videoViewer/, skill: 'photo-storage-dev' },
   // 🔴 **사진 바이트가 지나는 자리는 전용 헌장을 함께 읽는다**(사용자 지시 2026-08-01:
   // *"사진저장관련 스킬문서 별도로 만들어서 특별관리하자"*). 이 경로는 네 헌장에 걸쳐
   // 흩어져 있어 **전체를 보는 사람이 없었고**, 이틀 동안 결함 넷이 여기서 났다
@@ -80,6 +82,8 @@ export const SKILL_ROUTES = [
   { match: /^src\/media\//, skill: 'photo-storage-dev' },
   { match: /^src\/media\//, skill: 'photo-editor-dev' },
   { match: /^src\/services\/(media|r2)\.ts/, skill: 'photo-storage-dev' },
+  { match: /^src\/services\/videos\.ts/, skill: 'photo-storage-dev' },
+  { match: /^src\/services\/videos\.ts/, skill: 'sync-offline-dev' },
   // 셸(ADR-0036)의 웹 쪽 절반 — 위치가 살아 있는 원본을 받는 유일한 문이므로 사진저장 헌장이다.
   { match: /^src\/services\/nativePhotos/, skill: 'photo-storage-dev' },
   // Capacitor 전역 접근 SSOT — 사진 문(OriginalPhotos)과 로그인 복귀(App)가 함께 기대므로

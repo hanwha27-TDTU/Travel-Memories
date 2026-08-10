@@ -1136,11 +1136,13 @@ interface StoreActionsInput {
   /** 자료 없이 기록 줄만 남은 소리 id. 사진과 **버튼을 나누는 이유**: `purgeServerOnly`가
    *  도메인을 받으므로 한 목록으로 합치면 어느 표를 지울지 알 수 없다. */
   clearableAudioIds: string[];
+  /** 자료 없이 기록 줄만 남은 영상 id. */
+  clearableVideoIds: string[];
   /**
    * **서버엔 파일이 없는데 이 기기엔 있는** id들 — 다시 올리면 끝난다(M-0046).
    * 도메인별로 나눠 담는다: `requeueMissingBytes`가 어느 표의 행을 고칠지 알아야 한다.
    */
-  recoverable: Record<'media' | 'audio', string[]>;
+  recoverable: Record<'media' | 'audio' | 'video', string[]>;
 }
 
 /**
@@ -1152,9 +1154,9 @@ interface StoreActionsInput {
  * 「치워도 되는 파일」로 분류하는 사고가 그렇게 났다(2026-07-26).
  */
 function storeCleanupActions(i: StoreActionsInput): Action[] {
-  const { c, cmp, stranded, blocked, leftoverFileIds, clearableIds, clearableAudioIds, recoverable } = i;
+  const { c, cmp, stranded, blocked, leftoverFileIds, clearableIds, clearableAudioIds, clearableVideoIds, recoverable } = i;
   /** 「먼저 눌러야 할 버튼」은 하나뿐이다 — 자료를 지키는 일이 남아 있으면 정리는 뒤로 미룬다. */
-  const quiet = !blocked && !stranded && !recoverable.media.length && !recoverable.audio.length;
+  const quiet = !blocked && !stranded && !recoverable.media.length && !recoverable.audio.length && !recoverable.video.length;
   return [
     ...(cmp.multipart.known && cmp.multipart.mine
       ? [
@@ -1183,10 +1185,10 @@ function storeCleanupActions(i: StoreActionsInput): Action[] {
             // 지표를 만들었으면 **고칠 곳도 만든다**(진단 §7-B). 2026-07-26에 사용자는
             // 「기록 없는 사진 파일 3개」를 보면서 앱 안에서 손댈 방법이 없어 Cloudflare
             // 대시보드를 직접 열어야 했다. 판정만 하고 행동을 못 주면 관측으로 되돌아간 것이다.
-            // 사진·소리를 **한 버튼**이 치운다: 지우는 경로가 id 하나로 같기 때문이다
+            // 사진·소리·영상을 **한 버튼**이 치운다: 지우는 경로가 id 하나로 같기 때문이다
             // (함수가 R2 목록에서 그 id의 키를 찾아 지운다 — 확장자를 가리지 않는다).
             label: '남은 파일 정리',
-            primary: quiet && !clearableIds.length && !clearableAudioIds.length,
+            primary: quiet && !clearableIds.length && !clearableAudioIds.length && !clearableVideoIds.length,
             hook: 'data-clear-leftover-files',
             run: async (): Promise<string> => {
               // 건당 왕복 대신 **한 번에** 보내고, 함수가 지운 뒤 목록을 다시 읽어 확인한 결과를
@@ -1205,7 +1207,7 @@ function storeCleanupActions(i: StoreActionsInput): Action[] {
       ? [
           {
             label: '지운 사진 기록 정리',
-            primary: quiet && !leftoverFileIds.length && !clearableAudioIds.length,
+            primary: quiet && !leftoverFileIds.length && !clearableAudioIds.length && !clearableVideoIds.length,
             hook: 'data-clear-dead-media',
             run: async (): Promise<string> => {
               // 사진 자체는 이미 없다 — 서버에 남은 **기록 줄**만 치운다.
@@ -1227,7 +1229,7 @@ function storeCleanupActions(i: StoreActionsInput): Action[] {
       ? [
           {
             label: '지운 소리 기록 정리',
-            primary: quiet && !leftoverFileIds.length && !clearableIds.length,
+            primary: quiet && !leftoverFileIds.length && !clearableIds.length && !clearableVideoIds.length,
             hook: 'data-clear-dead-audio',
             run: async (): Promise<string> => {
               const n = await purgeServerOnly('audio', clearableAudioIds);
@@ -1241,12 +1243,30 @@ function storeCleanupActions(i: StoreActionsInput): Action[] {
           },
         ]
       : []),
+    ...(clearableVideoIds.length
+      ? [
+          {
+            label: '지운 영상 기록 정리',
+            primary: quiet && !leftoverFileIds.length && !clearableIds.length && !clearableAudioIds.length,
+            hook: 'data-clear-dead-video',
+            run: async (): Promise<string> => {
+              const n = await purgeServerOnly('video', clearableVideoIds);
+              if (!n) return '큐에 이미 들어 있어요. [지금 동기화]를 눌러 주세요.';
+              await requestSync('지운 영상 기록 정리');
+              const st = syncStatus();
+              return st.phase === 'failed'
+                ? `${n}건을 큐에 넣었지만 동기화가 실패했어요: ${st.lastError ?? '사유 불명'}`
+                : `${n}건을 정리했어요. 다시 대조합니다.`;
+            },
+          },
+        ]
+      : []),
   ];
 }
 
 function storeActions(i: StoreActionsInput): Action[] {
   const { cmp, level, stranded, blocked, leftoverFileIds, clearableIds, recoverable } = i;
-  const reup = recoverable.media.length + recoverable.audio.length;
+  const reup = recoverable.media.length + recoverable.audio.length + recoverable.video.length;
   return [
     // 🔴 **자료를 지키는 일이 가장 먼저다**(2026-07-28, M-0046). 이 버튼이 없던 동안 화면은
     //    같은 상태를 보고 「치우세요」라고 말했다 — 로컬에 사본이 있는데도.
@@ -1260,7 +1280,7 @@ function storeActions(i: StoreActionsInput): Action[] {
               // 자료를 건드리지 않는다 — 이 기기가 기억하는 **착지 키만** 잊게 해서
               // 다음 동기화가 바이트를 다시 올리게 만든다.
               let n = 0;
-              for (const dm of ['media', 'audio'] as const) n += await requeueMissingBytes(dm, recoverable[dm]);
+              for (const dm of ['media', 'audio', 'video'] as const) n += await requeueMissingBytes(dm, recoverable[dm]);
               if (!n) return '다시 올릴 사본을 이 기기에서 찾지 못했어요.';
               await requestSync('서버에 없는 자료 다시 올리기', { deep: true });
               const st = syncStatus();
@@ -1324,7 +1344,7 @@ function storeActions(i: StoreActionsInput): Action[] {
 function fileAuditEvidence(
   noun: string,
   fa: MediaFileAudit,
-  /** 총 바이트를 표시할지 — 사진·소리가 **한 버킷**을 쓰므로 합계는 한 줄에서만 말한다(두 번 세지 않게). */
+  /** 총 바이트를 표시할지 — 사진·소리·영상이 **한 버킷**을 쓰므로 합계는 한 줄에서만 말한다(두 번 세지 않게). */
   totalBytes: number | null,
 ): { label: string; build: () => HTMLElement } {
   return {
@@ -1351,7 +1371,7 @@ function fileAuditEvidence(
 }
 
 /**
- * **파일 대조 지표를 만드는 한 곳.** 사진·소리가 같은 규율을 지나게 한다(§7 2층).
+ * **파일 대조 지표를 만드는 한 곳.** 사진·소리·영상이 같은 규율을 지나게 한다(§7 2층).
  *
  * 왜 함수로 뽑았나(2026-07-27): 소리가 서버로 가면서 대조 대상이 둘이 됐다. 이 80줄을 손으로
  * 한 번 더 쓰면 그 순간 드리프트가 시작된다 — 이 저장소가 이미 세 번 겪은 모양이다(§7 머리말).
@@ -1543,6 +1563,15 @@ export function countComparisonMetrics(cmp: StoreComparison): Metric[] {
   return out;
 }
 
+function storeFileAudits(cmp: StoreComparison, restorePending: Set<string>, otherDevices: number) {
+  const common = { serverPurged: cmp.serverPurged, serverTombstoned: cmp.serverTombstoned, restorePending, otherDevices };
+  return {
+    audit: fileAuditMetrics({ noun: '사진', fa: cmp.fileAudit, note: cmp.fileAuditNote, localBytes: cmp.localBytes.media, ...common }),
+    audioAudit: fileAuditMetrics({ noun: '소리', fa: cmp.audioAudit, note: cmp.audioAuditNote, localBytes: cmp.localBytes.audio, ...common }),
+    videoAudit: fileAuditMetrics({ noun: '영상', fa: cmp.videoAudit, note: cmp.videoAuditNote, localBytes: cmp.localBytes.video, ...common }),
+  };
+}
+
 export async function storeStateProbe(): Promise<Verdict> {
   const c = supabase();
   const u = c ? await currentUserSafe() : null;
@@ -1590,7 +1619,7 @@ export async function storeStateProbe(): Promise<Verdict> {
   // 개수 대조와 파일 대조를 **한 배열에 담되 경계를 기억한다** — 판정 문장이 둘을 구분해야 한다.
   const metrics: Metric[] = [...countMetrics];
 
-  // ── 파일 대조(사진·소리) ────────────────────────────────────────
+  // ── 파일 대조(사진·소리·영상) ───────────────────────────────────
   // 두 방향을 **한 숫자로 합치지 않는다.** 사용자가 할 일이 정반대이기 때문이다
   // (진단 §4의 "대기 중인 작업 3건"이 정확히 그 실수였다).
   //
@@ -1601,35 +1630,17 @@ export async function storeStateProbe(): Promise<Verdict> {
   // **이 기기를 뺀** 기기 수(M-0048). 화면은 이미 「내 기기들 N대」로 띄우면서 판정만 그
   // 사실을 몰랐다 — 앱이 아는 것을 판정에 안 쓴 §12의 형태다.
   const otherDevices = Math.max(0, cmp.devices.length - 1);
-  const audit = fileAuditMetrics({
-    noun: '사진',
-    fa: cmp.fileAudit,
-    note: cmp.fileAuditNote,
-    serverPurged: cmp.serverPurged,
-    serverTombstoned: cmp.serverTombstoned,
-    restorePending,
-    localBytes: cmp.localBytes.media,
-    otherDevices,
-  });
-  const audioAudit = fileAuditMetrics({
-    noun: '소리',
-    fa: cmp.audioAudit,
-    note: cmp.audioAuditNote,
-    serverPurged: cmp.serverPurged,
-    serverTombstoned: cmp.serverTombstoned,
-    restorePending,
-    localBytes: cmp.localBytes.audio,
-    otherDevices,
-  });
-  metrics.push(...audit.metrics, ...audioAudit.metrics);
+  const { audit, audioAudit, videoAudit } = storeFileAudits(cmp, restorePending, otherDevices);
+  metrics.push(...audit.metrics, ...audioAudit.metrics, ...videoAudit.metrics);
   // 치우기는 **id로** 하고 그 경로는 종류를 가리지 않는다(R2 목록에서 키를 찾아 지운다).
   // 그래서 잔재 목록은 합친다 — 버튼이 둘일 이유가 없다.
-  const leftoverFileIds = [...audit.leftover, ...audioAudit.leftover];
+  const leftoverFileIds = [...audit.leftover, ...audioAudit.leftover, ...videoAudit.leftover];
   const clearableIds = audit.clearable;
   const clearableAudioIds = audioAudit.clearable;
+  const clearableVideoIds = videoAudit.clearable;
   // 다시 올릴 것은 **종류를 합친다** — 고치는 방법이 같다(로컬이 기억하는 키를 잊고 재큐잉).
-  const recoverable = { media: audit.recoverable, audio: audioAudit.recoverable };
-  const restoringFiles = audit.restoring + audioAudit.restoring;
+  const recoverable = { media: audit.recoverable, audio: audioAudit.recoverable, video: videoAudit.recoverable };
+  const restoringFiles = audit.restoring + audioAudit.restoring + videoAudit.restoring;
 
   // ── 앱이 관리하지 않는 항목 ────────────────────────────────────────
   // 왜(2026-07-26 사용자 *"니가 객체목록을 보게 하려면 내가 어케 해야해?"* — 스크린샷을 수백 장
@@ -1700,7 +1711,7 @@ export async function storeStateProbe(): Promise<Verdict> {
   const behind = cmp.devices.filter((d) => !d.isThis && cmp.lastCloudWriteAt && d.lastPushAt < cmp.lastCloudWriteAt);
 
   const countBad = countMetrics.filter((m) => m.level !== 'ok').length;
-  const fileBad = fileBadByNoun([audit, audioAudit]);
+  const fileBad = fileBadByNoun([audit, audioAudit, videoAudit]);
   // 살아 있는 기록이 하나도 없을 때 「클라우드와 같습니다」만 말하면 사용자는 **자기 자료가
   // 어디 갔는지 모른 채** 화면을 떠난다. 그래서 판정 문장에 대조한 대상(활성)과 자료의
   // 현재 위치(휴지통)를 함께 넘긴다.
@@ -1715,7 +1726,7 @@ export async function storeStateProbe(): Promise<Verdict> {
     // 써서, 짝이 맞아도 「맞지 않아요」라고 말했다(2026-08-01 사용자 화면).
     because: storeBecause({ countBad, fileBad, stranded, blocked, devices: cmp.devices.length, behind: behind.length }),
     metrics,
-    actions: storeActions({ c, cmp, level, stranded, blocked, leftoverFileIds, clearableIds, clearableAudioIds, recoverable }),
+    actions: storeActions({ c, cmp, level, stranded, blocked, leftoverFileIds, clearableIds, clearableAudioIds, clearableVideoIds, recoverable }),
     evidence: [
       {
         // 사용자가 Supabase·R2를 직접 열어 "안 지워졌다"고 판단하던 자리(2026-07-26).
@@ -1736,6 +1747,7 @@ export async function storeStateProbe(): Promise<Verdict> {
       // 소리는 **바이트 합계를 다시 말하지 않는다** — 사진과 한 버킷을 쓰므로 `cmp.bytes`가
       // 이미 둘을 합친 값이다. 여기서 또 붙이면 사용자가 두 배로 읽는다(§8 — 지표엔 기준이 필요하다).
       ...(cmp.audioAudit ? [fileAuditEvidence('소리', cmp.audioAudit, null)] : []),
+      ...(cmp.videoAudit ? [fileAuditEvidence('영상', cmp.videoAudit, null)] : []),
       {
         label: `내 기기들 ${cmp.devices.length}대`,
         build: () =>
@@ -2172,7 +2184,7 @@ export function backupProbe(): Promise<Verdict> {
     evidence: [],
     context: [
       { label: '이 기기의 자료 사본 경로', value: cloud ? '클라우드 동기화 + 백업 파일(선택)' : '백업 파일뿐(로컬 전용 배포)' },
-      { label: '복원 왕복 범위', value: '진단용 여행 1건 · 사진·소리 바이트와 전 도메인은 자동 왕복 검사' },
+      { label: '복원 왕복 범위', value: '진단용 여행 1건 · 사진·소리·영상 바이트와 전 도메인은 자동 회귀검사' },
     ],
   };
   return Promise.resolve(v);
@@ -2405,8 +2417,8 @@ export async function sessionProbe(): Promise<Verdict> {
 // 전수 디코드를 여기 넣으면 진단 도구가 **자기 자신을 느리게 만든다.** 존재 검사(크기만 본다)만
 // 매번 돌고, 실제로 열어 보는 것은 [열어 보기]가 하고 결과를 기억한다.
 export async function fileRealityProbe(): Promise<Verdict> {
-  const { photo, audio } = await tallyLocalFiles();
-  const input: FileRealityInput = { photo, audio, sweep: lastSweep() };
+  const { photo, audio, video } = await tallyLocalFiles();
+  const input: FileRealityInput = { photo, audio, video, sweep: lastSweep() };
   // 아직 안 열어 본 상태 — [열어 보기]를 누르면 풀린다(**일시적**).
   const metrics: Metric[] = fileRealityMetrics(input).map((m) => metricFromView(m.label, m, 'transient'));
   const sweep = input.sweep;
@@ -2418,7 +2430,7 @@ export async function fileRealityProbe(): Promise<Verdict> {
     because: fileRealityScopeNote(),
     actions: [
       {
-        label: '사진·소리 실제로 열어 보기',
+        label: '사진·소리·영상 실제로 열어 보기',
         primary: true,
         hook: 'file-open-sweep',
         // 🔴 **읽기 전용이다.** 여는 것은 지우거나 고치는 것이 아니므로 라이브가 실제로 눌러도
@@ -2689,9 +2701,9 @@ export const CORE_TOOLS: DiagTool[] = [
     group: 'files',
     icon: '🖼️',
     label: '파일 실물',
-    hint: '사진·소리가 실제로 열리나',
-    question: '기록이 가리키는 사진·소리가 이 기기에서 실제로 열리는가?',
-    reads: '로컬 사진·소리 행과 바이트 존재 여부, 마지막 명시적 열기 전수 결과',
+    hint: '사진·소리·영상이 실제로 열리나',
+    question: '기록이 가리키는 사진·소리·영상이 이 기기에서 실제로 열리는가?',
+    reads: '로컬 사진·소리·영상 행과 바이트 존재 여부, 마지막 명시적 열기 전수 결과',
     mode: 'summary',
     writes: '사용자가 누를 때 파일을 읽어 디코드 결과만 메모리에 기록',
     probe: fileRealityProbe,

@@ -1000,6 +1000,17 @@ select.zone-input { text-overflow: ellipsis; }
 .moment-currency { flex: 0 0 auto; width: auto; min-width: 96px; }
 .moment-edit .moment-money { margin: 0; }
 .photo-thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: var(--space-2); }
+.video-thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: var(--space-2); }
+.video-thumb-wrap { position: relative; width: min(220px, 100%); border-radius: 12px; overflow: hidden; background: #101415; }
+.video-thumb-button { position: relative; display: block; width: 100%; padding: 0; border: 0; color: #fff; background: transparent; cursor: pointer; }
+.video-thumb { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.video-duration { position: absolute; right: 8px; bottom: 8px; padding: 3px 7px; border-radius: 999px; background: rgb(0 0 0 / 72%); font-size: .75rem; }
+.moment-addvideo { display: contents; }
+.moment-video-input { max-width: 100%; }
+
+.video-viewer { position: fixed; inset: 0; z-index: 1100; display: grid; place-items: center; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); background: rgb(0 0 0 / 88%); overflow: auto; }
+.video-viewer-player { display: block; max-width: min(100%, 1100px); max-height: calc(100dvh - 48px); border-radius: 12px; background: #000; }
+.video-viewer-close { position: fixed; z-index: 1; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); width: 44px; height: 44px; border: 0; border-radius: 999px; color: #fff; background: rgb(0 0 0 / 65%); font-size: 1.25rem; }
 /* 🔴 **칸을 정사각으로 고정한다**(사용자 지적 2026-08-06: *"썸네일 사진의 가로 세로 크기가
    제각각이라 보기 불편함"*).
 

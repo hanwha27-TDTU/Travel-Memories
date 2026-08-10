@@ -6,6 +6,9 @@ import { externalMapRow } from '../externalMapRow';
 import { audioChip, recordButton } from '../audioNote';
 import { listAudioByTrip, addAudioToMoment, softDeleteAudio, restoreAudio } from '../../services/audio';
 import type { LocalAudio } from '../../offline/db';
+import { addVideoToMoment, listVideosByTrip, restoreVideo, softDeleteVideo } from '../../services/videos';
+import { VIDEO_ACCEPT } from '../../media/video';
+import { openVideoViewer } from '../videoViewer';
 import { showUndoToast, showNoticeToast } from '../toast';
 import { attachDragReorder } from '../dragReorder';
 import { moveItem } from '../../domain/media/order';
@@ -393,6 +396,55 @@ function buildAddPhotoRow(): { wrap: HTMLElement; input: HTMLInputElement; progr
   // §7 — 두 경로가 **같은 부품**을 쓴다. 손으로 두 벌 만들면 한쪽이 낡는다.
   wrap.append(label, galleryPickButton(input));
   return { wrap, input, progress };
+}
+
+function videoFileInput(): HTMLInputElement {
+  const input = el('input', 'moment-video-input') as HTMLInputElement;
+  input.type = 'file';
+  input.accept = VIDEO_ACCEPT;
+  input.multiple = true;
+  input.setAttribute('aria-label', '영상 추가');
+  return input;
+}
+
+function buildAddVideoRow(): { wrap: HTMLElement; input: HTMLInputElement } {
+  const wrap = el('div', 'moment-addvideo');
+  wrap.hidden = true;
+  const input = videoFileInput();
+  const label = el('label', 'moment-photo-label moment-addvideo-btn form-utility');
+  label.append(document.createTextNode('🎬 영상 추가 '), input);
+  wrap.append(label);
+  return { wrap, input };
+}
+
+function wireAddVideo(
+  input: HTMLInputElement,
+  progress: HTMLElement,
+  target: { momentId: string; tripId: string; refresh: () => Promise<void> },
+): void {
+  input.addEventListener('change', () => {
+    const files = input.files ? Array.from(input.files) : [];
+    if (!files.length) return;
+    input.disabled = true;
+    void (async () => {
+      try {
+        for (const [index, file] of files.entries()) {
+          await addVideoToMoment({ momentId: target.momentId, tripId: target.tripId }, file, (p) => {
+            progress.textContent = `영상 ${index + 1}/${files.length} · ${p.phase} ${Math.round(p.ratio * 100)}%`;
+          });
+        }
+        progress.textContent = `영상 ${files.length}개를 기기에 저장했어요 · 클라우드 확인 중`;
+        input.value = '';
+        await target.refresh();
+        await trySync();
+        await target.refresh();
+      } catch (error) {
+        progress.textContent = error instanceof Error ? error.message : String(error);
+      } finally {
+        input.disabled = false;
+      }
+    })();
+  });
 }
 
 /**
@@ -1414,7 +1466,7 @@ import { homeZone, setHomeZone } from '../../services/homeZone';
 import { groupMomentsByDay, type DayGroup } from '../../domain/moment/timeline';
 import { requestSync, syncStatus } from '../../services/autoSync';
 import type { Route, TripNavigationTarget } from '../../app/router';
-import type { LocalMoment, LocalTrip, LocalMedia, LocalExpense, LocalPlace } from '../../offline/db';
+import type { LocalMoment, LocalTrip, LocalMedia, LocalExpense, LocalPlace, LocalVideo } from '../../offline/db';
 
 /** 금액 입력(콤마·공백 허용) → 양수 숫자 또는 null. */
 function parseAmount(raw: string): number | null {
@@ -2013,6 +2065,103 @@ function buildPhotoGrid(o: {
   return grid;
 }
 
+function buildVideoGrid(o: {
+  videos: LocalVideo[];
+  objectUrls: string[];
+  refresh: () => Promise<void>;
+}): HTMLElement {
+  const grid = el('div', 'video-thumbs');
+  for (const item of o.videos) {
+    const url = URL.createObjectURL(item.posterBlob);
+    o.objectUrls.push(url);
+    const cell = el('div', 'video-thumb-wrap');
+    cell.dataset.videoId = item.id;
+    const button = el('button', 'video-thumb-button') as HTMLButtonElement;
+    button.type = 'button';
+    button.setAttribute('aria-label', `영상 재생 · ${Math.round(item.durationSec)}초`);
+    const img = el('img', 'video-thumb') as HTMLImageElement;
+    img.src = url;
+    img.alt = '';
+    img.loading = 'lazy';
+    button.append(img, el('span', 'video-duration', `▶ ${Math.round(item.durationSec)}초`));
+    button.addEventListener('click', () => openVideoViewer(item));
+    const del = el('button', 'photo-del', '✕') as HTMLButtonElement;
+    del.type = 'button';
+    del.setAttribute('aria-label', '이 영상 삭제');
+    del.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (del.disabled) return;
+      del.disabled = true;
+      void (async () => {
+        try {
+          await softDeleteVideo(item.id);
+          await o.refresh();
+          showUndoToast('영상을 삭제했어요', async () => {
+            await restoreVideo(item.id);
+            await o.refresh();
+          });
+        } catch {
+          del.disabled = false;
+        }
+      })();
+    });
+    cell.append(button, del);
+    grid.appendChild(cell);
+  }
+  return grid;
+}
+
+function buildVideoPicker(): { input: HTMLInputElement; label: HTMLLabelElement } {
+  const input = videoFileInput();
+  const label = el('label', 'moment-photo-label form-utility') as HTMLLabelElement;
+  label.append(document.createTextNode('🎬 영상 추가 '), input);
+  return { input, label };
+}
+
+async function processVideosIntoMoment(
+  files: File[],
+  momentId: string,
+  tripId: string,
+  onProgress: (message: string) => void,
+): Promise<void> {
+  for (const [index, file] of files.entries()) {
+    await addVideoToMoment({ momentId, tripId }, file, (p) => {
+      onProgress(`영상 ${index + 1}/${files.length} · ${p.phase} ${Math.round(p.ratio * 100)}%`);
+    });
+  }
+}
+
+function fxTableForCached(occurredAt: string, clock: TripClock, cache: Map<string, FxRateTable | null>): FxRateTable | null {
+  const key = fxKey(fxDateFor(occurredAt, todayDate(), momentWhen(occurredAt, null, clock).offsetMin), fxBase());
+  return cache.get(key) ?? null;
+}
+
+async function hydrateFxTables(
+  moments: LocalMoment[],
+  expenses: LocalExpense[],
+  clock: TripClock,
+  cache: Map<string, FxRateTable | null>,
+): Promise<boolean> {
+  const base = fxBase();
+  const today = todayDate();
+  const dates = new Set<string>();
+  const byId = new Map(moments.map((m) => [m.id, m]));
+  for (const ex of expenses) {
+    if (ex.originalCurrency.toUpperCase() === base) continue;
+    const m = byId.get(ex.momentId);
+    if (m) dates.add(fxDateFor(m.occurredAt, today, momentWhen(m.occurredAt, m.tzOffsetMin, clock).offsetMin));
+  }
+  let added = false;
+  for (const date of dates) {
+    const key = fxKey(date, base);
+    if (cache.has(key)) continue;
+    const table = await ensureTable(date, base);
+    cache.set(key, table);
+    if (table) added = true;
+  }
+  return added;
+}
+
 /** datetime-local 입력값(로컬시각) → ISO(UTC). 빈/무효는 undefined(변경 안 함). */
 function fromLocalInputValue(v: string, offsetMin: number): string | undefined {
   if (!v) return undefined;
@@ -2188,6 +2337,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
   const origBtn = galleryPickButton(photoInput);
   const photoActions = el('div', 'photo-pick-actions');
   photoActions.append(photoLabel, origBtn);
+    const { input: videoInput, label: videoLabel } = buildVideoPicker();
     // 비용(선택) — 금액 + 통화. "10초 기록"을 방해하지 않도록 한 줄, 비우면 저장 안 함.
     const money = buildMoneyRow(undefined);
 
@@ -2206,7 +2356,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const whenField = buildWhenField(trip, clock, () => latestMomentAt);
     whenField.suggestFrom([]); // 사진 전에도 근거를 보여준다(직전 순간 / 여행 시작일)
 
-    form.append(input, emotion.el, whenField.el, placeField.el, money.el, photoActions, picks.el, save);
+    form.append(input, emotion.el, whenField.el, placeField.el, money.el, photoActions, picks.el, videoLabel, save);
     compose.appendChild(form);
 
     const note = el('p', 'sync-note', '');
@@ -2234,50 +2384,23 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     // 원금액(사용자 기록)은 절대 바꾸지 않는다 — 환산은 옆에 붙는 파생 표시값이다(H-04·원칙 #2).
     const fxCache = new Map<string, FxRateTable | null>();
 
-    /** 사용일(순간의 발생 시각) 기준 표를 캐시에서만 찾는다. */
-    function fxTableFor(occurredAt: string): FxRateTable | null {
-      const key = fxKey(fxDateFor(occurredAt, todayDate(), momentWhen(occurredAt, null, clock).offsetMin), fxBase());
-      return fxCache.get(key) ?? null;
-    }
-
-    /** 화면에 필요한 날짜의 표를 받아 캐시에 채운다. 새로 채워졌으면 true(→ 한 번 재렌더). */
-    async function hydrateFx(moments: LocalMoment[], expenses: LocalExpense[]): Promise<boolean> {
-      const base = fxBase();
-      const today = todayDate();
-      const dates = new Set<string>();
-      const byId = new Map(moments.map((m) => [m.id, m]));
-      for (const ex of expenses) {
-        if (ex.originalCurrency.toUpperCase() === base) continue; // 환산 불필요
-        const m = byId.get(ex.momentId);
-        if (m) dates.add(fxDateFor(m.occurredAt, today, momentWhen(m.occurredAt, m.tzOffsetMin, clock).offsetMin));
-      }
-      let added = false;
-      for (const d of dates) {
-        const key = fxKey(d, base);
-        if (fxCache.has(key)) continue;
-        const t = await ensureTable(d, base);
-        fxCache.set(key, t); // null도 기록 — 실패한 날짜를 매 렌더마다 다시 때리지 않는다
-        if (t) added = true;
-      }
-      return added;
-    }
-
-
     const targetController = tripTargetController(target);
 
     async function refresh(): Promise<void> {
-      const [moments, media, expenses] = await Promise.all([
+      const [moments, media, expenses, videos] = await Promise.all([
         listMoments(trip!.id),
         listMediaByTrip(trip!.id),
         listExpensesByTrip(trip!.id),
+        listVideosByTrip(trip!.id),
       ]);
       latestMomentAt = latestOccurredAt(moments); // 순수 함수 — 비교는 순간으로(M-0034)
       const audioAll = await listAudioByTrip(trip!.id);
       const audioByMoment = groupByMoment(audioAll);
       const byMoment = groupByMoment(media);
       const expByMoment = groupByMoment(expenses);
+      const videoByMoment = groupByMoment(videos);
       locatedPoints = toMapPoints(moments, byMoment, clock);
-      renderTimeline(moments, byMoment, expByMoment, audioByMoment);
+      renderTimeline(moments, byMoment, expByMoment, audioByMoment, videoByMoment);
       targetController.reveal(timeline, byMoment, refresh, clock);
       const groups = groupMomentsByDay(moments, clock, trip!.startDate || undefined);
       statRow.innerHTML = '';
@@ -2285,6 +2408,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         stat(String(moments.length), '순간'),
         stat(String(groups.length), '일'),
         stat(String(media.length), '사진'),
+        ...(videos.length ? [stat(String(videos.length), '영상')] : []),
       );
       const totals = formatTotals(sumByCurrency(expenses));
       if (totals.length) statRow.append(stat(totals.join(' · '), '비용'));
@@ -2306,7 +2430,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
             continue;
           }
           const mo = byId.get(ex.momentId);
-          const t = mo ? fxTableFor(mo.occurredAt) : null;
+          const t = mo ? fxTableForCached(mo.occurredAt, clock, fxCache) : null;
           const v = t ? convertAmount(ex.originalAmount, cur, base, t) : null;
           if (v === null) missing.add(cur);
           else {
@@ -2321,7 +2445,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       }
 
       // 캐시에 없던 날짜의 환율을 받아오고, 새로 채워졌으면 한 번만 다시 그린다(무한루프 없음).
-      void hydrateFx(moments, expenses).then((added) => {
+      void hydrateFxTables(moments, expenses, clock, fxCache).then((added) => {
         if (added) void refresh();
       });
     }
@@ -2331,6 +2455,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       byMoment: Map<string, LocalMedia[]>,
       expByMoment: Map<string, LocalExpense[]>,
       audioByMoment: Map<string, LocalAudio[]>,
+      videoByMoment: Map<string, LocalVideo[]>,
     ): void {
       resetUrls();
       timeline.innerHTML = ''; timelinePhotoDrop.mount();
@@ -2359,13 +2484,25 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         timeline.appendChild(el('h3', 'day-head', dayHeaderLabel(g)));
         const items = el('div', 'timeline');
         for (const m of g.items) {
-          items.appendChild(buildMomentCard(m, byMoment.get(m.id) ?? [], expByMoment.get(m.id) ?? [], audioByMoment.get(m.id) ?? []));
+          items.appendChild(buildMomentCard(
+            m,
+            byMoment.get(m.id) ?? [],
+            expByMoment.get(m.id) ?? [],
+            audioByMoment.get(m.id) ?? [],
+            videoByMoment.get(m.id) ?? [],
+          ));
         }
         timeline.appendChild(items);
       }
     }
 
-    function buildMomentCard(m: LocalMoment, mediaList: LocalMedia[], expenseList: LocalExpense[], audioList: LocalAudio[]): HTMLElement {
+    function buildMomentCard(
+      m: LocalMoment,
+      mediaList: LocalMedia[],
+      expenseList: LocalExpense[],
+      audioList: LocalAudio[],
+      videoList: LocalVideo[],
+    ): HTMLElement {
       const item = el('div', 'tl-item');
       item.appendChild(el('span', 'tl-node'));
       // 🕒 **그 자리의 시각**이 크게, 집 시간 환산이 그 아래 작게. 같은 값을 두 번 말하지
@@ -2389,8 +2526,10 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
 
       // 편집 모드에서 기존 순간에 사진 추가(생성 흐름과 같은 배치 편집 경로 재사용).
       const { wrap: addPhotoWrap, input: addPhotoInput, progress: addProgress } = buildAddPhotoRow();
+      const { wrap: addVideoWrap, input: addVideoInput } = buildAddVideoRow();
       // 🎙 소리 남기기 — 사진 추가와 **같은 줄**에 둔다(둘 다 "이 순간에 뭔가 더하기"다).
       addPhotoWrap.append(buildRecordButton(m.id, trip!.id, addProgress, refresh), addProgress);
+      addPhotoWrap.append(addVideoWrap);
       // 사진 추가 배선은 최상위 `wireAddPhoto`가 한다(래칫이 밀어줬다 — 그리고 이 배선의
       // 규율은 「§0 굽기 전에 EXIF」라 화면 코드가 아니라 밖에 있는 편이 맞다).
 
@@ -2443,10 +2582,12 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       editForm.hidden = !targetController.opensPlaceEditor(m.id);
       // `hasPlace`: 이름이든 좌표든 하나라도 있으면 사진이 장소를 **손대지 않는다.**
       wireAddPhoto(addPhotoInput, addProgress, { momentId: m.id, tripId: trip!.id, fallbackZone: trip?.timeZone ?? '', hasPlace, refresh });
+      wireAddVideo(addVideoInput, addProgress, { momentId: m.id, tripId: trip!.id, refresh });
       editBtn.addEventListener('click', () => {
         const show = editForm.hidden; // 열기로 전환
         editForm.hidden = !show;
         addPhotoWrap.hidden = !show;
+        addVideoWrap.hidden = false;
         if (!show) targetController.closePlaceEditor(m.id);
       });
 
@@ -2490,7 +2631,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           // 환산(보조): 사용일 기준환율로 기준통화 환산값을 덧붙인다. 원금액이 주(主), 환산이 부(副).
           const base = fxBase();
           if (ex.originalCurrency.toUpperCase() !== base) {
-            const t = fxTableFor(m.occurredAt);
+            const t = fxTableForCached(m.occurredAt, clock, fxCache);
             const conv = t ? convertAmount(ex.originalAmount, ex.originalCurrency, base, t) : null;
             if (t && conv !== null) {
               const approx = el('button', 'chip-approx', `≈ ${formatMoney(conv, base)}`) as HTMLButtonElement;
@@ -2528,6 +2669,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           buildPhotoGrid({ mediaList, momentId: m.id, objectUrls, detach, refresh, clock }),
         );
       }
+      if (videoList.length) card.appendChild(buildVideoGrid({ videos: videoList, objectUrls, refresh }));
       card.append(addPhotoWrap, editForm);
       item.appendChild(card);
       return item;
@@ -2538,6 +2680,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       ev.preventDefault();
       save.disabled = true;
       const files = photoInput.files ? Array.from(photoInput.files) : [];
+      const videoFiles = videoInput.files ? Array.from(videoInput.files) : [];
       void (async () => {
         try {
           const moment = await createMomentLocalFirst({
@@ -2558,12 +2701,14 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
             // 진행 중은 갈 곳이 없다 — 지금 벌어지는 일을 보고할 뿐이고, 곧 결과로 바뀐다.
             setNote(note, msg, 'info', null); // 사진 처리 진행 — 잠깐 보이는 정보
           });
+          await processVideosIntoMoment(videoFiles, moment.id, trip!.id, (message) => setNote(note, message, 'info', null));
           input.value = '';
           placeField.reset();
           emotion.reset();
           money.reset();
           // 미리보기 URL 회수 + 개수 문구까지 한 번에(초기화 경로를 두 개 만들지 않는다).
           picks.setFiles([]);
+          videoInput.value = '';
           setNote(note, '✅ 기기에 저장됨 · 클라우드 확인 중', 'info', null);
           await refresh();
           await trySync(); setNote(note, savedPhotoStatus('✅ 기기에 저장됨'), syncStatus().phase === 'ok' ? 'ok' : 'info', null);

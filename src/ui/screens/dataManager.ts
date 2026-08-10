@@ -159,7 +159,7 @@ function backupPanel(): HTMLElement {
         downloadBlob(blob, filename(stamp));
         recordBackupNow();
         renderFresh();
-        status.textContent = `✅ 내보냄 · 여행 ${stats.trips} · 순간 ${stats.moments} · 사진 ${stats.media} · 비용 ${stats.expenses} · 소리 ${stats.audio} · ${fmtBytes(blob.size)}`;
+        status.textContent = `✅ 내보냄 · 여행 ${stats.trips} · 순간 ${stats.moments} · 사진 ${stats.media} · 비용 ${stats.expenses} · 소리 ${stats.audio} · 영상 ${stats.videos} · ${fmtBytes(blob.size)}`;
       } catch (err) {
         status.textContent = `내보내기 실패: ${err instanceof Error ? err.message : String(err)}`;
       } finally {
@@ -259,7 +259,7 @@ function restorePanel(onChanged: () => void): HTMLElement {
           // 영구삭제했던 것을 되살렸으면 **그렇게 말한다.** 2026-07-26에 이 문장이 없어서,
           // 복원이 서버 원장에 막혀 통째로 무효화되는 동안 사용자는 「✅ 복원됨」만 봤다.
           const back = r.unpurged ? ` · 영구삭제했던 ${r.unpurged}건을 되살립니다` : '';
-          status.textContent = `✅ 복원됨 · 여행 ${r.trips} · 순간 ${r.moments} · 사진 ${r.media} · 비용 ${r.expenses} · 소리 ${r.audio} 반영${back}`;
+          status.textContent = `✅ 복원됨 · 여행 ${r.trips} · 순간 ${r.moments} · 사진 ${r.media} · 비용 ${r.expenses} · 소리 ${r.audio} · 영상 ${r.videos} 반영${back}`;
           onChanged();
           // 복원한 기억이 이 기기에만 갇히지 않게 곧바로 올린다(기기 분실 후 복구가 이 경로다).
           void requestSync('백업 복원');
@@ -584,7 +584,7 @@ function trashPanel(onChanged: () => void, closeHub: () => void): HTMLElement {
       if (trips.length) list.appendChild(el('h4', 'dm-trash-subhead', `삭제한 여행 ${trips.length}개`));
       for (const t of trips) list.appendChild(tripRow(t, ctx));
 
-      // ── 여행이 아닌 것들(순간·사진·비용·소리) ────────────────────────
+      // ── 여행이 아닌 것들(순간·사진·비용·소리·영상) ───────────────────
       // 부모가 살아 있는데 혼자 지워진 것들. **여기 말고는 어디에도 안 보인다** — 실행취소
       // 토스트가 사라지면 복구 경로가 통째로 없었다(F5). 2026-07-26에 그게 실제 문제가 됐다:
       // 진단이 「파일이 없는 사진 기록 2건」을 가리키는데 사용자가 손댈 곳이 없었다.
@@ -670,7 +670,7 @@ function canonicalPanel(onChanged: () => void): HTMLElement {
   const wrap = el('div', 'guide-detail-body');
   wrap.append(
     el('h3', 'guide-h', '이 기기를 클라우드 최종본으로'),
-    el('p', 'guide-p', '현재 이 기기에 저장된 여행·장소·순간·사진·비용·소리와 영구삭제 원장을 클라우드의 정확한 최종본으로 지정합니다.'),
+    el('p', 'guide-p', '현재 이 기기에 저장된 여행·장소·순간·사진·비용·소리·영상과 영구삭제 원장을 클라우드의 정확한 최종본으로 지정합니다.'),
     el('p', 'guide-note', '⚠️ 일반 동기화와 다릅니다. 클라우드에만 있던 항목은 최종본에서 빠지고, 다른 기기는 다음 동기화 때 자기 로컬 전용 항목을 보존하지 않고 이 최종본에 맞춥니다. 먼저 완전백업을 내려받는 것을 권합니다.'),
   );
   const status = el('p', 'dm-status');
@@ -701,7 +701,7 @@ function canonicalPanel(onChanged: () => void): HTMLElement {
   confirm.addEventListener('click', () => {
     confirm.disabled = true;
     cancel.disabled = true;
-    status.textContent = '최종본 스냅샷 고정 → 사진·소리 업로드 → 서버 원자 교체 → 되읽기 확인 중…';
+    status.textContent = '최종본 스냅샷 고정 → 사진·소리·영상 업로드 → 서버 원자 교체 → 되읽기 확인 중…';
     void (async () => {
       try {
         const client = supabase();

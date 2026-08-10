@@ -12,7 +12,7 @@ import { readFileSync, readdirSync } from 'node:fs';
  * 원장에는 들어왔는데 검사 계획에는 아무도 안 넣었고, 손목록이라 빈칸이 안 보였다.
  */
 export const DOMAIN_WORDS = Object.freeze({
-  trip: '여행', place: '장소', moment: '순간', media: '사진', expense: '비용', audio: '소리',
+  trip: '여행', place: '장소', moment: '순간', media: '사진', expense: '비용', audio: '소리', video: '영상',
 });
 
 /**

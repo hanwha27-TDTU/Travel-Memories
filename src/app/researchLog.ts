@@ -976,4 +976,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '미릴리스 상태인 T-018 라이브 게이트 개선, T-012 실제 백업 파일 복원 왕복, T-017 공용 릴리스 법 정합을 하나의 릴리스 후보로 묶고, 앱 런타임·진단 UI·개발 하네스가 함께 바뀌므로 버전 2.10과 전체 Required 검증이 필요하다고 판단했다.',
     decision: '세 구현을 v2.10 하나로 릴리스한다. 사용자 데이터·Supabase DB·R2·Edge Function·Android 셸은 변경하지 않고 GitHub Pages만 배포하며, 최신 후보 커밋에서 전체 하네스와 두 라이브 게이트를 통과한 뒤 병합·운영 version.json read-back까지 확인한다.',
   },
+  {
+    seq: 122,
+    date: '2026-08-10',
+    topic: '영상은 원본을 건드리지 않는 앱용 파생본으로 사진의 전체 생명주기를 상속한다',
+    human: '최신 변경을 반영해 영상 저장을 사진과 같은 기본 저장 개념으로 추가하고, 용량을 줄여 올릴 수 있는지 물은 뒤 구현과 배포까지 요청했다.',
+    ai: '브라우저 WebCodecs 기반 무료 오픈소스 Mediabunny로 짧은 영상을 기기 안에서 변환할 수 있고, 별도 localVideos/videos 형제를 두면 사진·소리의 atomic commit, OCC, canonical exact-set, tombstone, purge, 백업과 진단 규율을 구조적으로 상속할 수 있다고 판단했다. 다만 외부 원본과 앱 파생본을 같은 것으로 취급하거나 업로드 성공 응답만으로 임시 사본을 버리면 사용자 기억 보호 계약을 깨므로 바이트 GET read-back까지 필요했다.',
+    decision: '입력은 250MiB·60초로 제한하고 앱 파생본은 1280px·30fps·25MiB 이하 MP4(AVC/AAC), 불가하면 WebM(VP9/Opus)로 만든다. 외부 원본은 수정·삭제하지 않는다. 파생본+포스터+queue를 Dexie에 원자 커밋하고 operation별 R2 경로, DB operation/version/path read-back, R2 GET 바이트 동일성 확인 뒤에만 임시 sourceBlob과 queue를 정리한다. 영상은 일곱 번째 동기화 도메인으로 canonical, 휴지통, 영구삭제, 백업, 저장량, 파일 실물·서버 대조에 모두 포함하며 Edge→DB migration→Pages 순으로 v2.11을 배포한다.',
+  },
 ];

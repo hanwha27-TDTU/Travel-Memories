@@ -32,7 +32,8 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
     "dexie": "^4.0.8",
-    "maplibre-gl": "^4.5.0"
+    "maplibre-gl": "^4.5.0",
+    "mediabunny": "1.53.0"
   },
   "devDependencies": {
     "fake-indexeddb": "^6.2.5",

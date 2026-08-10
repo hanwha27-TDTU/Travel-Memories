@@ -67,6 +67,7 @@ function fakeRemote(options: {
     listMedia: async () => ({ data:options.media ?? [] }),
     listExpenses: async () => ({ data:[] }),
     listAudio: async () => ({ data:[] }),
+    listVideos: async () => ({ data:[] }),
     listPurgedIds: async () => ({ data:[] }),
     publish: async (snapshot) => {
       published.push(snapshot);

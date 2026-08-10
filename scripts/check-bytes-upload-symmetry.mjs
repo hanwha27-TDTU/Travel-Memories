@@ -78,7 +78,7 @@ export function countGateCalls(text) {
 /** DB OCC보다 먼저 올리는 바이트가 작업별 불변 키를 쓰는 도메인 목록(M-0087). */
 export function operationFencedDomains(text) {
   return new Set(
-    [...text.matchAll(/operationStoragePath\s*\(\s*stablePath\s*,\s*(media|audio)\.id\s*,/g)].map((m) => m[1]),
+    [...text.matchAll(/operationStoragePath\s*\(\s*stablePath\s*,\s*(media|audio|video)\.id\s*,/g)].map((m) => m[1]),
   );
 }
 
@@ -108,10 +108,10 @@ function selfTest() {
     fails.push('공용 문 호출 수를 잘못 셌다');
   }
   const fenced = operationFencedDomains(
-    'operationStoragePath(stablePath, media.id, op) operationStoragePath(stablePath, audio.id, op)',
+    'operationStoragePath(stablePath, media.id, op) operationStoragePath(stablePath, audio.id, op) operationStoragePath(stablePath, video.id, op)',
   );
-  if (fenced.size !== 2 || !fenced.has('media') || !fenced.has('audio')) {
-    fails.push('사진·소리 작업별 바이트 fence를 잘못 센다');
+  if (fenced.size !== 3 || !fenced.has('media') || !fenced.has('audio') || !fenced.has('video')) {
+    fails.push('사진·소리·영상 작업별 바이트 fence를 잘못 센다');
   }
   if (operationFencedDomains('const path = stablePath;').size !== 0) {
     fails.push('같은 키 덮어쓰기를 작업별 fence로 잘못 본다');

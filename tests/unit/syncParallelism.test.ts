@@ -50,11 +50,12 @@ describe('sync dependency plan', () => {
 
     pending.moment.resolve('moment');
     await flush();
-    expect(started).toEqual(['trip', 'place', 'moment', 'media', 'expense', 'audio']);
+    expect(started).toEqual(['trip', 'place', 'moment', 'media', 'expense', 'audio', 'video']);
 
     pending.media.resolve('media');
     pending.expense.resolve('expense');
     pending.audio.resolve('audio');
+    pending.video.resolve('video');
     await expect(running).resolves.toEqual({
       trip: 'trip',
       place: 'place',
@@ -62,6 +63,7 @@ describe('sync dependency plan', () => {
       media: 'media',
       expense: 'expense',
       audio: 'audio',
+      video: 'video',
     });
   });
 
@@ -95,6 +97,7 @@ describe('sync dependency plan', () => {
       media: neverReached,
       expense: neverReached,
       audio: neverReached,
+      video: neverReached,
     });
     void running.then(
       () => {

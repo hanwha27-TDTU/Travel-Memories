@@ -38,6 +38,7 @@ beforeEach(async () => {
     d.localTrips.clear(),
     d.localMoments.clear(),
     d.localAudio.clear(),
+    d.localVideos.clear(),
     d.localPlaces.clear(),
     d.syncQueue.clear(),
   ]);
@@ -91,6 +92,7 @@ describe('진단 목록 — 여섯 동기화 형제 대칭', () => {
       d.localMedia.put({ ...base, id: U(803) } as never),
       d.localExpenses.put({ ...base, id: U(804) } as never),
       d.localAudio.put({ ...base, id: U(805) } as never),
+      d.localVideos.put({ ...base, id: U(807) } as never),
       d.localPlaces.put({ ...base, id: U(806) } as never),
     ]);
     const result = await diagnoseSync();

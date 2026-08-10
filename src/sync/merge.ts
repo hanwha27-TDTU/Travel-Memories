@@ -105,7 +105,7 @@ export function classifyError(status: number | undefined): 'retryable' | 'perman
 }
 
 /**
- * **바이트를 서버에 올려야 하는가** — 사진·소리가 **같은 문을 지난다**(§7 2층).
+ * **바이트를 서버에 올려야 하는가** — 사진·소리·영상이 **같은 문을 지난다**(§7 2층).
  *
  * ── 왜 이 함수가 생겼나 (2026-08-01 · M-0059, 사용자 실기기) ──────────────
  * 두 형제의 업로드 조건이 **손으로 따로 쓰여 있었고 갈라져 있었다**:
@@ -130,7 +130,7 @@ export function classifyError(status: number | undefined): 'retryable' | 'perman
  * 소리에는 키 형식이 하나뿐이라 「기억이 없다 = 올라간 적 없다」가 성립했다. 사진은 아니다.
  * 그래서 **의도를 추측하지 않고 명시적으로 표시한다** — `bytesMissing`이 그 표시다.
  *
- * @param e 대상 엔티티(사진·소리 공통 — `SyncMeta`가 아니라 필요한 필드만 받는다).
+ * @param e 대상 엔티티(사진·소리·영상 공통 — `SyncMeta`가 아니라 필요한 필드만 받는다).
  * @param unknownPathMeansNeverUploaded
  *   경로 기억이 없을 때 「올라간 적 없다」로 볼 수 있는가. **소리는 true**(키 형식이 하나),
  *   **사진은 false**(옛 형식이 있어 그렇게 볼 수 없다). 기본값을 두지 않는다 — 기본값이 있으면
@@ -163,9 +163,9 @@ export function mustUploadBytes(
 }
 
 /**
- * 🔴 **내가 방금 보낸 쓰기가 서버에 실제로 착지했는가**(M-3 · 사진·소리 read-back).
+ * 🔴 **내가 방금 보낸 쓰기가 서버에 실제로 착지했는가**(M-3 · 사진·소리·영상 read-back).
  *
- * 왜 「행이 있다」로는 부족한가(2026-08-01 감사): 사진·소리 push는 upsert 뒤 `getById`로 되읽되
+ * 왜 「행이 있다」로는 부족한가(2026-08-01 감사): 사진·소리·영상 push는 upsert 뒤 `getById`로 되읽되
  * **행이 존재하기만 하면** 서버의 `updatedAt`/`version`을 자기 로컬에 덮어쓰고 op을 지웠다.
  * 그런데 그 사이 다른 기기가 **더 높은 version으로** 같은 행을 올렸으면 `getById`는 **그 행**을
  * 돌려준다 — 내 좌표는 안 갔는데 남의 stamp를 내 내용에 얹고 op을 지워, **로컬·서버가 영구히
@@ -176,7 +176,7 @@ export function mustUploadBytes(
  * 변경에 하나뿐이라 서버 read-back이 그 id를 돌려줄 때만 내 쓰기가 착지한 것이다.
  *
  * 서버 guard는 같은 상태의 최신 LWW 쓰기가 낮은 version을 들고 오면 version을 단조 증가시킬 수
- * 있으므로 서버 version은 보낸 값보다 **크거나 같으면** 된다. 사진·소리는 여기에 객체 경로까지
+ * 있으므로 서버 version은 보낸 값보다 **크거나 같으면** 된다. 사진·소리·영상은 여기에 객체 경로까지
  * 더해, 행과 바이트가 같은 쓰기인지 확인한다.
  */
 export function writeLanded(

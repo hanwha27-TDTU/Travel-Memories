@@ -20,10 +20,10 @@ shape: prose-debt
 
 ## 로컬 저장소 (Dexie)
 
-> 🔴 **상태: 아래 목록은 「목표 데이터 모델」이고 실제 구현은 10개다**(2026-08-02 실측 · D-03).
-> 권위 순서상 코드가 이긴다 — `src/offline/db.ts`가 정본. **실제 store 10개**:
+> 🔴 **상태: 아래 목록은 「목표 데이터 모델」이고 실제 구현은 11개다**(2026-08-10 실측).
+> 권위 순서상 코드가 이긴다 — `src/offline/db.ts`가 정본. **실제 store 11개**:
 > `localTrips, localMoments, localMedia, localExpenses, localAudio(v7), localPlaces(v8),
-> syncQueue, localFxRates(v5), purgedIds(v6), syncState(v9)`.
+> localVideos(v10), syncQueue, localFxRates(v5), purgedIds(v6), syncState(v9)`.
 > 미구현(계획): `local_trip_days · local_companions · local_reflections · local_tags ·
 > failed_operations · drafts · cached_thumbnails · app_state`(전부 미착수 — Phase 5·7).
 > `localAudio·localFxRates·purgedIds`는 이후 Phase에서 실제로 추가됐는데 이 목록엔 없었다.
@@ -62,7 +62,7 @@ shape: prose-debt
 > **운영 실측(2026-08-03)은 0027까지 적용 완료**다. v1.58 클라이언트와 migration 0026은 첫 안전층을 구현한다:
 > 직접 upsert에 `base_version` OCC를 걸고, `client_operation_id`+version(+바이트 경로)의 정확한
 > read-back 뒤에만 큐를 제거한다. 충돌은 서버 승자를 로컬+큐에 원자 반영하거나 로컬을 서버
-> version에 재기반화해 재시도한다. 사진·소리는 기존 R2 키를 먼저 덮지 않고 operation별 새 키에
+> version에 재기반화해 재시도한다. 사진·소리·영상은 기존 R2 키를 먼저 덮지 않고 operation별 새 키에
 > 격리하며, DB 승인 뒤에만 그 경로를 publish한다(M-0087). v1.60의 canonical 교체는 아래 별도 모드이며,
 > change-log·receipt·conflict table은 여전히 후속이다.
 > `SyncQueueItem.state`도 9단계 상태머신이 아니라 실사용
@@ -81,25 +81,25 @@ runSync 시작 → ensure_sync_meta + 로컬 syncState 세대 대조
 **「이 기기 → 클라우드 최종본」 게시**
 ```text
 두 단계 사용자 확인
-→ 여섯 Dexie 표 + 큐 id + purged_ids를 한 transaction으로 캡처
-→ 사진·소리를 operation별 불변 R2 staging 경로에 업로드
+→ 일곱 Dexie 표 + 큐 id + purged_ids를 한 transaction으로 캡처
+→ 사진·소리·영상을 operation별 불변 R2 staging 경로에 업로드
 → publish_canonical_snapshot(expected_version, next_version, operation_id, 전체 payload)
 → 서버 한 transaction: 사용자 정확집합 교체 + purged 원장 + sync_meta CAS
 → operation/meta read-back
-→ 캡처 당시 큐만 제거 + 여섯 로컬 표의 baseCanonicalVersion 및 사진·소리 승인 경로 전진
+→ 캡처 당시 큐만 제거 + 일곱 로컬 표의 baseCanonicalVersion 및 사진·소리·영상 승인 경로 전진
 → 옛 R2 경로 최선노력 정리
 ```
 네트워크 실패 시 `syncState.pendingCanonical`의 `uploading → publishing → read-back → local-commit`
-단계에서 재개한다. RPC 응답 유실은 operation id read-back으로 성공을 확정한다. 캡처 뒤 로컬 사진·소리가
+단계에서 재개한다. RPC 응답 유실은 operation id read-back으로 성공을 확정한다. 캡처 뒤 로컬 사진·소리·영상이
 바뀌었으면 낡은 pending/staging을 폐기하고 **새 스냅샷으로 다시 시작**한다.
 
 **다른 기기의 새 세대 소비**
 ```text
 runSync의 어떤 로컬 repair/push보다 먼저 canonical_version 변경 감지
-→ 서버 여섯 표(updated_at desc, 전체 페이지) + purged_ids(id 안정 정렬, 전체 페이지) 조회
-→ 사진·소리 바이트를 전부 먼저 다운로드
+→ 서버 일곱 표(updated_at desc, 전체 페이지) + purged_ids(id 안정 정렬, 전체 페이지) 조회
+→ 사진·소리·영상 바이트를 전부 먼저 다운로드
 → 메타 세대를 다시 읽어 스냅샷 안정성 확인
-→ 여섯 로컬 표 + 큐 + purged_ids + syncState를 한 Dexie transaction으로 정확 교체
+→ 일곱 로컬 표 + 큐 + purged_ids + syncState를 한 Dexie transaction으로 정확 교체
 → 그 runSync는 pushed=0으로 즉시 종료(병합 결과 재업로드 금지)
 ```
 첫 설치에서 메타가 `legacy`면 로컬을 지우지 않고 기준선만 찍는다. 반대로 로컬 상태가 없는데 서버가
@@ -176,7 +176,7 @@ pull:  [여행 ∥ 장소 ∥ 순간 ∥ 사진 ∥ 비용 ∥ 소리]
    - **새 UUID 우회 감시(v1.99)**: tombstone 자체를 새 UUID로 바꾸면 같은-ID 병합 규칙만으로는 잡을 수 없다. `placeZombieProbe`는 `canonical_version` 전후가 같은 서버·로컬 전체 장소 스냅샷에서 정규화한 이름·6자리 좌표가 같은 `tombstone ↔ active` 쌍을 후보로 판정한다. 후보는 의도적 재등록일 수 있으므로 **읽기 전용이며 자동 삭제하지 않는다**; 사용자가 동기화 후 재판정하고 위치관리대장에서 결정한다.
 3. **두 동기화 모드를 절대 섞지 않는다.** ① 일반 병합 동기화(`canonical_version` 일치 후 LWW 병합·로컬 전용 전파) ② 카노니컬 정확집합 교체(이 기기를 새 기준선으로 선언하거나 새 기준선을 소비). 세대 변경을 소비한 실행은 어떤 upsert도 하지 않는다.
 4. **빈-클라우드 가드.** 클라우드가 0행(로컬엔 데이터)이면 이상 상황 — `_cloudEmptyAnomaly` 뒤에서만 로컬 교체. 절대 자동 wipe 금지.
-5. **정확한 read-back으로 확인.** HTTP 200 / 성공 토스트 / upsert 표현 / 후속 집계 동기화는 확인이 아니다. 같은 레코드를 되읽어 **내 `client_operation_id` + 서버 version**이 확인된 뒤에만 큐를 제거한다. 사진·소리는 storage path도 같아야 한다. 부분 필드(제목·금액·좌표) 하나만 같은 것은 내 쓰기가 착지했다는 증거가 아니다.
+5. **정확한 read-back으로 확인.** HTTP 200 / 성공 토스트 / upsert 표현 / 후속 집계 동기화는 확인이 아니다. 같은 레코드를 되읽어 **내 `client_operation_id` + 서버 version**이 확인된 뒤에만 큐를 제거한다. 사진·소리·영상은 storage path도 같아야 한다. 부분 필드(제목·금액·좌표) 하나만 같은 것은 내 쓰기가 착지했다는 증거가 아니다.
    - **외부 바이트도 같은 조건부 쓰기다(M-0087).** DB OCC보다 R2 PUT이 먼저이므로 기존 `storagePath`에 덮어쓰지 않는다. operation별 불변 키에 올리고 read-back이 그 path를 승인하면 로컬 경로를 전진·옛 키 정리, 거절이면 새 작업 키만 정리한다. 삭제 실패는 기억 손실보다 고아 사본을 택한다.
 6. **부분 슬라이스를 전체집합 판단에 넣지 않는다.** 삭제/부재/전체교체 판단은 완전한 id 집합 필요. 멤버십(`select=id`, 저렴)과 내용(`select=* where updated_at≥wm`)을 분리 조회. 델타 슬라이스만 넣으면 오래된 로컬 행이 "클라우드에 없음"으로 유실.
 7. **`false`/`null` 과적재 금지.** "실패"와 "무해한 무변경/대기"에 같은 값 반환 금지 — 구분된 센티넬/객체(`'held'` 등). 특히 상태 UI 연결 함수.

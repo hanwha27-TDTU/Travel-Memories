@@ -19,6 +19,7 @@ const K = (over: Partial<KindTally> = {}): KindTally => ({ rows: 10, empty: 0, s
 const IN = (over: Partial<FileRealityInput> = {}): FileRealityInput => ({
   photo: K(),
   audio: K({ rows: 2 }),
+  video: K({ rows: 0 }),
   sweep: { at: '2026-08-05T12:00:00.000Z', checked: 12, failed: [], totalAtRun: 12 },
   ...over,
 });
@@ -45,10 +46,11 @@ describe('바이트가 비어 있는 기록 — 존재(T-010)', () => {
     expect(m.meaning).toContain('다른 기기');
   });
 
-  it('사진과 소리를 **따로** 센다 — 합치면 이름이 사라진다(M-0048 곁가지)', () => {
+  it('사진·소리·영상을 **따로** 센다 — 합치면 이름이 사라진다(M-0048 곁가지)', () => {
     const ms = fileRealityMetrics(IN({ audio: K({ rows: 2, empty: 2 }) }));
     expect(metric(IN({ audio: K({ rows: 2, empty: 2 }) }), '바이트가 비어 있는 소리 기록').level).toBe('problem');
     expect(ms.find((m) => m.label === '바이트가 비어 있는 사진 기록')!.level).toBe('ok');
+    expect(metric(IN({ video: K({ rows: 1, empty: 1 }) }), '바이트가 비어 있는 영상 기록').level).toBe('problem');
   });
 });
 
@@ -106,16 +108,16 @@ describe('판정 문장 — 한정을 생략하지 않는다(§7-C)', () => {
   it('🔴 조사가 맞는다 — 실기기에 「71개**이** 모두 성해요」가 나갔다(M-0110)', () => {
     // 🔴 **문장 전체를 잠근다.** 옛 검사는 `toContain('모두 성해요')`만 봐서 조사 오류를
     //    통째로 지나쳤다 — 조각만 재면 그 조각 밖은 안 재는 것이다(§4).
-    expect(fileRealityHeadline(IN())).toBe('이 기기의 사진·소리 12개가 모두 성해요');
+    expect(fileRealityHeadline(IN())).toBe('이 기기의 사진·소리·영상 12개가 모두 성해요');
   });
 
   it('개수가 바뀌어도 조사는 「가」다(단위가 「개」인 한)', () => {
-    expect(fileRealityHeadline(IN({ photo: K({ rows: 69 }), sweep: { at: 'x', checked: 71, failed: [], totalAtRun: 71 } }))).toBe('이 기기의 사진·소리 71개가 모두 성해요');
+    expect(fileRealityHeadline(IN({ photo: K({ rows: 69 }), sweep: { at: 'x', checked: 71, failed: [], totalAtRun: 71 } }))).toBe('이 기기의 사진·소리·영상 71개가 모두 성해요');
   });
 
   it('🔴 sweep 뒤 새 파일이 늘면 확인한 것과 아직 확인 전인 것을 함께 말한다(상위 headline ↔ todo 모순 금지)', () => {
     const i = IN({ photo: K({ rows: 78 }), audio: K({ rows: 12 }), sweep: { at: 'x', checked: 78, failed: [], totalAtRun: 78 } });
-    expect(fileRealityHeadline(i)).toBe('이 기기의 사진·소리: 확인한 78개는 모두 성하고, 새 12개는 아직 확인 전이에요');
+    expect(fileRealityHeadline(i)).toBe('이 기기의 사진·소리·영상: 확인한 78개는 모두 성하고, 새 12개는 아직 확인 전이에요');
     expect(metric(i, '열리지 않는 파일').level).toBe('todo');
   });
 
@@ -132,7 +134,7 @@ describe('판정 문장 — 한정을 생략하지 않는다(§7-C)', () => {
   });
 
   it('🔴 빈 상태를 초록으로 칠하지 않는다 — 비교할 것이 없는 것과 정상은 다르다', () => {
-    const s = fileRealityHeadline(IN({ photo: K({ rows: 0 }), audio: K({ rows: 0 }), sweep: null }));
+    const s = fileRealityHeadline(IN({ photo: K({ rows: 0 }), audio: K({ rows: 0 }), video: K({ rows: 0 }), sweep: null }));
     expect(s).toContain('아직 없어요');
   });
 });
