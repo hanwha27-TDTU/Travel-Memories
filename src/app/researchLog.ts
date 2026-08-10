@@ -1000,4 +1000,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '기존 환류 묶음은 처음에는 다음 기능 릴리스에 축적할 문서·프롬프트 변경이었지만, 사용자가 단독 배포를 명시했다. 공용 정본 main도 프로젝트 고정점보다 앞서 있었으므로 공식 sync-skills 경로로 전역 설치본과 프로젝트 vendor를 먼저 맞추고, 앱에 표시되는 헌법·연구기록 변경은 버전 이력과 함께 릴리스해야 정본과 운영 화면이 갈라지지 않는다.',
     decision: 'Codex-Shared-Skills 정본 da440fb를 전역 Codex·Claude 설치 경로 네 곳과 프로젝트 vendor/lock/release profile에 고정한다. 기존 영상 안전 규율 환류를 v2.12 변경내역으로 승격하고 생성물을 재생성한 뒤, Ready PR의 전체 CI를 통과한 정확한 revision만 squash merge하여 GitHub Pages를 배포한다. Supabase Edge·DB migration·Android 셸은 변경하지 않는다.',
   },
+  {
+    seq: 125,
+    date: '2026-08-10',
+    topic: '라이브 검사는 앞선 안내가 아니라 자기 비동기 판정값을 기다린다',
+    human: 'v2.12 배포를 계속 진행하는 동안 Ready PR의 live-render가 로컬과 달리 391/393으로 실패했다.',
+    ai: '실패한 두 값은 사진 입력 뒤 SHA-256과 후속 안내였고, 테스트는 먼저 뜨는 촬영시각 안내만 기다린 뒤 probe를 즉시 읽고 있었다. 로컬의 빠른 계산 순서가 우연히 결함을 가렸으며 CI는 같은 사용자 동작 안에서도 비동기 산출물별 완료 시점이 다름을 드러냈다.',
+    decision: '릴리스 잠금을 이유와 함께 한 번 다시 열고, probe 자체가 보이며 바이트·sha256·후속 문장을 모두 갖출 때까지 내용 기반으로 기다린다. 고정 sleep은 추가하지 않고, 로컬 라이브와 전체 하네스 및 새 후보 SHA의 Ready PR CI를 처음부터 다시 통과한 뒤에만 병합한다.',
+  },
 ];

@@ -1585,6 +1585,15 @@ const timeOnly = await page.evaluate(() => document.querySelector('.place-photo-
 // ── 🔬 **앱이 받은 바이트를 앱이 말하는가** (2026-08-01 · M-0066 · §12) ──────────
 // 나흘 동안 사용자가 스크린샷을 날랐고 나는 추측했다. 앱은 그 바이트를 손에 쥐고도
 // 아무 말을 안 했다. 이 상자가 그 자리를 메운다 — **좌표를 못 얻었을 때만** 나온다.
+// 사진 안내와 SHA-256 계산은 서로 다른 비동기 단계다. 안내만 기다리고 읽으면 빠른 로컬에서는
+// 우연히 초록이지만 느린 CI에서는 빈 probe를 읽는다. 이 검사의 판정 대상 자체가 준비될 때까지
+// 기다린다 — 고정 sleep이 아니라 내용 기반 완료 조건이다.
+await page.waitForFunction(() => {
+  const b = document.querySelector('.pick-probe');
+  const line = b?.querySelector('.probe-line')?.textContent ?? '';
+  const next = b?.querySelector('.probe-next')?.textContent ?? '';
+  return !!b && !b.hidden && /바이트/.test(line) && /sha256/.test(line) && next.length > 10;
+});
 const probe = await page.evaluate(() => {
   const b = document.querySelector('.pick-probe');
   return {
