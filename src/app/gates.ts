@@ -85,7 +85,7 @@ export const GATE_DESC: Record<string, string> = {
   'check-exif-strip-on-share': '서버로 나가는 사진은 canvas 재인코딩본만 — 원본의 촬영위치(GPS)가 따라가지 않게',
   'check-exif-order': '촬영시각·위치(EXIF)를 **압축 전에, 원본에서** 읽는가 — 순서가 뒤집히면 그 정보는 영원히 사라진다(§0)',
   'check-bytes-upload-symmetry':
-    '사진·소리가 **같은 판정**으로 바이트를 올리는가(형제 하나만 조용히 안 올라가는 것을 차단 — M-0059)',
+    '사진·소리·영상이 **같은 판정**으로 바이트를 올리는가(형제 하나만 조용히 안 올라가는 것을 차단 — M-0059)',
   'check-known-index':
     '「이 증상을 이미 아는가」를 묻는 문(`npm run known`)이 **네 층을 다 뒤지는가** — 층이 비면 그 지식은 영영 안 보인다(M-0064)',
   'check-apk-release-link':

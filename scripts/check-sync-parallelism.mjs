@@ -25,8 +25,8 @@ export function parallelismProblems(planSrc, syncSrc) {
   if (!/id:\s*'moments'[\s\S]*?domains:\s*\['moment'\]/.test(push)) {
     problems.push('moment는 부모 그룹 다음의 단일 FK 경계여야 한다');
   }
-  if (!/id:\s*'moment-children'[\s\S]*?domains:\s*\['media',\s*'expense',\s*'audio'\]/.test(push)) {
-    problems.push('media+expense+audio는 moment 다음 병렬 자식 그룹이어야 한다');
+  if (!/id:\s*'moment-children'[\s\S]*?domains:\s*\['media',\s*'expense',\s*'audio',\s*'video'\]/.test(push)) {
+    problems.push('media+expense+audio+video는 moment 다음 병렬 자식 그룹이어야 한다');
   }
   if (reasons.length !== 2 || reasons.some((reason) => reason.length < 40 || !reason.includes('복합 FK'))) {
     problems.push('두 직렬 경계마다 구체적인 복합 FK 사유를 40자 이상 적어야 한다');
@@ -55,7 +55,7 @@ export const PUSH_SYNC_PLAN = [
  { id: 'roots', domains: ['trip', 'place'], waitsFor: null },
  { id: 'moments', domains: ['moment'], waitsFor: { reason:
  'moments 복합 FK 때문에 부모 여행과 장소가 서버에 먼저 존재해야 하므로 이 경계만 직렬로 기다린다.' } },
- { id: 'moment-children', domains: ['media', 'expense', 'audio'], waitsFor: { reason:
+ { id: 'moment-children', domains: ['media', 'expense', 'audio', 'video'], waitsFor: { reason:
  '자식 복합 FK 때문에 서버 순간의 착지와 read-back이 끝나야 하므로 이 경계만 직렬로 기다린다.' } },
 ];
 export const PULL_SYNC_PLAN = [{ id: 'all-domains', domains: SYNC_DOMAINS, waitsFor: null }];
@@ -85,4 +85,4 @@ if (problems.length) {
   for (const problem of problems) console.error(`  ✗ ${problem}`);
   process.exit(1);
 }
-console.log('check-sync-parallelism: OK — push 3단계(2+1+3), pull 6개 병렬, 실패 join-all 계약이 유지됩니다.');
+console.log('check-sync-parallelism: OK — push 3단계(2+1+4), pull 7개 병렬, 실패 join-all 계약이 유지됩니다.');

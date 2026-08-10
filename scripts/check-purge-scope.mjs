@@ -138,20 +138,21 @@ export function scopeProblems(declared, remoteTables, edges, hasColumnFn) {
 
 // ── 셀프테스트 (§4) ──────────────────────────────────────────────────────────
 function selfTest() {
-  const tables = { trip: 'trips', moment: 'moments', media: 'media', expense: 'expenses', audio: 'audio', place: 'places' };
+  const tables = { trip: 'trips', moment: 'moments', media: 'media', expense: 'expenses', audio: 'audio', video: 'videos', place: 'places' };
   const edges = [
     { child: 'moments', parent: 'trips' },
     { child: 'media', parent: 'moments' },
     { child: 'expenses', parent: 'moments' },
     { child: 'audio', parent: 'moments' },
+    { child: 'videos', parent: 'moments' },
   ];
   const good = {
     trip: [], moment: ['trip'], media: ['trip', 'moment'],
-    expense: ['trip', 'moment'], audio: ['trip', 'moment'], place: [],
+    expense: ['trip', 'moment'], audio: ['trip', 'moment'], video: ['trip', 'moment'], place: [],
   };
   const cols = {
     moment: ['trip_id'], media: ['trip_id', 'moment_id'], expense: ['trip_id', 'moment_id'],
-    audio: ['trip_id', 'moment_id'], trip: [], place: [],
+    audio: ['trip_id', 'moment_id'], video: ['trip_id', 'moment_id'], trip: [], place: [],
   };
   const has = (d, c) => (cols[d] ? cols[d].includes(c) : null);
   const cases = [
@@ -164,9 +165,9 @@ function selfTest() {
     ['trip에 부모를 적으면 → RED', () => scopeProblems({ ...good, trip: ['trip'] }, tables, edges, has).length > 0],
     // 전이 폐포가 실제로 두 단계를 타는가(한 단계만 보면 media에 trip이 안 나온다)
     ['전이 폐포가 media → moments → trips를 탄다', () => ancestorsOf('media', edges).has('trips')],
-    // 파서 공허 방지 — 실제 파일에서 6개를 다 뽑는가
-    ['파서가 purge.ts에서 6개 도메인의 cascadeParents를 뽑는다', () =>
-      Object.keys(parseCascadeParents(readFileSync(PURGE, 'utf8'))).length === 6],
+    // 파서 공허 방지 — 실제 파일에서 등록된 도메인을 다 뽑는가
+    ['파서가 purge.ts에서 7개 도메인의 cascadeParents를 뽑는다', () =>
+      Object.keys(parseCascadeParents(readFileSync(PURGE, 'utf8'))).length === 7],
     ['파서가 migration에서 cascade 간선 4개 이상을 뽑는다', () => readMigrationEdges().length >= 4],
   ];
   const failed = cases.filter(([, fn]) => !fn());
@@ -192,8 +193,8 @@ if (process.argv.includes('--selftest')) {
 
 const src = readFileSync(PURGE, 'utf8');
 const declared = parseCascadeParents(src);
-if (Object.keys(declared).length !== 6) {
-  console.error(`check-purge-scope: DOMAIN_PURGE에서 6개 도메인을 못 뽑았다(${Object.keys(declared).length}개) — 파서가 스키마 변화를 놓쳤다.`);
+if (Object.keys(declared).length !== 7) {
+  console.error(`check-purge-scope: DOMAIN_PURGE에서 7개 도메인을 못 뽑았다(${Object.keys(declared).length}개) — 파서가 스키마 변화를 놓쳤다.`);
   process.exit(1);
 }
 const problems = scopeProblems(declared, parseRemoteTables(src), readMigrationEdges(), rowmapHasColumn);
@@ -202,4 +203,4 @@ if (problems.length) {
   for (const p of problems) console.error(`  ✗ ${p}`);
   process.exit(1);
 }
-console.log('check-purge-scope: OK — 도메인 6개의 cascadeParents가 migration의 cascade 폐포·rowmap 컬럼과 일치한다.');
+console.log('check-purge-scope: OK — 도메인 7개의 cascadeParents가 migration의 cascade 폐포·rowmap 컬럼과 일치한다.');

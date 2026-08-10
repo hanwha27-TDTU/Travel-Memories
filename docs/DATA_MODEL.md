@@ -7,8 +7,8 @@ shape: prose-debt
 
 > 🔴 **이 문서는 「목표 데이터 모델」이다 — 실제 배포 스키마는 `supabase/migrations/*.sql`이 정본**
 > (2026-08-01 감사 · D-09·D-17). 권위 순서상 코드/마이그레이션이 이긴다. 목표와 실제의 차이:
-> - **구현된 사용자 테이블(운영·저장소 migration 0029까지)**: `trips · moments · media · expenses ·
->   audio(0019) · places(0022) · purged_ids(0012) · allowed_users`. 0026은 `base_version` OCC,
+> - **구현된 사용자 테이블(운영·저장소 migration 0030까지의 릴리스 후보)**: `trips · moments · media · expenses ·
+>   audio(0019) · places(0022) · videos(0030) · purged_ids(0012) · allowed_users`. 0026은 `base_version` OCC,
 >   0027은 `sync_meta`와 여섯 표의 `base_canonical_version`, 0028은 FK 커버링 인덱스,
 >   0029는 `media.sort_order`(한 순간 안에서 사용자가 정한 사진 자리 — NULL은 「아직 안 정함」)를 추가한다.
 > - **미구현(목표만)**: `trip_days · companions · trip_companions · reflections · tags ·
@@ -37,7 +37,7 @@ shape: prose-debt
 
 `deleted_at`은 여러 기기 동기화 완료 전까지 삭제 사실을 전달하는 **tombstone**이다. 클라이언트는 `created_at`/`updated_at`/`version`을 신뢰원으로 제공하지 않는다. UPDATE 트리거는 `user_id` 변경을 차단하고 `updated_at`·`version`을 설정한다.
 
-여섯 동기화 표는 `base_canonical_version text not null default 'legacy'`도 가진다
+일곱 동기화 표는 `base_canonical_version text not null default 'legacy'`도 가진다
 (migration 0027, 운영 적용). 이는 사용자 내용이 아니라 **마지막으로 본 최종본 세대**이며,
 authenticated 직접 쓰기가 다른 세대의 정확집합을 오염시키지 못하게 하는 fence다.
 

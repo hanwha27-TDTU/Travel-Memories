@@ -66,6 +66,8 @@ export interface StoreComparison {
   /** 서버 **소리** 기록↔파일 대조. 사진과 같은 규율 — 못 하면 null('확인 불가'). */
   audioAudit: MediaFileAudit | null;
   audioAuditNote: string | null;
+  videoAudit: MediaFileAudit | null;
+  videoAuditNote: string | null;
   /**
    * **이 기기가 바이트를 들고 있는 id들.** 「서버에 파일이 없다」가 *기억 손실*인지
    * *다시 올리면 되는 일*인지를 가른다 — 이 물음 없이 「없다」고 말하면 거짓이 된다(M-0046).
@@ -157,6 +159,7 @@ export interface Listing {
    * (0으로 반올림하면 "소리 파일이 하나도 없다"는 거짓 판정이 된다 — 비타협 원칙 #4).
    */
   audioIds?: string[] | undefined;
+  videoIds?: string[] | undefined;
   foreign?: number;
   truncated?: boolean;
   /** 내 폴더 **밖**의 최상위 항목 수. `outsideKnown`이 false면 이 값을 쓰지 않는다. */
@@ -186,9 +189,11 @@ export function unionListings(listings: Listing[]): Listing {
   if (failed) return { ids: [], foreign: 0, truncated: false, outside: 0, outsideKnown: false, error: failed.error };
   // 소리 목록은 **모두가 알려줄 때만** 합친다 — 하나라도 모르면 전체를 모른다(truncated와 같은 규율).
   const audioKnown = listings.length > 0 && listings.every((l) => l.audioIds !== undefined);
+  const videoKnown = listings.length > 0 && listings.every((l) => l.videoIds !== undefined);
   return {
     ids: [...new Set(listings.flatMap((l) => l.ids))],
     audioIds: audioKnown ? [...new Set(listings.flatMap((l) => l.audioIds ?? []))] : undefined,
+    videoIds: videoKnown ? [...new Set(listings.flatMap((l) => l.videoIds ?? []))] : undefined,
     foreign: listings.reduce((a, l) => a + (l.foreign ?? 0), 0),
     truncated: listings.some((l) => l.truncated === true),
     outside: listings.reduce((a, l) => a + (l.outside ?? 0), 0),
@@ -275,6 +280,7 @@ export interface StoreStatePort {
    * 따로 해야 한다(M-0019의 근본형: 대조 대상을 하나로 가정한 것이 틀렸다).
    */
   audioRowIds(): Promise<string[]>;
+  videoRowIds(): Promise<string[]>;
 }
 
 export function storeStateRemote(client: JourneyClient): StoreStatePort {
@@ -348,6 +354,11 @@ export function storeStateRemote(client: JourneyClient): StoreStatePort {
       if (r.error) throw new Error(`소리 기록 조회 실패: ${r.error.message}`);
       return ((r.data ?? []) as { id: string }[]).map((x) => x.id);
     },
+    async videoRowIds() {
+      const r = await client.from('videos').select('id').not('storage_path', 'is', null);
+      if (r.error) throw new Error(`영상 기록 조회 실패: ${r.error.message}`);
+      return ((r.data ?? []) as { id: string }[]).map((x) => x.id);
+    },
   };
 }
 
@@ -386,15 +397,16 @@ type LocalRow = { id: string; deletedAt: string | null };
  */
 async function allLocalRows(): Promise<Record<PurgeDomain, LocalRow[]>> {
   const d = db();
-  const [trip, moment, media, expense, audio, place] = await Promise.all([
+  const [trip, moment, media, expense, audio, video, place] = await Promise.all([
     d.localTrips.toArray(),
     d.localMoments.toArray(),
     d.localMedia.toArray(),
     d.localExpenses.toArray(),
     d.localAudio.toArray(),
+    d.localVideos.toArray(),
     d.localPlaces.toArray(),
   ]);
-  return { trip, moment, media, expense, audio, place };
+  return { trip, moment, media, expense, audio, video, place };
 }
 
 /** 로컬 활성 개수 — 서버와 **같은 기준**(tombstone 제외)으로 센다. 기준이 다르면 대조가 거짓이 된다. */
@@ -406,7 +418,7 @@ export async function localActiveCounts(): Promise<Record<PurgeDomain, number>> 
 }
 
 /**
- * **이 기기가 바이트를 들고 있는 id들**(사진·소리). 진단이 「서버에 파일이 없다」를 판정할 때
+ * **이 기기가 바이트를 들고 있는 id들**(사진·소리·영상). 진단이 「서버에 파일이 없다」를 판정할 때
  * *그것이 기억 손실인지, 그냥 다시 올리면 되는 일인지*를 가르는 유일한 근거다.
  *
  * 🔴 왜 필요한가(2026-07-28, M-0046): 이 물음을 **안 하고** 「자료는 이미 없으니 기록 줄을
@@ -426,6 +438,9 @@ export async function localBytesIds(): Promise<Record<PurgeDomain, Set<string>>>
   }
   for (const a of await d.localAudio.toArray()) {
     if ((a.blob?.size ?? 0) > 0) out.audio.add(a.id);
+  }
+  for (const v of await d.localVideos.toArray()) {
+    if ((v.blob?.size ?? 0) > 0) out.video.add(v.id);
   }
   return out;
 }
@@ -481,6 +496,8 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
   // 소리 파일 대조 — 사진과 **같은 규율, 다른 목록**. 함수가 소리 목록을 안 주면 null('확인 불가').
   let audioAudit: MediaFileAudit | null = null;
   let audioAuditNote: string | null = null;
+  let videoAudit: MediaFileAudit | null = null;
+  let videoAuditNote: string | null = null;
   let fileAuditNote: string | null = files ? null : '이 기기의 사진 저장소가 R2가 아니라 목록을 물어볼 수 없어요';
   let outside = { count: 0, known: false };
   let bytes = 0;
@@ -488,10 +505,11 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
   let fnVersion = 0;
   if (files) {
     try {
-      const [listing, rowIds, audioIds] = await Promise.all([files.list(), port.mediaRowIds(), port.audioRowIds()]);
+      const [listing, rowIds, audioIds, videoIds] = await Promise.all([files.list(), port.mediaRowIds(), port.audioRowIds(), port.videoRowIds()]);
       if (listing.error) {
         fileAuditNote = listing.error;
         audioAuditNote = listing.error;
+        videoAuditNote = listing.error;
       } else {
         fileAudit = auditMediaFiles(listing.ids, rowIds, { foreign: listing.foreign ?? 0, truncated: listing.truncated === true });
         // 🔴 `foreign`은 **사진 쪽에만** 얹는다. 양쪽에 세면 같은 파일을 두 번 세게 된다.
@@ -499,6 +517,11 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
           audioAuditNote = '서버 함수가 아직 소리 파일 목록을 알려주지 않아요 — 함수를 최신으로 배포하면 대조할 수 있습니다';
         } else {
           audioAudit = auditMediaFiles(listing.audioIds, audioIds, { truncated: listing.truncated === true });
+        }
+        if (listing.videoIds === undefined) {
+          videoAuditNote = '서버 함수가 아직 영상 파일 목록을 알려주지 않아요 — 함수를 최신으로 배포하면 대조할 수 있습니다';
+        } else {
+          videoAudit = auditMediaFiles(listing.videoIds, videoIds, { truncated: listing.truncated === true });
         }
         outside = { count: listing.outside ?? 0, known: listing.outsideKnown === true };
         bytes = listing.bytes ?? 0;
@@ -508,12 +531,15 @@ export async function compareStore(port: StoreStatePort, files?: FilesPort): Pro
     } catch (e) {
       fileAuditNote = (e as Error).message;
       audioAuditNote = (e as Error).message;
+      videoAuditNote = (e as Error).message;
     }
   }
   return {
     counts,
     audioAudit,
     audioAuditNote,
+    videoAudit,
+    videoAuditNote,
     devices,
     lastCloudWriteAt,
     remnants,
@@ -539,5 +565,6 @@ export const DOMAIN_LABEL: Record<PurgeDomain, string> = {
   media: '사진',
   expense: '비용',
   audio: '소리',
+  video: '영상',
   place: '장소',
 };

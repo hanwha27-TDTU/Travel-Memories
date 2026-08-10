@@ -246,6 +246,7 @@ export interface R2Listing {
    * 옛 함수(v5 이하)는 이 필드를 주지 않는다 → `undefined`("소리 파일 0개"가 아니라 **모른다**).
    */
   audioIds?: string[] | undefined;
+  videoIds?: string[] | undefined;
   /** 우리 형식(`{uuid}.webp`)이 아닌 키의 수. 조용히 버리지 않고 개수로 보고한다. */
   foreign: number;
   /** 페이지 상한에 걸려 **다 못 봤다**. true면 "고아 0건"이라 말하면 안 된다. */
@@ -273,6 +274,7 @@ export async function r2ListObjects(client: JourneyClient): Promise<R2Listing> {
   const empty = {
     ids: [],
     audioIds: undefined,
+    videoIds: undefined,
     foreign: 0,
     truncated: false,
     outside: 0,
@@ -286,6 +288,7 @@ export async function r2ListObjects(client: JourneyClient): Promise<R2Listing> {
     | ({
         ids?: unknown;
         audioIds?: unknown;
+        videoIds?: unknown;
         foreign?: unknown;
         truncated?: unknown;
         outside?: unknown;
@@ -302,6 +305,9 @@ export async function r2ListObjects(client: JourneyClient): Promise<R2Listing> {
     // 배열이 아니면 **없는 것이 아니라 모르는 것**이다(옛 함수) — undefined로 남긴다.
     audioIds: Array.isArray(d.audioIds)
       ? (d.audioIds as unknown[]).filter((x): x is string => typeof x === 'string')
+      : undefined,
+    videoIds: Array.isArray(d.videoIds)
+      ? (d.videoIds as unknown[]).filter((x): x is string => typeof x === 'string')
       : undefined,
     foreign: typeof d.foreign === 'number' ? d.foreign : 0,
     truncated: d.truncated === true,

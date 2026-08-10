@@ -18,12 +18,15 @@ export interface StorageUsage {
   stagedOriginalCount: number;
   /** 소리 blob 합(녹음 원본). 사진과 같은 규율 — tombstone 포함(실제 점유). */
   audioBytes: number;
+  /** 영상 경량본+포스터+검증 전 staging 합. */
+  videoBytes: number;
   /** 기록(텍스트) 바이트 — blob 제외 JSON. */
   textBytes: number;
   /** 사진(미디어) 행 수(tombstone 포함). */
   photoCount: number;
   /** 소리 행 수(tombstone 포함). */
   audioCount: number;
+  videoCount: number;
   /** 브라우저 전체 사용/한도(가능 시). 앱 코드 캐시 등도 포함 → 사진+텍스트보다 크거나 같다. */
   estimate: { usage: number; quota: number } | null;
 }
@@ -38,12 +41,13 @@ export function formatBytes(n: number): string {
 
 export async function computeStorageUsage(): Promise<StorageUsage> {
   const d = db();
-  const [trips, moments, expenses, media, audio, queue] = await Promise.all([
+  const [trips, moments, expenses, media, audio, videos, queue] = await Promise.all([
     d.localTrips.toArray(),
     d.localMoments.toArray(),
     d.localExpenses.toArray(),
     d.localMedia.toArray(),
     d.localAudio.toArray(),
+    d.localVideos.toArray(),
     d.syncQueue.toArray(),
   ]);
 
@@ -65,7 +69,13 @@ export async function computeStorageUsage(): Promise<StorageUsage> {
     const { blob: _b, ...meta } = a;
     return meta;
   });
-  const json = JSON.stringify({ trips, moments, expenses, mediaMeta, audioMeta, queue });
+  let videoBytes = 0;
+  const videoMeta = videos.map((v) => {
+    videoBytes += (v.sourceBlob?.size ?? 0) + (v.blob?.size ?? 0) + (v.posterBlob?.size ?? 0);
+    const { sourceBlob: _s, blob: _b, posterBlob: _p, ...meta } = v;
+    return meta;
+  });
+  const json = JSON.stringify({ trips, moments, expenses, mediaMeta, audioMeta, videoMeta, queue });
   const textBytes = new TextEncoder().encode(json).length;
 
   let estimate: StorageUsage['estimate'] = null;
@@ -85,9 +95,11 @@ export async function computeStorageUsage(): Promise<StorageUsage> {
     stagedOriginalBytes,
     stagedOriginalCount,
     audioBytes,
+    videoBytes,
     textBytes,
     photoCount: media.length,
     audioCount: audio.length,
+    videoCount: videos.length,
     estimate,
   };
 }

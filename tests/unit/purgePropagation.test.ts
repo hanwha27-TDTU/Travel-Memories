@@ -482,7 +482,7 @@ describe('④ 도메인 등록부가 완전한가', () => {
     // 🔴 2026-07-27에 4→5가 됐고(소리가 서버로 간다), 2026-07-30에 5→6이 됐다(장소가 1급
     //    도메인이 된다). 이 숫자를 손으로 적는 이유는 "도메인이 조용히 사라지는 것"도
     //    결함이기 때문이다 — 전제가 바뀌면 여기를 먼저 고친다.
-    expect(PURGE_DOMAINS.length).toBe(6);
+    expect(PURGE_DOMAINS.length).toBe(7);
     expect(PURGE_DOMAINS).toContain('audio');
     expect(PURGE_DOMAINS).toContain('place');
   });
@@ -536,7 +536,7 @@ describe('C-1 · 여행 영구삭제는 places를 trip_id로 건드리지 않는
     const kids = cascadeChildDomains('trip');
     expect(kids).not.toContain('place');
     expect(kids).not.toContain('trip');
-    expect(kids.sort()).toEqual(['audio', 'expense', 'media', 'moment']);
+    expect(kids.sort()).toEqual(['audio', 'expense', 'media', 'moment', 'video']);
   });
 
   it('familyIds가 places를 질의하지 않고 성공한다 (옛 코드였다면 42703으로 실패)', async () => {

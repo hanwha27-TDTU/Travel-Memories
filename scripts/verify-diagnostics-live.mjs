@@ -732,7 +732,7 @@ if (hasFileTool) {
   );
   const sweepBtn = page.locator('[file-open-sweep]');
   const hasBtn = (await sweepBtn.count()) === 1;
-  check('E④ [사진·소리 실제로 열어 보기] 버튼이 있다', hasBtn, `버튼 ${await sweepBtn.count()}개`);
+  check('E④ [사진·소리·영상 실제로 열어 보기] 버튼이 있다', hasBtn, `버튼 ${await sweepBtn.count()}개`);
   if (hasBtn) {
     await sweepBtn.click();
     await page.waitForTimeout(2500);
@@ -805,10 +805,10 @@ if (hasFileTool) {
     await page.locator('[file-open-sweep]').click();
     await page.waitForTimeout(2000);
     const allGood = await page.evaluate(() => document.body.innerText);
-    const headline = allGood.match(/이 기기의 사진·소리 [^\n]*/)?.[0] ?? '';
+    const headline = allGood.match(/이 기기의 사진·소리·영상 [^\n]*/)?.[0] ?? '';
     check(
       '🔴 E⑫ 정상 갈래의 판정 문장이 **실제로 그려지고 조사가 맞는다**(「71개이」가 실기기로 나갔다 · M-0110)',
-      /^이 기기의 사진·소리 \d+개가 모두 성해요$/.test(headline.trim()),
+      /^이 기기의 사진·소리·영상 \d+개가 모두 성해요$/.test(headline.trim()),
       headline.trim() || '(정상 판정 문장을 못 찾음)',
     );
 
@@ -849,7 +849,7 @@ if (hasFileTool) {
     }));
     check(
       '🔴 E⑬ sweep 뒤 새 파일이 늘면 headline도 확인한 것과 아직 확인 전을 함께 말한다(상위 ↔ todo 모순 금지)',
-      grown.headline === '이 기기의 사진·소리: 확인한 1개는 모두 성하고, 새 1개는 아직 확인 전이에요',
+      grown.headline === '이 기기의 사진·소리·영상: 확인한 1개는 모두 성하고, 새 1개는 아직 확인 전이에요',
       grown.headline || '(증가분 headline을 못 찾음)',
     );
     check(

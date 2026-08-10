@@ -5,7 +5,7 @@
 // 부수효과가 끝날 때까지 기다린 뒤 실패한다. Promise.all의 조기 reject 뒤에 서버 쓰기가 남아
 // 다음 동기화와 겹치는 일을 막기 위한 경계다(헌법 §18-C).
 
-export const SYNC_DOMAINS = ['trip', 'place', 'moment', 'media', 'expense', 'audio'] as const;
+export const SYNC_DOMAINS = ['trip', 'place', 'moment', 'media', 'expense', 'audio', 'video'] as const;
 export type SyncDomain = (typeof SYNC_DOMAINS)[number];
 
 export interface SyncPlanObserver {
@@ -48,16 +48,16 @@ export const PUSH_SYNC_PLAN = [
   },
   {
     id: 'moment-children',
-    domains: ['media', 'expense', 'audio'],
+    domains: ['media', 'expense', 'audio', 'video'],
     waitsFor: {
       stage: 'moments',
       reason:
-        'media·expenses·audio의 (moment_id,user_id) 복합 FK와 자식 read-back은 서버 순간이 착지한 뒤에만 유효하다.',
+        'media·expenses·audio·videos의 (moment_id,user_id) 복합 FK와 자식 read-back은 서버 순간이 착지한 뒤에만 유효하다.',
     },
   },
 ] as const satisfies readonly SyncLevel[];
 
-/** pull 결과끼리는 입력·FK 의존성이 없으므로 여섯 도메인을 한 단계에서 모두 시작한다. */
+/** pull 결과끼리는 입력·FK 의존성이 없으므로 일곱 도메인을 한 단계에서 모두 시작한다. */
 export const PULL_SYNC_PLAN = [
   { id: 'all-domains', domains: SYNC_DOMAINS, waitsFor: null },
 ] as const satisfies readonly SyncLevel[];

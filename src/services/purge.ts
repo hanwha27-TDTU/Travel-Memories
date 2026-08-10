@@ -38,11 +38,12 @@ import { fromMomentRow, type MomentRow } from '../domain/moment/rowmap';
 import { fromExpenseRow, type ExpenseRow } from '../domain/expense/rowmap';
 import { fromMediaRow, type MediaRow } from '../domain/media/rowmap';
 import { fromAudioRow, type AudioRow } from '../domain/audio/rowmap';
+import { fromVideoRow, type VideoRow } from '../domain/video/rowmap';
 import { fromPlaceRow, type PlaceRow } from '../domain/place/rowmap';
 import { fetchAllRows, fetchAllIds } from './canonicalSync';
 import type { JourneyClient } from './supabase/client';
 
-export const PURGE_DOMAINS = ['trip', 'moment', 'media', 'expense', 'audio', 'place'] as const;
+export const PURGE_DOMAINS = ['trip', 'moment', 'media', 'expense', 'audio', 'video', 'place'] as const;
 export type PurgeDomain = (typeof PURGE_DOMAINS)[number];
 
 /**
@@ -137,6 +138,12 @@ export const DOMAIN_PURGE: Record<PurgeDomain, DomainPurge> = {
     // 어느 기기에서 복원해도 소리가 돌아온다 — 사진과 같은 정책, ADR-0029).
     table: () => db().localAudio as unknown as Table<{ id: string }, string>,
     remoteTable: 'audio',
+    hasRemoteBytes: true,
+    cascadeParents: ['trip', 'moment'],
+  },
+  video: {
+    table: () => db().localVideos as unknown as Table<{ id: string }, string>,
+    remoteTable: 'videos',
     hasRemoteBytes: true,
     cascadeParents: ['trip', 'moment'],
   },
@@ -658,6 +665,11 @@ function purgeRowsCol(domain: PurgeDomain, r: Record<string, unknown>): { id: st
     case 'audio': {
       const meta = fromAudioRow(r as unknown as AudioRow);
       return { id: r.id as string, entity: { ...meta, blob: new Blob([], { type: 'audio/webm' }), bytesMissing: true as const } };
+    }
+    case 'video': {
+      const meta = fromVideoRow(r as unknown as VideoRow);
+      const blob = new Blob([], { type: 'video/mp4' });
+      return { id: r.id as string, entity: { ...meta, blob, posterBlob: new Blob([], { type: 'image/webp' }), bytesOriginal: 0, bytesVideo: 0, bytesMissing: true as const } };
     }
   }
 }

@@ -41,6 +41,8 @@ export interface PendingCanonicalSnapshot {
   media: Record<string, unknown>[];
   expenses: Record<string, unknown>[];
   audio: Record<string, unknown>[];
+  /** v2.11 이전에 중단된 canonical 작업에는 없다. 재개 시 빈 배열로 읽는다. */
+  videos?: Record<string, unknown>[];
   purgedIds: string[];
 }
 
@@ -218,6 +220,28 @@ export interface LocalAudio extends SyncMeta {
 }
 
 /**
+ * 영상 노트. 사진처럼 외부 원본은 건드리지 않고, 앱이 만든 경량본만 정본 바이트로 보관한다.
+ * `sourceBlob`은 경량본의 R2 GET 바이트 대조가 끝날 때까지만 남는 재시도용 스테이징 사본이다.
+ * 포스터는 영상에서 다시 만들 수 있는 로컬 파생 캐시라 서버 객체를 하나 더 만들지 않는다.
+ */
+export interface LocalVideo extends SyncMeta {
+  momentId: string;
+  tripId: string;
+  sourceBlob?: Blob;
+  blob: Blob;
+  posterBlob: Blob;
+  mime: 'video/mp4' | 'video/webm';
+  durationSec: number;
+  width: number;
+  height: number;
+  takenAt: string;
+  bytesOriginal: number;
+  bytesVideo: number;
+  storagePath?: string;
+  bytesMissing?: true;
+}
+
+/**
  * 장소 라이브러리 항목(마이그레이션 0022).
  *
  * 🔴 **여행의 자식이 아니다.** 형제(media·expenses·audio)는 전부 `momentId`/`tripId`를 갖고
@@ -358,7 +382,7 @@ export interface PurgedId {
    * id만 담으므로(자료를 남기지 않는 것이 목적) 다른 기기가 알려준 영구삭제는 종류를 모른다.
    * 모르는 것을 아는 척 적지 않는다(비타협 원칙 #4).
    */
-  entityType: 'trip' | 'moment' | 'media' | 'expense' | 'audio' | 'place' | 'unknown';
+  entityType: 'trip' | 'moment' | 'media' | 'expense' | 'audio' | 'video' | 'place' | 'unknown';
   purgedAt: string;
 }
 
@@ -368,6 +392,7 @@ export class JourneyDB extends Dexie {
   localMedia!: Table<LocalMedia, string>;
   localExpenses!: Table<LocalExpense, string>;
   localAudio!: Table<LocalAudio, string>;
+  localVideos!: Table<LocalVideo, string>;
   localPlaces!: Table<LocalPlace, string>;
   localFxRates!: Table<LocalFxRate, string>;
   purgedIds!: Table<PurgedId, string>;
@@ -420,6 +445,10 @@ export class JourneyDB extends Dexie {
     // v9: canonical 세대·재시작 상태. 기억 데이터가 아니라 동기화 fence라 별도 store로 둔다.
     this.version(9).stores({
       syncState: 'id, userId, updatedAt',
+    });
+    // v10: 영상 경량본. 포스터는 같은 행의 파생 캐시이고 원격에는 영상 객체 하나만 둔다.
+    this.version(10).stores({
+      localVideos: 'id, momentId, tripId, updatedAt',
     });
   }
 }

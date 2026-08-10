@@ -231,6 +231,7 @@ export interface MomentChildren {
   mediaIds: string[];
   expenseIds: string[];
   audioIds: string[];
+  videoIds: string[];
 }
 
 /**
@@ -272,11 +273,13 @@ export async function softDeleteMomentLocalFirst(id: string): Promise<MomentChil
   const expenses = (await d.localExpenses.where('momentId').equals(id).toArray()).filter((e) => e.deletedAt === null);
   // 오디오도 **형제다** — 순간이 사라지면 함께 사라져야 한다(§7 대칭이 기본값).
   const audio = (await d.localAudio.where('momentId').equals(id).toArray()).filter((a) => a.deletedAt === null);
+  const videos = (await d.localVideos.where('momentId').equals(id).toArray()).filter((v) => v.deletedAt === null);
   const mediaIds = media.map((m) => m.id);
   const expenseIds = expenses.map((e) => e.id);
   const audioIds = audio.map((a) => a.id);
+  const videoIds = videos.map((v) => v.id);
 
-  await d.transaction('rw', d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.syncQueue, async () => {
+  await d.transaction('rw', [d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.localVideos, d.syncQueue], async () => {
     await d.localMoments.put(tombstoned);
     for (const m of media) {
       // 사진도 동기화 대상 — cascade tombstone을 큐 op로 전파.
@@ -298,6 +301,11 @@ export async function softDeleteMomentLocalFirst(id: string): Promise<MomentChil
       await d.localAudio.put({ ...a, deletedAt: now, version: a.version + 1, updatedAt: now, baseVersion: a.baseVersion ?? a.version, clientOperationId: aOpId });
       await d.syncQueue.add({ operationId: aOpId, entityType: 'audio', entityId: a.id, operationType: 'delete', state: 'local_only', attempts: 0, createdAt: now });
     }
+    for (const v of videos) {
+      const vOpId = uuid();
+      await d.localVideos.put({ ...v, deletedAt: now, version: v.version + 1, updatedAt: now, baseVersion: v.baseVersion ?? v.version, clientOperationId: vOpId });
+      await d.syncQueue.add({ operationId: vOpId, entityType: 'video', entityId: v.id, operationType: 'delete', state: 'local_only', attempts: 0, createdAt: now });
+    }
     await d.syncQueue.add(op);
   });
 
@@ -305,7 +313,7 @@ export async function softDeleteMomentLocalFirst(id: string): Promise<MomentChil
   if (!back || back.deletedAt === null) {
     throw new Error('내구성 커밋 확인 실패: 삭제 read-back 불일치');
   }
-  return { mediaIds, expenseIds, audioIds };
+  return { mediaIds, expenseIds, audioIds, videoIds };
 }
 
 /**
@@ -314,7 +322,7 @@ export async function softDeleteMomentLocalFirst(id: string): Promise<MomentChil
  * 삭제 시 함께 tombstone된 사진(mediaIds)도 같은 트랜잭션에서 복원한다.
  */
 export async function restoreMomentLocalFirst(id: string, children: MomentChildren): Promise<LocalMoment> {
-  const { mediaIds, expenseIds, audioIds } = children;
+  const { mediaIds, expenseIds, audioIds, videoIds } = children;
   const d = db();
   const cur = await d.localMoments.get(id);
   if (!cur) throw new Error('순간을 찾을 수 없습니다.');
@@ -339,7 +347,7 @@ export async function restoreMomentLocalFirst(id: string, children: MomentChildr
     createdAt: now,
   };
 
-  await d.transaction('rw', d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.syncQueue, async () => {
+  await d.transaction('rw', [d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.localVideos, d.syncQueue], async () => {
     await d.localMoments.put(restored);
     for (const mid of mediaIds) {
       const m = await d.localMedia.get(mid);
@@ -366,6 +374,14 @@ export async function restoreMomentLocalFirst(id: string, children: MomentChildr
         const aOpId = uuid();
         await d.localAudio.put({ ...a, deletedAt: null, version: a.version + 1, updatedAt: now, baseVersion: a.baseVersion ?? a.version, clientOperationId: aOpId });
         await d.syncQueue.add({ operationId: aOpId, entityType: 'audio', entityId: a.id, operationType: 'update', state: 'local_only', attempts: 0, createdAt: now });
+      }
+    }
+    for (const vid of videoIds) {
+      const v = await d.localVideos.get(vid);
+      if (v) {
+        const vOpId = uuid();
+        await d.localVideos.put({ ...v, deletedAt: null, version: v.version + 1, updatedAt: now, baseVersion: v.baseVersion ?? v.version, clientOperationId: vOpId });
+        await d.syncQueue.add({ operationId: vOpId, entityType: 'video', entityId: v.id, operationType: 'update', state: 'local_only', attempts: 0, createdAt: now });
       }
     }
     await d.syncQueue.add(op);

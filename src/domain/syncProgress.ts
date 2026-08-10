@@ -1,13 +1,14 @@
 // domain/syncProgress.ts — 동기화 진행률의 단일 계약.
 //
 // 퍼센트는 시간 추정이 아니다. 완료가 실제로 관찰된 도메인·파일·커밋 단계만 센다.
-// canonical 목록을 읽은 뒤에는 사진·소리 개수를 아니까, 파일 하나를 온전히 내려받아
+// canonical 목록을 읽은 뒤에는 사진·소리·영상 개수를 아니까, 파일 하나를 온전히 내려받아
 // 썸네일까지 만든 시점에만 한 칸 전진한다. 준비처럼 분모를 모를 때만 숫자를 숨긴다.
 
 export type SyncProgressPhase =
   | 'preparing'
   | 'canonical-media'
   | 'canonical-audio'
+  | 'canonical-video'
   | 'canonical-applying'
   | 'canonical-verifying'
   | 'pushing'
@@ -33,6 +34,7 @@ export function syncProgressLabel(progress: SyncProgress | null): string {
   if (!progress || progress.phase === 'preparing') return '동기화 준비·안전 확인 중';
   if (progress.phase === 'canonical-media') return `사진 받는 중 ${progress.phaseCompleted}/${progress.phaseTotal}`;
   if (progress.phase === 'canonical-audio') return `소리 받는 중 ${progress.phaseCompleted}/${progress.phaseTotal}`;
+  if (progress.phase === 'canonical-video') return `영상 받는 중 ${progress.phaseCompleted}/${progress.phaseTotal}`;
   if (progress.phase === 'canonical-applying') return '받은 기록을 이 기기에 반영 중';
   if (progress.phase === 'canonical-verifying') return '받은 기록을 다시 확인 중';
   if (progress.phase === 'pushing') return `보내는 중 ${progress.phaseCompleted}/${progress.phaseTotal} 분야`;

@@ -163,13 +163,14 @@ export interface TripChildren {
    * 사라졌다 — 아래 `childOp`가 네 종류를 **같은 자리에서** 만든다.
    */
   audioIds: string[];
+  videoIds: string[];
 }
 
 /**
  * cascade가 다루는 자식 종류. **여기 한 곳에 적는다** — 삭제·복원 두 `childOp`가 같은 타입을
  * 받으므로, 종류를 하나 더하면 두 곳이 함께 컴파일러의 감시를 받는다(§7 2층).
  */
-type ChildEntity = 'moment' | 'media' | 'expense' | 'audio';
+type ChildEntity = 'moment' | 'media' | 'expense' | 'audio' | 'video';
 
 /**
  * 여행 삭제 — 하드 삭제 금지(§0): deletedAt tombstone. 순간·사진·비용·소리까지 같은 트랜잭션에서
@@ -212,10 +213,12 @@ export async function softDeleteTripLocalFirst(id: string): Promise<TripChildren
   const audio = (await d.localAudio.where('tripId').equals(id).toArray()).filter(
     (a) => a.deletedAt === null,
   );
+  const videos = (await d.localVideos.where('tripId').equals(id).toArray()).filter((v) => v.deletedAt === null);
   const momentIds = moments.map((m) => m.id);
   const mediaIds = media.map((m) => m.id);
   const expenseIds = expenses.map((e) => e.id);
   const audioIds = audio.map((a) => a.id);
+  const videoIds = videos.map((v) => v.id);
 
   // 자식 op는 **tombstone하는 종류 전부**에 대해 만든다. 하나라도 빠지면 그 종류만 서버에
   // 활성으로 남아 다른 기기에서 되살아나고(사진은 R2 객체까지 잔류) 원인이 보이지 않는다.
@@ -234,6 +237,7 @@ export async function softDeleteTripLocalFirst(id: string): Promise<TripChildren
     ...media.map((m) => childOp('media', m.id)),
     ...expenses.map((e) => childOp('expense', e.id)),
     ...audio.map((a) => childOp('audio', a.id)),
+    ...videos.map((v) => childOp('video', v.id)),
   ];
   const childOperationId = (entityType: ChildEntity, entityId: string): string => {
     const found = ops.find((op) => op.entityType === entityType && op.entityId === entityId);
@@ -242,24 +246,25 @@ export async function softDeleteTripLocalFirst(id: string): Promise<TripChildren
   };
 
   // 표 6개는 Dexie의 가변인자 오버로드 한도를 넘어 배열 형태를 쓴다(동작은 같다).
-  await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.syncQueue], async () => {
+  await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.localVideos, d.syncQueue], async () => {
     await d.localTrips.put(tombstonedTrip);
     for (const m of moments) await d.localMoments.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now, baseVersion: m.baseVersion ?? m.version, clientOperationId: childOperationId('moment', m.id) });
     for (const m of media) await d.localMedia.put({ ...m, deletedAt: now, version: m.version + 1, updatedAt: now, baseVersion: m.baseVersion ?? m.version, clientOperationId: childOperationId('media', m.id) });
     for (const e of expenses) await d.localExpenses.put({ ...e, deletedAt: now, version: e.version + 1, updatedAt: now, baseVersion: e.baseVersion ?? e.version, clientOperationId: childOperationId('expense', e.id) });
     // 오디오도 형제다 — 함께 사라지고, **서버에도 그 사실이 간다**(위 ops에 audio 포함).
     for (const a of audio) await d.localAudio.put({ ...a, deletedAt: now, version: a.version + 1, updatedAt: now, baseVersion: a.baseVersion ?? a.version, clientOperationId: childOperationId('audio', a.id) });
+    for (const v of videos) await d.localVideos.put({ ...v, deletedAt: now, version: v.version + 1, updatedAt: now, baseVersion: v.baseVersion ?? v.version, clientOperationId: childOperationId('video', v.id) });
     for (const op of ops) await d.syncQueue.add(op);
   });
 
   const back = await d.localTrips.get(id);
   if (!back || back.deletedAt === null) throw new Error('내구성 커밋 확인 실패: 여행 삭제 read-back 불일치');
-  return { momentIds, mediaIds, expenseIds, audioIds };
+  return { momentIds, mediaIds, expenseIds, audioIds, videoIds };
 }
 
 /** 여행 되살리기(실행취소) — 여행 + 삭제 시 함께 tombstone된 순간·사진·비용·소리를 복원. version+1로 LWW 승리. */
 export async function restoreTripLocalFirst(id: string, children: TripChildren): Promise<LocalTrip> {
-  const { momentIds, mediaIds, expenseIds, audioIds } = children;
+  const { momentIds, mediaIds, expenseIds, audioIds, videoIds } = children;
   const d = db();
   const cur = await d.localTrips.get(id);
   if (!cur) throw new Error('여행을 찾을 수 없습니다.');
@@ -291,6 +296,7 @@ export async function restoreTripLocalFirst(id: string, children: TripChildren):
     ...mediaIds.map((mid) => childOp('media', mid)),
     ...expenseIds.map((eid) => childOp('expense', eid)),
     ...audioIds.map((aid) => childOp('audio', aid)),
+    ...videoIds.map((vid) => childOp('video', vid)),
   ];
   const childOperationId = (entityType: ChildEntity, entityId: string): string => {
     const found = ops.find((op) => op.entityType === entityType && op.entityId === entityId);
@@ -301,7 +307,7 @@ export async function restoreTripLocalFirst(id: string, children: TripChildren):
   // 소리를 되살리려면 `localAudio`도 **트랜잭션 범위 안에** 있어야 한다. 빠지면 Dexie가
   // NotFoundError를 던져 **복원 전체가 실패**한다 — 삭제 쪽만 고치고 여기를 빠뜨리면
   // "지우기는 되는데 되살리기가 안 되는" 비대칭이 된다(§7).
-  await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.syncQueue], async () => {
+  await d.transaction('rw', [d.localTrips, d.localMoments, d.localMedia, d.localExpenses, d.localAudio, d.localVideos, d.syncQueue], async () => {
     await d.localTrips.put(restored);
     for (const mid of momentIds) {
       const m = await d.localMoments.get(mid);
@@ -318,6 +324,10 @@ export async function restoreTripLocalFirst(id: string, children: TripChildren):
     for (const aid of audioIds) {
       const a = await d.localAudio.get(aid);
       if (a) await d.localAudio.put({ ...a, deletedAt: null, version: a.version + 1, updatedAt: now, baseVersion: a.baseVersion ?? a.version, clientOperationId: childOperationId('audio', a.id) });
+    }
+    for (const vid of videoIds) {
+      const v = await d.localVideos.get(vid);
+      if (v) await d.localVideos.put({ ...v, deletedAt: null, version: v.version + 1, updatedAt: now, baseVersion: v.baseVersion ?? v.version, clientOperationId: childOperationId('video', v.id) });
     }
     for (const op of ops) await d.syncQueue.add(op);
   });
@@ -365,11 +375,13 @@ export async function restoreTripFromTrash(id: string): Promise<LocalTrip> {
   const media = (await d.localMedia.where('tripId').equals(id).toArray()).filter((m) => m.deletedAt !== null);
   const expenses = (await d.localExpenses.where('tripId').equals(id).toArray()).filter((e) => e.deletedAt !== null);
   const audio = (await d.localAudio.where('tripId').equals(id).toArray()).filter((a) => a.deletedAt !== null);
+  const videos = (await d.localVideos.where('tripId').equals(id).toArray()).filter((v) => v.deletedAt !== null);
   return restoreTripLocalFirst(id, {
     momentIds: moments.map((m) => m.id),
     mediaIds: media.map((m) => m.id),
     expenseIds: expenses.map((e) => e.id),
     audioIds: audio.map((a) => a.id),
+    videoIds: videos.map((v) => v.id),
   });
 }
 

@@ -3,9 +3,9 @@ shape: prose-debt
 ---
 # 동영상 지원 설계안 (VIDEO_PROPOSAL)
 
-> 상태: **제안 · 미승인.** 코드 변경 0건. 사용자 결정 대기.
+> 상태: **역사적 제안 · ADR-0055와 v2.11 구현으로 대체됨.** 아래 내용은 2026-07-27 당시 원본 업로드 전제를 보존한 기록이다.
 > 작성: 2026-07-27 · 근거: 도메인 에이전트 4종 조사(media-pipeline · supabase · offline-sync · travel-experience-director) + 저장소 실측 대조.
-> 이 문서는 **결정을 위한 자료**다. 승인되면 `docs/DECISIONS.md`에 ADR로 옮기고 이 문서는 그 근거로 남는다.
+> 현재 결정은 `docs/DECISIONS.md` ADR-0055가 정본이다. v2.11은 원본을 그대로 올리지 않고 60초·1280px·25MiB 이하 앱 파생본을 만들어 사진·소리의 전체 저장 생명주기에 연결한다.
 
 ---
 

@@ -7,6 +7,7 @@ import {
   db,
   type LocalAudio,
   type LocalMedia,
+  type LocalVideo,
   type PendingCanonicalSnapshot,
   type PurgedId,
   type SyncMeta,
@@ -16,10 +17,12 @@ import { toMomentRow, fromMomentRow, type MomentRow } from '../domain/moment/row
 import { toExpenseRow, fromExpenseRow, type ExpenseRow } from '../domain/expense/rowmap';
 import { toMediaRow, fromMediaRow, mediaStoragePath, type MediaRow } from '../domain/media/rowmap';
 import { toAudioRow, fromAudioRow, audioStoragePath, type AudioRow } from '../domain/audio/rowmap';
+import { toVideoRow, fromVideoRow, videoStoragePath, type VideoRow } from '../domain/video/rowmap';
 import { toPlaceRow, fromPlaceRow, type PlaceRow } from '../domain/place/rowmap';
 import { operationStoragePath } from '../domain/media/naming';
 import type { SyncProgress } from '../domain/syncProgress';
 import { compressForStorage } from '../media/compress';
+import { createVideoPoster } from '../media/video';
 import { deviceStamp } from '../app/deviceId';
 import type { JourneyClient } from './supabase/client';
 import { r2BlobStore } from './r2';
@@ -49,6 +52,7 @@ export interface CanonicalRemote {
   listMedia(): Promise<RemoteResult<MediaRow[]>>;
   listExpenses(): Promise<RemoteResult<ExpenseRow[]>>;
   listAudio(): Promise<RemoteResult<AudioRow[]>>;
+  listVideos(): Promise<RemoteResult<VideoRow[]>>;
   listPurgedIds(): Promise<RemoteResult<string[]>>;
   publish(snapshot: PendingCanonicalSnapshot): Promise<RemoteResult<unknown>>;
   upload(path: string, blob: Blob, contentType: string): Promise<{ error?: string | undefined }>;
@@ -63,6 +67,7 @@ interface RemoteSnapshot {
   media: MediaRow[];
   expenses: ExpenseRow[];
   audio: AudioRow[];
+  videos: VideoRow[];
   purgedIds: string[];
 }
 
@@ -182,6 +187,7 @@ export function canonicalRemote(client: JourneyClient): CanonicalRemote {
     listMedia: () => fetchAllRows<MediaRow>(client, 'media'),
     listExpenses: () => fetchAllRows<ExpenseRow>(client, 'expenses'),
     listAudio: () => fetchAllRows<AudioRow>(client, 'audio'),
+    listVideos: () => fetchAllRows<VideoRow>(client, 'videos'),
     listPurgedIds: () => fetchAllIds(client, 'purged_ids'),
     async publish(s) {
       try {
@@ -196,6 +202,7 @@ export function canonicalRemote(client: JourneyClient): CanonicalRemote {
           p_media: s.media,
           p_expenses: s.expenses,
           p_audio: s.audio,
+          p_videos: s.videos ?? [],
           p_purged_ids: s.purgedIds,
         });
         return { data: r.data, error: r.error?.message };
@@ -225,13 +232,14 @@ async function readMeta(remote: CanonicalRemote): Promise<CanonicalMeta> {
 }
 
 async function readStableSnapshot(remote: CanonicalRemote, expected: string): Promise<RemoteSnapshot> {
-  const [trips, places, moments, media, expenses, audio, purged] = await Promise.all([
+  const [trips, places, moments, media, expenses, audio, videos, purged] = await Promise.all([
     remote.listTrips(),
     remote.listPlaces(),
     remote.listMoments(),
     remote.listMedia(),
     remote.listExpenses(),
     remote.listAudio(),
+    remote.listVideos(),
     remote.listPurgedIds(),
   ]);
   const snapshot: RemoteSnapshot = {
@@ -241,6 +249,7 @@ async function readStableSnapshot(remote: CanonicalRemote, expected: string): Pr
     media: requireRemote(media, '사진 스냅샷 조회 실패'),
     expenses: requireRemote(expenses, '비용 스냅샷 조회 실패'),
     audio: requireRemote(audio, '소리 스냅샷 조회 실패'),
+    videos: requireRemote(videos, '영상 스냅샷 조회 실패'),
     purgedIds: requireRemote(purged, '영구삭제 원장 조회 실패'),
   };
   const after = await readMeta(remote);
@@ -377,6 +386,55 @@ async function materializeAudio(
   return out;
 }
 
+async function materializeVideos(
+  rows: VideoRow[],
+  remote: CanonicalRemote,
+  version: string,
+  onItem?: ((completed: number) => void) | undefined,
+): Promise<LocalVideo[]> {
+  const d = db();
+  const local = new Map((await d.localVideos.toArray()).map((x) => [x.id, x]));
+  const out: LocalVideo[] = [];
+  for (const row of rows) {
+    const server = fromVideoRow(row);
+    const old = local.get(server.id);
+    let blob = old?.storagePath === server.storagePath ? old.blob : undefined;
+    let posterBlob = old?.storagePath === server.storagePath ? old.posterBlob : undefined;
+    let bytesMissing = false;
+    if (!blob || blob.size === 0) {
+      const fetched = await fetchOrMissing(remote, server.storagePath, server.deletedAt, '영상', server.id);
+      bytesMissing = fetched.missing;
+      blob = fetched.data ?? new Blob([], { type: server.mime || 'video/mp4' });
+    }
+    if (!posterBlob?.size && blob.size > 0) posterBlob = await createVideoPoster(blob);
+    out.push({
+      id: server.id,
+      momentId: server.momentId,
+      tripId: server.tripId,
+      blob,
+      posterBlob: posterBlob ?? new Blob([], { type: 'image/webp' }),
+      mime: server.mime === 'video/mp4' ? 'video/mp4' : 'video/webm',
+      durationSec: server.durationSec,
+      width: server.width,
+      height: server.height,
+      takenAt: server.takenAt,
+      bytesOriginal: old?.bytesOriginal ?? blob.size,
+      bytesVideo: blob.size,
+      ...(server.storagePath ? { storagePath: server.storagePath } : {}),
+      version: server.version,
+      baseVersion: server.version,
+      baseCanonicalVersion: version,
+      createdAt: server.createdAt,
+      updatedAt: server.updatedAt,
+      deletedAt: server.deletedAt,
+      ...(bytesMissing ? { bytesMissing: true as const } : {}),
+      ...(server.clientOperationId ? { clientOperationId: server.clientOperationId } : {}),
+    });
+    onItem?.(out.length);
+  }
+  return out;
+}
+
 async function stampTable<T extends SyncMeta>(table: Table<T, string>, version: string): Promise<void> {
   const rows = await table.toArray();
   const changed = rows.filter((x) => x.baseCanonicalVersion !== version);
@@ -392,13 +450,14 @@ async function stampAllTables(version: string): Promise<void> {
     stampTable(d.localMedia, version),
     stampTable(d.localExpenses, version),
     stampTable(d.localAudio, version),
+    stampTable(d.localVideos, version),
   ]);
 }
 
 async function setLegacyBaseline(userId: string, version: string): Promise<void> {
   const d = db();
   await d.transaction(
-    'rw',[d.localTrips,d.localPlaces,d.localMoments,d.localMedia,d.localExpenses,d.localAudio,d.syncState],
+    'rw',[d.localTrips,d.localPlaces,d.localMoments,d.localMedia,d.localExpenses,d.localAudio,d.localVideos,d.syncState],
     async () => {
       await stampAllTables(version);
       await d.syncState.put({ id: stateId(userId), userId, canonicalVersion: version, updatedAt: new Date().toISOString() });
@@ -415,7 +474,7 @@ async function replaceLocalSnapshot(
 ): Promise<number> {
   const d = db();
   // 파일 수 + 원자 반영 + 로컬 read-back. 시간으로 만든 가짜 퍼센트가 아니라 실제 완료 단위다.
-  const total = snapshot.media.length + snapshot.audio.length + 2;
+  const total = snapshot.media.length + snapshot.audio.length + snapshot.videos.length + 2;
   if (snapshot.media.length > 0) {
     onProgress?.({
       phase: 'canonical-media', completed: 0, total,
@@ -440,6 +499,12 @@ async function replaceLocalSnapshot(
       phaseCompleted: completed, phaseTotal: snapshot.audio.length,
     });
   });
+  const videos = await materializeVideos(snapshot.videos, remote, meta.canonicalVersion, (completed) => {
+    onProgress?.({
+      phase: 'canonical-video', completed: media.length + audio.length + completed, total,
+      phaseCompleted: completed, phaseTotal: snapshot.videos.length,
+    });
+  });
   const beforeCommit = await readMeta(remote);
   if (beforeCommit.canonicalVersion !== meta.canonicalVersion) {
     throw new Error('바이트를 받는 동안 최종본 세대가 다시 바뀌었습니다. 로컬은 바꾸지 않고 재시도합니다.');
@@ -455,18 +520,18 @@ async function replaceLocalSnapshot(
     purgedAt: new Date().toISOString(),
   }));
 
-  const filesDone = media.length + audio.length;
+  const filesDone = media.length + audio.length + videos.length;
   onProgress?.({
     phase: 'canonical-applying', completed: filesDone, total,
     phaseCompleted: 0, phaseTotal: 1,
   });
   await d.transaction(
-    'rw',[d.localTrips,d.localPlaces,d.localMoments,d.localMedia,d.localExpenses,d.localAudio,
+    'rw',[d.localTrips,d.localPlaces,d.localMoments,d.localMedia,d.localExpenses,d.localAudio,d.localVideos,
     d.syncQueue,d.purgedIds,d.syncState],
     async () => {
       await Promise.all([
         d.localTrips.clear(),d.localPlaces.clear(),d.localMoments.clear(),d.localMedia.clear(),
-        d.localExpenses.clear(),d.localAudio.clear(),d.syncQueue.clear(),d.purgedIds.clear(),
+        d.localExpenses.clear(),d.localAudio.clear(),d.localVideos.clear(),d.syncQueue.clear(),d.purgedIds.clear(),
       ]);
       await d.localTrips.bulkPut(trips);
       await d.localPlaces.bulkPut(places);
@@ -474,6 +539,7 @@ async function replaceLocalSnapshot(
       await d.localMedia.bulkPut(media);
       await d.localExpenses.bulkPut(expenses);
       await d.localAudio.bulkPut(audio);
+      await d.localVideos.bulkPut(videos);
       await d.purgedIds.bulkPut(purged);
       await d.syncState.put({
         id: stateId(userId),userId,canonicalVersion: meta.canonicalVersion,updatedAt: new Date().toISOString(),
@@ -487,15 +553,15 @@ async function replaceLocalSnapshot(
 
   // Dexie transaction resolve만 성공 영수증으로 쓰지 않는다. 이 기기에서 다시 세어야
   // "동기화 종료 + 홈 0건"을 성공으로 반올림하지 않는다(M-0095의 로컬 적용판).
-  const [tripCount, placeCount, momentCount, mediaCount, expenseCount, audioCount, state] = await Promise.all([
+  const [tripCount, placeCount, momentCount, mediaCount, expenseCount, audioCount, videoCount, state] = await Promise.all([
     d.localTrips.count(), d.localPlaces.count(), d.localMoments.count(), d.localMedia.count(),
-    d.localExpenses.count(), d.localAudio.count(), d.syncState.get(stateId(userId)),
+    d.localExpenses.count(), d.localAudio.count(), d.localVideos.count(), d.syncState.get(stateId(userId)),
   ]);
-  const expected = [trips.length, places.length, moments.length, media.length, expenses.length, audio.length];
-  const actual = [tripCount, placeCount, momentCount, mediaCount, expenseCount, audioCount];
+  const expected = [trips.length, places.length, moments.length, media.length, expenses.length, audio.length, videos.length];
+  const actual = [tripCount, placeCount, momentCount, mediaCount, expenseCount, audioCount, videoCount];
   if (actual.some((count, index) => count !== expected[index]) || state?.canonicalVersion !== meta.canonicalVersion) {
     throw new Error(
-      `받은 기록의 이 기기 반영 확인 실패: 여행·장소·순간·사진·비용·소리 ` +
+      `받은 기록의 이 기기 반영 확인 실패: 여행·장소·순간·사진·비용·소리·영상 ` +
       `${actual.join('/')} (정상 ${expected.join('/')})`,
     );
   }
@@ -585,20 +651,21 @@ async function capturePending(
   userId: string,
   meta: CanonicalMeta,
 ): Promise<PendingCanonicalSnapshot> {
-  const [oldMediaResult, oldAudioResult] = await Promise.all([remote.listMedia(), remote.listAudio()]);
+  const [oldMediaResult, oldAudioResult, oldVideoResult] = await Promise.all([remote.listMedia(), remote.listAudio(), remote.listVideos()]);
   const oldMedia = requireRemote(oldMediaResult, '기존 사진 경로 조회 실패');
   const oldAudio = requireRemote(oldAudioResult, '기존 소리 경로 조회 실패');
+  const oldVideos = requireRemote(oldVideoResult, '기존 영상 경로 조회 실패');
   const check = await readMeta(remote);
   if (check.canonicalVersion !== meta.canonicalVersion) throw new Error('최종본 캡처 전에 서버 세대가 바뀌었습니다.');
 
   const d = db();
   return d.transaction(
-    'rw',[d.localTrips,d.localPlaces,d.localMoments,d.localMedia,d.localExpenses,d.localAudio,
+    'rw',[d.localTrips,d.localPlaces,d.localMoments,d.localMedia,d.localExpenses,d.localAudio,d.localVideos,
     d.syncQueue,d.purgedIds,d.syncState],
     async () => {
-      const [trips,places,moments,media,expenses,audio,queue,purged] = await Promise.all([
+      const [trips,places,moments,media,expenses,audio,videos,queue,purged] = await Promise.all([
         d.localTrips.toArray(),d.localPlaces.toArray(),d.localMoments.toArray(),d.localMedia.toArray(),
-        d.localExpenses.toArray(),d.localAudio.toArray(),d.syncQueue.toArray(),d.purgedIds.toArray(),
+        d.localExpenses.toArray(),d.localAudio.toArray(),d.localVideos.toArray(),d.syncQueue.toArray(),d.purgedIds.toArray(),
       ]);
       const operationId = crypto.randomUUID();
       const nextVersion = crypto.randomUUID();
@@ -617,20 +684,27 @@ async function capturePending(
         const path = operationStoragePath(stable, x.id, operationId);
         return toAudioRow({ ...x, baseCanonicalVersion: nextVersion }, userId, path, device);
       });
-      const ids = new Set([...trips,...places,...moments,...media,...expenses,...audio].map((x) => x.id));
+      const videoRows = videos.map((x) => {
+        if (!x.blob || x.blob.size === 0) throw new Error(`영상 ${x.id}: 경량본 바이트가 비었습니다.`);
+        const stable = x.storagePath ?? videoStoragePath(userId, x, titles.get(x.tripId));
+        if (!stable) throw new Error(`영상 ${x.id}: 지원하지 않는 MIME(${x.mime})입니다.`);
+        const path = operationStoragePath(stable, x.id, operationId);
+        return toVideoRow({ ...x, baseCanonicalVersion: nextVersion }, userId, path, device);
+      });
+      const ids = new Set([...trips,...places,...moments,...media,...expenses,...audio,...videos].map((x) => x.id));
       const overlap = purged.find((x) => ids.has(x.id));
       if (overlap) throw new Error(`최종본 행과 영구삭제 원장이 같은 id를 가리킵니다: ${overlap.id}`);
       const snapshot: PendingCanonicalSnapshot = {
         expectedVersion: meta.canonicalVersion,nextVersion,operationId,device,stage:'uploading',
         createdAt:new Date().toISOString(),queuedOperationIds:queue.map((x) => x.operationId),
-        stagedPaths:[...mediaRows,...audioRows].flatMap((x) => x.storage_path ? [x.storage_path] : []),
-        previousPaths:[...oldMedia,...oldAudio].flatMap((x) => x.storage_path ? [x.storage_path] : []),
+        stagedPaths:[...mediaRows,...audioRows,...videoRows].flatMap((x) => x.storage_path ? [x.storage_path] : []),
+        previousPaths:[...oldMedia,...oldAudio,...oldVideos].flatMap((x) => x.storage_path ? [x.storage_path] : []),
         trips:asRecord(trips.map((x) => toRow({ ...x, baseCanonicalVersion: nextVersion },userId,device))),
         places:asRecord(places.map((x) => toPlaceRow({ ...x, baseCanonicalVersion: nextVersion },userId,device))),
         moments:asRecord(moments.map((x) => toMomentRow({ ...x, baseCanonicalVersion: nextVersion },userId,device))),
         media:asRecord(mediaRows),
         expenses:asRecord(expenses.map((x) => toExpenseRow({ ...x, baseCanonicalVersion: nextVersion },userId,device))),
-        audio:asRecord(audioRows),purgedIds:purged.map((x) => x.id),
+        audio:asRecord(audioRows),videos:asRecord(videoRows),purgedIds:purged.map((x) => x.id),
       };
       await d.syncState.put({
         id:stateId(userId),userId,canonicalVersion:meta.canonicalVersion,pendingCanonical:snapshot,
@@ -677,6 +751,16 @@ async function uploadPending(remote: CanonicalRemote, pending: PendingCanonicalS
     }
     audioTasks.push({ row, blob: local.blob });
   }
+  const videoTasks: { row: VideoRow; blob: Blob }[] = [];
+  for (const row of (pending.videos ?? []) as unknown as VideoRow[]) {
+    if (!row.storage_path) throw new CanonicalSnapshotChangedError(`영상 ${row.id}: staging 경로가 없습니다.`);
+    const local = await d.localVideos.get(row.id);
+    if (!local?.blob) throw new CanonicalSnapshotChangedError(`영상 ${row.id}: 게시할 경량본을 찾지 못했습니다.`);
+    if (local.updatedAt !== row.updated_at || local.blob.size !== row.bytes) {
+      throw new CanonicalSnapshotChangedError(`영상 ${row.id}: 최종본 캡처 뒤 내용이 바뀌었습니다.`);
+    }
+    videoTasks.push({ row, blob: local.blob });
+  }
   for (const { row, blob } of mediaTasks) {
     const r = await remote.upload(row.storage_path!, blob, 'image/webp');
     if (r.error) throw new Error(`사진 ${row.id} 업로드 실패: ${r.error}`);
@@ -684,6 +768,10 @@ async function uploadPending(remote: CanonicalRemote, pending: PendingCanonicalS
   for (const { row, blob } of audioTasks) {
     const r = await remote.upload(row.storage_path!, blob, row.mime);
     if (r.error) throw new Error(`소리 ${row.id} 업로드 실패: ${r.error}`);
+  }
+  for (const { row, blob } of videoTasks) {
+    const r = await remote.upload(row.storage_path!, blob, row.mime);
+    if (r.error) throw new Error(`영상 ${row.id} 업로드 실패: ${r.error}`);
   }
 }
 
@@ -694,7 +782,7 @@ async function finalizePublishedSnapshot(
 ): Promise<void> {
   const d = db();
   await d.transaction(
-    'rw',[d.localTrips,d.localPlaces,d.localMoments,d.localMedia,d.localExpenses,d.localAudio,
+    'rw',[d.localTrips,d.localPlaces,d.localMoments,d.localMedia,d.localExpenses,d.localAudio,d.localVideos,
     d.syncQueue,d.syncState],
     async () => {
       for (const row of pending.media as unknown as MediaRow[]) {
@@ -717,6 +805,13 @@ async function finalizePublishedSnapshot(
             storagePath: row.storage_path,
             baseCanonicalVersion: pending.nextVersion,
           });
+        }
+      }
+      for (const row of (pending.videos ?? []) as unknown as VideoRow[]) {
+        const current = await d.localVideos.get(row.id);
+        if (current?.updatedAt === row.updated_at && row.storage_path) {
+          const { bytesMissing: _bytesMissing, sourceBlob: _source, ...kept } = current;
+          await d.localVideos.put({ ...kept, storagePath: row.storage_path, baseCanonicalVersion: pending.nextVersion });
         }
       }
       await stampAllTables(pending.nextVersion);
@@ -791,7 +886,7 @@ export async function publishCanonicalWithRemote(
   return {
     version:pending.nextVersion,
     rows:pending.trips.length+pending.places.length+pending.moments.length+pending.media.length+
-      pending.expenses.length+pending.audio.length,
+      pending.expenses.length+pending.audio.length+(pending.videos?.length ?? 0),
     purgedIds:pending.purgedIds.length,
   };
 }

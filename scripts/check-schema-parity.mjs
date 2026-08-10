@@ -23,6 +23,7 @@ const ROW_TO_TABLE = {
   MediaRow: 'media',
   ExpenseRow: 'expenses',
   AudioRow: 'audio',
+  VideoRow: 'videos',
   PlaceRow: 'places',
 };
 

@@ -7,7 +7,7 @@
 // 🔴 **아무것도 바꾸지 않는다.** 진단은 관측이 기본이고, 상태를 바꾸는 것은 사용자가 누른
 //    행동뿐이다. 특히 「모르는 상태에서 쓰기·삭제·재큐잉으로 확인」은 금지다(§8 · M-0095).
 
-import { db, type LocalMedia, type LocalAudio } from '../offline/db';
+import { db, type LocalMedia, type LocalAudio, type LocalVideo } from '../offline/db';
 import { supabase, isConfigured } from './supabase/client';
 import { currentUser } from './auth';
 import { listDeletedTrips, listDeletedTripsFromServer } from './trips';
@@ -43,16 +43,20 @@ async function readServerTrash(): Promise<{ count: number | null; reason: string
 }
 
 /**
- * 되살려도 사진·소리가 빈 채로 오는 항목.
+ * 되살려도 사진·소리·영상이 빈 채로 오는 항목.
  *
  * `bytesMissing`은 **추측이 아니라 확인한 사실**을 적는 표시다(M-0060의 규율) — 「바이트가
  * 이 기기에 없음을 확인했다」는 뜻이다. 그 표시가 붙은 tombstone 행만 센다.
  */
 async function readEmptyOnRestore(): Promise<EmptyOnRestore[]> {
   const d = db();
-  const [media, audio] = await Promise.all([d.localMedia.toArray(), d.localAudio.toArray()]);
+  const [media, audio, video] = await Promise.all([
+    d.localMedia.toArray(),
+    d.localAudio.toArray(),
+    d.localVideos.toArray(),
+  ]);
   const out: EmptyOnRestore[] = [];
-  const pick = (rows: (LocalMedia | LocalAudio)[], domain: 'media' | 'audio'): void => {
+  const pick = (rows: (LocalMedia | LocalAudio | LocalVideo)[], domain: 'media' | 'audio' | 'video'): void => {
     for (const r of rows) {
       if (r.deletedAt === null || r.bytesMissing !== true) continue;
       out.push({ domain, label: `${CHILD_LABEL[domain]} ${r.id.slice(0, 8)}` });
@@ -60,6 +64,7 @@ async function readEmptyOnRestore(): Promise<EmptyOnRestore[]> {
   };
   pick(media, 'media');
   pick(audio, 'audio');
+  pick(video, 'video');
   return out;
 }
 
@@ -67,7 +72,7 @@ async function readEmptyOnRestore(): Promise<EmptyOnRestore[]> {
  * 되살릴 **부모가 사라진** 휴지통 자식.
  *
  * 순간을 영구삭제하면 그 순간 행만 없어지고(자식은 `trip_id`로만 묶여 있다) 휴지통에 있던
- * 그 순간의 사진·소리·비용은 돌아갈 곳을 잃는다. `checkIntegrity`는 **살아 있는 행만** 보므로
+ * 그 순간의 사진·소리·영상·비용은 돌아갈 곳을 잃는다. `checkIntegrity`는 **살아 있는 행만** 보므로
  * 이 상태를 원리적으로 못 본다 — 그래서 여기서 잰다.
  *
  * 🔴 부모를 「없음」으로 판정하는 근거는 **로컬 행의 부재 + 영구삭제 원장에 있음** 둘 다다.
@@ -77,10 +82,11 @@ async function readEmptyOnRestore(): Promise<EmptyOnRestore[]> {
  */
 async function readOrphans(): Promise<OrphanTrashed[]> {
   const d = db();
-  const [moments, media, audio, expenses, purged] = await Promise.all([
+  const [moments, media, audio, video, expenses, purged] = await Promise.all([
     d.localMoments.toArray(),
     d.localMedia.toArray(),
     d.localAudio.toArray(),
+    d.localVideos.toArray(),
     d.localExpenses.toArray(),
     d.purgedIds.toArray(),
   ]);
@@ -89,7 +95,7 @@ async function readOrphans(): Promise<OrphanTrashed[]> {
   const out: OrphanTrashed[] = [];
   const scan = (
     rows: { id: string; momentId?: string | null; deletedAt: string | null }[],
-    domain: 'media' | 'audio' | 'expense',
+    domain: 'media' | 'audio' | 'video' | 'expense',
   ): void => {
     for (const r of rows) {
       if (r.deletedAt === null) continue; // 살아 있는 것은 이 도구의 대상이 아니다
@@ -102,6 +108,7 @@ async function readOrphans(): Promise<OrphanTrashed[]> {
   };
   scan(media, 'media');
   scan(audio, 'audio');
+  scan(video, 'video');
   scan(expenses, 'expense');
   return out;
 }

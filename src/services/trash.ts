@@ -18,7 +18,7 @@
 // 같은 것이 두 줄로 나오고, 자식만 따로 복원하면 부모 없는 자식이 생긴다.
 // 그래서 **부모가 살아 있는(활성) 것만** 골라낸다. 그게 지금 어디에도 안 보이는 바로 그것이다.
 
-import { db, type LocalMoment, type LocalMedia, type LocalExpense, type LocalAudio, type LocalPlace } from '../offline/db';
+import { db, type LocalMoment, type LocalMedia, type LocalExpense, type LocalAudio, type LocalVideo, type LocalPlace } from '../offline/db';
 import { momentWhen, compareInstants, type TripClock } from '../domain/time';
 import { homeZone } from './homeZone';
 import {
@@ -31,6 +31,7 @@ import { restoreMomentLocalFirst } from './moments';
 import { restoreMediaLocalFirst } from './media';
 import { restoreExpenseLocalFirst } from './expenses';
 import { restoreAudio } from './audio';
+import { restoreVideo } from './videos';
 import { restorePlace } from './places';
 import type { JourneyClient } from './supabase/client';
 
@@ -58,6 +59,7 @@ export const CHILD_LABEL: Record<ChildDomain, string> = {
   media: '사진',
   expense: '비용',
   audio: '소리',
+  video: '영상',
   place: '장소',
 };
 
@@ -102,6 +104,7 @@ interface ChildSourceMap {
   media: ChildSource<LocalMedia>;
   expense: ChildSource<LocalExpense>;
   audio: ChildSource<LocalAudio>;
+  video: ChildSource<LocalVideo>;
   place: ChildSource<LocalPlace>;
 }
 
@@ -144,6 +147,14 @@ const CHILD_SOURCE: ChildSourceMap = {
       return { id: a.id, tripId: a.tripId, deletedAt: a.deletedAt, label: `${head} · ${formatDuration(a.durationSec)}` };
     },
   },
+  video: {
+    rows: async () => (await db().localVideos.toArray()),
+    fromEntity: (v, clockOf) => {
+      const when = v.takenAt ? momentWhen(v.takenAt, null, clockOf(v.tripId)).date : '';
+      const head = when ? `${when} 영상` : '영상';
+      return { id: v.id, tripId: v.tripId, deletedAt: v.deletedAt, label: `${head} · ${formatDuration(v.durationSec)}` };
+    },
+  },
   place: {
     rows: async () => (await db().localPlaces.toArray()),
     // 🔴 장소에는 **부모 여행이 없다**(0022 — 한 장소는 여러 여행에 걸친다). 그래서 `tripId`가
@@ -171,6 +182,7 @@ async function childRowsLocal(domain: ChildDomain, clockOf: ClockOf): Promise<Ch
     case 'media': return (await CHILD_SOURCE.media.rows()).map((e) => CHILD_SOURCE.media.fromEntity(e, clockOf));
     case 'expense': return (await CHILD_SOURCE.expense.rows()).map((e) => CHILD_SOURCE.expense.fromEntity(e, clockOf));
     case 'audio': return (await CHILD_SOURCE.audio.rows()).map((e) => CHILD_SOURCE.audio.fromEntity(e, clockOf));
+    case 'video': return (await CHILD_SOURCE.video.rows()).map((e) => CHILD_SOURCE.video.fromEntity(e, clockOf));
     case 'place': return (await CHILD_SOURCE.place.rows()).map((e) => CHILD_SOURCE.place.fromEntity(e, clockOf));
   }
 }
@@ -193,6 +205,10 @@ async function childRowsServer(domain: ChildDomain, client: JourneyClient, clock
     case 'audio': {
       const rows = await fetchServerDomainEntities<LocalAudio>('audio', client);
       return rows && rows.map((e) => CHILD_SOURCE.audio.fromEntity(e, clockOf));
+    }
+    case 'video': {
+      const rows = await fetchServerDomainEntities<LocalVideo>('video', client);
+      return rows && rows.map((e) => CHILD_SOURCE.video.fromEntity(e, clockOf));
     }
     case 'place': {
       const rows = await fetchServerDomainEntities<LocalPlace>('place', client);
@@ -423,6 +439,10 @@ export async function restoreTrashedChild(domain: ChildDomain, id: string): Prom
     await restoreAudio(id);
     return;
   }
+  if (domain === 'video') {
+    await restoreVideo(id);
+    return;
+  }
   if (domain === 'place') {
     await restorePlace(id);
     return;
@@ -438,5 +458,8 @@ export async function restoreTrashedChild(domain: ChildDomain, id: string): Prom
   const audio = (await d.localAudio.where('momentId').equals(id).toArray())
     .filter((a) => a.deletedAt !== null)
     .map((a) => a.id);
-  await restoreMomentLocalFirst(id, { mediaIds: media, expenseIds: expenses, audioIds: audio });
+  const videos = (await d.localVideos.where('momentId').equals(id).toArray())
+    .filter((v) => v.deletedAt !== null)
+    .map((v) => v.id);
+  await restoreMomentLocalFirst(id, { mediaIds: media, expenseIds: expenses, audioIds: audio, videoIds: videos });
 }

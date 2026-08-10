@@ -18,13 +18,17 @@ import type { OpenSweep, KindTally } from '../domain/fileRealityVerdict';
 const SWEEP_KEY = 'journey.fileReality.sweep';
 
 /**
- * 이 기기의 사진·소리 바이트를 **센다**(디코드 없음 — 허브가 열릴 때마다 도는 층이라 싸야 한다).
+ * 이 기기의 사진·소리·영상 바이트를 **센다**(디코드 없음 — 허브가 열릴 때마다 도는 층이라 싸야 한다).
  *
  * 🔴 **휴지통도 센다.** 되살릴 수 있어야 하므로 휴지통 항목의 바이트도 성해야 한다 —
  * 「지운 것이니 깨져도 된다」는 순간, 복원은 빈 껍데기를 되살린다.
  */
-export async function tallyLocalFiles(): Promise<{ photo: KindTally; audio: KindTally }> {
-  const [media, audio] = await Promise.all([db().localMedia.toArray(), db().localAudio.toArray()]);
+export async function tallyLocalFiles(): Promise<{ photo: KindTally; audio: KindTally; video: KindTally }> {
+  const [media, audio, video] = await Promise.all([
+    db().localMedia.toArray(),
+    db().localAudio.toArray(),
+    db().localVideos.toArray(),
+  ]);
   return {
     photo: {
       rows: media.length,
@@ -36,6 +40,11 @@ export async function tallyLocalFiles(): Promise<{ photo: KindTally; audio: Kind
       rows: audio.length,
       empty: audio.filter((a) => !a.blob || a.blob.size === 0).length,
       serverMissing: audio.filter((a) => a.bytesMissing === true).length,
+    },
+    video: {
+      rows: video.length,
+      empty: video.filter((v) => !v.blob || v.blob.size === 0).length,
+      serverMissing: video.filter((v) => v.bytesMissing === true).length,
     },
   };
 }
@@ -88,6 +97,33 @@ async function opensAsAudio(blob: Blob, mime: string): Promise<boolean> {
   }
 }
 
+/** 영상은 전체 프레임을 펼치지 않고 재생기가 메타데이터를 읽는지 확인한다. */
+async function opensAsVideo(blob: Blob, mime: string): Promise<boolean> {
+  if (!blob || blob.size === 0) return false;
+  const url = URL.createObjectURL(blob.type ? blob : new Blob([blob], { type: mime }));
+  try {
+    return await new Promise<boolean>((resolve) => {
+      const el = document.createElement('video');
+      let settled = false;
+      const done = (v: boolean): void => {
+        if (settled) return;
+        settled = true;
+        el.removeAttribute('src');
+        el.load();
+        resolve(v);
+      };
+      el.preload = 'metadata';
+      el.onloadedmetadata = () =>
+        done(Number.isFinite(el.duration) && el.duration > 0 && el.videoWidth > 0 && el.videoHeight > 0);
+      el.onerror = () => done(false);
+      setTimeout(() => done(false), 5000);
+      el.src = url;
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 /** 진단이 기억하는 id 길이 — 앞 8자(§6 개인정보 규율). */
 const shortId = (id: string): string => id.slice(0, 8);
 
@@ -99,7 +135,11 @@ const shortId = (id: string): string => id.slice(0, 8);
  * 그리고 이건 사용자가 명시적으로 누른 관측이라 몇 초는 받아들일 수 있다.
  */
 export async function sweepOpenFiles(now = new Date().toISOString()): Promise<OpenSweep> {
-  const [media, audio] = await Promise.all([db().localMedia.toArray(), db().localAudio.toArray()]);
+  const [media, audio, video] = await Promise.all([
+    db().localMedia.toArray(),
+    db().localAudio.toArray(),
+    db().localVideos.toArray(),
+  ]);
   const failed: string[] = [];
   let checked = 0;
 
@@ -111,8 +151,12 @@ export async function sweepOpenFiles(now = new Date().toISOString()): Promise<Op
     checked += 1;
     if (!(await opensAsAudio(a.blob, a.mime))) failed.push(shortId(a.id));
   }
+  for (const v of video) {
+    checked += 1;
+    if (!(await opensAsVideo(v.blob, v.mime))) failed.push(shortId(v.id));
+  }
 
-  const sweep: OpenSweep = { at: now, checked, failed, totalAtRun: media.length + audio.length };
+  const sweep: OpenSweep = { at: now, checked, failed, totalAtRun: media.length + audio.length + video.length };
   rememberSweep(sweep);
   return sweep;
 }

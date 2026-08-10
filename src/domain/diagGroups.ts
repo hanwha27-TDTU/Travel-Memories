@@ -5,7 +5,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // 도구가 8개가 되면서 **성격이 다른 것이 한 카드에 눌렸다.** 실측:
 //   · `storeStateProbe` = **222줄**(이 저장소 3번째로 큰 함수). 혼자서 6개 도메인 개수 대조 +
-//     사진/소리 파일 대조 6종씩 + 휴지통 + 서버 잔재 + 기기별 현황 + 함수 판을 다 한다.
+//     사진/소리/영상 파일 대조 + 휴지통 + 서버 잔재 + 기기별 현황 + 함수 판을 다 한다.
 //   · 정작 판정을 뒤집는 정보가 **접힌 출처에** 있었다 — 「내 기기들 N대」는 M-0048에서
 //     *"정리를 권하면 안 된다"*를 결정한 근거였는데 펼쳐야 보인다.
 //
@@ -46,7 +46,7 @@ export const GROUP_META: Record<DiagGroup, GroupMeta> = {
   upload: { icon: '📤', label: '올려보내기', asks: '이 기기에서 저장한 것이 실제로 서버까지 가는가' },
   compare: { icon: '☁️', label: '서버와 대조', asks: '이 기기와 서버가 같은 것을 갖고 있는가' },
   contract: { icon: '📡', label: '서버 계약', asks: '서버가 앱이 가정한 대로 행동하는가' },
-  files: { icon: '🖼️', label: '파일 실물', asks: '기록이 가리키는 사진·소리가 실제로 열리는가' },
+  files: { icon: '🖼️', label: '파일 실물', asks: '기록이 가리키는 사진·소리·영상이 실제로 열리는가' },
   safety: { icon: '🛡️', label: '안전망', asks: '잃어버려도 되돌릴 수 있는가' },
   device: { icon: '🧩', label: '기기·계정', asks: '이 기기와 로그인이 앱에 필요한 것을 갖췄는가' },
   meta: { icon: '🧪', label: '검증 체계', asks: '검사하는 것 자신은 건강한가' },
@@ -211,7 +211,7 @@ export const BLIND_SPOTS: BlindSpot[] = [
   // ── R2 자격증명이 없어 못 재는 것 ──
   {
     id: 'FILES-SERVER-BYTES',
-    what: '기록이 가리키는 사진·소리가 **서버 저장소에** 실제로 있는가(전수)',
+    what: '기록이 가리키는 사진·소리·영상이 **서버 저장소에** 실제로 있는가(전수)',
     whyDevCannot: 'R2 자격증명이 없어 객체를 조회할 수 없다',
     group: 'files',
     ownerToolId: 'files',
@@ -225,7 +225,7 @@ export const BLIND_SPOTS: BlindSpot[] = [
   },
   {
     id: 'FILES-LOCAL-DECODE',
-    what: '이 기기에 내려받은 사진·소리가 **실제로 열리고 재생되는가**',
+    what: '이 기기에 내려받은 사진·소리·영상이 **실제로 열리고 재생되는가**',
     whyDevCannot: '개발 환경에는 사용자의 바이트가 없다 — 실제 파일을 디코드해 봐야 안다',
     group: 'files',
     ownerToolId: 'files',
@@ -235,7 +235,7 @@ export const BLIND_SPOTS: BlindSpot[] = [
   {
     id: 'FILES-SERVER-DECODE',
     // 🔴 새 도구를 만들면서 **새로 알게 된 사각지대**다(§9 4단계 — 세계를 보면 구멍이 늘기도 한다).
-    what: '**서버에 있는** 사진·소리 바이트가 실제로 열리는가(내려받아 디코드)',
+    what: '**서버에 있는** 사진·소리·영상 바이트가 실제로 열리는가(내려받아 디코드)',
     whyDevCannot: '자격증명이 없고, 있어도 전수 다운로드는 이 앱에서 egress가 실제 제약이다',
     group: 'files',
     ownerToolId: 'files',

@@ -91,7 +91,7 @@ describe('① 고아 tombstone만 보여준다', () => {
   it('자식 도메인을 모두 다룬다 — 하나만 빠지는 게 이 저장소의 최빈 결함군이다', () => {
     // 2026-07-30: 장소가 다섯 번째로 들어왔다. 장소는 **여행의 자식이 아니지만**(0022)
     // 휴지통에는 반드시 있어야 한다 — 없으면 지운 장소를 되살릴 길이 사라진다.
-    expect([...CHILD_DOMAINS].sort()).toEqual(['audio', 'expense', 'media', 'moment', 'place']);
+    expect([...CHILD_DOMAINS].sort()).toEqual(['audio', 'expense', 'media', 'moment', 'place', 'video']);
   });
 });
 

@@ -189,3 +189,33 @@ export function audioFileBase(
   const t = fsSafe(title, 30) || '소리';
   return `${date}_${time}_${t}__${hex(audioId, 8)}`;
 }
+
+/** 영상도 사진·소리와 같은 여행 폴더/식별자 규약을 쓴다. */
+export function videoObjectName(
+  takenAt: string | null | undefined,
+  tripTitle: string | null | undefined,
+  videoId: string,
+): string {
+  const { date, time } = stampFromISO(takenAt);
+  const t = fsSafe(tripTitle || '', 30) || '영상';
+  return `${date}_${time}_${t}__video__${hex(videoId)}`;
+}
+
+export const VIDEO_EXTS = ['mp4', 'webm'] as const;
+
+export function videoExt(mime: string): string | null {
+  const m = (mime || '').toLowerCase();
+  if (m.includes('mp4')) return 'mp4';
+  if (m.includes('webm')) return 'webm';
+  return null;
+}
+
+export function videoFileBase(
+  takenAt: string | null | undefined,
+  title: string,
+  videoId: string,
+): string {
+  const { date, time } = stampFromISO(takenAt);
+  const t = fsSafe(title, 30) || '영상';
+  return `${date}_${time}_${t}__${hex(videoId, 8)}`;
+}

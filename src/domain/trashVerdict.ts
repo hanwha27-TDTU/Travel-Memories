@@ -26,7 +26,7 @@ export interface TrashMetricView {
 
 /** 되살려도 자료가 비는 항목 하나. */
 export interface EmptyOnRestore {
-  domain: 'media' | 'audio';
+  domain: 'media' | 'audio' | 'video';
   label: string;
 }
 
@@ -57,7 +57,7 @@ export interface TrashObservation {
   unavailableReason: string | null;
   /** 이 기기 로컬 휴지통 건수(여행+자식 합). */
   localTrashCount: number;
-  /** 되살려도 사진·소리가 빈 채로 오는 항목(`bytesMissing` 표시가 붙은 행). */
+  /** 되살려도 사진·소리·영상이 빈 채로 오는 항목(`bytesMissing` 표시가 붙은 행). */
   emptyOnRestore: EmptyOnRestore[];
   /** 부모(여행·순간)가 영구삭제돼 되살릴 곳이 없는 자식. */
   orphans: OrphanTrashed[];
@@ -115,8 +115,9 @@ export function emptyOnRestoreMetric(o: TrashObservation): TrashMetricView {
   const n = o.emptyOnRestore.length;
   if (n === 0) return { actual: '없음', expected: '없음', level: 'ok' };
   const media = o.emptyOnRestore.filter((x) => x.domain === 'media').length;
-  const audio = n - media;
-  const parts = [media ? `사진 ${media}` : '', audio ? `소리 ${audio}` : ''].filter(Boolean);
+  const audio = o.emptyOnRestore.filter((x) => x.domain === 'audio').length;
+  const video = o.emptyOnRestore.filter((x) => x.domain === 'video').length;
+  const parts = [media ? `사진 ${media}` : '', audio ? `소리 ${audio}` : '', video ? `영상 ${video}` : ''].filter(Boolean);
   return {
     actual: `${n}건 (${parts.join(' · ')})`,
     expected: '없음',
@@ -124,7 +125,7 @@ export function emptyOnRestoreMetric(o: TrashObservation): TrashMetricView {
     // 🔴 원인을 못박지 않는다(§7-I). 관측은 「바이트가 이 기기에 없다」까지이고, 왜 없는지는
     // 여럿일 수 있다(옛 결함의 잔재 · 다른 기기에서 만들어 아직 못 받음 · 서버에서 사라짐).
     meaning:
-      '되살리기는 되지만 사진·소리는 빈 채로 돌아와요. 그 자료를 가진 다른 기기가 있으면 ' +
+      '되살리기는 되지만 사진·소리·영상은 빈 채로 돌아와요. 그 자료를 가진 다른 기기가 있으면 ' +
       '거기서 동기화한 뒤 되살리면 함께 돌아옵니다.',
   };
 }
@@ -133,7 +134,7 @@ export function emptyOnRestoreMetric(o: TrashObservation): TrashMetricView {
  * ③ 되살릴 **곳이 없는** 항목.
  *
  * 순간을 영구삭제하면 그 순간 행만 사라진다(`purgeChildPermanently`는 자식을 데려가지 않는다 —
- * 자식은 `trip_id`로만 묶여 있다). 그때 휴지통에 있던 그 순간의 사진·소리·비용은 **되살려도
+ * 자식은 `trip_id`로만 묶여 있다). 그때 휴지통에 있던 그 순간의 사진·소리·영상·비용은 **되살려도
  * 갈 부모가 없다.** 어느 기존 도구도 이걸 못 본다 — `checkIntegrity`는 살아 있는 행만 보고,
  * 이 항목들은 전부 tombstone이기 때문이다.
  */
