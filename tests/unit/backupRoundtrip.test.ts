@@ -12,8 +12,8 @@ import {
   type CollectedRows,
 } from '../../src/services/backup';
 import { encryptBytes, decryptBytes, isEncryptedEnvelope } from '../../src/services/backupCrypto';
-import { unzip } from '../../src/services/zip';
-import type { LocalTrip, LocalMoment, LocalMedia, LocalExpense, LocalAudio, LocalPlace } from '../../src/offline/db';
+import { unzip, zipStore } from '../../src/services/zip';
+import type { LocalTrip, LocalMoment, LocalMedia, LocalExpense, LocalAudio, LocalVideo, LocalPlace } from '../../src/offline/db';
 
 const bytesOf = async (b: Blob) => new Uint8Array(await b.arrayBuffer());
 const mkBlob = (nums: number[]) => new Blob([new Uint8Array(nums)], { type: 'image/webp' });
@@ -50,6 +50,15 @@ function sampleRows(): CollectedRows {
     durationSec: 14, recordedAt: '2024-05-02T03:10:00.000Z', storagePath: 'u/t/a-1.webm',
     createdAt: '2024-05-02T03:10:00.000Z', updatedAt: '2024-05-02T03:10:00.000Z', version: 1, deletedAt: null,
   };
+  const video: LocalVideo = {
+    id: 'v-1', momentId: 'm-1', tripId: 't-1111',
+    blob: new Blob([new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112, 1, 2, 3, 4])], { type: 'video/mp4' }),
+    posterBlob: new Blob([new Uint8Array([82, 73, 70, 70, 87, 69, 66, 80, 9, 8, 7, 6])], { type: 'image/webp' }),
+    mime: 'video/mp4', durationSec: 3.5, width: 640, height: 360,
+    takenAt: '2024-05-02T03:11:00.000Z', bytesOriginal: 20, bytesVideo: 12,
+    storagePath: 'u/t/v-1.mp4', createdAt: '2024-05-02T03:11:00.000Z',
+    updatedAt: '2024-05-02T03:11:00.000Z', version: 1, deletedAt: null,
+  };
   const place: LocalPlace = {
     id: 'p-1', name: '센소지', formattedAddress: '도쿄도 다이토구 아사쿠사 2-3-1',
     provider: 'nominatim', providerPlaceId: 'osm:way/12345',
@@ -60,7 +69,7 @@ function sampleRows(): CollectedRows {
   };
   // 고아: 부모 여행이 목록에 없는 순간(완전성 — _orphans로 보존되어야 함)
   const orphanMoment: LocalMoment = { ...moment, id: 'm-orphan', tripId: 't-GONE', title: '고아 순간' };
-  return { trips: [trip, tripDeleted], moments: [moment, orphanMoment], media: [media], expenses: [expense], audio: [audio], places: [place] };
+  return { trips: [trip, tripDeleted], moments: [moment, orphanMoment], media: [media], expenses: [expense], audio: [audio], videos: [video], places: [place] };
 }
 
 /**
@@ -84,6 +93,7 @@ function stripBlobs(rows: CollectedRows): unknown {
     media: [...rows.media].sort(by).map(noBlob),
     expenses: [...rows.expenses].sort(by).map(noBlob),
     audio: [...(rows.audio ?? [])].sort(by).map(noBlob),
+    videos: [...(rows.videos ?? [])].sort(by).map(noBlob),
     places: [...(rows.places ?? [])].sort(by).map(noBlob),
   };
 }
@@ -118,6 +128,11 @@ async function expectParity(back: CollectedRows, src: CollectedRows) {
   // 소리 바이트도 실제로 왕복하는가(픽스처가 비어 있어 아무도 재지 않던 자리).
   const ba = back.audio!.find((a) => a.id === 'a-1')!;
   expect([...(await bytesOf(ba.blob))]).toEqual([...(await bytesOf(src.audio![0]!.blob))]);
+  // 영상 본체와 포스터를 둘 다 재야 반쪽 백업이 초록으로 빠지지 않는다.
+  const bv = back.videos!.find((v) => v.id === 'v-1')!;
+  const sv = src.videos![0]!;
+  expect([...(await bytesOf(bv.blob))]).toEqual([...(await bytesOf(sv.blob))]);
+  expect([...(await bytesOf(bv.posterBlob))]).toEqual([...(await bytesOf(sv.posterBlob))]);
   // 장소는 blob이 없다 — 좌표가 그대로 왕복하는지 본다(뒤집히면 지구 반대편이 된다).
   const bp = back.places!.find((p) => p.id === 'p-1')!;
   expect([bp.latitude, bp.longitude]).toEqual([35.7148, 139.7967]);
@@ -134,6 +149,49 @@ describe('백업 복원 왕복 드릴(순수)', () => {
     const src = sampleRows();
     const buf = await (await serializeZip(src, true)).arrayBuffer();
     await expectParity(deserializeZip(buf), src);
+  });
+
+  it('ZIP: 메타가 가리키는 영상 포스터가 빠지면 조용히 영상 행을 버리지 않고 거절한다', async () => {
+    const zip = await serializeZip(sampleRows(), true);
+    const entries = unzip(await zip.arrayBuffer()).filter((entry) => !entry.name.endsWith('_poster.webp'));
+    const damaged = await zipStore(entries).arrayBuffer();
+    expect(() => deserializeZip(damaged)).toThrow(/영상 포스터.+없습니다/);
+  });
+
+  it('ZIP: manifest가 선언한 여행 조각이 빠지면 여행 전체를 0건으로 반올림하지 않는다', async () => {
+    const zip = await serializeZip(sampleRows(), true);
+    const entries = unzip(await zip.arrayBuffer());
+    const missing = entries.filter((entry) => !entry.name.endsWith('/trip.json'));
+    const damaged = await zipStore(missing).arrayBuffer();
+    expect(() => deserializeZip(damaged)).toThrow(/선언한 백업 조각.+없습니다/);
+  });
+
+  it('ZIP v2: places.json 또는 audio/videos 목록이 빠지면 빈 목록으로 반올림하지 않는다', async () => {
+    const zip = await serializeZip(sampleRows(), true);
+    const entries = unzip(await zip.arrayBuffer());
+    const withoutPlaces = entries.filter((entry) => entry.name !== 'places.json');
+    const placesDamaged = await zipStore(withoutPlaces).arrayBuffer();
+    expect(() => deserializeZip(placesDamaged)).toThrow(/places\.json.+없습니다/);
+
+    const withoutLists = entries.map((entry) => {
+      if (!entry.name.endsWith('/trip.json')) return entry;
+      const parsed = JSON.parse(new TextDecoder().decode(entry.data)) as Record<string, unknown>;
+      delete parsed.videos;
+      return { ...entry, data: new TextEncoder().encode(JSON.stringify(parsed)) };
+    });
+    const listsDamaged = await zipStore(withoutLists).arrayBuffer();
+    expect(() => deserializeZip(listsDamaged)).toThrow(/목록 형식/);
+  });
+
+  it('ZIP: bytesMissing 표식 없는 0바이트 영상은 정상 파일로 복원하지 않는다', async () => {
+    const zip = await serializeZip(sampleRows(), true);
+    const entries = unzip(await zip.arrayBuffer()).map((entry) =>
+      entry.name.includes('/videos/') && !entry.name.endsWith('_poster.webp')
+        ? { ...entry, data: new Uint8Array() }
+        : entry,
+    );
+    const damaged = await zipStore(entries).arrayBuffer();
+    expect(() => deserializeZip(damaged)).toThrow(/영상 본체 또는 포스터가 비어/);
   });
 
   it('ZIP 가벼운 백업(원본 제외): 원본 파일 없음·더 작음·표시본이 정본', async () => {

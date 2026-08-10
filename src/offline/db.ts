@@ -222,7 +222,8 @@ export interface LocalAudio extends SyncMeta {
 /**
  * 영상 노트. 사진처럼 외부 원본은 건드리지 않고, 앱이 만든 경량본만 정본 바이트로 보관한다.
  * `sourceBlob`은 경량본의 R2 GET 바이트 대조가 끝날 때까지만 남는 재시도용 스테이징 사본이다.
- * 포스터는 영상에서 다시 만들 수 있는 로컬 파생 캐시라 서버 객체를 하나 더 만들지 않는다.
+ * 포스터도 재생 전 사용자에게 보이는 기억의 일부라 경량본과 같은 operation fence의 별도 R2 객체로
+ * 보관하고, 두 바이트가 모두 되읽혀야 동기화 op을 완료한다.
  */
 export interface LocalVideo extends SyncMeta {
   momentId: string;

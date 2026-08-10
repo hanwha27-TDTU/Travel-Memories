@@ -256,6 +256,15 @@ export const BLIND_SPOTS: BlindSpot[] = [
     coveredBy: 'roundtrip',
   },
   {
+    id: 'ROUNDTRIP-VIDEO-R2',
+    what: '영상 본체와 포스터가 운영 DB·R2·다른 기기식 pull·휴지통·복원·영구삭제를 정확히 왕복하는가',
+    whyDevCannot: '로그인된 실제 서버와 R2 CORS·모바일 영상 디코더를 함께 써야 판정할 수 있다',
+    group: 'upload',
+    ownerToolId: 'video-roundtrip',
+    kind: 'transient',
+    coveredBy: 'video-roundtrip',
+  },
+  {
     id: 'SYNC-OFFLINE-RETURN',
     what: '오프라인에서 쌓인 것이 연결 복귀 시 실제로 올라가는가',
     whyDevCannot: '유닛은 이벤트 배선까지만 잰다 — 진짜 네트워크 단절·복귀는 실기기 몫이다',

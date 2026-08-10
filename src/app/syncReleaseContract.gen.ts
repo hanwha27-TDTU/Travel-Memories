@@ -3,7 +3,7 @@
 export const SYNC_RELEASE_CONTRACT = {
   "schemaVersion": 1,
   "mediaSign": {
-    "protocolVersion": 7,
+    "protocolVersion": 8,
     "requiredOps": [
       "probe",
       "capabilities",
@@ -14,7 +14,7 @@ export const SYNC_RELEASE_CONTRACT = {
       "deleteMany",
       "abortMultipart"
     ],
-    "sourceSha256": "58aeb062486b90318ed321fc027c47249f2029eab6f082e9b33eeb67131806ba"
+    "sourceSha256": "1619d7cfd519e60ddf5e58db9463ebb382838e7bf29f8eeaceaf2466d35ead38"
   },
   "runtime": {
     "stallAfterMs": 300000

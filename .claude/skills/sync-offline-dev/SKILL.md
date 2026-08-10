@@ -289,12 +289,21 @@ if (mustUploadBytes(video, true))  { … }  // 영상: 작업별 키 + 파생본
   정리를 독립 실행한다. 접두사 검색으로 정리 범위를 넓히지 않는다.
 - 실행 전후 canonical generation이 같지 않으면 결과는 `unknown`이다. 그 실행에서 추가 push나
   정리를 계속하지 않는다.
+- 영구삭제의 DB 행·원장이 먼저 멱등 완료됐더라도 R2 바이트 삭제 실패는 성공이 아니다. exact
+  `bytePath`를 가진 purge op을 retryable로 남겨야 하며, 영상은 본체+poster가 모두 삭제되고 404로
+  되읽힐 때만 op을 제거한다. 일괄 삭제도 `mediaId → key 하나`로 줄이지 말고 같은 id의 모든 키를
+  보존한다(M-0142).
 - timeout은 `AbortSignal`로 실제 작업을 멈추고, 뒤늦은 쓰기가 없는지 되읽는다. UI timeout만
   내고 네트워크 작업을 살려 두면 정리 뒤 fixture가 다시 생길 수 있다.
 
 **RLS 대조군**도 왕복의 일부다: 자기 행의 SELECT/UPDATE/DELETE/원장 접근은 허용하고, 다른
 사용자 행은 같은 네 동작이 모두 거부돼야 한다. 사진·소리·영상은 바이트 정리 경계가 다르므로 행 왕복에
 끼워 넣지 말고 별도 형제 probe로 둔다.
+
+영상 probe는 **외부 원본이 아닌 작은 합성 파생본**만 쓰고, 본체+poster의 operation별 R2 PUT,
+DB `client_operation_id`/version/path read-back, 두 객체 GET SHA-256, 실제 재생, 로컬 사본 제거 뒤
+pull, tombstone 보존, restore, permanent delete의 행 부재+원장 존재+두 객체 404를 모두 확인한다.
+한 단계라도 실패하면 통과시키지 않으며 정확한 fixture id journal과 잔재를 화면에 남긴다.
 
 ## 2-C. 🔴 「로컬」은 두 가지다 — 섞으면 절대시각이 틀어진다 (2026-07-29 · M-0049)
 

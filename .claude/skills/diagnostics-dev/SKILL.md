@@ -583,6 +583,19 @@ export interface IntegritySnapshot {
 > **숫자를 합치면 이름이 사라진다.** 종류별 집계는 **각 감사가 자기 이름을 들고 다니게** 한다
 > (`fileAuditMetrics`가 `noun`을 반환) — 그러면 다음 형제(영상 등)가 자동으로 따라온다.
 
+영상은 사용자 대면 이름만 형제인 것이 아니라 **서버 파일 한 건의 정의가 둘**이다. 본체 id와
+poster id의 교집합만 완전한 영상으로 세고, 어느 한쪽만 빠져도 `missing`이다. 합집합으로 세면
+본체만 있어도 정상 개수가 맞아 보이는 거짓 초록이 된다. 운영 영상 왕복은 일반 행 왕복에 끼우지
+말고 별도 명시 실행 probe로 두며, 자동 probe는 마지막 결과만 읽는다.
+
+파괴적 운영 probe는 화면 버튼 비활성만으로 동시 실행을 막았다고 보지 않는다. **서비스 전체를
+cross-tab Web Lock으로 직렬화**하고, lock API가 없거나 이미 점유됐으면 쓰기 없이 실패로 닫는다.
+crash journal은 exact ID와 함께 실행 token·canonical generation을 기록한다. 재시작 정리도 저장된
+generation이 현재와 같을 때만 수행하며 각 sync 전후와 마지막 판정에서 다시 잰다. DB 행·purge 원장이
+없어도 본체+poster가 둘 다 404가 아니면 cleanup 성공도 journal 삭제도 아니다. journal `setItem`은
+성공 응답이 아니라 직렬화 원문 read-back으로 확정하며, 저장이 거부되거나 조용히 유실되면 첫 운영
+쓰기 전에 실패한다(M-0142).
+
 ### 라이브 픽스처도 거짓말을 한다
 
 이 수정을 재려고 `verify-diagnostics-live`에 판을 하나 더 넣었더니 **FAIL**이 났다. 그런데

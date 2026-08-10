@@ -10,7 +10,7 @@ import {
   runBackupFileRoundTrip,
   lastBackupRoundTrip,
 } from '../../src/services/backupRoundTrip';
-import { deserializeJson } from '../../src/services/backup';
+import { deserializeZip } from '../../src/services/backup';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -29,14 +29,14 @@ function userTrip(): LocalTrip {
 }
 
 async function asFile(blob: Blob, filename: string): Promise<File> {
-  return new File([await blob.arrayBuffer()], filename, { type: 'application/json' });
+  return new File([await blob.arrayBuffer()], filename, { type: 'application/zip' });
 }
 
 beforeEach(async () => {
   const d = db();
   await Promise.all([
     d.localTrips.clear(), d.localMoments.clear(), d.localMedia.clear(),
-    d.localExpenses.clear(), d.localAudio.clear(), d.localPlaces.clear(),
+    d.localExpenses.clear(), d.localAudio.clear(), d.localVideos.clear(), d.localPlaces.clear(),
     d.syncQueue.clear(), d.purgedIds.clear(),
   ]);
   await d.localTrips.add(userTrip());
@@ -45,8 +45,10 @@ beforeEach(async () => {
 describe('백업 파일 복원 왕복', () => {
   it('실제 File을 복원·되읽은 뒤 시험 변경 전체를 롤백한다', async () => {
     const made = await createBackupRoundTripFile();
-    const exported = deserializeJson(await made.blob.text());
+    const exported = deserializeZip(await made.blob.arrayBuffer());
     expect(exported.trips).toHaveLength(1);
+    expect(exported.moments).toHaveLength(1);
+    expect(exported.videos).toHaveLength(1);
     expect(exported.trips[0]!.title).toContain(BACKUP_ROUND_TRIP_TITLE_PREFIX);
     expect(exported.trips[0]).toMatchObject({
       timeZone: 'Asia/Tashkent',
@@ -55,7 +57,8 @@ describe('백업 파일 복원 왕복', () => {
       baseCanonicalVersion: 'backup-round-trip-canonical-v1',
     });
     expect(exported.trips[0]!.clientOperationId).toMatch(/^[0-9a-f-]{36}$/);
-    expect(await made.blob.text()).not.toContain('사용자 여행');
+    expect(JSON.stringify(exported.trips)).not.toContain('사용자 여행');
+    expect(made.filename).toMatch(/^\d{8}_\d{4}_Bugeon-Journey_왕복검사\.zip$/);
     const afterCreate = await db().localTrips.toArray();
     expect(afterCreate).toEqual([userTrip()]);
     expect(await db().syncQueue.count()).toBe(0);
@@ -66,14 +69,15 @@ describe('백업 파일 복원 왕복', () => {
     const trips = await db().localTrips.toArray();
     expect(trips).toEqual([userTrip()]);
     expect(trips.some((t) => t.title.startsWith(BACKUP_ROUND_TRIP_TITLE_PREFIX))).toBe(false);
+    expect(await db().localMoments.count()).toBe(0);
+    expect(await db().localVideos.count()).toBe(0);
     expect(await db().syncQueue.count()).toBe(0);
     expect(await db().purgedIds.count()).toBe(0);
   });
 
   it('다른 바이트를 고르면 실패하고 사용자 기록과 큐를 건드리지 않는다', async () => {
     const made = await createBackupRoundTripFile();
-    const text = await made.blob.text();
-    const tampered = new File([`${text} `], made.filename, { type: 'application/json' });
+    const tampered = new File([await made.blob.arrayBuffer(), new Uint8Array([0])], made.filename, { type: 'application/zip' });
 
     await expect(runBackupFileRoundTrip(tampered)).rejects.toThrow(/바이트가 다릅니다/);
     expect(await db().localTrips.toArray()).toEqual([userTrip()]);
@@ -83,7 +87,7 @@ describe('백업 파일 복원 왕복', () => {
 
   it('시험 전부터 같은 id의 기록·큐·원장이 있으면 실패하되 하나도 지우지 않는다', async () => {
     const made = await createBackupRoundTripFile();
-    const fixture = deserializeJson(await made.blob.text()).trips[0]!;
+    const fixture = deserializeZip(await made.blob.arrayBuffer()).trips[0]!;
     const operationId = '22222222-2222-4222-8222-222222222222';
     await db().localTrips.add(fixture);
     await db().syncQueue.add({

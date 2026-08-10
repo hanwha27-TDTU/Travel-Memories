@@ -73,8 +73,11 @@ export function zipStore(entries: ZipEntry[]): Blob {
   const locals: Uint8Array[] = [];
   const centrals: Uint8Array[] = [];
   let offset = 0;
+  const seenNames = new Set<string>();
 
   for (const e of entries) {
+    if (seenNames.has(e.name)) throw new Error(`ZIP에 같은 경로가 두 번 있습니다: ${e.name}`);
+    seenNames.add(e.name);
     const nameBytes = UTF8.encode(e.name);
     const crc = crc32(e.data);
     const size = e.data.length;
@@ -153,6 +156,7 @@ export function looksLikeZip(bytes: Uint8Array): boolean {
 export function unzip(buf: ArrayBuffer): ZipEntry[] {
   const view = new DataView(buf);
   const bytes = new Uint8Array(buf);
+  if (bytes.length < 22) throw new Error('ZIP 형식이 아닙니다(너무 짧음).');
 
   // EOCD 서명을 끝에서부터 탐색(코멘트 없으면 22바이트 지점).
   let eocd = -1;
@@ -164,31 +168,68 @@ export function unzip(buf: ArrayBuffer): ZipEntry[] {
   }
   if (eocd < 0) throw new Error('ZIP 형식이 아닙니다(EOCD 없음).');
 
+  const disk = view.getUint16(eocd + 4, true);
+  const centralDisk = view.getUint16(eocd + 6, true);
+  const onDisk = view.getUint16(eocd + 8, true);
   const total = view.getUint16(eocd + 10, true);
-  let p = view.getUint32(eocd + 16, true); // central dir offset
+  const centralSize = view.getUint32(eocd + 12, true);
+  const centralStart = view.getUint32(eocd + 16, true);
+  const commentLength = view.getUint16(eocd + 20, true);
+  if (disk !== 0 || centralDisk !== 0 || onDisk !== total) throw new Error('여러 디스크 ZIP은 지원하지 않습니다.');
+  if (eocd + 22 + commentLength > bytes.length || centralStart + centralSize > eocd) {
+    throw new Error('ZIP 중앙 디렉터리 범위가 손상됐습니다.');
+  }
+  let p = centralStart;
   const dec = new TextDecoder();
   const out: ZipEntry[] = [];
+  const seenNames = new Set<string>();
 
   for (let i = 0; i < total; i += 1) {
+    if (p + 46 > bytes.length) throw new Error('ZIP 중앙 디렉터리가 잘렸습니다.');
     if (view.getUint32(p, true) !== 0x02014b50) throw new Error('ZIP 중앙 디렉터리 손상.');
     const method = view.getUint16(p + 10, true);
+    const expectedCrc = view.getUint32(p + 16, true);
+    const compressedSize = view.getUint32(p + 20, true);
     const size = view.getUint32(p + 24, true);
     const nameLen = view.getUint16(p + 28, true);
     const extraLen = view.getUint16(p + 30, true);
     const commentLen = view.getUint16(p + 32, true);
     const lho = view.getUint32(p + 42, true);
+    const centralEnd = p + 46 + nameLen + extraLen + commentLen;
+    if (centralEnd > centralStart + centralSize || centralEnd > bytes.length) {
+      throw new Error('ZIP 중앙 디렉터리 엔트리가 잘렸습니다.');
+    }
     const name = dec.decode(bytes.subarray(p + 46, p + 46 + nameLen));
+    if (seenNames.has(name)) throw new Error(`ZIP에 같은 경로가 두 번 있습니다: ${name}`);
+    seenNames.add(name);
 
     // 로컬 헤더에서 실제 데이터 위치 계산(로컬 extra 길이는 중앙과 다를 수 있음).
+    if (lho + 30 > centralStart || view.getUint32(lho, true) !== 0x04034b50) {
+      throw new Error(`${name}: ZIP 로컬 헤더가 손상됐습니다.`);
+    }
+    const localMethod = view.getUint16(lho + 8, true);
+    const localCrc = view.getUint32(lho + 14, true);
+    const localCompressedSize = view.getUint32(lho + 18, true);
+    const localSize = view.getUint32(lho + 22, true);
     const lNameLen = view.getUint16(lho + 26, true);
     const lExtraLen = view.getUint16(lho + 28, true);
     const dataStart = lho + 30 + lNameLen + lExtraLen;
+    const dataEnd = dataStart + size;
 
     if (method !== 0) throw new Error(`지원하지 않는 압축 방식(${method}) — 이 앱 백업이 아닙니다.`);
+    if (localMethod !== method || compressedSize !== size || localCompressedSize !== compressedSize ||
+        localSize !== size || localCrc !== expectedCrc || dataEnd > centralStart) {
+      throw new Error(`${name}: ZIP 크기·헤더가 서로 다릅니다(손상).`);
+    }
     // 디렉터리 엔트리(이름이 /로 끝남)는 건너뜀.
-    if (!name.endsWith('/')) out.push({ name, data: bytes.slice(dataStart, dataStart + size) });
+    if (!name.endsWith('/')) {
+      const data = bytes.slice(dataStart, dataEnd);
+      if (crc32(data) !== expectedCrc) throw new Error(`${name}: ZIP CRC가 맞지 않습니다(손상).`);
+      out.push({ name, data });
+    }
 
-    p += 46 + nameLen + extraLen + commentLen;
+    p = centralEnd;
   }
+  if (p !== centralStart + centralSize) throw new Error('ZIP 중앙 디렉터리 크기가 맞지 않습니다.');
   return out;
 }

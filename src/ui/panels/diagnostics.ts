@@ -27,7 +27,7 @@ import {
 } from '../../domain/fileRealityVerdict';
 import { tallyLocalFiles, lastSweep, sweepOpenFiles } from '../../services/fileReality';
 import { localDateTime } from '../../domain/time';
-import { el, downloadBlob } from '../dom';
+import { el } from '../dom';
 import {
   auditOpLessTombstones,
   diagnoseSync,
@@ -70,12 +70,14 @@ import {
 } from '../../services/purge';
 import { supabase, isConfigured } from '../../services/supabase/client';
 import { auditPlaceZombies } from '../../services/placeZombieAudit';
-import { exportBackup } from '../../services/backup';
+import { backupFilename, exportBackupZip } from '../../services/backup';
+import { backupSaveMessage, saveBackupBlob } from '../../services/fileSave';
 import { createBackupRoundTripFile, lastBackupRoundTrip, runBackupFileRoundTrip } from '../../services/backupRoundTrip';
 import { recordBackupNow, getLastBackupAt, backupFreshness, STALE_DAYS } from '../../services/backupMeta';
 import { collectTrashState } from '../../services/trashState';
 import { trashMetrics, trashHeadline, TRASH_ITEM_CAP } from '../../domain/trashVerdict';
 import { lastRoundTrip, runRoundTrip, cleanupRoundTripLeftovers } from '../../services/roundTrip';
+import { lastVideoRoundTrip, runVideoRoundTrip, cleanupVideoRoundTripLeftovers, VIDEO_ROUND_TRIP_PREFIX } from '../../services/videoRoundTrip';
 import { collectServerContract } from '../../services/serverContract';
 import { serverContractMetrics, serverContractHeadline } from '../../domain/serverContractVerdict';
 import { collectSessionState } from '../../services/sessionState';
@@ -89,6 +91,7 @@ import {
   STEP_LABEL,
   STEP_PROVES,
 } from '../../domain/roundTripVerdict';
+import { VIDEO_ROUND_TRIP_LABEL, VIDEO_ROUND_TRIP_STEPS, videoRoundTripView } from '../../domain/videoRoundTripVerdict';
 import {
   deviceLabel,
   shortDeviceId,
@@ -2149,13 +2152,13 @@ export function backupProbe(): Promise<Verdict> {
         primary: fresh.stale,
         hook: 'data-backup-now',
         run: async () => {
-          const { blob, stats } = await exportBackup(true);
+          const { blob, stats } = await exportBackupZip(true);
           const now = new Date();
-          const p = (n: number) => String(n).padStart(2, '0');
-          const stamp = `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}`;
-          downloadBlob(blob, `bugeon-journey_${stamp}.json`);
-          recordBackupNow();
-          return `내려받았어요 · 여행 ${stats.trips} · 순간 ${stats.moments} · 사진 ${stats.media} · 비용 ${stats.expenses} · 소리 ${stats.audio}`;
+          const receipt = await saveBackupBlob(blob, backupFilename(now, 'zip'));
+          if (receipt.state === 'verified' && stats.missingFiles === 0) recordBackupNow();
+          if (receipt.state === 'cancelled') return backupSaveMessage(receipt);
+          const missing = stats.missingFiles > 0 ? ` · ⚠ 실물 파일 없음 ${stats.missingFiles}개(메타만 포함)` : '';
+          return `${backupSaveMessage(receipt)} · 여행 ${stats.trips} · 순간 ${stats.moments} · 사진 ${stats.media} · 비용 ${stats.expenses} · 소리 ${stats.audio} · 영상 ${stats.videos}${missing}`;
         },
       },
       {
@@ -2163,8 +2166,9 @@ export function backupProbe(): Promise<Verdict> {
         hook: 'data-backup-roundtrip-create',
         run: async () => {
           const made = await createBackupRoundTripFile();
-          downloadBlob(made.blob, made.filename);
-          return `시험 파일을 내려받았어요 · 여행 ${made.stats.trips} · 순간 ${made.stats.moments} · 사진 ${made.stats.media}. 이제 방금 받은 파일을 아래에서 골라 주세요.`;
+          const receipt = await saveBackupBlob(made.blob, made.filename);
+          if (receipt.state === 'cancelled') return backupSaveMessage(receipt);
+          return `${backupSaveMessage(receipt)} · 진단용 여행 ${made.stats.trips} · 순간 ${made.stats.moments} · 영상 ${made.stats.videos}. 이제 방금 만든 ZIP을 아래에서 골라 주세요.`;
         },
       },
       {
@@ -2173,7 +2177,7 @@ export function backupProbe(): Promise<Verdict> {
         input: {
           type: 'file',
           label: '방금 받은 복원 왕복 시험 파일',
-          accept: '.json,application/json',
+          accept: '.zip,application/zip',
         },
         run: async (file: File) => {
           await runBackupFileRoundTrip(file);
@@ -2184,7 +2188,7 @@ export function backupProbe(): Promise<Verdict> {
     evidence: [],
     context: [
       { label: '이 기기의 자료 사본 경로', value: cloud ? '클라우드 동기화 + 백업 파일(선택)' : '백업 파일뿐(로컬 전용 배포)' },
-      { label: '복원 왕복 범위', value: '진단용 여행 1건 · 사진·소리·영상 바이트와 전 도메인은 자동 회귀검사' },
+      { label: '복원 왕복 범위', value: '진단용 여행·순간·영상 1묶음 · ZIP 영상 본체+포스터 · 실제 복원·되읽기·자동 롤백' },
     ],
   };
   return Promise.resolve(v);
@@ -2334,6 +2338,54 @@ export function roundTripProbe(): Promise<Verdict> {
     actions,
     evidence,
     context: run ? [{ label: '마지막 시험', value: run.at.slice(0, 19).replace('T', ' ') }] : [],
+  });
+}
+
+/** 영상 바이트 형제의 독립 왕복 — 자동 probe는 마지막 결과만 읽고, 버튼에서만 서버에 쓴다. */
+export function videoRoundTripProbe(): Promise<Verdict> {
+  const run = lastVideoRoundTrip();
+  const view = videoRoundTripView(run);
+  const evidence: Verdict['evidence'] = [];
+  if (run) {
+    evidence.push({
+      label: `단계별 결과 ${run.steps.length}단계`,
+      build: () => table(run.steps.map((step): [string, string] => {
+        const mark = step.state === 'pass' ? '통과' : step.state === 'fail' ? '실패' : '안 쟀음';
+        const time = step.ms === null ? '' : ` · ${step.ms}ms`;
+        const detail = step.error ? ` — ${step.error}` : step.note ? ` — ${step.note}` : '';
+        return [VIDEO_ROUND_TRIP_LABEL[step.step], `${mark}${time}${detail}`];
+      }), '단계 기록이 없어요'),
+    });
+    evidence.push({
+      label: '검사 범위',
+      build: () => table(VIDEO_ROUND_TRIP_STEPS.map((step): [string, string] => [VIDEO_ROUND_TRIP_LABEL[step], '실제 운영 DB·R2·로컬 read-back']), '단계 정의를 읽지 못했어요'),
+    });
+  }
+  const actions: Action[] = [{
+    label: run ? '영상 왕복 다시 시험' : '영상 왕복 시험 실행', primary: true, hook: 'data-video-roundtrip-run',
+    run: async () => {
+      const next = videoRoundTripView(await runVideoRoundTrip());
+      return next.level === 'ok' ? `통과 — ${next.actual}` : `${next.headline} (${next.actual})`;
+    },
+  }];
+  if (run?.leftoverIds.length) actions.push({
+    label: '남은 영상 시험 기록 치우기', hook: 'data-video-roundtrip-cleanup',
+    run: async () => {
+      const ids = await cleanupVideoRoundTripLeftovers();
+      return ids.length ? `${ids.length}개 exact id를 아직 치우지 못했어요.` : '시험용 서버·R2·로컬 잔재를 모두 치웠어요.';
+    },
+  });
+  return Promise.resolve({
+    level: view.level,
+    headline: view.headline,
+    because: `사용자가 누를 때만 「${VIDEO_ROUND_TRIP_PREFIX}」 여행과 합성 영상 하나를 만듭니다. 실제 영상은 읽거나 올리지 않고, 고유 ID만 운영 동기화·복원·휴지통·영구삭제 경로로 왕복합니다.`,
+    metrics: [metricFromView('영상 서버 왕복', view, 'transient')],
+    actions,
+    evidence,
+    context: run ? [
+      { label: '마지막 시험', value: run.at.slice(0, 19).replace('T', ' ') },
+      { label: 'canonical 세대', value: run.canonicalVersion ?? '확인 불가' },
+    ] : [],
   });
 }
 
@@ -2719,6 +2771,18 @@ export const CORE_TOOLS: DiagTool[] = [
     mode: 'summary',
     writes: '사용자가 누를 때 고유 시험 기록만 생성·동기화·수정·삭제·정리',
     probe: roundTripProbe,
+  },
+  {
+    id: 'video-roundtrip',
+    group: 'upload',
+    icon: '🎞️',
+    label: '영상 서버 왕복',
+    hint: '영상·포스터가 R2까지 정확히 갔다 오나',
+    question: '합성 영상과 포스터가 운영 DB·R2·다른 기기식 복원·삭제를 정확히 왕복하는가?',
+    reads: '마지막 시험 결과, 고유 시험 ID의 로컬·서버 행, R2 영상·포스터 SHA-256, canonical 세대',
+    mode: 'summary',
+    writes: '사용자가 누를 때 고유 합성 영상 가족만 생성·동기화·휴지통·복원·영구삭제·exact 정리',
+    probe: videoRoundTripProbe,
   },
   {
     id: 'trash',

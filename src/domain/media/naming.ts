@@ -201,6 +201,25 @@ export function videoObjectName(
   return `${date}_${time}_${t}__video__${hex(videoId)}`;
 }
 
+/**
+ * 영상 본체와 한 작업에 묶이는 R2 포스터 경로.
+ *
+ * 본체의 승인된 operation 경로에서만 파생한다. 여행 제목이나 현재 시각으로 다시 이름을
+ * 만들면 DB가 승인한 본체와 다른 세대의 포스터가 짝지어질 수 있다(M-0087). 마지막 id 32자는
+ * 그대로 유지해 행이 영구삭제된 뒤에도 Edge 목록/정리가 같은 영상의 두 객체를 찾게 한다.
+ */
+export function videoPosterStoragePath(videoPath: string): string | null {
+  const slash = videoPath.lastIndexOf('/');
+  const folder = slash >= 0 ? videoPath.slice(0, slash + 1) : '';
+  const file = slash >= 0 ? videoPath.slice(slash + 1) : videoPath;
+  const dot = file.lastIndexOf('.');
+  if (dot <= 0) return null;
+  const stem = file.slice(0, dot);
+  const marker = stem.lastIndexOf('__video__');
+  if (marker < 0) return null;
+  return `${folder}${stem.slice(0, marker)}__video_poster__${stem.slice(marker + '__video__'.length)}.webp`;
+}
+
 export const VIDEO_EXTS = ['mp4', 'webm'] as const;
 
 export function videoExt(mime: string): string | null {

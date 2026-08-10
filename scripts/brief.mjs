@@ -155,12 +155,17 @@ export const SKILL_ROUTES = [
   // 🔴 왕복 시험은 **쓰기**다. 판정은 진단 규율이지만, 실제로 만들고 지우고 영구삭제하는
   // 경로라 삭제·tombstone·원장 규율이 그대로 걸린다 — 두 헌장을 모두 읽는다.
   { match: /^src\/domain\/roundTripVerdict/, skill: 'diagnostics-dev' },
+  { match: /^src\/domain\/videoRoundTripVerdict/, skill: 'diagnostics-dev' },
   { match: /^src\/domain\/fileRealityVerdict/, skill: 'diagnostics-dev' },
   // 「저장소 보호」 거절 뒤 문장 — 판정 문장 결함군(§10 ③)이라 진단 헌장이 정본이다(T-005).
   { match: /^src\/domain\/persistAdvice/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/fileReality/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/roundTrip\.ts/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/roundTrip\.ts/, skill: 'sync-offline-dev' },
+  { match: /^src\/services\/videoRoundTrip\.ts/, skill: 'diagnostics-dev' },
+  { match: /^src\/services\/videoRoundTrip\.ts/, skill: 'sync-offline-dev' },
+  { match: /^src\/services\/videoRoundTrip\.ts/, skill: 'photo-storage-dev' },
+  { match: /^src\/services\/videoRoundTrip\.ts/, skill: 'supabase-security-dev' },
   // 서버 계약 실측 — 판정은 진단 규율이고, 익명 클라이언트·RLS·페이지네이션을 만지므로
   // Supabase 보안 헌장도 함께 읽는다(잘못 만들면 **검사가 내 세션을 물고 가 공허해진다**).
   { match: /^src\/domain\/serverContractVerdict/, skill: 'diagnostics-dev' },
@@ -212,7 +217,9 @@ export const SKILL_ROUTES = [
   // 오디오 노트 — 새 미디어 종류다. 저장·삭제·복원·백업 규율은 동기화 헌장이 정본이고,
   // 녹음/재생 UI 규율(자동재생 금지·동시 1개·정리 한 곳)은 그 파일 머리주석에 있다.
   { match: /^src\/(domain\/audio|services\/audio|ui\/audioNote)/, skill: 'sync-offline-dev' },
-  { match: /^src\/services\/(backup|zip)/, skill: 'backup-restore-dev' },
+  // 파일 저장 경계도 백업의 일부다. `<a download>` 요청과 실제 저장 완료를 가르는 규율을
+  // 읽지 않으면 화면만 "저장됨"이라 말하는 M-0140 계열이 다시 생긴다.
+  { match: /^src\/services\/(backup|zip|fileSave)/, skill: 'backup-restore-dev' },
   { match: /^src\/services\/(fx|expenses)/, skill: 'expense-fx-dev' },
   { match: /^src\/domain\/expense\//, skill: 'expense-fx-dev' },
   { match: /^src\/(services\/geocode|domain\/place)/, skill: 'map-place-dev' },

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fitVideoSize, validateVideoSource, MAX_VIDEO_SOURCE_BYTES } from '../../src/media/video';
-import { videoExt, videoObjectName, VIDEO_EXTS } from '../../src/domain/media/naming';
-import { VIDEO_EXTS as EDGE_VIDEO_EXTS, isVideoKey } from '../../supabase/functions/media-sign/index';
+import { videoExt, videoObjectName, videoPosterStoragePath, VIDEO_EXTS } from '../../src/domain/media/naming';
+import { VIDEO_EXTS as EDGE_VIDEO_EXTS, groupKeysByMediaId, isVideoKey, isVideoPosterKey } from '../../supabase/functions/media-sign/index';
 
 describe('영상 저장 정책', () => {
   it('가로·세로 모두 긴 변 1280px 안에서 짝수 크기로 줄인다', () => {
@@ -20,6 +20,22 @@ describe('영상 저장 정책', () => {
     const id = '11111111-2222-4333-8444-555555555555';
     const name = videoObjectName('2026-08-10T10:00:00.000Z', '여행', id);
     expect(isVideoKey(`user/folder/${name}.webm`)).toBe(true);
+    expect(isVideoPosterKey(`user/folder/${name.replace('__video__', '__video_poster__')}.webp`)).toBe(true);
     expect(isVideoKey(`user/folder/20260810_1000_소리__${id.replaceAll('-', '')}.webm`)).toBe(false);
+  });
+
+  it('operation fence와 영상 id를 그대로 보존해 포스터 경로를 만든다', () => {
+    const path = 'user/여행__abc/20260810_1000_여행__video__op_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa__11111111222243338444555555555555.webm';
+    expect(videoPosterStoragePath(path)).toBe('user/여행__abc/20260810_1000_여행__video_poster__op_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa__11111111222243338444555555555555.webp');
+  });
+
+  it('deleteMany 선행 목록이 같은 영상 id의 본체와 포스터를 모두 보존한다', () => {
+    const id = '11111111-2222-4333-8444-555555555555';
+    const name = videoObjectName('2026-08-10T10:00:00.000Z', '여행', id);
+    const keys = [
+      `user/folder/${name}.webm`,
+      `user/folder/${name.replace('__video__', '__video_poster__')}.webp`,
+    ];
+    expect(groupKeysByMediaId(keys).get(id)).toEqual(keys);
   });
 });

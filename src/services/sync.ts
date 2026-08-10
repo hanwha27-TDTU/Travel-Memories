@@ -13,8 +13,7 @@ import { toExpenseRow, fromExpenseRow, type ExpenseRow } from '../domain/expense
 import { toMediaRow, fromMediaRow, mediaStoragePath, type MediaRow } from '../domain/media/rowmap';
 import { toAudioRow, fromAudioRow, audioStoragePath, type AudioRow } from '../domain/audio/rowmap';
 import { toVideoRow, fromVideoRow, videoStoragePath, type VideoRow } from '../domain/video/rowmap';
-import { createVideoPoster } from '../media/video';
-import { operationStoragePath } from '../domain/media/naming';
+import { operationStoragePath, videoPosterStoragePath } from '../domain/media/naming';
 import { toPlaceRow, fromPlaceRow, type PlaceRow } from '../domain/place/rowmap';
 import { isRealCoord } from '../domain/place/coordInput';
 import { compressForStorage } from '../media/compress';
@@ -439,7 +438,7 @@ async function rebaseRejectedLocal<T extends SyncMeta>(
 
 /** DB가 가리키지 않는 작업별 R2 키만 걷는다. 삭제 실패는 기억보다 고아 사본을 택해 재시도에 맡긴다. */
 async function removeUnreferencedBytes(
-  remote: Pick<MediaRemote, 'remove'> | Pick<AudioRemote, 'remove'>,
+  remote: Pick<MediaRemote, 'remove'> | Pick<AudioRemote, 'remove'> | Pick<VideoRemote, 'remove'>,
   candidate: string | undefined,
   referenced: string | null | undefined,
 ): Promise<void> {
@@ -452,6 +451,18 @@ async function removeUnreferencedBytes(
   }
 }
 
+/** 영상 본체와 포스터는 하나의 논리 객체다. 둘 중 하나만 정리되는 상태를 만들지 않는다. */
+async function removeUnreferencedVideoBytes(
+  remote: Pick<VideoRemote, 'remove'>,
+  candidate: string | undefined,
+  referenced: string | null | undefined,
+): Promise<void> {
+  await removeUnreferencedBytes(remote, candidate, referenced);
+  const candidatePoster = candidate ? videoPosterStoragePath(candidate) : null;
+  const referencedPoster = referenced ? videoPosterStoragePath(referenced) : null;
+  await removeUnreferencedBytes(remote, candidatePoster ?? undefined, referencedPoster);
+}
+
 /** R2에서 되읽은 바이트가 로컬 표시본과 정확히 같은지 확인한다. 크기만 같다고 통과시키지 않는다. */
 async function sameBlobBytes(left: Blob, right: Blob): Promise<boolean> {
   if (left.size !== right.size || left.size === 0) return false;
@@ -460,6 +471,19 @@ async function sameBlobBytes(left: Blob, right: Blob): Promise<boolean> {
   const bv = new Uint8Array(b);
   for (let i = 0; i < av.length; i += 1) if (av[i] !== bv[i]) return false;
   return true;
+}
+
+/** 바이트 업로드 여부는 호출부의 mustUploadBytes만 판정한다. 이 함수는 주어진 한 객체만 전송한다. */
+function uploadVideoObject(remote: VideoRemote, path: string, blob: Blob, contentType: string) {
+  const { upload } = remote;
+  return upload(path, blob, contentType);
+}
+
+function appendPurgeBytePath(paths: string[], path: string, domain: PurgeDomain): void {
+  paths.push(path);
+  if (domain !== 'video') return;
+  const posterPath = videoPosterStoragePath(path);
+  if (posterPath) paths.push(posterPath);
 }
 
 /**
@@ -1321,10 +1345,24 @@ export async function pushPendingVideos(remote: VideoRemote, userId: string): Pr
     }
     const uploadsBytes = mustUploadBytes(video, true);
     const path = uploadsBytes ? operationStoragePath(stablePath, video.id, op.operationId) : stablePath;
+    const posterPath = videoPosterStoragePath(path);
+    if (!posterPath || !video.posterBlob?.size) {
+      await markFail(op, 400, '영상 포스터가 없거나 서버 경로를 만들 수 없습니다.');
+      failed++;
+      continue;
+    }
     if (uploadsBytes) {
-      const up = await remote.upload(path, video.sourceBlob ?? video.blob, video.mime);
+      // 외부 원본(sourceBlob)은 서버로 보내지 않는다. 앱 경량본과 파생 포스터만 한 쌍으로 올린다.
+      const up = await uploadVideoObject(remote, path, video.blob, video.mime);
       if (up.error) {
         await markFail(op, up.status, up.error);
+        failed++;
+        continue;
+      }
+      const posterUp = await uploadVideoObject(remote, posterPath, video.posterBlob, 'image/webp');
+      if (posterUp.error) {
+        await removeUnreferencedBytes(remote, path, null);
+        await markFail(op, posterUp.status, posterUp.error);
         failed++;
         continue;
       }
@@ -1344,15 +1382,16 @@ export async function pushPendingVideos(remote: VideoRemote, userId: string): Pr
     }
     const server = fromVideoRow(back.data);
     if (!writeLanded(server, sent.version, op.operationId, path)) {
-      await removeUnreferencedBytes(remote, uploadsBytes ? path : undefined, server.storagePath);
+      await removeUnreferencedVideoBytes(remote, uploadsBytes ? path : undefined, server.storagePath);
       await rebaseRejectedLocal(d.localVideos, video, op.operationId, server);
       await markFail(op, undefined, '다른 기기의 변경과 겹쳐 내 영상 쓰기가 착지하지 못했어요.');
       failed++;
       continue;
     }
-    const verified = await remote.download(path);
-    if (verified.error || !verified.data || !(await sameBlobBytes(video.blob, verified.data))) {
-      await markFail(op, verified.status, verified.error ?? '영상 바이트 read-back 불일치');
+    const [verified, verifiedPoster] = await Promise.all([remote.download(path), remote.download(posterPath)]);
+    if (verified.error || !verified.data || !(await sameBlobBytes(video.blob, verified.data)) ||
+        verifiedPoster.error || !verifiedPoster.data || !(await sameBlobBytes(video.posterBlob, verifiedPoster.data))) {
+      await markFail(op, verified.status ?? verifiedPoster.status, verified.error ?? verifiedPoster.error ?? '영상 또는 포스터 바이트 read-back 불일치');
       failed++;
       continue;
     }
@@ -1371,7 +1410,7 @@ export async function pushPendingVideos(remote: VideoRemote, userId: string): Pr
       }
       await d.syncQueue.delete(op.operationId);
     });
-    if (uploadsBytes) await removeUnreferencedBytes(remote, previousPath, path);
+    if (uploadsBytes) await removeUnreferencedVideoBytes(remote, previousPath, path);
     pushed++;
   }
   return { pushed, failed };
@@ -1410,20 +1449,20 @@ export async function pullVideos(remote: VideoRemote, mode: PullMode): Promise<{
       continue;
     }
     if (!server.storagePath) continue;
+    const posterPath = videoPosterStoragePath(server.storagePath);
+    if (!posterPath) continue;
     let blob = local?.blob;
     let posterBlob = local?.posterBlob;
     if (!blob || blob.size === 0 || local?.storagePath !== server.storagePath) {
-      const dl = await remote.download(server.storagePath);
-      if (dl.error || !dl.data) continue;
+      const [dl, posterDl] = await Promise.all([remote.download(server.storagePath), remote.download(posterPath)]);
+      if (dl.error || !dl.data || posterDl.error || !posterDl.data || posterDl.data.size === 0) continue;
       blob = dl.data;
-      try {
-        posterBlob = await createVideoPoster(blob);
-      } catch {
-        continue;
-      }
+      posterBlob = posterDl.data;
     }
     if (!posterBlob?.size) {
-      try { posterBlob = await createVideoPoster(blob); } catch { continue; }
+      const posterDl = await remote.download(posterPath);
+      if (posterDl.error || !posterDl.data || posterDl.data.size === 0) continue;
+      posterBlob = posterDl.data;
     }
     const next: LocalVideo = {
       id: server.id,
@@ -1693,6 +1732,9 @@ export async function reconcileMissingBytes(
   const serverIds: Partial<Record<PurgeDomain, ReadonlySet<string> | undefined>> = {
     media: new Set(listing.ids),
     audio: listing.audioIds === undefined ? undefined : new Set(listing.audioIds),
+    video: listing.videoIds === undefined || listing.videoPosterIds === undefined
+      ? undefined
+      : new Set(listing.videoIds.filter((id) => listing.videoPosterIds!.includes(id))),
   };
   const unknown: string[] = [];
 
@@ -2002,7 +2044,13 @@ export function purgeRemote(client: JourneyClient): PurgeRemote {
           const r = await client.from(t).select('storage_path').eq(col, id).not('storage_path', 'is', null);
           if (r.error) return { paths: [], error: `${t}: ${r.error.message}` };
           for (const x of (r.data ?? []) as { storage_path: string | null }[]) {
-            if (x.storage_path) paths.push(x.storage_path);
+            if (x.storage_path) {
+              paths.push(x.storage_path);
+              if (dm === 'video') {
+                const posterPath = videoPosterStoragePath(x.storage_path);
+                if (posterPath) paths.push(posterPath);
+              }
+            }
           }
         }
         return { paths };
@@ -2128,6 +2176,14 @@ export interface BytesRemote {
   remove(path: string): Promise<{ error?: string | undefined }>;
 }
 
+async function removePurgeBytes(bytes: BytesRemote, paths: string[]): Promise<string | null> {
+  for (const path of new Set(paths)) {
+    const removed = await bytes.remove(path);
+    if (removed.error) return `${path} — ${removed.error}`;
+  }
+  return null;
+}
+
 /**
  * 영구삭제 작업을 서버로 밀어 **자료를 실제로 지운다**(ADR-0030).
  *
@@ -2141,7 +2197,7 @@ export interface BytesRemote {
  *   ② 원장 먼저 적는다 — 지운 뒤에 적으면 그 틈에 다른 기기가 다시 올린다.
  *   ③ 행을 지운다(자식 → 부모).
  *   ④ 되읽어 확인한다 — 200 응답이 아니라 **없어졌는지**를 본다.
- *   ⑤ 사진 바이트를 지운다(최선노력 — 실패해도 남는 건 잉여 파일일 뿐 기억 손실이 아니다).
+ *   ⑤ 바이트를 지우고 실패하면 exact 경로 op을 남겨 재시도한다.
  */
 export async function pushPurges(remote: PurgeRemote, bytes?: BytesRemote): Promise<{ pushed: number; failed: number }> {
   const d = db();
@@ -2162,7 +2218,9 @@ export async function pushPurges(remote: PurgeRemote, bytes?: BytesRemote): Prom
     const paths: string[] = [];
     // 🔴 **행이 사라지기 전에 적어 둔 경로**를 먼저 넣는다. 부모 cascade가 이미 데려간 자식은
     //    서버에 행이 없어 물어볼 곳이 없다 — 그때 이 경로가 R2 고아를 막는 유일한 근거다.
-    if (op.bytePath) paths.push(op.bytePath);
+    if (op.bytePath) {
+      appendPurgeBytePath(paths, op.bytePath, domain);
+    }
     const ledgerIds: string[] = [op.entityId];
     if (parent) {
       const fam = await remote.familyIds(parent, op.entityId);
@@ -2187,7 +2245,9 @@ export async function pushPurges(remote: PurgeRemote, bytes?: BytesRemote): Prom
         failed++;
         continue;
       }
-      if (mp.path) paths.push(mp.path);
+      if (mp.path) {
+        appendPurgeBytePath(paths, mp.path, domain);
+      }
     }
 
     // ② 원장 먼저. 여행이면 자식 id까지 함께 — 자식도 재삽입이 막혀야 한다.
@@ -2241,9 +2301,12 @@ export async function pushPurges(remote: PurgeRemote, bytes?: BytesRemote): Prom
     //    휴지통에 있는 동안은 서버에 남겨 두었다가, 휴지통을 비울 때 지운다 —
     //    그래야 휴지통이 진짜 휴지통이고, 어느 기기에서 복원해도 사진이 돌아온다.
     if (bytes) {
-      for (const p of new Set(paths)) {
-        const rm = await bytes.remove(p);
-        if (rm.error) console.error(`영구삭제: 저장소 파일 삭제 실패 ${p} — ${rm.error}`);
+      const byteRemoveError = await removePurgeBytes(bytes, paths);
+      if (byteRemoveError) {
+        // 서버 행·원장은 이미 멱등하게 닫혔다. op을 남겨 다음 동기화가 정확 경로의 R2 삭제를 재시도한다.
+        await markFail(op, undefined, `저장소 파일 삭제 실패: ${byteRemoveError}`);
+        failed++;
+        continue;
       }
     }
 
