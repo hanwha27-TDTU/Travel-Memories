@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "policyApi": 1,
   "source": "https://github.com/hanwha27-TDTU/Codex-Shared-Skills",
-  "commit": "e27332798191a376875cab8353be7064fea76b8a",
+  "commit": "da440fb366c01c0d6ffbb0bdc515b13e5a357b42",
   "manifestSha256": "621675c8921f9bd67fa65551f89639c93f86f375c0e444910b9fdec382512c7c",
   "skills": [
     {

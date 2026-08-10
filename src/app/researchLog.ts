@@ -984,4 +984,20 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '브라우저 WebCodecs 기반 무료 오픈소스 Mediabunny로 짧은 영상을 기기 안에서 변환할 수 있고, 별도 localVideos/videos 형제를 두면 사진·소리의 atomic commit, OCC, canonical exact-set, tombstone, purge, 백업과 진단 규율을 구조적으로 상속할 수 있다고 판단했다. 다만 외부 원본과 앱 파생본을 같은 것으로 취급하거나 업로드 성공 응답만으로 임시 사본을 버리면 사용자 기억 보호 계약을 깨므로 바이트 GET read-back까지 필요했다.',
     decision: '입력은 250MiB·60초로 제한하고 앱 파생본은 1280px·30fps·25MiB 이하 MP4(AVC/AAC), 불가하면 WebM(VP9/Opus)로 만든다. 외부 원본은 수정·삭제하지 않는다. 파생본+포스터+queue를 Dexie에 원자 커밋하고 operation별 R2 경로, DB operation/version/path read-back, R2 GET 바이트 동일성 확인 뒤에만 임시 sourceBlob과 queue를 정리한다. 영상은 일곱 번째 동기화 도메인으로 canonical, 휴지통, 영구삭제, 백업, 저장량, 파일 실물·서버 대조에 모두 포함하며 Edge→DB migration→Pages 순으로 v2.11을 배포한다.',
   },
+  {
+    seq: 123,
+    date: '2026-08-10',
+    topic: '영상 저장에서 확인한 역방향 대칭을 스킬과 공통 프롬프트에 환류한다',
+    human: '지금까지 작업에서 얻은 내용을 스킬 및 프롬프트에 업데이트해 달라고 요청했다.',
+    ai: '새 영상 전용 스킬을 만들면 사진·동기화·백업·보안 계약을 다시 복제하게 된다. 실제 릴리스 검토에서 드러난 누락도 영상 구현 자체보다 release profile의 사용자자료 rollback 분류와 사용자 대면 개수처럼 기존 형제가 받던 코드 밖 규율이었다. 따라서 기존 영역 스킬과 헌법의 역방향 대칭 조항을 확장하는 편이 다음 형제까지 따라오게 하는 정본 구조라고 판단했다.',
+    decision: '사진 저장 스킬을 사진·영상 바이트 경로로 확장하고, 동기화에는 일곱 도메인·정확집합 프로토콜 fail-closed·Edge→DB→앱 순서·release profile 분류를, 백업에는 영상 파생본+poster 자족성·옛 형식 호환·공용 성공 통계를, Supabase에는 새 overload 권한/read-back을, 게이트에는 실제 FileList/컨테이너 재생과 자동화되지 않은 분류 한계를 남긴다. 공통 헌법은 외부 원본 사진·영상 보호와 바이트 형제의 전체 생명주기 상속을 정본화하며 앱 버전이나 배포 상태는 바꾸지 않는다.',
+  },
+  {
+    seq: 124,
+    date: '2026-08-10',
+    topic: '스킬 환류 묶음을 최신 공용 정본과 함께 v2.12로 배포한다',
+    human: '스킬 업데이트 후 현재 작업 트리의 모든 커밋을 배포까지 진행해 달라고 요청했다.',
+    ai: '기존 환류 묶음은 처음에는 다음 기능 릴리스에 축적할 문서·프롬프트 변경이었지만, 사용자가 단독 배포를 명시했다. 공용 정본 main도 프로젝트 고정점보다 앞서 있었으므로 공식 sync-skills 경로로 전역 설치본과 프로젝트 vendor를 먼저 맞추고, 앱에 표시되는 헌법·연구기록 변경은 버전 이력과 함께 릴리스해야 정본과 운영 화면이 갈라지지 않는다.',
+    decision: 'Codex-Shared-Skills 정본 da440fb를 전역 Codex·Claude 설치 경로 네 곳과 프로젝트 vendor/lock/release profile에 고정한다. 기존 영상 안전 규율 환류를 v2.12 변경내역으로 승격하고 생성물을 재생성한 뒤, Ready PR의 전체 CI를 통과한 정확한 revision만 squash merge하여 GitHub Pages를 배포한다. Supabase Edge·DB migration·Android 셸은 변경하지 않는다.',
+  },
 ];

@@ -12,7 +12,7 @@ const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const SOURCE = 'https://github.com/hanwha27-TDTU/Codex-Shared-Skills';
 // 🔴 HRL-18~20과 Windows 공급망 경계까지 검증된 공통 정본 커밋이다.
 // 각 앱의 lock이 커밋을 고정하므로 다른 앱은 자기 승인 커밋에 계속 머문다.
-const APPROVED_COMMIT = 'e27332798191a376875cab8353be7064fea76b8a';
+const APPROVED_COMMIT = 'da440fb366c01c0d6ffbb0bdc515b13e5a357b42';
 const EXPECTED_SKILLS = ['bg-codex-autorouter', 'release-harness-governance'];
 
 function markedBlock(text, start, end) {

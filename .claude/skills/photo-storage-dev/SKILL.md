@@ -1,9 +1,9 @@
 ---
 name: photo-storage-dev
-description: 사진 저장 전 경로 개발 프롬프트 — media/exif.ts·media/compress.ts·services/media.ts·domain/media/(rowmap·naming)·services/r2.ts와 사진 바이트가 지나는 모든 자리를 만지기 전에 반드시 로드한다. **사진은 이 앱에서 가장 되돌릴 수 없는 자료다.** 인테이크 순서 계약(EXIF 먼저·압축 나중)·바이트 3계층·좌표의 두 갈래·업로드 판정 단일화·게이트 4종·과거 결함 등록부를 담은 작업 헌장. 사진 인테이크·압축·EXIF·객체 키·서버 업로드·좌표 작업 시 사용.
+description: 사진·영상 저장 전 경로 개발 프롬프트 — media/exif.ts·media/compress.ts·media/video.ts·services/media.ts·services/videos.ts·domain/media/(rowmap·naming)·services/r2.ts와 사진·영상 바이트가 지나는 모든 자리를 만지기 전에 반드시 로드한다. 외부 원본 보호, 사진의 EXIF 선행, 영상 파생본 변환, 바이트 계층, 객체 키, 업로드 판정과 실제 브라우저 검증 계약을 담은 작업 헌장. 사진·영상 인테이크·압축·변환·EXIF·객체 키·서버 업로드 작업 시 사용.
 ---
 
-# 사진 저장 개발 프롬프트 (Photo Storage Dev Charter)
+# 사진·영상 저장 개발 프롬프트 (Photo & Video Storage Dev Charter)
 
 > **사용자 지시(2026-08-01)**: *"사진저장관련 스킬문서 별도로 만들어서 특별관리하자."*
 >
@@ -145,6 +145,36 @@ APK는 `android-apk.yml`이 굽는다(debug 서명·사이드로드).
 - **설치 안내 문장**: `APK_INSTALL_STEPS`/`APK_FACTS`(데이터 · §10 ③) — 초등학생 기준, 개발
   용어 금지(유닛이 잠금).
 
+## 0-E. 영상은 사진의 바이트 계약을 상속하되 변환 경계는 별도다 (v2.11)
+
+영상은 사진과 같은 `Media`가 아니라 독립 `Video` 도메인이지만, **바이트를 가진 사용자 자료**라는
+점에서 로컬 원자 커밋·작업별 객체 키·행과 바이트의 되읽기·휴지통·복원·영구삭제·백업·진단을
+전부 상속한다. 정책 수치의 정본은 `src/media/video.ts`다. 제한값을 이 문서나 UI에 다시 적지 말고
+공용 정책과 포맷터에서 파생한다.
+
+```text
+File 선택
+→ 크기·길이·브라우저 capability 판정
+→ Mediabunny + WebCodecs로 앱 파생본과 WebP poster 생성
+→ LocalVideo + queue를 한 Dexie transaction으로 커밋
+→ operation별 R2 키에 파생본·poster PUT
+→ DB operation/version/path read-back
+→ R2 GET으로 두 바이트를 정확 비교
+→ 같은 snapshot인지 transaction 안에서 재확인
+→ 내부 sourceBlob과 op 정리
+```
+
+- **외부 원본 영상은 앱이 수정하거나 삭제하지 않는다.** `sourceBlob`은 앱 내부의 재시도용
+  스테이징 사본일 뿐이며, 권위 있는 행과 파생본·poster 바이트 확인 전에는 정리하지 않는다.
+- 우선 출력은 MP4(AVC/AAC), 브라우저가 지원하지 않으면 WebM(VP9/Opus)이다. 둘 다 불가능하면
+  **확인 불가/지원하지 않음**으로 실패한다. 원본을 그대로 올리고 「변환 완료」라고 말하지 않는다.
+- 작은 입력은 컨테이너 오버헤드 때문에 결과가 더 커질 수 있다. 「리사이즈」는 출력 상한을
+  지키는 정책이지 **모든 파일이 원본보다 작아진다는 약속이 아니다.**
+- 객체 이름은 확장자만으로 사진·소리·영상을 가르지 않는다. 영상 키는 명시적 `__video__` 표식을
+  갖고 브라우저 작성기와 Edge 파서가 같은 왕복 픽스처를 지난다.
+- TypeScript·유닛 mock은 브라우저 코덱 지원과 컨테이너 재생을 증명하지 않는다. Chromium에서
+  실제 `FileList`로 실제 영상 파일을 넣고, 변환 결과·poster decode·`<video>` 재생까지 확인한다.
+
 ## 1. 불변 계약 (어기면 기억이 사라진다)
 
 1. **사용자가 고른 외부 원본을 바꾸거나 지우지 않는다**(§0). 앱 내부 `originalBlob`은
@@ -160,7 +190,7 @@ APK는 `android-apk.yml`이 굽는다(debug 서명·사이드로드).
    제목에서 다시 계산하지 않는다. 다만 기존 키를 직접 덮지도 않는다 — DB OCC보다 R2 PUT이 먼저라
    stale 기기가 최신 바이트를 망가뜨릴 수 있다(M-0087). `operationStoragePath`의 작업별 새 키에
    올리고 operation/version/path read-back 뒤 **op을 지우는 그 트랜잭션에** 기억한다(M-0033).
-6. **바이트 업로드 판정은 `mustUploadBytes` 한 곳에서만**(§7 2층 · `check-bytes-upload-symmetry`).
+6. **바이트 업로드 판정은 사진·소리·영상 모두 `mustUploadBytes` 한 곳에서만**(§7 2층 · `check-bytes-upload-symmetry`). 새 바이트 형제는 호출할 때 모호성 플래그를 명시하며 기본값으로 숨기지 않는다.
 
 ### 1-A. 클라우드 정본 확정 문 — 순서를 바꾸지 마라 (ADR-0046)
 
@@ -205,13 +235,13 @@ APK는 `android-apk.yml`이 굽는다(debug 서명·사이드로드).
 
 | 계층 | 무엇이 사나 | 없어지면 |
 |---|---|---|
-| ① 로컬(Dexie) | 표시본·썸네일·**좌표** + 검증 전 입력 원본 스테이징 | 브라우저 축출·사이트데이터 삭제 |
-| ② 서버 | 행(메타+좌표) + R2 1600px WebP | **앱의 유일한 사진 정본** |
-| ③ 백업(ZIP) | 표시본·썸네일 + 아직 남은 스테이징 원본(선택) | 사용자가 안 받으면 없다 |
+| ① 로컬(Dexie) | 사진 표시본·썸네일·**좌표** 또는 영상 파생본·poster + 검증 전 내부 원본 스테이징 | 브라우저 축출·사이트데이터 삭제 |
+| ② 서버 | 행(메타) + R2 사진 표시본 또는 영상 파생본·poster | **앱이 사용하는 미디어 정본** |
+| ③ 백업(ZIP) | 사진 표시본·썸네일 또는 영상 파생본·poster + 아직 남은 내부 스테이징 사본(선택) | 사용자가 안 받으면 없다 |
 
 - **①만 있는 것은 기능이 아니라 빚이다**(ADR-0032 · ADR-0034 — 사용자 결정).
   새 필드를 만들면 **rowmap에 넣었는가**를 먼저 묻는다.
-- **②의 WebP가 앱 정본이다**(ADR-0046). 소비 기기와 검증이 끝난 생성 기기는 `originalBlob`을
+- **②의 사진 WebP와 영상 파생본·poster가 앱 정본이다**(ADR-0046 · v2.11). 소비 기기와 검증이 끝난 생성 기기는 `originalBlob`/`sourceBlob`을
   만들지 않는다. 재편집은 현재 표시본을 다시 굽고, 원본 좌표계용 `editState`도 함께 정리한다.
 - **되읽어 확인은 행과 바이트 모두에 건다.** 새 push는 operation 행 read-back 뒤 R2 GET을
   정확 비교하고, 같은 트랜잭션에서 op·스테이징 원본을 정리한다. 옛 행도 같은 검증을 통과한
@@ -235,9 +265,10 @@ APK는 `android-apk.yml`이 굽는다(debug 서명·사이드로드).
 ### 4-B. 형제가 갈라지지 않게 — 판정은 한 곳에서
 
 ```ts
-// src/sync/merge.ts — 사진·소리가 **같은 문**을 지난다
+// src/sync/merge.ts — 사진·소리·영상이 **같은 문**을 지난다
 mustUploadBytes(media, false)  // 사진: 옛 키 형식이 있어 「경로 없음 ≠ 안 올라감」
 mustUploadBytes(audio, true)   // 소리: 키 형식이 하나 → 「경로 없음 = 안 올라감」
+mustUploadBytes(video, true)   // 영상: 작업별 키, 파생본·poster 확인 전 완료 금지
 ```
 
 - 비대칭은 **인자로 드러낸다.** 기본값을 두지 않는다 — 새 형제가 안 넘기면 **컴파일 오류**.

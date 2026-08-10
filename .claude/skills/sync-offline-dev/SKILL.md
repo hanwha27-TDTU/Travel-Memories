@@ -14,7 +14,7 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·c
 | 파일 | 역할 | 성격 |
 |---|---|---|
 | `src/sync/merge.ts` | `mergeDecision`·`isEmptyCloudAnomaly`·`classifyError` | **순수 → 유닛테스트 대상**. 병합 판단은 전부 여기 |
-| `src/services/sync.ts` | 엔티티별 Remote 포트(trips·places·moments·media·expenses·audio) + `pushPending*`/`pull*` + `runSync` | 네트워크. 포트 뒤로 백엔드 격리 |
+| `src/services/sync.ts` | 엔티티별 Remote 포트(trips·places·moments·media·expenses·audio·videos) + `pushPending*`/`pull*` + `runSync` | 네트워크. 포트 뒤로 백엔드 격리 |
 | `src/offline/db.ts` | Dexie 스키마(로컬 진실 사본) + `syncQueue` | 버전 체인 — 기존 버전 수정 금지, 새 `.version(n)` 추가 |
 | `src/domain/*/rowmap.ts` | `XRow ↔ LocalX` 직렬화 경계(snake_case는 이 파일 밖 금지) | 순수. `check-schema-parity` 대상 |
 
@@ -23,7 +23,7 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·c
 1. **로컬 우선·내구성 커밋**: 저장은 로컬(Dexie) 엔티티+큐 op를 **한 트랜잭션**으로 커밋한 뒤에야 "저장됨"이다. 서버 성공은 저장의 조건이 아니다.
 2. **하드 삭제 없음**: 삭제는 `deletedAt` tombstone만.
 2-Z. **유일한 예외 — 영구삭제(ADR-0030)**: 휴지통 비우기는 서버 행을 **하드 삭제**한다. 2단계 확인을 거친 명시적 의도이고, 좀비 차단은 `journey.purged_ids` 원장 + BEFORE INSERT 트리거가 **더 강하게** 한다(행을 남길 필요가 없어진다). **순서가 곧 안전이다**: ①지우기 전에 묻는다(자식 id·사진 경로 — 행이 사라지면 함께 사라진다) ②**원장을 먼저 적는다**(뒤집히면 그 틈에 다른 기기가 사본을 다시 올린다) ③행을 지운다 ④되읽어 확인한다 ⑤바이트를 지운다. 게이트 `purgeOrderContract`가 이 순서를 잠근다. 전파는 pull이 아니라 **원장**이 한다(`runSync` → `ledgerAll()` → `applyPurgedLedger()`) — 서버 행이 없으니 pull은 영구삭제를 볼 수 없다.
-2-A. **사진 바이트는 영구삭제 때만 지운다**(정책 2026-07-26, 사용자 결정). 삭제(휴지통행)는 서버 파일을 **남겨 둔다** — 예전엔 tombstone push가 곧바로 지웠는데, 그러면 휴지통에 있는 동안 이미 사진이 없다. 복원은 "사본을 가진 기기가 다시 올리는" 방식이라 그 기기가 없으면 **사진이 영영 안 돌아온다**(원칙 #1 위반). 바이트를 지우는 곳은 `pushPurges` **한 곳뿐**이고, 경로는 로컬이 아니라 **서버에 묻는다**(로컬에 없는 사진도 지워야 하므로 — M-0016).
+2-A. **사진·소리·영상 바이트는 영구삭제 때만 지운다**(정책 2026-07-26, v2.11 확장). 삭제(휴지통행)는 서버 파일을 **남겨 둔다** — tombstone push가 파일을 지우면 복원할 기기에 사본이 없을 때 기억이 영영 돌아오지 않는다(원칙 #1 위반). 바이트를 지우는 곳은 `pushPurges` **한 곳뿐**이고, 경로는 로컬 행의 `bytePath`와 서버 read-back을 합쳐 구한다(이미 사라진 행과 로컬에 없는 형제를 모두 다뤄야 한다).
 2-B. **저장소 이관은 `복사 → 되읽어 확인 → 확인된 것만 삭제` 순서다**(2026-07-26 추가 — 이 규칙이 아예 없었다). 바이트를 한 저장소에서 다른 저장소로 옮길 때 **"옮긴다"는 연산은 없다.** 복사와 삭제 두 개이고, 그 사이에 **되읽기**가 반드시 들어간다.
    - **업로드 성공 응답으로 원본을 지우지 않는다.** 200은 "받았다"이지 "있다"가 아니다(불변식 #5와 같은 규율).
    - **전부 복사한 뒤 새 저장소를 다시 훑어**, 실제로 있는 id만 삭제 대상으로 삼는다. 한 장씩 `복사→삭제`로 돌면 중간 실패 시 **양쪽 어디에도 없는 사진**이 생긴다.
@@ -91,8 +91,8 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·c
 3. **version 기반 tombstone 우위(좀비 차단)**: 삭제상태가 다른 전이는 **벽시계가 아니라 version**으로 판정한다. 활성이 tombstone을 이기려면 version이 더 커야 하고(진짜 복원), **동률이면 삭제가 이긴다.**
    - 이유: 시계 스큐·지연 pull·**오래된 백업 복원**이 삭제한 데이터를 부활시키던 사고(메디컬 앱)를 원천 차단.
 4. **빈-클라우드 가드**: 서버가 빈 배열을 줘도 로컬을 지우지 않는다(`isEmptyCloudAnomaly`). 죽은/초기화된 서버가 기억을 삭제하지 못하게.
-5. **조건부 upsert + operation read-back**: 로컬 mutation은 서버에서 마지막으로 확인한 `baseVersion`을 보존한다(연속 편집 때 `cur.version`으로 올리지 않는다). push는 `base_version`과 큐의 `operationId`를 보내고, 서버에서 **같은 `client_operation_id` + 보낸 값 이상의 version**(+사진·소리 경로)을 되읽은 뒤에만 큐 op를 제거한다. 불일치면 서버 승자를 로컬 행+큐에 원자 반영하거나, LWW상 로컬이 이길 때 서버 version으로 재기반화해 재시도한다. HTTP 200·부분 필드 일치는 성공 증거가 아니다.
-6. **push 순서 = 부모 먼저, 같은 의존성 단계는 병렬**: `runSync`는 unpurge → `[여행 ∥ 장소]` → 순간 → `[사진 ∥ 비용 ∥ 소리]` → purge. 장소는 `moments.place_id`의 부모이고, 사진·비용·소리는 순간의 자식이라 **두 FK 경계만** 직렬이다(H-02). pull 여섯 도메인은 서로 결과 의존성이 없어 한 단계에서 병렬 실행한다. 실행 계획은 `services/syncPlan.ts` 한 곳에 두고 직렬 간선은 구체적인 복합 FK `reason`을 필수로 갖는다. 단계 안의 실패는 `Promise.allSettled`로 형제를 전부 정산한 뒤 반환한다 — 조기 reject 뒤에 서버 쓰기를 남기지 않는다(헌법 §18-C · M-0122).
+5. **조건부 upsert + operation read-back**: 로컬 mutation은 서버에서 마지막으로 확인한 `baseVersion`을 보존한다(연속 편집 때 `cur.version`으로 올리지 않는다). push는 `base_version`과 큐의 `operationId`를 보내고, 서버에서 **같은 `client_operation_id` + 보낸 값 이상의 version**(+사진·소리·영상 경로)을 되읽은 뒤에만 큐 op를 제거한다. 불일치면 서버 승자를 로컬 행+큐에 원자 반영하거나, LWW상 로컬이 이길 때 서버 version으로 재기반화해 재시도한다. HTTP 200·부분 필드 일치는 성공 증거가 아니다.
+6. **push 순서 = 부모 먼저, 같은 의존성 단계는 병렬**: `runSync`는 unpurge → `[여행 ∥ 장소]` → 순간 → `[사진 ∥ 비용 ∥ 소리 ∥ 영상]` → purge. 장소는 `moments.place_id`의 부모이고 네 자식은 순간을 참조하므로 **두 FK 경계만** 직렬이다(H-02). pull 일곱 도메인은 서로 결과 의존성이 없어 한 단계에서 병렬 실행한다. 실행 계획은 `services/syncPlan.ts` 한 곳에 두고 직렬 간선은 구체적인 복합 FK `reason`을 필수로 갖는다. 단계 안의 실패는 `Promise.allSettled`로 형제를 전부 정산한 뒤 반환한다 — 조기 reject 뒤에 서버 쓰기를 남기지 않는다(헌법 §18-C · M-0122).
 7. **cascade는 큐까지 전파**: 순간을 삭제/복원하면 딸린 비용·사진에도 **각각 큐 op**를 넣어야 한다. 로컬만 바꾸고 큐를 빠뜨리면 다른 기기에서 되살아난다.
 7-A. 🔴 **영구삭제의 가족 범위는 「서버 FK가 데려가는 범위」와 같아야 한다**(2026-08-05 · M-0107).
    서버 스키마는 `media/expenses/audio → moments → trips`로 **두 단계 `ON DELETE CASCADE`**다.
@@ -123,7 +123,7 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·c
    **복사되는 진단 요약** 양쪽에 나가야 한다 — 사용자가 붙여 넣는 건 후자다.
 8. **pull은 비파괴**: 다운로드 성공 시에만 로컬을 교체한다. tombstone pull은 `deletedAt`만 세팅하고 **로컬 blob을 지우지 않는다**. 로컬에 없는 행을 tombstone 하지 않는다(오래된 기기가 신선한 클라우드 데이터를 지우는 것 방지).
 9. **snake_case 격리**: 서버 컬럼명은 `rowmap.ts` 밖으로 새지 않는다. 새 필드는 rowmap 왕복 유닛 + `check-schema-parity`로 잠근다.
-10. **일반 병합과 canonical 정확집합을 섞지 않는다**(v1.60 · M-0090): 일반 모드는 로컬 전용 항목을 보존·upsert하지만, `canonical_version` 변경을 소비한 실행은 서버 전체와 바이트를 먼저 받은 뒤 로컬 여섯 표·큐·영구삭제 원장을 한 transaction으로 정확 교체하고 **어떤 push도 하지 않는다**. 게시도 별도 사용자 액션+두 단계 확인+재개 가능한 pending+operation/meta read-back으로만 한다. 첫 `legacy` 기준선은 비파괴, 이미 non-legacy인 새 기기는 서버 기준 적용이다.
+10. **일반 병합과 canonical 정확집합을 섞지 않는다**(v1.60 · M-0090): 일반 모드는 로컬 전용 항목을 보존·upsert하지만, `canonical_version` 변경을 소비한 실행은 서버 전체와 바이트를 먼저 받은 뒤 로컬 일곱 표·큐·영구삭제 원장을 한 transaction으로 정확 교체하고 **어떤 push도 하지 않는다**. 게시도 별도 사용자 액션+두 단계 확인+재개 가능한 pending+operation/meta read-back으로만 한다. 첫 `legacy` 기준선은 비파괴, 이미 non-legacy인 새 기기는 서버 기준 적용이다.
     - 🔴 **정확집합의 대가를 사용자에게 미리 말하고, 실측값을 알아 둬라**(2026-08-03 운영 첫 게시).
       게시 기기의 **로컬 휴지통이 클라우드보다 적으면 그 차이가 서버에서 사라진다.** 실측:
       게시 기기 휴지통 5건(순간 4·비용 1) vs 클라우드 18건 → **클라우드에만 있던 휴지통 사진
@@ -147,12 +147,12 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·c
     unpurge는 pending `unpurge`처럼 사용자의 명시적 복원 의사가 원자 커밋된 증거가 있을 때만
     허용한다. tombstone·marker·행 부재를 복원 의사로 추측하거나 자동 unpurge로 반올림하지 않는다.
 15. **canonical exact-set의 원자성은 순간 네트워크 단절을 무재시도로 두라는 뜻이 아니다.** 활성
-    사진·소리 바이트는 최종 실패 시 반드시 전체 적용을 막되, 부작용 없는 서명 GET과 바이트 GET의
+    사진·소리·영상 바이트는 최종 실패 시 반드시 전체 적용을 막되, 부작용 없는 서명 GET과 바이트 GET의
     전송/relay/408·429·5xx에는 짧은 제한 재시도와 abort timeout을 둔다. 401·403·404는 즉시
     fail-closed하고 tombstone의 `bytesMissing` 완화와 섞지 않는다. 운영 로그에서 반복 성공 뒤
     실패 시각의 함수 요청 자체가 없으면 함수 내부/R2 손상으로 단정하지 말고 브라우저→함수 전송
     경계를 먼저 판정한다.
-16. **canonical exact-set 완료는 로컬 transaction resolve가 아니라 로컬 read-back까지다.** 여섯
+16. **canonical exact-set 완료는 로컬 transaction resolve가 아니라 로컬 read-back까지다.** 일곱
     엔티티 표의 실제 개수와 `syncState.canonicalVersion`을 snapshot 기대값과 다시 대조하고, 하나라도
     다르면 성공으로 반환하지 않는다. 진행률도 파일 수신·원자 반영·로컬 재확인을 구분한다. 원자성은
     중간 목록을 공개하지 않는 계약이지, `준비 중` 한 문장으로 장시간 작업을 숨기는 계약이 아니다.
@@ -180,6 +180,25 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·c
 6. `scripts/check-schema-parity.mjs`의 `ROW_TO_TABLE`에 매핑 추가 ← **잊으면 게이트가 그 엔티티를 안 지킨다**
 7. `app/blueprint.ts` SOURCES에 `hasRowmap`/`hasSync` 반영(`check-blueprint`가 대조)
 8. 백업 커버리지: 새 Dexie 테이블이면 `backup.ts` export/import 양쪽에 넣거나, 파생이면 EXCLUDE에 **근거와 함께** 등록
+9. 바이트 도메인이면 객체 이름 왕복·Edge media id 파서·purge registry·파일 실물 대조·진단에 등록
+10. 사용자자료 쓰기 모듈이면 `schemas/release-profile.json`의 `userData` 분류에 등록. 빠뜨리면 결함이 일반 `appRuntime=deploy-then-fix-next`로 내려가 사용자자료의 `revert-and-fix` 정책을 상속하지 못한다
+11. 사용자 대면 개수·완료 문장·canonical 경고는 공용 통계/도메인 등록부에서 파생. serializer만 추가하고 성공 문장에서 새 형제를 빼면 완료가 아니다
+
+### 정확집합 프로토콜에 새 도메인을 넣을 때
+
+정확집합 payload에 새 형제를 추가하는 것은 테이블 한 개 추가가 아니라 **옛 writer와 양립하지 않는
+쓰기 프로토콜 변경**이다. 옛 writer가 새 도메인을 모른 채 정확집합을 게시하면 그 도메인을 0건으로
+확정해 서버에서 지울 수 있다.
+
+1. 새 payload를 받는 RPC overload를 추가하고, 옛 overload는 `authenticated`의 `EXECUTE`를 회수해
+   **조용한 자료 삭제 대신 명시적으로 실패**시킨다.
+2. 새 형식을 읽을 수 있는 Edge/클라이언트 제공자를 먼저 배포하고 capability·소스 해시를 되읽는다.
+3. 새 테이블·RLS·트리거와 새 RPC를 같은 migration으로 적용하고, 테이블 존재·정책·인덱스·트리거·
+   grant·옛/새 overload 권한·적용 전후 행 수를 catalog에서 다시 읽는다.
+4. 정확집합 함수는 부모 cascade가 현재 대신 지워 주더라도 새 자식의 `delete → insert`를 명시한다.
+   그래야 재시도·멱등 계약이 SQL에 보이고, FK 변경 뒤에도 의미가 숨지 않는다.
+5. 앱은 마지막에 배포한다. 테스트는 새 도메인의 delete-before-insert와 옛 overload 거부·새 overload
+   허용을 서로 반대 픽스처로 확인한다.
 
 ## 2-B. 🔴 **read-back은 행에만 걸려 있었다** — 바이트에도 걸어라 (2026-07-28 · M-0048)
 
@@ -230,12 +249,13 @@ description: 동기화·오프라인 개발 프롬프트 — services/sync.ts·c
 
 ## 2-D. 🔴 **바이트를 올릴지 말지는 한 곳에서만 판정한다** (2026-08-01 · M-0060)
 
-`mustUploadBytes(entity, unknownPathMeansNeverUploaded)` — `src/sync/merge.ts`. 사진·소리가
+`mustUploadBytes(entity, unknownPathMeansNeverUploaded)` — `src/sync/merge.ts`. 사진·소리·영상이
 **같은 문**을 지난다. 게이트 `check-bytes-upload-symmetry`가 우회를 막는다.
 
 ```ts
 if (mustUploadBytes(media, false)) { … }  // 사진: 옛 키 형식이 있어 「경로 없음 ≠ 안 올라감」
 if (mustUploadBytes(audio, true))  { … }  // 소리: 키 형식이 하나 → 「경로 없음 = 안 올라감」
+if (mustUploadBytes(video, true))  { … }  // 영상: 작업별 키 + 파생본·poster 확인 전 완료 금지
 ```
 
 ### 계약
@@ -273,7 +293,7 @@ if (mustUploadBytes(audio, true))  { … }  // 소리: 키 형식이 하나 → 
   내고 네트워크 작업을 살려 두면 정리 뒤 fixture가 다시 생길 수 있다.
 
 **RLS 대조군**도 왕복의 일부다: 자기 행의 SELECT/UPDATE/DELETE/원장 접근은 허용하고, 다른
-사용자 행은 같은 네 동작이 모두 거부돼야 한다. 사진·소리는 바이트 정리 경계가 다르므로 행 왕복에
+사용자 행은 같은 네 동작이 모두 거부돼야 한다. 사진·소리·영상은 바이트 정리 경계가 다르므로 행 왕복에
 끼워 넣지 말고 별도 형제 probe로 둔다.
 
 ## 2-C. 🔴 「로컬」은 두 가지다 — 섞으면 절대시각이 틀어진다 (2026-07-29 · M-0049)
@@ -343,6 +363,7 @@ const w = momentWhen(m.occurredAt, m.tzOffsetMin, clock);
 
 | 버전 | 결함 | 근본형 | 재발 방지 |
 |---|---|---|---|
+| 2.11 | 영상 도메인의 구현은 일곱 표에 들어갔지만 최종 검토 전 release profile의 사용자자료 분류와 일부 사용자 대면 개수에서 빠질 수 있었음 | **새 형제가 기존 형제의 역방향 규율을 자동 상속하지 않는다.** 동기화 코드만 대칭이어도 rollback 정책·완료 문장은 별도 손목록이면 갈라진다 | §2 추가 순서에 `userData` 분류와 공용 통계 파생을 포함. 정확집합 확장은 옛 RPC 실행권 회수·새 RPC 허용·delete-before-insert·Edge→DB→앱 순서를 반대 픽스처로 검증 |
 | 1.95 | `runSync`가 push·pull 여섯 도메인을 전부 직렬 await해 각 네트워크 왕복 시간이 합산됨(M-0122) | 부모→자식 FK 순서를 **모든 형제의 직렬 실행**으로 과잉 일반화. pull에는 결과 의존성도 없는데 같은 관행을 복사 | `syncPlan.ts` 실행 계획: push `[trip∥place] → moment → [media∥expense∥audio]`, pull 6개 병렬. 직렬 간선 FK 사유 필수 + allSettled join. `check-sync-parallelism`·스케줄링 유닛 |
 | 릴리스 대기 | 같은 기기의 Android 앱/Chrome이 서로 다른 휴지통을 보임(플랫폼 저장소 파티션 분리) → 사용자가 "기기끼리 절대 다르면 안 된다"고 요구(ADR-0049) | 휴지통 **목록**을 로컬 Dexie만으로 답해 왔음 — 정상 pull 불변식("로컬에 없는 tombstone을 안 만든다")을 표시 소스 결정에도 그대로 적용한 것이 과잉일반화 | 온라인이면 서버가 정본(여행+5도메인 전부 서버 조회, 부분 실패시 전부 로컬 폴백+안내). 액션 직전 `ensureLocalTombstone`으로 서버-only 항목만 on-demand materialize(ACTIVE 행 거부). `serverTrashAuthority.test.ts` — 로컬/서버 경로 바이트 단위 SSOT 대조 15건 |
 | 릴리스 대기 | tombstone 사진 하나의 바이트 다운로드 실패가 `replaceLocalSnapshot` 전체(트립 포함)를 throw로 멈춰, 새 기기가 서버 여행 8개 중 0개를 받음(M-0101) | 활성/휴지통 구분 없이 "미디어 바이트 하나라도 실패하면 전체 중단"을 기본값으로 둠 + 홈 배지가 `syncStatus().phase`를 안 보고 pending count만 봐서 실패가 숨음 | `materializeMedia`/`materializeAudio` 공용 `fetchOrMissing()` — 활성은 여전히 멈추고 tombstone은 `bytesMissing:true`로 최선노력 진행 · 홈 배지가 `phase==='failed'`를 pending보다 먼저 확인 |

@@ -1,6 +1,6 @@
 ---
 name: supabase-security-dev
-description: Supabase·보안·RLS 개발 프롬프트 — supabase/migrations/*.sql·supabase/tests/*.sql·services/auth.ts·services/supabase/client.ts를 만들거나 수정하기 전에 반드시 로드한다. 스키마 격리·소유자 RLS·초대제·좀비 트리거·키 관리 계약과 마이그레이션/공격검사 레시피를 담은 작업 헌장. 테이블 추가, RLS 정책, Storage 버킷, 인증 변경 시 사용.
+description: Supabase·보안·RLS·Edge media 개발 프롬프트 — supabase/migrations/*.sql·supabase/functions/*·supabase/tests/*.sql·services/auth.ts·services/supabase/client.ts를 만들거나 수정하기 전에 반드시 로드한다. 스키마 격리·소유자 RLS·초대제·좀비 트리거·키 관리·canonical RPC 프로토콜과 제공자 선배포/read-back 계약을 담은 작업 헌장. 테이블·RLS·Storage/R2·Edge Function·인증·정확집합 변경 시 사용.
 ---
 
 # Supabase·보안 개발 프롬프트 (Supabase & Security Dev Charter)
@@ -49,7 +49,7 @@ description: Supabase·보안·RLS 개발 프롬프트 — supabase/migrations/*
      그 자리는 **검사되지 않는 자리**가 된다.
 3. **복합 FK로 소유권 방어(H-02)**: 자식 테이블은 `(parent_id, user_id) → parent(id, user_id)`. 단일 FK면 남의 부모에 자식을 붙일 수 있다.
 4. **좀비·stale-write 방지 트리거**: `prevent_zombie_resurrection`은 tombstone을 더 높은 version으로만 부활시킨다. migration 0026의 `a_sync_write_guard`는 authenticated 쓰기에 한해 `base_version = OLD.version`을 요구하고 `set_updated_at`보다 먼저 stale UPDATE를 no-op으로 만든다. **관리·복구 역할은 통과시킨다** — 앱의 조건부 쓰기 계약으로 후속 migration까지 묶지 않는다. 클라이언트는 operation-id read-back으로 no-op을 성공과 구분한다.
-   - migration 0027의 `a0_canonical_sync_guard`는 같은 여섯 표에서 authenticated INSERT/UPDATE의 `base_canonical_version`을 사용자 `sync_meta`와 대조하고 0026 guard보다 먼저 돈다. `sync_meta`는 SELECT만 직접 열고, generation 전진은 `auth.uid()`·초대제·CAS·payload user 범위를 직접 검증하는 `publish_canonical_snapshot` 좁은 문 하나로만 한다. 정확집합 delete/insert와 메타 전진은 **한 DB transaction**이어야 한다.
+   - migration 0027·0030의 `a0_canonical_sync_guard`는 같은 일곱 표에서 authenticated INSERT/UPDATE의 `base_canonical_version`을 사용자 `sync_meta`와 대조하고 0026 guard보다 먼저 돈다. `sync_meta`는 SELECT만 직접 열고, generation 전진은 `auth.uid()`·초대제·CAS·payload user 범위를 직접 검증하는 `publish_canonical_snapshot` 좁은 문 하나로만 한다. 정확집합 delete/insert와 메타 전진은 **한 DB transaction**이어야 한다.
 5. **`SECURITY DEFINER` 함수는 `search_path=''` 고정**(권한 상승 경로 차단).
    본문 참조는 전부 스키마 한정(`journey.…`·`auth.uid()`)으로 쓴다 — 경로가 비므로 한정하지
    않은 이름은 못 찾는다. **이 조항은 처음부터 있었는데 `block_purged_reinsert()`(0012)와
@@ -71,7 +71,7 @@ description: Supabase·보안·RLS 개발 프롬프트 — supabase/migrations/*
    > **advisor의 권고문을 그대로 따르지 마라 — 무엇이 그 함수를 부르는지부터 보라.**
    > 셋 다 권고문은 *"Revoke EXECUTE"*로 똑같다. 하나는 옳고, 하나는 기억을 잃게 하고,
    > 하나는 앱을 죽인다. (`docs/SECURITY.md` 상단에 같은 표가 있다 — 그쪽이 정본.)
-6. **GPS는 동기화하지 않는다**(PRIVACY). 원본 사진도 서버에 올리지 않는다(절약 모드).
+6. **GPS는 동기화하지 않는다**(PRIVACY). 외부 원본 사진·영상도 서버/R2에 올리지 않고 앱 파생본만 올린다(절약 모드).
 7. **R2에는 RLS가 없다(ADR-0024)**: 벽이 넷으로 바뀐다 — ①토큰이 **버킷 하나**만 열도록 스코프 ②자격증명은 함수 시크릿에만 ③**객체 키를 서버가 생성**(폴더=검증된 `sub`, 클라이언트가 보낸 key/path는 무시) ④인증은 `verify_jwt` 설정에 기대지 않고 매 요청 `/auth/v1/user`로 실제 확인. 읽기도 서명(정책 B) — **공개 개발 URL·`R2_PUBLIC_BASE`를 쓰지 않는다.**
 8. **목록 조회의 prefix도 서버가 만든다**(2026-07-26 추가). 위 ③은 *한 객체*를 다루는 op(put/get/delete)만 상정하고 쓰여 있었고, **여러 객체를 훑는 op에는 규칙이 없었다** — 이 기능을 만들며 드러난 구멍이다. 단건 op에서는 키를 서버가 만들어 남의 폴더를 못 가리키지만, 목록은 **prefix 하나로 버킷 전체가 열린다**. 그래서:
    - `prefix`는 **반드시 `${검증된 sub}/`**. 클라이언트가 보낸 prefix·delimiter·bucket 값은 **읽지 않는다**(무시가 아니라 아예 파싱하지 않는다 — 파싱하면 언젠가 쓰게 된다).
@@ -132,6 +132,7 @@ ROLLBACK;   -- 프로덕션 무변경
 
 | 사례 | 근본형 | 대응 |
 |---|---|---|
+| **v2.11 영상 도메인이 canonical exact-set 쓰기 프로토콜을 일곱 표로 확장** | 옛 11인자 writer가 영상을 모르면 정확집합 게시에서 영상을 0건으로 확정할 수 있음. 새 테이블만 추가해서는 fail-closed가 되지 않음 | 새 12인자 RPC 추가 + 옛 overload의 authenticated EXECUTE 회수 + 새 overload만 허용. Edge/reader 먼저, migration 다음, 앱 마지막. catalog에서 두 overload 권한과 행 수를 반대 확인 |
 | **일반 merge로는 사용자가 정한 전체 최종본을 유지할 수 없음**(M-0090) | RLS/OCC는 행 하나의 권한·최신성만 지키며, 다른 기기의 로컬 전용 행이 어느 전체집합에 속하는지는 표현하지 못함 | 0027 `sync_meta` generation + 여섯 표 authenticated generation fence + CAS/멱등/정확집합 원자 RPC. owner+초대제 SELECT만 직접 허용, operation/meta read-back. 신형 앱 전기기→스냅샷→0026→0027 순 배포 |
 | **앱의 무조건 upsert가 최신 서버 행을 덮을 수 있었음**(M-0084) | RLS는 "누가"를 막았지만 "마지막으로 본 판이 맞는가"를 검사하지 않았다. 반대로 첫 guard는 모든 역할을 막아 복구 UPDATE까지 조용히 무효화할 뻔했다 | 0026을 **authenticated 전용** OCC guard로 한정 + 관리자 bypass와 authenticated stale 차단을 같은 transaction SQL에서 반대 검사 + 신형 앱 전기기 선배포 후 migration 적용 |
 | 공유 프로젝트의 Google 로그인이 전역이라 아무 계정이나 자기 기록 생성 가능 | 인증(공유)과 인가(앱별)를 혼동 | `allowed_users` + `is_allowed()`를 **모든 정책에 결합**. 앱 게이트는 UX일 뿐, 진짜 방어는 DB |
@@ -232,7 +233,7 @@ set local request.jwt.claims = '{"sub":"<실제 uuid>","email":"<allowed_users�
 | 키 **전체**를 서버가 만든다 | 위를 달성하는 *한 가지 방법*일 뿐 | 대체 가능 |
 
 그래서 첫 칸은 서버가 계속 붙이고, **안쪽 이름만** 앱에 넘기되 `safeRest()`로 모양을 못박았다
-(깊이 2 이하 · `.`/`..` 금지 · 제어문자·백슬래시 금지 · `.webp`만). 남는 위험은 *"앱이 자기
+(깊이 2 이하 · `.`/`..` 금지 · 제어문자·백슬래시 금지 · 앱이 만드는 사진·소리·영상 확장자만). 남는 위험은 *"앱이 자기
 폴더 안에서 틀린 이름을 쓴다"*뿐이고 **그건 보안이 아니라 정합의 문제**다 — 그쪽은 진단의
 사진 대조가 잡는다.
 
@@ -270,4 +271,20 @@ set local request.jwt.claims = '{"sub":"<실제 uuid>","email":"<allowed_users�
 
 > ③이 없으면 "배포했다"까지만 알고 "무엇이 배포됐는지"는 모른다. 데이터 안전의 read-back과
 > 같은 규율이다 — **성공 응답은 완료가 아니다.**
+
+### 7. 새 바이트 도메인은 Edge → DB → 앱 순으로 연다 (v2.11)
+
+1. 배포할 Edge 소스가 고정된 revision에 먼저 존재해야 한다.
+2. 옛 앱도 읽을 수 있는 key parser/reader를 먼저 배포한다. `capabilities`는 비밀·사용자자료가
+   없으므로 인증 전 응답해도 되지만, 실제 put/get/delete/list는 계속 `/auth/v1/user`로 확인한다.
+3. `get_edge_function`으로 운영 소스를 되받아 저장소와 비교한다. CRLF/LF를 정규화한 뒤 해시·
+   protocol·ops·필수 secret 판정을 함께 확인한다.
+4. 그 다음 새 테이블/RLS/grant/FK/trigger와 새 canonical RPC migration을 적용한다.
+5. catalog에서 테이블·RLS·정책·인덱스·트리거·grant, 옛 overload의 authenticated 실행 불가,
+   새 overload의 실행 가능, 적용 전후 기존 행 수 불변을 다시 읽는다.
+6. 마지막에 앱/Pages를 배포한다. 서비스워커 때문에 옛 앱이 남는 기간도 배포 순서 계산에 넣는다.
+
+`SECURITY DEFINER` RPC에 advisor 경고가 뜬다는 이유만으로 실행권을 일괄 회수하지 않는다.
+호출자·본문의 `auth.uid()`/초대제/payload user 검증·고정 `search_path`·좁은 grant를 실제로 읽고,
+공개 surface가 의도된 것인지 판정한다. 경고를 없애는 것과 앱의 안전한 좁은 문을 없애는 것은 다르다.
 
