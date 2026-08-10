@@ -8,12 +8,27 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
-## HANDOFF-0137 · v2.11 · **짧은 영상 저장·압축·동기화** (2026-08-10 · 릴리스 후보)
+## HANDOFF-0139 · v2.12 · **스킬·공통 프롬프트 최신화 배포** (2026-08-10 · 릴리스 후보)
+
+- 사용자 요청으로 HANDOFF-0138의 영상 작업 환류 묶음을 단독 릴리스로 승격했다. 사진·영상 바이트 보호, 일곱 도메인 canonical 정확집합, 백업 자족성, RLS/RPC 권한, 실제 브라우저 검증과 사용자자료 rollback 분류를 기존 프로젝트 스킬과 공통 헌법에 반영한다.
+- 공용 정본 `Codex-Shared-Skills`의 최신 main `da440fb366c01c0d6ffbb0bdc515b13e5a357b42`를 공식 `sync-skills.mjs`로 전역 Codex·Claude 설치본 네 곳과 프로젝트 vendor/lock에 동기화하고 release profile·공급망 게이트 승인점도 같은 커밋으로 맞췄다.
+- 앱 릴리스는 v2.12다. 사용자 여행·사진·영상 데이터, Supabase Edge·DB migration, Android 셸에는 변경이 없고 GitHub Pages만 영향받는다.
+- 첫 Ready PR CI에서 사진 SHA-256 probe를 앞선 안내만 기다리고 읽던 라이브 게이트가 391/393으로 실패했다(M-0139). 릴리스 잠금을 1회 정식 재개방해 probe 내용 자체를 기다리도록 고쳤고, 로컬 라이브 393/393·70/70을 되읽었다. 새 후보는 전체 검증부터 다시 시작한다.
+- 완료 조건은 최신 고정 revision의 build·전체 harness·라이브 Chromium·Ready PR CI 통과, squash merge, Pages 배포 성공과 운영 `version.json` v2.12 read-back이다.
+
+## HANDOFF-0138 · **v2.11 영상 작업의 스킬·공통 프롬프트 환류** (2026-08-10 · 문서/프롬프트만)
+
+- 사용자 요청에 따라 영상 저장 구현·검토·배포에서 확인된 규율을 기존 영역 스킬에 환류했다. 새 영상 전용 스킬을 중복 생성하지 않고 `photo-storage-dev`·`sync-offline-dev`·`backup-restore-dev`·`supabase-security-dev`·`gates-mechanization-dev`가 새 바이트 형제를 함께 다루도록 확장했다.
+- 핵심 교훈은 네 가지다: ① 외부 원본과 앱 내부 `sourceBlob`을 구분하고 행+R2 바이트 read-back 뒤에만 내부 staging을 정리 ② canonical 정확집합 확장은 옛 writer가 새 도메인을 0건으로 확정하지 못하게 실패로 닫고 Edge→DB→앱 순으로 배포 ③ serializer뿐 아니라 백업/canonical 성공 문장·개수도 공용 통계에서 파생 ④ 사용자자료 쓰기 모듈은 release profile `userData` 분류를 상속해야 한다.
+- 공통 정본 `docs/CONSTITUTION.md`의 북극성·개인정보·외부 원본·기술 스택·도메인·§7 역방향 대칭 규율도 사진+영상 기준으로 갱신하고, `CLAUDE.md`·`AGENTS.md`는 생성기로만 동기화한다.
+- 앱 런타임·DB·Edge·R2·버전은 바꾸지 않는다. 이 항목은 v2.11 이후 작업자가 같은 누락을 반복하지 않게 하는 프롬프트 환류이며 별도 배포 대상이 아니다.
+
+## HANDOFF-0137 · v2.11 · **짧은 영상 저장·압축·동기화** (2026-08-10 · 배포 완료)
 
 - 순간에 영상을 고르면 무료 오픈소스 Mediabunny(WebCodecs)가 기기 안에서 최대 60초·1280px·30fps·25MiB 감상본과 WebP 포스터를 만든다. 외부 갤러리 원본은 수정하거나 삭제하지 않는다.
 - `localVideos`와 `journey.videos`를 별도 형제로 두고, entity+queue atomic commit, OCC read-back, operation별 R2 staging, R2 GET 바이트 동일성 확인, canonical exact-set, tombstone·restore·purge, 백업·복원, 저장량·진단을 사진·소리와 대칭으로 연결했다.
-- 하위 호환 `media-sign` protocol 7을 먼저 배포하고, migration 0030의 RLS·grant·복합 FK·OCC/canonical trigger와 7도메인 exact-set RPC를 적용한 뒤 Pages v2.11을 배포한다. Android 셸 자체 변경은 없다.
-- 완료 증거: 최신 고정 revision에서 전체 하네스·라이브 게이트·Ready PR CI, Edge capabilities hash, DB catalog/RLS/read-back, 운영 `version.json`과 실제 영상 저장·재생을 확인한다.
+- 하위 호환 `media-sign` protocol 7을 먼저 배포하고, migration 0030의 RLS·grant·복합 FK·OCC/canonical trigger와 7도메인 exact-set RPC를 적용한 뒤 Pages v2.11을 배포했다. Android 셸 자체 변경은 없다.
+- 완료 증거: 고정 revision의 전체 하네스 64/64·SKIP 0, 라이브 Chromium 실제 WebM 변환·poster·재생, Ready PR CI, Edge v10/protocol 7 capabilities hash, DB catalog/RLS/read-back, 운영 `version.json` v2.11을 확인했다.
 
 ## HANDOFF-0136 · v2.10 · **백업 복원 왕복·라이브 게이트·공용 릴리스 법 묶음** (2026-08-10 · 릴리스 후보)
 
@@ -928,9 +943,9 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.11<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->211<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->122<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.12<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->212<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->125<!--/reg-->개).
 
-> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 6엔티티(trips·places·moments·media·expenses·audio) 동기화 코드가 있으며, 운영은 **migration 0028까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->30<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스 10건(데이터 무변경 — HANDOFF-0057)이다.
+> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->30<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
 
 ### 🕐 직전 세션에서 무슨 일이 있었나 (2026-07-30 · 새 AI는 이것부터)

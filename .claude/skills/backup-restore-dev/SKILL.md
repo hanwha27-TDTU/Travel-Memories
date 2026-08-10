@@ -1,6 +1,6 @@
 ---
 name: backup-restore-dev
-description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCrypto.ts·zip.ts·backupMeta.ts(내보내기/가져오기/암호화/ZIP)를 만들거나 수정하기 전에 반드시 로드한다. 기억의 **마지막 방어선**. 병합 복원 계약·완전성 게이트·역할 분리(export/import)·과거 결함 사례·복원 드릴 레시피를 담은 작업 헌장. 새 테이블 추가, 백업 형식 변경, 복원 로직 수정 시 사용.
+description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCrypto.ts·zip.ts·backupMeta.ts(사진·소리·영상 내보내기/가져오기/암호화/ZIP)를 만들거나 수정하기 전에 반드시 로드한다. 기억의 **마지막 방어선**. 병합 복원 계약·완전성 게이트·역할 분리(export/import)·미디어 바이트 자족성·복원 드릴 레시피를 담은 작업 헌장. 새 테이블 추가, 백업 형식 변경, 복원 로직 수정 시 사용.
 ---
 
 # 백업·복원 개발 프롬프트 (Backup & Restore Dev Charter)
@@ -27,7 +27,7 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 4. **완전성은 기계가 지킨다**: `check-backup-coverage`가 db.ts의 사용자 데이터 테이블이 export-role·import-role **양쪽**에서 참조되는지 대조한다. 역할 분류는 **함수명**(이름에 `export`/`import` 포함)으로 하므로 새 함수 이름을 그 규칙에 맞춘다.
 5. **파생 테이블만 EXCLUDE**: 재취득 가능한 캐시(`syncQueue`·`localFxRates`)만 제외하고 **근거 주석을 함께** 남긴다.
    - ⚠ 자문: **"이걸 잃으면 사용자의 기억이 사라지나?"** 그렇다면 제외 금지.
-6. **백업은 자족적이다**: 사진을 파일 안에 품는다(JSON=base64 내장, ZIP=실제 이미지 파일). 외부 URL 참조 금지 — 깨진 링크로 기억이 날아가는 약한 고리를 만들지 않는다.
+6. **백업은 자족적이다**: 사진·소리·영상의 앱 정본 바이트를 파일 안에 품는다(JSON=base64 내장, ZIP=실제 파일). 영상은 파생본과 poster를 함께 담으며 외부 원본 영상에 의존하지 않는다. 외부 URL 참조 금지 — 깨진 링크로 기억이 날아가는 약한 고리를 만들지 않는다.
 7. **이름 규칙은 `domain/media/naming.ts` 한 곳에서 온다**(2026-07-27): ZIP 폴더·파일명과 **R2 객체 키**가 같은 모듈을 쓴다. 예전엔 ZIP 쪽에만 있었고 R2는 UUID를 그대로 썼는데, 두 번째 쓰임새가 생기는 순간이 *손으로 두 번 구현할 것인가*를 정하는 순간이다(§7).
    - ⚠️ **다만 둘은 일부러 다르다**: ZIP은 사진 id **8자**, R2는 **32자 전체**. 통일하지 마라 — ZIP은 복원이 `trip.json` 경로로 되읽으므로 짧아도 되고, R2는 **영구삭제하면 대조할 행이 사라져 파일 이름이 유일한 근거**다(M-0029). 그 이유가 `naming.ts`에 적혀 있다.
 8. **파일명은 자유, 복원은 메타 경로로**: ZIP 안 사진 파일명(`날짜_시간_제목_용도__id8`)은 사람이 읽기 위한 것이고, 복원은 `trip.json`의 `displayFile`/`thumbFile`/`originalFile` 경로로 되읽는다. **파일명을 바꿔도 복원이 깨지지 않아야 한다**(이 성질을 유닛으로 잠가 뒀다).
@@ -37,6 +37,12 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
    - 🔴 **거부로 죽은 op은 사유가 사라질 때 되살려야 한다**: 트리거 거부는 4xx → `permanent_failed` → push가 **영원히 건너뛴다.** `pushUnpurges`가 성공한 id의 op을 `local_only`로 되돌린다(`revivePushOps`).
    - ⚠ 자문: **"이 복원을 서버가 거부할 이유가 있는가? 있다면 어느 문으로 들어가나?"**
 10. **암호 키는 저장하지 않는다**: 사용자만 보유하며 분실 시 복원 불가임을 UI에 명시. 암호 없이 내보낼 때는 평문 PII 경고를 한 번 확인받는다.
+11. **형식 호환성은 명시한다**: 옛 백업에 `videos`가 없으면 빈 배열로 읽되, 알 수 없는 미래
+    형식 버전은 추측 복원하지 않고 거부한다. wire format이 바뀔 때만 백업 버전을 올리고,
+    지원하는 옛 버전과 변환 경로를 reader 테스트로 잠근다.
+12. **완료 문장도 백업 표면이다**: export/import가 영상을 처리해도 성공 문장의 개수에서 빼면
+    사용자는 무엇이 보호됐는지 알 수 없다. 사진·소리·영상 개수는 공용 backup stats에서 파생하고
+    serializer·복원 read-back·사용자 문장이 같은 값을 쓴다.
 
 ## 2. 코드 관례 (실제로 걸렸던 것)
 
@@ -59,6 +65,7 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 | 1.03 | 복원 중인 사진의 R2 파일 10개를 「치워도 되는 잔재」로 분류하고 **정리 버튼까지 내어 줬다** | 성격이 정반대인 것을 한 숫자에 섞음(근본형 C) — **기억 손실 직전까지** 갔다 | `classifyOrphanFiles(orphans, ledger, restorePending)`이 `restoring`을 따로 가른다. 분류 판단을 화면 코드의 `filter` 한 줄로 흩지 않는다 |
 | 1.04 | **v1.03의 수정이 반쪽이었다**(M-0033). 「복원됨 · 13건 되살립니다」를 띄우고도 홈은 비어 있었다. 원장은 24→11로 줄었으니 되돌리기는 성공했고, **행은 그 전에 이미 지워져** 있었다 | 의사를 행과 **다른 커밋**에 넣어 창을 만들었다. 헌법이 이미 "entity+operation **atomic** commit"이라 못박은 그 규율을, **새로 만든 op에만** 적용하지 않았다(§7 비대칭) | `requestUnpurge`를 트랜잭션 콜백의 **반환값**으로(밖으로 옮기면 반환 경로가 끊긴다) + `revivePushOps` + `tests/unit/restoreAtomicity.test.ts`(*"의사를 못 남기면 행도 남지 않는다"* — 옛 배치 주입 시 2건 RED) |
 | 2.09 이후 | 유닛은 만든 백업을 메모리에서 곧바로 읽어 **실제 파일 선택 경계**를 못 쟀다(T-012) | 브라우저 파일 경계와 production 병합 이음매가 분리돼 각각 초록이어도 조립은 미검사 | 사용자 자료를 복제하지 않는 **진단 trip 한 건 전용 파일**을 만들고, 선택 파일 SHA-256 대조 뒤 `importMergeRows`+선택 SyncMeta 포함 전 필드 read-back을 **바깥 transaction에서 의도적으로 abort**. abort 뒤 trip·queue·purged 잔재 0건을 다시 읽는다. preflight·해시·파싱 실패처럼 import 전 실패는 기존 상태를 절대 정리하지 않는다. 통과 캐시는 fixture·digest뿐 아니라 현재 앱·백업 형식에 결합하고 짧은 TTL 뒤 무효화한다 |
+| 2.11 | 백업 코어에는 영상을 넣었지만 첫 사용자 대면 성공 요약에서 영상 개수가 빠질 수 있었음 | 파일 형식 대칭만 검사하고 **전달 문장도 같은 완료 표면**이라는 역방향 규율을 놓침 | 공용 backup stats에서 serializer·복원 read-back·성공 문장을 함께 파생하고, 영상 파생본+poster·옛 백업의 videos 부재·미래 버전 거부를 왕복 픽스처로 확인 |
 
 ## 3-B. 🔴 **복원이 안 됐을 때 확인 순서** (이 절차가 없어서 두 번 헤맸다)
 
@@ -90,7 +97,7 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 
 자동층:
 1. `npm run harness` — **`check-backup-coverage`가 핵심**
-2. `tests/unit/backupRoundtrip`: JSON·ZIP 모두 export→import 파리티(전 행·**사진 바이트**·tombstone·고아·좌표·원본 폴백). 비공허: 행을 하나 빼면 실패해야 함
+2. `tests/unit/backupRoundtrip`: JSON·ZIP 모두 export→import 파리티(전 행·**사진·소리·영상 바이트와 poster**·tombstone·고아·좌표·원본 폴백·옛 형식 호환). 비공허: 행이나 영상 poster를 하나 빼면 실패해야 함
 3. `tests/unit/restoreDrill`: `fake-indexeddb`로 실 Dexie 왕복(빈가드·LWW·tombstone 우위 포함)
 4. `tests/unit/restoreUnpurge`: 복원이 **서버 원장 되돌리기 의사를 남기는지**(멱등·빈 목록), 그 의사가 있는 동안 `applyPurgedLedger`가 그 id를 **안 건드리는지**, 되돌리기가 실패하면 **큐에 남는지**(재시도 가능해야 한다), **되읽기로** 확인하는지
 5. `tests/unit/restoreAtomicity`: **행과 되돌리기 의사가 같은 커밋인가.** 의사 쓰기를 실패시켰을 때 **행도 남지 않아야** 한다 — 반쪽 복원이 「성공」으로 보이면 안 된다
@@ -102,7 +109,9 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 외부 도구 상호운용(권장):
 - 생성된 ZIP에 **표준 `unzip -l` / `unzip -t`** 를 돌려 `No errors detected` 확인 — 우리 구현만의 착각이 아님을 증명하고, 사용자가 탐색기에서 여행별 폴더로 사진을 바로 열 수 있음을 보증.
 
-**정직한 경계**: 실기기 대용량 사진 ZIP 생성 체감·다운로드 UX는 사용자 확인 몫. 로직은 장당 순차 `arrayBuffer`라 메모리는 안전하다(**사진 한정**).
+**정직한 경계**: 실기기 대용량 미디어 ZIP 생성 체감·다운로드 UX는 사용자 확인 몫. 영상 때문에
+총량이 훨씬 빨리 커질 수 있으므로 조립 전에 용량을 preflight하고, 실패할 입력은 버퍼를 만들기
+전에 거부한다. 영상 변환은 상한 정책이지 모든 입력보다 작아진다는 보증이 아니다.
 
 > ⚠️ **정정(2026-07-27)**: 위 진술은 **사진 규모 한정**이다. `zipStore`가 모든 엔트리를 모은 뒤
 > `new Uint8Array(total)` **단일 버퍼로 다시 복사**하므로(`zip.ts`) 피크 메모리는 **총량의 약 2배**다.
