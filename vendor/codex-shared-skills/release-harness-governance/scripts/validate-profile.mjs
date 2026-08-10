@@ -33,6 +33,36 @@ export function validateProfile(profile) {
   if (!문자열(full.command)) errors.push('fullRequired.command가 비었다');
   if (full.evidence !== 'ci') errors.push('fullRequired.evidence는 ci여야 한다');
   if (full.latestRevision !== true) errors.push('fullRequired.latestRevision은 true여야 한다');
+
+  // HRL-19·20 — 전체 하네스 면제와 브라우저 실패 격리는 명시적으로 선택한 프로젝트만 쓴다.
+  // 선언이 없으면 기존의 전부 차단 정책을 유지해 하위 호환한다.
+  const verification = profile?.verificationPolicy;
+  if (verification != null) {
+    if (verification?.mode !== 'risk-triggered') errors.push('verificationPolicy.mode는 risk-triggered여야 한다');
+    if (!문자열(verification?.classifier)) errors.push('verificationPolicy.classifier가 비었다');
+    if (verification?.unknown !== 'full-required') errors.push('verificationPolicy.unknown은 full-required여야 한다');
+    if (!배열(verification?.fullHarnessClasses)) errors.push('verificationPolicy.fullHarnessClasses가 비었다');
+    if (!배열(verification?.exemptClasses)) errors.push('verificationPolicy.exemptClasses가 비었다');
+    if (!배열(verification?.exemptEvidence)) errors.push('verificationPolicy.exemptEvidence가 비었다');
+    const fullClasses = new Set(verification?.fullHarnessClasses || []);
+    const exemptClasses = new Set(verification?.exemptClasses || []);
+    for (const id of fullClasses) if (!문자열(id)) errors.push('verificationPolicy.fullHarnessClasses에 빈 값이 있다');
+    for (const id of exemptClasses) {
+      if (!문자열(id)) errors.push('verificationPolicy.exemptClasses에 빈 값이 있다');
+      if (fullClasses.has(id)) errors.push(`verificationPolicy 분류가 전체·면제에 함께 있다: ${id}`);
+    }
+    const browser = verification?.browserRoundtrip || {};
+    if (!문자열(browser.group)) errors.push('verificationPolicy.browserRoundtrip.group이 비었다');
+    else if (!groupIds.has(browser.group)) errors.push(`verificationPolicy.browserRoundtrip.group이 groups에 없다: ${browser.group}`);
+    if (!문자열(browser.workflow)) errors.push('verificationPolicy.browserRoundtrip.workflow가 비었다');
+    if (browser.blocking !== false) errors.push('verificationPolicy.browserRoundtrip.blocking은 false여야 한다');
+    if (browser.verdict !== 'quarantined-failure') errors.push('verificationPolicy.browserRoundtrip.verdict는 quarantined-failure여야 한다');
+    if (browser.nextSessionPriority !== true) errors.push('verificationPolicy.browserRoundtrip.nextSessionPriority는 true여야 한다');
+    const requiredFields = browser.requiredFields || [];
+    const mandatory = ['sha', 'runId', 'gate', 'exitCode', 'cause', 'impact', 'reproduce', 'nextAction'];
+    if (!Array.isArray(requiredFields)) errors.push('verificationPolicy.browserRoundtrip.requiredFields가 배열이 아니다');
+    else for (const field of mandatory) if (!requiredFields.includes(field)) errors.push(`브라우저 격리 필수 필드 누락: ${field}`);
+  }
   const versioning = profile?.versioning || {};
   for (const key of ['trigger', 'baseline', 'writer', 'history']) if (!문자열(versioning[key])) errors.push(`versioning.${key}가 비었다`);
 
@@ -107,6 +137,7 @@ export function validateProfile(profile) {
       groups: groups.length, nodes: nodes.length, edges: edges.length,
       writers: writers.length, surfaces: surfaces.length,
       closeouts: closeoutIds.length, artifacts: artifactIds.length,
+      conditionalVerification: verification == null ? 0 : 1,
     },
   };
 }
@@ -117,6 +148,16 @@ function selfTest() {
     sharedLaw: { source: 'https://example.test/shared', commit: 'a'.repeat(40), contentSha256: 'b'.repeat(64), vendoredPath: 'vendor/law' },
     gateRegistry: 'scripts/gates.mjs', groups: [{ id: 'static', command: 'node check.mjs', coverage: ['source'] }],
     fullRequired: { command: 'node harness.mjs', evidence: 'ci', latestRevision: true },
+    verificationPolicy: {
+      mode: 'risk-triggered', classifier: 'scripts/classify.mjs', unknown: 'full-required',
+      fullHarnessClasses: ['runtime', 'toolchain'], exemptClasses: ['docs'],
+      exemptEvidence: ['classifier', 'affected-gates'],
+      browserRoundtrip: {
+        group: 'static', workflow: '.github/workflows/browser.yml', blocking: false,
+        verdict: 'quarantined-failure', nextSessionPriority: true,
+        requiredFields: ['sha', 'runId', 'gate', 'exitCode', 'cause', 'impact', 'reproduce', 'nextAction'],
+      },
+    },
     versioning: { trigger: 'app.html', baseline: 'origin/main', writer: 'node bump.mjs', history: 'app.html#history' },
     releaseNodes: [
       { id: 'closeout', kind: 'input-closeout', verdict: 'exit-code', writes: [] },
@@ -142,7 +183,13 @@ function selfTest() {
     ['노드 kind 누락', (p) => { delete p.releaseNodes[1].kind; }, 'kind가'],
     ['마감 노드 없음', (p) => { p.releaseNodes[0].kind = 'verification'; }, '입력 마감(input-closeout) 노드가 없다'],
     ['산출물이 마감보다 앞', (p) => { p.releaseEdges = [{ from: 'build', to: 'closeout', reason: '뒤집힌 순서' }, { from: 'closeout', to: 'deploy', reason: '배포 입력' }]; }, '입력 마감 뒤에 오지 않는'],
-    ['마감을 우회하는 곁길', (p) => { p.releaseNodes.push({ id: 'hotfix', kind: 'integration', verdict: 'exit-code', writes: [] }); p.releaseEdges.push({ from: 'hotfix', to: 'build', reason: '마감을 건너뛴 곁길' }); }, '입력 마감 뒤에 오지 않는']
+    ['마감을 우회하는 곁길', (p) => { p.releaseNodes.push({ id: 'hotfix', kind: 'integration', verdict: 'exit-code', writes: [] }); p.releaseEdges.push({ from: 'hotfix', to: 'build', reason: '마감을 건너뛴 곁길' }); }, '입력 마감 뒤에 오지 않는'],
+    ['모르는 변경 면제', (p) => { p.verificationPolicy.unknown = 'exempt'; }, 'unknown은 full-required'],
+    ['전체·면제 분류 중복', (p) => { p.verificationPolicy.exemptClasses.push('runtime'); }, '전체·면제에 함께'],
+    ['브라우저 실패를 PASS로 세탁', (p) => { p.verificationPolicy.browserRoundtrip.verdict = 'passed'; }, 'quarantined-failure'],
+    ['브라우저 격리 기록 누락', (p) => { p.verificationPolicy.browserRoundtrip.requiredFields = ['sha']; }, '필수 필드 누락'],
+    ['다음 세션 우선순위 해제', (p) => { p.verificationPolicy.browserRoundtrip.nextSessionPriority = false; }, 'nextSessionPriority'],
+    ['없는 브라우저 그룹', (p) => { p.verificationPolicy.browserRoundtrip.group = 'browser'; }, 'groups에 없다']
   ];
   for (const [name, mutate, expected] of cases) {
     const sample = structuredClone(base); mutate(sample);

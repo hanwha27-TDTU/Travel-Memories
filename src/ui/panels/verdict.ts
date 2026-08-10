@@ -123,14 +123,17 @@ export function unknownIsStructural(metrics: Metric[]): boolean {
   return unknowns.length > 0 && unknowns.every((m) => m.unknownKind === 'structural');
 }
 
-export interface Action {
+interface ActionBase {
   label: string;
   /** 판정을 바꾸는 행동은 화면당 **하나**만 primary. 나머지는 접힌 곳으로. */
   primary?: boolean;
-  /** 실행 후 사용자에게 보일 한 줄. 끝나면 렌더러가 자동으로 다시 판정한다. */
-  run: (input: string) => Promise<string>;
   /** data-* 훅(라이브 검증·E2E가 셀렉터로 잡는다). */
   hook?: string;
+}
+
+interface TextAction extends ActionBase {
+  /** 실행 후 사용자에게 보일 한 줄. 끝나면 렌더러가 자동으로 다시 판정한다. */
+  run: (input: string) => Promise<string>;
   /**
    * 값을 받아야 하는 행동 — 렌더러가 버튼 **앞에** 입력칸 하나를 붙이고 그 값을 `run()`에 넘긴다.
    *
@@ -139,6 +142,7 @@ export interface Action {
    * **다음 도구가 자동으로 따라온다.**
    */
   input?: {
+    type?: 'text';
     /** 입력칸의 접근성 라벨(화면읽기). 화면에는 placeholder로 보인다. */
     label: string;
     placeholder?: string;
@@ -146,6 +150,23 @@ export interface Action {
     initial?: () => string;
     maxLength?: number;
   };
+}
+
+interface FileAction extends ActionBase {
+  run: (input: File) => Promise<string>;
+  input: {
+    type: 'file';
+    /** 파일 선택기의 접근성 라벨. */
+    label: string;
+    accept?: string;
+  };
+}
+
+/** 입력 종류가 늘어나도 모든 진단 도구가 같은 렌더러·접근성·read-back 규율을 물려받는다. */
+export type Action = TextAction | FileAction;
+
+function isFileAction(action: Action): action is FileAction {
+  return action.input?.type === 'file';
 }
 
 /** 접힌 '출처' 층 — 목록·기술코드·원문 덤프는 전부 여기로 내려간다. */
@@ -239,6 +260,67 @@ function showActionFailure(message: HTMLElement, error: Error, reread: () => voi
 }
 
 /**
+ * 액션 한 개의 입력·버튼·실패·read-back 배선. renderTool 안에 두면 입력 종류가 늘 때마다
+ * 판정 렌더 전체가 커지고, 도구별로 파일 UI를 따로 만들게 된다. 모든 입력은 이 문을 지난다.
+ */
+function appendAction(
+  actionBar: HTMLElement,
+  message: HTMLElement,
+  action: Action,
+  reread: () => void,
+): void {
+  let field: HTMLInputElement | null = null;
+  if (action.input) {
+    field = el('input', 'vd-input') as HTMLInputElement;
+    field.type = isFileAction(action) ? 'file' : 'text';
+    field.setAttribute('aria-label', action.input.label);
+    if (isFileAction(action)) {
+      if (action.input.accept) field.accept = action.input.accept;
+    } else {
+      field.placeholder = action.input.placeholder ?? action.input.label;
+      if (action.input.maxLength) field.maxLength = action.input.maxLength;
+      field.value = action.input.initial?.() ?? '';
+    }
+    if (action.hook) field.setAttribute(`${action.hook}-input`, '');
+    actionBar.appendChild(field);
+  }
+
+  const button = el('button', action.primary ? 'vd-btn vd-btn-primary' : 'vd-btn') as HTMLButtonElement;
+  button.type = 'button';
+  button.textContent = action.label;
+  if (action.hook) button.setAttribute(action.hook, '');
+  if (!isFileAction(action)) {
+    field?.addEventListener('keydown', (event) => {
+      if ((event as KeyboardEvent).key === 'Enter') button.click();
+    });
+  }
+  button.addEventListener('click', () => {
+    if (isFileAction(action) && !field?.files?.[0]) {
+      applyText(message, '실행 실패: 확인할 파일을 먼저 골라 주세요.');
+      message.hidden = false;
+      return;
+    }
+    button.disabled = true;
+    const task = isFileAction(action)
+      ? action.run(field!.files![0]!)
+      : action.run(field?.value ?? '');
+    void task
+      .then((text) => {
+        applyText(message, text);
+        message.hidden = false;
+        reread();
+      })
+      .catch((error: Error) => {
+        showActionFailure(message, error, reread);
+      })
+      .finally(() => {
+        button.disabled = false;
+      });
+  });
+  actionBar.appendChild(button);
+}
+
+/**
  * 도구 하나를 그린다 — **모든 진단 도구가 이 함수를 통과한다**.
  *
  * 계약상 중요한 것 두 가지:
@@ -304,45 +386,7 @@ export function renderTool(v: ToolView): HTMLElement {
 
         // 액션: primary 하나 + 나머지, 그리고 항상 [다시 확인]
         actionBar.replaceChildren();
-        for (const a of r.actions) {
-          let field: HTMLInputElement | null = null;
-          if (a.input) {
-            field = el('input', 'vd-input') as HTMLInputElement;
-            field.type = 'text';
-            field.setAttribute('aria-label', a.input.label);
-            field.placeholder = a.input.placeholder ?? a.input.label;
-            if (a.input.maxLength) field.maxLength = a.input.maxLength;
-            field.value = a.input.initial?.() ?? '';
-            if (a.hook) field.setAttribute(`${a.hook}-input`, '');
-            actionBar.appendChild(field);
-          }
-          const b = el('button', a.primary ? 'vd-btn vd-btn-primary' : 'vd-btn') as HTMLButtonElement;
-          b.type = 'button';
-          b.textContent = a.label;
-          if (a.hook) b.setAttribute(a.hook, '');
-          // 입력칸에서 Enter를 치면 버튼을 누른 것과 같아야 한다 — 손가락으로 쓰는 기기에서
-          // 입력칸을 채우고 버튼을 다시 찾아 누르게 하면 그게 마찰이다.
-          field?.addEventListener('keydown', (e) => {
-            if ((e as KeyboardEvent).key === 'Enter') b.click();
-          });
-          b.addEventListener('click', () => {
-            b.disabled = true;
-            void a
-              .run(field?.value ?? '')
-              .then((t) => {
-                applyText(msg, t);
-                msg.hidden = false;
-                run(); // read-back: 고쳤다고 말만 하지 않는다
-              })
-              .catch((e: Error) => {
-                showActionFailure(msg, e, run);
-              })
-              .finally(() => {
-                b.disabled = false;
-              });
-          });
-          actionBar.appendChild(b);
-        }
+        for (const action of r.actions) appendAction(actionBar, msg, action, run);
         const again = el('button', 'vd-btn', '다시 확인') as HTMLButtonElement;
         again.type = 'button';
         again.setAttribute('data-verdict-recheck', '');

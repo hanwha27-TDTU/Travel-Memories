@@ -19,6 +19,10 @@
 // 페이지가 겹쳐 돌면 **성분 합이 벽시계를 넘는다**(2026-08-09 실측: 대기 137.3s / 전체 128.6s).
 // 비율이 100%를 넘는 것은 오류가 아니라 **겹쳤다는 뜻**이다.
 
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 // BGT-2 계측기 — 라이브 게이트의 시간이 **어디로 가는가**를 성분별로 가른다.
 // 게이트 파일을 고치지 않는다(고치면 그건 다른 측정이다). ESM 모듈 캐시가 프로세스 안에서
 // 공유되므로, 게이트보다 **먼저** playwright를 import해 감싸면 게이트도 감싼 것을 쓴다.
@@ -91,11 +95,23 @@ const origExit = process.exit.bind(process);
 process.exit = (code) => { report(); origExit(code); };
 process.on('exit', () => {});
 
-const target = process.argv[2];
+const targetArg = process.argv[2];
+if (!targetArg) {
+  console.error('사용법: node scripts/measure-live-time.mjs scripts/verify-editor-live.mjs');
+  process.exit(2);
+}
+const target = resolve(targetArg);
+if (!existsSync(target)) {
+  console.error(`[계측] 대상 파일이 없습니다: ${target}`);
+  process.exit(2);
+}
 process.argv = [process.argv[0], target];
 try {
-  await import(target);
+  await import(pathToFileURL(target).href);
 } catch (e) {
   console.error('[계측] 게이트가 예외로 끝남:', e?.message);
+  // 대상이 띄운 HTTP 서버가 살아 있어도 실패는 즉시 종료해야 한다. exitCode만 설정하면
+  // 이벤트 루프가 비지 않아 계측기가 영원히 매달린다(실제 T-018 실패 조사에서 재현).
+  process.exit(1);
 }
 report();

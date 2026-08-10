@@ -178,8 +178,12 @@ const tileZooms = [];
  */
 async function waitUntil(fn, timeoutMs = 15000, stepMs = 100) {
   const end = Date.now() + timeoutMs;
-  while (!fn() && Date.now() < end) await new Promise((r) => setTimeout(r, stepMs));
-  return fn();
+  let matched = await fn();
+  while (!matched && Date.now() < end) {
+    await new Promise((r) => setTimeout(r, stepMs));
+    matched = await fn();
+  }
+  return matched;
 }
 
 /**
@@ -230,27 +234,26 @@ async function createTripFromModal(title, start = '', end = '') {
   if (end) await modal.locator('input[type="date"]').nth(1).fill(end);
   await modal.locator('button[type="submit"]').click();
   await modal.waitFor({ state: 'detached' });
+  await page.locator('.trip-card', { hasText: title }).first().waitFor();
 }
 
 // v0.43: 홈 목록에서 여행 삭제(확인 → 카드 제거) + 실행취소 복원
 await createTripFromModal('삭제 테스트 여행');
-await page.waitForTimeout(500);
 const delN0 = await page.locator('.trip-card').count();
 page.once('dialog', (d) => d.accept()); // 삭제 확인 창 수락
 await page.locator('.trip-delete').first().click();
-await page.waitForTimeout(500);
+await page.waitForFunction((n) => document.querySelectorAll('.trip-card').length === n, delN0 - 1);
 const delN1 = await page.locator('.trip-card').count();
 check('홈 목록 삭제(확인) → 카드 제거', delN1 === delN0 - 1, `${delN0}→${delN1}`);
 await page.locator('.undo-toast .undo-btn').click();
-await page.waitForTimeout(600);
+await page.waitForFunction((n) => document.querySelectorAll('.trip-card').length === n, delN0);
 const delN2 = await page.locator('.trip-card').count();
 check('삭제 실행취소 → 여행 복원', delN2 === delN0, `${delN1}→${delN2}`);
 page.once('dialog', (d) => d.accept()); // 정리: 테스트 여행 다시 삭제(본 흐름과 분리)
 await page.locator('.trip-delete').first().click();
-await page.waitForTimeout(500);
+await page.waitForFunction((n) => document.querySelectorAll('.trip-card').length === n, delN0 - 1);
 
 await createTripFromModal('편집기 검증 여행', '2024-01-15', '2026-03-20');
-await page.waitForTimeout(400);
 
 check('홈 입력칸은 사진 제목 검색', await page.locator('.trip-form input[type="search"]').count() === 1);
 check('여행 기간 옆 달력 경과 표기', (await page.locator('.trip-card .trip-meta').first().textContent()).includes('(2년 2개월 5일)'));
@@ -293,10 +296,10 @@ const bpTrip = await page.evaluate(() => {
 });
 check('설계 개요도: 실카운트(여행=1) 자동 채움', bpTrip === '1', `trips=${bpTrip}`);
 await page.keyboard.press('Escape');
-await page.waitForTimeout(250);
+await settle(page);
 while ((await page.locator('.guide-overlay').count()) > 0) {
   await page.keyboard.press('Escape');
-  await page.waitForTimeout(200);
+  await settle(page);
 }
 
 // v0.49: 환율 기준통화 설정 — 데이터 관리 → 카드 → 통화 선택기(UZS 포함) 렌더·저장
@@ -315,16 +318,16 @@ const fxDefault = await page.$eval('.dm-row select', (s) => s.value);
 check('환율 설정: 기본 기준통화 KRW', fxDefault === 'KRW', fxDefault);
 // 선택 변경 → localStorage 저장 read-back(성공 토스트가 아니라 실제 저장값을 되읽어 확인)
 await page.selectOption('.dm-row select', 'USD');
-await page.waitForTimeout(150);
+await settle(page);
 const fxSaved = await page.evaluate(() => localStorage.getItem('bj.fxBase'));
 check('환율 설정: 선택이 실제로 저장됨(read-back)', fxSaved === 'USD', String(fxSaved));
 await page.selectOption('.dm-row select', 'KRW'); // 이후 테스트 영향 없도록 원복
-await page.waitForTimeout(150);
+await settle(page);
 await page.keyboard.press('Escape');
-await page.waitForTimeout(250);
+await settle(page);
 while ((await page.locator('.guide-overlay').count()) > 0) {
   await page.keyboard.press('Escape');
-  await page.waitForTimeout(200);
+  await settle(page);
 }
 
 // ── v1.77: 위치관리대장 — 검색·좌표 뒤집기 미리보기가 **실제로 도는가** ──────────
@@ -374,7 +377,7 @@ check('위치관리대장: 목록이 그려진다', prRows >= 2, `행 ${prRows}�
 
 // 검색 — 한 글자로도 걸러지는가(사용자 요청: "한글자라도 동일하면")
 await page.fill('.pr-search', '모호');
-await page.waitForTimeout(200);
+await settle(page);
 const prFiltered = await page.locator('.pr-row').count();
 const prCountText = await page.locator('.pr-count').textContent();
 check('위치관리대장: 검색이 실제로 거른다', prFiltered === 1, `행 ${prFiltered}개`);
@@ -402,7 +405,7 @@ check('위치관리대장: 뒤집은 뒤에도 되돌릴 수단이 남는다', a
 
 // 🔴 없어야 할 때 없는가 — 명확한 좌표(서울)에는 [이걸로 바꾸기]가 **없어야** 한다
 await page.fill('.pr-search', '명확');
-await page.waitForTimeout(250);
+await settle(page);
 await page.locator('.pr-row').first().locator('.pr-edit-open').click();
 await settle(page);
 const clearSwap = await page.locator('.pr-row').first().locator('.pr-preview-swap button').count();
@@ -416,10 +419,10 @@ await page.waitForSelector('.map-overlay', { state: 'detached' });
 
 // 뒷정리 — 심은 픽스처를 지운다(§3-C, 내 상태를 남기지 않는다)
 await page.keyboard.press('Escape');
-await page.waitForTimeout(250);
+await settle(page);
 while ((await page.locator('.guide-overlay').count()) > 0) {
   await page.keyboard.press('Escape');
-  await page.waitForTimeout(200);
+  await settle(page);
 }
 await page.evaluate(async () => {
   await new Promise((resolve) => {
@@ -460,10 +463,10 @@ check(
   '',
 );
 await page.keyboard.press('Escape');
-await page.waitForTimeout(250);
+await settle(page);
 while ((await page.locator('.guide-overlay').count()) > 0) {
   await page.keyboard.press('Escape');
-  await page.waitForTimeout(200);
+  await settle(page);
 }
 
 // ── v0.55: R2 설정 가이드 — 데이터 관리 → 카드 → 단계·위험 경고 렌더 ──
@@ -491,10 +494,10 @@ await page.waitForSelector('.r2-probe-note:not([hidden])', { timeout: 3000 });
 const probeText = await page.$eval('.r2-probe-note', (n) => n.textContent ?? '');
 check('R2 가이드: 연결 확인이 상태를 알려줌', probeText.length > 0, probeText);
 await page.keyboard.press('Escape');
-await page.waitForTimeout(250);
+await settle(page);
 while ((await page.locator('.guide-overlay').count()) > 0) {
   await page.keyboard.press('Escape');
-  await page.waitForTimeout(200);
+  await settle(page);
 }
 
 // v0.46: 기계화 검증 흐름도 — 개발자 정보 → 열기 → 4단계 + 게이트 카드가 실제 harness 개수와 일치
@@ -523,10 +526,10 @@ check(
   mcCatNames.join(' | '),
 );
 await page.keyboard.press('Escape');
-await page.waitForTimeout(250);
+await settle(page);
 while ((await page.locator('.guide-overlay').count()) > 0) {
   await page.keyboard.press('Escape');
-  await page.waitForTimeout(200);
+  await settle(page);
 }
 
 await page.getByLabel('편집기 검증 여행 여행 열기').first().click();
@@ -719,14 +722,18 @@ check('편집기 모달 열림', true);
     send('pointerup', 1, cx - 92, cy);
     send('pointerup', 2, cx + 92, cy);
   });
-  await page.waitForTimeout(400);
+  // 슬라이더 값은 포인터 핸들러에서 먼저 바뀌고 canvas draw는 다음 프레임에 올 수 있다.
+  // 내부 값만 기다리면 느린/바쁜 Chromium에서 확대 전 픽셀을 읽어 거짓 RED가 된다.
+  await waitUntil(async () =>
+    Number(await page.$eval('.pe-zoom', (i) => i.value)) > 1 && (await sig()) !== before,
+  );
   const zoomed = await sig();
   const zoomVal = await page.evaluate(() => document.querySelector('.pe-zoom')?.value ?? null);
   // 전제 확인 — 확대가 실제로 걸리지 않았다면 아래 판정은 **공허하다**(§4).
   check('핀치로 실제 확대된다(전제 확인 — 아니면 아래 판정이 공허하다)', zoomed !== before && Number(zoomVal) > 1, JSON.stringify({ before, zoomed, zoomVal }));
 
   await page.getByRole('button', { name: '초기화', exact: true }).click();
-  await page.waitForTimeout(400);
+  await waitUntil(async () => Number(await page.$eval('.pe-zoom', (i) => i.value)) === 1 && (await sig()) === before);
   const after = await sig();
   const zoomAfter = await page.evaluate(() => document.querySelector('.pe-zoom')?.value ?? null);
   check('🔴 핀치 줌 뒤 초기화하면 **원래 보이던 화면**으로 돌아온다(픽셀 대조)', after === before, JSON.stringify({ before, after }));
@@ -756,7 +763,7 @@ for (const [w, h, label] of [
   [412, 915, '세로 폰'],
 ]) {
   await page.setViewportSize({ width: w, height: h });
-  await page.waitForTimeout(250);
+  await settle(page);
   const box = await page.evaluate(() => {
     const ov = document.querySelector('.pe-overlay');
     const sheet = document.querySelector('.pe-sheet');
@@ -794,7 +801,7 @@ for (const [w, h, label] of [
   check(`편집기 ${label}: 상하 안 잘림 + 여백 + 스크롤 도달`, Boolean(ok), box ? JSON.stringify(box) : 'none');
 }
 await page.setViewportSize({ width: 412, height: 915 });
-await page.waitForTimeout(200);
+await settle(page);
 
 // 슬라이더 값 표시
 const valTexts = await page.$$eval('.pe-slider-val', (els) => els.map((e) => e.textContent));
@@ -818,7 +825,7 @@ check('배치 스킵(⏭ 남은 2장 모두 원본) 노출', skipAll === 1);
 const before = await page.$eval('.pe-canvas', (c) => c.getContext('2d').getImageData(0, 0, 1, 1).data.join(','));
 const bright = page.locator('.pe-slider input[aria-label="밝기"]');
 await bright.evaluate((i) => { i.value = '0.4'; i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); });
-await page.waitForTimeout(300);
+await settle(page);
 const valAfter = await page.$eval('.pe-slider-val', (e) => e.textContent);
 check('밝기 조작 → 값 "+40" 표시', valAfter === '+40', valAfter);
 const origAfter = await page.$eval('.pe-presets .pe-chip', (b) => b.getAttribute('aria-pressed'));
@@ -828,11 +835,11 @@ check('미리보기 픽셀 실제 변화', before !== after, `${before} → ${af
 
 // 원본 비교(누르는 동안 보정 전) — pointerdown → 픽셀이 원래대로
 await page.locator('.pe-compare').dispatchEvent('pointerdown', { pointerId: 1 });
-await page.waitForTimeout(120);
+await settle(page);
 const cmp = await page.$eval('.pe-canvas', (c) => c.getContext('2d').getImageData(0, 0, 1, 1).data.join(','));
 check('원본 비교(홀드) → 보정 전 픽셀', cmp === before, `${cmp} vs ${before}`);
 await page.locator('.pe-compare').dispatchEvent('pointerup', { pointerId: 1 });
-await page.waitForTimeout(300);
+await settle(page);
 const back = await page.$eval('.pe-canvas', (c) => c.getContext('2d').getImageData(0, 0, 1, 1).data.join(','));
 check('비교 해제 → 보정 복귀', back === after);
 
@@ -848,7 +855,7 @@ const undoDisabled = await page.$eval('.pe-undo', (b) => b.disabled);
 check('이력 소진 → 실행취소 비활성', undoDisabled);
 // 검증 후 다시 밝기 +40(이후 단계는 편집 존재를 전제)
 await bright.evaluate((i) => { i.value = '0.4'; i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); });
-await page.waitForTimeout(300);
+await settle(page);
 
 // 잡티 브러시: 크기 슬라이더 조작 → 반경 원 표시
 await page.getByRole('button', { name: '🩹 잡티 제거' }).click();
@@ -861,7 +868,7 @@ await page.getByRole('button', { name: '🩹 잡티 제거' }).click(); // 힐 �
 let dialogSeen = null;
 page.once('dialog', async (d) => { dialogSeen = d.message(); await d.dismiss(); });
 await page.keyboard.press('Escape');
-await page.waitForTimeout(200);
+await settle(page);
 const stillOpen = (await page.locator('.pe-overlay').count()) === 1;
 check('편집 중 Esc → 확인 창 + 취소 시 유지', dialogSeen !== null && stillOpen, String(dialogSeen));
 
@@ -873,8 +880,7 @@ await page.getByRole('button', { name: '원본 사용', exact: true }).click();
 
 // 저장 완료 → 썸네일 2장
 await page.waitForSelector('.pe-overlay', { state: 'detached' });
-await page.waitForFunction(() => document.querySelectorAll('.moment-photo-grid img, .photo-grid img, img[alt="여행 사진"], .thumb img').length >= 0);
-await page.waitForTimeout(1200);
+await page.waitForFunction(() => document.querySelectorAll('.moment-photo-grid img, .photo-grid img, img[alt="여행 사진"], .thumb img').length >= 2);
 const thumbs = await page.evaluate(() => document.querySelectorAll('img').length);
 check('저장 후 썸네일 렌더(이미지 ≥2)', thumbs >= 2, `imgs=${thumbs}`);
 
@@ -892,7 +898,7 @@ await settle(page);
 const counterNext = await page.$eval('.photo-viewer-count', (e) => e.textContent);
 check('뷰어: ▶ 다음 사진(2 / 2)', counterNext === '2 / 2', counterNext);
 await page.keyboard.press('ArrowRight'); // 순환 → 1/2
-await page.waitForTimeout(150);
+await settle(page);
 const counterWrap = await page.$eval('.photo-viewer-count', (e) => e.textContent);
 check('뷰어: 방향키 + 끝에서 순환(1 / 2)', counterWrap === '1 / 2', counterWrap);
 check('뷰어: 넘겨도 열림 유지', (await page.locator('.photo-viewer').count()) === 1);
@@ -901,7 +907,7 @@ check('뷰어: 넘겨도 열림 유지', (await page.locator('.photo-viewer').co
 const vbox = await page.locator('.photo-viewer img').boundingBox();
 await page.mouse.move(vbox.x + vbox.width / 2, vbox.y + vbox.height / 2);
 await page.mouse.wheel(0, -400);
-await page.waitForTimeout(150);
+await settle(page);
 const zoomedCls = await page.$eval('.photo-viewer img', (i) => i.classList.contains('is-zoomed'));
 const zoomedScale = await page.$eval('.photo-viewer img', (i) => {
   const m = /scale\(([\d.]+)\)/.exec(i.style.transform);
@@ -909,7 +915,7 @@ const zoomedScale = await page.$eval('.photo-viewer img', (i) => {
 });
 check('뷰어: 휠 확대 → 배율 상승·is-zoomed', zoomedCls && zoomedScale > 1.05, `scale=${zoomedScale}`);
 await page.keyboard.press('0');
-await page.waitForTimeout(150);
+await settle(page);
 const resetScale = await page.$eval('.photo-viewer img', (i) => {
   const m = /scale\(([\d.]+)\)/.exec(i.style.transform);
   return m ? parseFloat(m[1]) : 1;
@@ -917,7 +923,7 @@ const resetScale = await page.$eval('.photo-viewer img', (i) => {
 check("뷰어: '0' 키 → 확대 원복(1x)", resetScale === 1, `scale=${resetScale}`);
 
 await page.keyboard.press('Escape');
-await page.waitForTimeout(150);
+await settle(page);
 check('뷰어: Esc로 닫힘', (await page.locator('.photo-viewer').count()) === 0);
 
 // ── v0.26: 세로 사진 잘림(M-flex-clip) + Ctrl+휠 줌 + 핀치 줌 ──
@@ -935,7 +941,11 @@ await page.fill('input[placeholder^="이 순간을"]', '세로 사진 검증');
 await page.setInputFiles('.moment-photo-input', [{ name: 'tall.jpg', mimeType: 'image/jpeg', buffer: tallBuf }]);
 await page.getByRole('button', { name: '순간 저장' }).click();
 await page.waitForSelector('.pe-overlay', { timeout: 10000 });
-await page.waitForTimeout(500);
+await page.waitForFunction(() => {
+  const st = document.querySelector('.pe-stage');
+  const cv = document.querySelector('.pe-canvas');
+  return !!st && !!cv && cv.clientHeight > 0 && st.clientHeight >= cv.clientHeight - 1;
+});
 const clip = await page.evaluate(() => {
   const st = document.querySelector('.pe-stage');
   const cv = document.querySelector('.pe-canvas');
@@ -944,17 +954,22 @@ const clip = await page.evaluate(() => {
 check('세로 사진: 스테이지 무압착(캔버스 온전 표시)', clip.st >= clip.cv - 1, JSON.stringify(clip));
 
 // Ctrl+휠 확대(실입력: Control 키 + 휠) → 줌 슬라이더 값 상승
+const previewPixel = () => page.$eval('.pe-canvas', (c) => c.getContext('2d').getImageData(1, 1, 1, 1).data.join(','));
 const zoomBefore = parseFloat(await page.$eval('.pe-zoom', (i) => i.value));
+const pxBeforeWheel = await previewPixel();
 const cbox = await page.locator('.pe-canvas').boundingBox();
 await page.mouse.move(cbox.x + cbox.width / 2, cbox.y + cbox.height / 2);
 await page.keyboard.down('Control');
 await page.mouse.wheel(0, -300);
 await page.keyboard.up('Control');
-await page.waitForTimeout(600);
+await waitUntil(async () =>
+  Number(await page.$eval('.pe-zoom', (i) => i.value)) > zoomBefore && (await previewPixel()) !== pxBeforeWheel,
+);
 const zoomAfterWheel = parseFloat(await page.$eval('.pe-zoom', (i) => i.value));
 check('Ctrl+휠 → 미리보기 확대(줌 상승)', zoomAfterWheel > zoomBefore, `${zoomBefore} → ${zoomAfterWheel}`);
 
 // 핀치 줌(두 손가락, 합성 포인터) → 줌 추가 상승
+const pxBeforePinch = await previewPixel();
 await page.evaluate(() => {
   const cv = document.querySelector('.pe-canvas');
   const r = cv.getBoundingClientRect();
@@ -967,14 +982,19 @@ await page.evaluate(() => {
   ev('pointerup', 21, cx - 20, cy);
   ev('pointerup', 22, cx + 80, cy);
 });
-await page.waitForTimeout(500);
+await waitUntil(async () =>
+  Number(await page.$eval('.pe-zoom', (i) => i.value)) > zoomAfterWheel && (await previewPixel()) !== pxBeforePinch,
+);
 const zoomAfterPinch = parseFloat(await page.$eval('.pe-zoom', (i) => i.value));
 check('핀치(두 손가락 벌리기) → 확대', zoomAfterPinch > zoomAfterWheel, `${zoomAfterWheel} → ${zoomAfterPinch}`);
 
 // ── v0.39: 원근 펴기(4점) — 모드 진입 → 핸들 드래그 → 적용 → 픽셀 변화 → undo 원복 ──
-const pxPrePersp = await page.$eval('.pe-canvas', (c) => c.getContext('2d').getImageData(1, 1, 1, 1).data.join(','));
+const pxPrePersp = await previewPixel();
 await page.getByRole('button', { name: '📐 펴기' }).click();
-await page.waitForTimeout(400);
+await page.waitForFunction(() => {
+  const box = document.querySelector('.pe-quad-box');
+  return !!box && !box.hidden && document.querySelectorAll('.pe-quad-h').length === 4;
+});
 const quadShown = await page.evaluate(() => {
   const box = document.querySelector('.pe-quad-box');
   return box && !box.hidden && document.querySelectorAll('.pe-quad-h').length === 4;
@@ -998,16 +1018,20 @@ await page.evaluate(() => {
   ev('pointermove', sx, sy + wrap.height * 0.25);
   ev('pointerup', sx, sy + wrap.height * 0.25);
 });
-await page.waitForTimeout(200);
+await settle(page);
 const polyAfter = await page.$eval('.pe-quad-svg polygon', (p) => p.getAttribute('points'));
 check('펴기: 핸들 드래그 → 사다리꼴 갱신', polyBefore !== polyAfter, `${polyBefore} → ${polyAfter}`);
 await page.getByRole('button', { name: '📐 반듯하게 펴기' }).click();
-await page.waitForTimeout(600);
+await waitUntil(async () => {
+  const state = await page.$eval('.pe-quad-box', (b) => b.hidden);
+  const px = await page.$eval('.pe-canvas', (c) => c.getContext('2d').getImageData(1, 1, 1, 1).data.join(','));
+  return state && px !== pxPrePersp;
+});
 const quadGone = await page.$eval('.pe-quad-box', (b) => b.hidden);
 const pxPersp = await page.$eval('.pe-canvas', (c) => c.getContext('2d').getImageData(1, 1, 1, 1).data.join(','));
 check('펴기 적용: 오버레이 종료 + 픽셀 실제 변화', quadGone && pxPersp !== pxPrePersp, `${pxPrePersp} → ${pxPersp}`);
 await page.locator('.pe-undo').click();
-await page.waitForTimeout(600);
+await waitUntil(async () => (await page.$eval('.pe-canvas', (c) => c.getContext('2d').getImageData(1, 1, 1, 1).data.join(','))) === pxPrePersp);
 const pxUndoPersp = await page.$eval('.pe-canvas', (c) => c.getContext('2d').getImageData(1, 1, 1, 1).data.join(','));
 check('펴기 undo → 픽셀 원복', pxUndoPersp === pxPrePersp, `${pxPersp} → ${pxUndoPersp}`);
 
@@ -1032,7 +1056,7 @@ await page.getByRole('button', { name: '순간 저장' }).click();
 await page.waitForSelector('.pe-overlay', { timeout: 10000 });
 await page.getByRole('button', { name: '원본 사용', exact: true }).click();
 await page.waitForSelector('.pe-overlay', { state: 'detached' });
-await page.waitForTimeout(600);
+await page.locator('.moment-card', { hasText: '가로 사진 태블릿 검증' }).locator('.photo-thumb').first().waitFor();
 // ⚠️ **`.photo-thumb`의 last()가 방금 넣은 사진이라고 가정하지 않는다**(자기점검 2026-07-27).
 //
 // 이 검사는 흔들렸다 — 실측 4회 중 3회 실패. 처음엔 "레이아웃 대기가 짧아서"라고 **확인 없이
@@ -1136,12 +1160,17 @@ check('환율 배지: 다시 탭하면 접힘', hiddenAgain === true, String(hid
 //
 // §3-C: 이 블록은 장소·비용 칸을 채우고 순간을 하나 더 만든다. 뒤 검사가 「첫 순간」을 보지
 // 않도록 **폼을 비우고** 끝낸다.
-await page.locator('.pick-clear-all').click().catch(() => {});
+const clearBeforeGps = page.locator('.pick-clear-all');
+if (await clearBeforeGps.count()) await clearBeforeGps.click();
 await settle(page);
 await page.setInputFiles('.moment-photo-input', [
   { name: 'gps.jpg', mimeType: 'image/jpeg', buffer: withExifGps(imgBuf, '2026:07:16 09:30:00', 16.0544, 108.2022) },
 ]);
-await page.waitForTimeout(700);
+await page.waitForFunction(() => {
+  const note = document.querySelector('.place-photo-note');
+  const badge = document.querySelector('.place-picked');
+  return !!note && !note.hidden && (note.textContent ?? '').includes('16.05440') && !!badge && !badge.hidden;
+});
 const fromPhoto = await page.evaluate(() => {
   const n = document.querySelector('.place-photo-note');
   return {
@@ -1159,10 +1188,15 @@ check('사진 장소: 무엇이 지정됐는지 배지로 말한다', fromPhoto.
 
 // **사용자가 손댄 것은 덮지 않는다** — 이름을 적은 뒤 다른 사진을 골라도 그대로다.
 await page.fill('.place-input', '내가 적은 장소');
+const firstGpsPreview = await page.locator('.pick-cell img').first().getAttribute('src');
 await page.setInputFiles('.moment-photo-input', [
   { name: 'gps2.jpg', mimeType: 'image/jpeg', buffer: withExifGps(imgBuf, '2026:07:16 10:00:00', 21.0278, 105.8342) },
 ]);
-await page.waitForTimeout(600);
+await page.waitForFunction((previousSrc) => {
+  const input = document.querySelector('.moment-photo-input');
+  const src = document.querySelector('.pick-cell img')?.getAttribute('src') ?? '';
+  return input?.files?.[0]?.name === 'gps2.jpg' && src.length > 0 && src !== previousSrc;
+}, firstGpsPreview);
 const keptPlace = await page.evaluate(() => document.querySelector('.place-input')?.value ?? '');
 check('사진 장소: 사용자가 적은 이름을 사진이 덮지 않는다(앱이 사용자를 이기지 않는다)', keptPlace === '내가 적은 장소', keptPlace);
 
@@ -1230,7 +1264,10 @@ page.on('request', offBoxWatch);
 
 // 한 글자만 친다 — [🔍 검색]은 **누르지 않는다**. 그게 이 검사의 전부다.
 await page.fill('.moment-form .place-input', '시');
-await page.waitForTimeout(400);
+await page.waitForFunction(() => {
+  const r = document.querySelector('.moment-form .place-results');
+  return !!r && !r.hidden && [...r.querySelectorAll('.place-result-name')].some((n) => (n.textContent ?? '').includes('시드니'));
+});
 const lrTyped = await page.evaluate(() => {
   const r = document.querySelector('.moment-form .place-results');
   return {
@@ -1257,7 +1294,10 @@ check(
 
 // 못 찾았을 때 — 침묵은 「그런 곳은 없다」로 읽힌다. 대장이 아는 것은 **내가 담아 둔 곳뿐**이다.
 await page.fill('.moment-form .place-input', '없는곳입니다');
-await page.waitForTimeout(400);
+await page.waitForFunction(() => {
+  const r = document.querySelector('.moment-form .place-results');
+  return !!r && !r.hidden && (r.textContent ?? '').includes('내 장소') && (r.textContent ?? '').includes('검색');
+});
 const lrMiss = await page.evaluate(() => {
   const r = document.querySelector('.moment-form .place-results');
   return { hidden: r ? r.hidden : null, text: r?.textContent ?? '' };
@@ -1271,7 +1311,10 @@ check(
 // 🔴 **없어야 할 때 없는가** — 좌표를 붙여넣는 흐름에서는 대장 목록이 뜨면 안 된다.
 // 그건 장소 이름이 아니므로 대장에서 찾을 것이 없고, [🔍 검색]이 좌표로 알아본다.
 await page.fill('.moment-form .place-input', '41.3111, 69.2797');
-await page.waitForTimeout(400);
+await page.waitForFunction(() => {
+  const r = document.querySelector('.moment-form .place-results');
+  return !!r && r.hidden && r.querySelectorAll('.place-result').length === 0;
+});
 const lrCoord = await page.evaluate(() => {
   const r = document.querySelector('.moment-form .place-results');
   return { hidden: r ? r.hidden : null, n: r?.querySelectorAll('.place-result').length ?? 0 };
@@ -1284,7 +1327,10 @@ check(
 
 // 눌러 본다 — 그리는 것과 도는 것은 다른 층이다(§13 4항).
 await page.fill('.moment-form .place-input', '타슈');
-await page.waitForTimeout(400);
+await page.waitForFunction(() => {
+  const r = document.querySelector('.moment-form .place-results');
+  return !!r && !r.hidden && r.querySelectorAll('.place-result').length > 0;
+});
 await page.locator('.moment-form .place-results .place-result').first().click();
 await settle(page);
 const lrPicked = await page.evaluate(() => {
@@ -1307,7 +1353,7 @@ page.off('request', offBoxWatch);
 // 뒷정리 — 심은 픽스처와 폼 상태를 되돌린다(§3-C, 내 상태를 남기지 않는다).
 await page.locator('.moment-form .place-picked .chip-clear').first().click().catch(() => {});
 await page.fill('.moment-form .place-input', '');
-await page.waitForTimeout(200);
+await settle(page);
 await page.evaluate(async () => {
   await new Promise((resolve) => {
     const req = indexedDB.open('journey-archive');
@@ -1334,7 +1380,10 @@ await page.evaluate(async () => {
 
 // ① EXIF 자체가 없는 사진(스크린샷·메신저로 받은 것) — 원인이 사진 쪽에 있다고 말한다.
 await page.setInputFiles('.moment-photo-input', [{ name: 'nogps.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgBuf) }]);
-await page.waitForTimeout(600);
+await page.waitForFunction(() => {
+  const n = document.querySelector('.place-photo-note');
+  return !!n && !n.hidden && (n.textContent ?? '').includes('촬영 정보가 없어요');
+});
 const noExif = await page.evaluate(() => {
   const n = document.querySelector('.place-photo-note');
   return { hidden: n ? n.hidden : null, text: n?.textContent ?? '' };
@@ -1404,7 +1453,7 @@ check(
   chooserOpened === 'image/*',
   String(chooserOpened),
 );
-await page.waitForTimeout(300);
+await settle(page);
 const acceptAfter = await page.evaluate(() => document.querySelector('.moment-form .moment-photo-input')?.accept ?? '');
 check(
   '🔴 [🖼️ 갤러리에서]: 끝나면 **원본 보존 경로로 되돌린다**(다음 [사진 추가]가 위치를 잃지 않게)',
@@ -1425,7 +1474,12 @@ check(
 // 재는 것은 위성이 아니라 **배선**이다 — M-0038이 그 자리였다(유닛은 초록인데 배선이 끊겼다).
 // ─────────────────────────────────────────────────────────────────────────────
 await page.locator('.moment-form .place-here').click();
-await page.waitForTimeout(700);
+await page.waitForFunction(() => {
+  const f = document.querySelector('.moment-form');
+  const badge = f?.querySelector('.place-picked');
+  const button = f?.querySelector('.place-here');
+  return badge instanceof HTMLElement && !badge.hidden && (badge.textContent ?? '').includes('지금 내 위치') && !button?.disabled;
+});
 const hereApplied = await page.evaluate(() => {
   const f = document.querySelector('.moment-form');
   const badge = f?.querySelector('.place-picked');
@@ -1480,7 +1534,12 @@ await page.evaluate(() => {
   g.getCurrentPosition = (_ok, err) => err && err({ code: 1, message: 'denied' });
 });
 await page.locator('.moment-form .place-here').click();
-await page.waitForTimeout(400);
+await page.waitForFunction(() => {
+  const f = document.querySelector('.moment-form');
+  const note = f?.querySelector('.place-photo-note');
+  const button = f?.querySelector('.place-here');
+  return note instanceof HTMLElement && !note.hidden && (note.textContent ?? '').includes('권한') && !button?.disabled;
+});
 const hereDenied = await page.evaluate(() => {
   const f = document.querySelector('.moment-form');
   const note = f?.querySelector('.place-photo-note');
@@ -1520,7 +1579,7 @@ await page.evaluate(() => {
 await page.setInputFiles('.moment-photo-input', [
   { name: 'timeonly.jpg', mimeType: 'image/jpeg', buffer: withExifDateTime(imgBuf, '2026:07:16 09:30:00') },
 ]);
-await page.waitForTimeout(600);
+await page.waitForFunction(() => (document.querySelector('.place-photo-note')?.textContent ?? '').includes('촬영시각은 읽었'));
 const timeOnly = await page.evaluate(() => document.querySelector('.place-photo-note')?.textContent ?? '');
 
 // ── 🔬 **앱이 받은 바이트를 앱이 말하는가** (2026-08-01 · M-0066 · §12) ──────────
@@ -1584,7 +1643,7 @@ page.once('dialog', (d) => void d.accept());
 await page.setInputFiles('.moment-photo-input', [
   { name: 'gps3.jpg', mimeType: 'image/jpeg', buffer: withExifGps(imgBuf, '2026:07:16 11:00:00', 16.0544, 108.2022) },
 ]);
-await page.waitForTimeout(900);
+await page.waitForFunction(() => localStorage.getItem('bugeon:photoGeoOk') === '1' && document.querySelector('.place-input')?.value === '미케 비치');
 const consented = await page.evaluate(() => ({
   ok: localStorage.getItem('bugeon:photoGeoOk'),
   note: document.querySelector('.place-photo-note')?.textContent ?? '',
@@ -1626,7 +1685,7 @@ for (let i = 0; i < 5 && !placeCleared; i += 1) {
     const inp = document.querySelector('.moment-form .place-input');
     if (inp instanceof HTMLInputElement) { inp.value = ''; inp.dispatchEvent(new Event('input', { bubbles: true })); }
   });
-  await page.waitForTimeout(150);
+  await settle(page);
   // 🔴 배지는 **DOM에서 사라지지 않는다** — `hidden`으로만 감춘다(`buildPickedBadge`).
   // 처음엔 `!querySelector('.place-picked')`로 읽었고, 그건 **영원히 false**라 되읽기가
   // 공허했다(§4 — 되읽기 자신도 비공허해야 한다). 존재가 아니라 **보이는가**를 묻는다.
@@ -1646,7 +1705,7 @@ await page.fill('input[placeholder^="이 순간을"]', '비용 메모 검증');
 await page.fill('input[placeholder^="💰 비용"]', '12000');
 await page.fill('[data-expense-note]', '반미 샌드위치');
 await page.getByRole('button', { name: '순간 저장' }).click();
-await page.waitForTimeout(1200);
+await page.locator('.moment-card', { hasText: '비용 메모 검증' }).filter({ hasText: '반미 샌드위치' }).first().waitFor();
 const moneyChip = await page.evaluate(() =>
   [...document.querySelectorAll('.chip.money')].map((c) => c.textContent ?? '').join(' | '),
 );
@@ -1677,7 +1736,10 @@ await page.route('**/reverse**', (route) =>
 await page.setInputFiles('.moment-photo-input', [
   { name: 'gps4.jpg', mimeType: 'image/jpeg', buffer: withExifGps(imgBuf, '2026:07:16 12:00:00', 16.0544, 108.2022) },
 ]);
-await page.waitForTimeout(900);
+await page.waitForFunction(() => {
+  const b = document.querySelector('.zone-suggest');
+  return b instanceof HTMLElement && !b.hidden && (b.textContent ?? '').includes('베트남');
+});
 const zoneSug = await page.evaluate(() => {
   const b = document.querySelector('.zone-suggest');
   return {
@@ -1697,7 +1759,7 @@ check('시간대 제안: 받아들일 버튼이 있다', zoneSug.btn.includes('�
 // 🔴 §13 4항 — **누른다.** 라벨만 읽는 것은 확인한 것이 아니다.
 await page.locator('[data-zone-suggest]').first().click();
 await page.waitForSelector('.tl-time', { timeout: 10000 });
-await page.waitForTimeout(700);
+await page.waitForFunction(() => document.querySelectorAll('.zone-suggest:not([hidden])').length === 0 && document.querySelectorAll('.zone-notice').length === 0);
 const afterApply = await page.evaluate(() => ({
   notice: document.querySelectorAll('.zone-notice').length,
   suggest: document.querySelectorAll('.zone-suggest:not([hidden])').length,
@@ -1712,7 +1774,7 @@ await page.unroute('**/reverse**');
 await page.locator('.hero-edit').first().click();
 await settle(page);
 await page.selectOption('[data-zone-input]', '');
-await page.waitForTimeout(150);
+await settle(page);
 await page.locator('.edit-panel .btn-primary', { hasText: '저장' }).first().click();
 await page.waitForSelector('.zone-notice', { timeout: 10000 });
 check(
@@ -1739,11 +1801,11 @@ await page.route('**/reverse**', (route) =>
 // 실제로 그렇게 짰다가 RED로 떴다(검사가 자기 전제를 세우지 않은 것이다).
 await page.fill('input[placeholder^="이 순간을"]', '편집 폼 장소 검증');
 await page.getByRole('button', { name: '순간 저장' }).click();
-await page.waitForTimeout(1200);
 const editCard = page.locator('.moment-card', { hasText: '편집 폼 장소 검증' }).first();
+await editCard.waitFor();
 await page.setViewportSize({ width: 1600, height: 900 });
 await editCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
-await page.waitForTimeout(400);
+await editCard.locator('.moment-edit').waitFor();
 const addRowAlignment = await editCard.evaluate((c) => {
   const controls = [
     c.querySelector('.moment-addphoto-btn'),
@@ -1765,7 +1827,7 @@ check(
   JSON.stringify(addRowAlignment),
 );
 await page.setViewportSize({ width: 390, height: 844 });
-await page.waitForTimeout(150);
+await settle(page);
 const beforeEdit = await editCard.evaluate((c) => {
   const p = c.querySelector('.place-input');
   const badge = c.querySelector('.place-picked');
@@ -1786,10 +1848,17 @@ await editCard.locator('.moment-photo-input').setInputFiles([
 for (let i = 0; i < 2; i++) {
   await page.waitForSelector('.pe-overlay', { timeout: 20000 });
   await page.getByRole('button', { name: '적용', exact: true }).click();
-  await page.waitForTimeout(500);
+  if (i === 0) {
+    await page.waitForFunction(() => /2\/2/.test(document.querySelector('.pe-file')?.textContent ?? ''), null, { timeout: 20000 });
+  } else {
+    await page.waitForSelector('.pe-overlay', { state: 'detached', timeout: 30000 });
+  }
 }
 await page.waitForSelector('.undo-toast', { timeout: 30000 });
-await page.waitForTimeout(400);
+await page.waitForFunction(() => {
+  const card = [...document.querySelectorAll('.moment-card')].find((c) => c.textContent?.includes('편집 폼 장소 검증'));
+  return (card?.querySelector('.chip.gps')?.textContent ?? '').includes('미케 비치');
+});
 // 🔴 재렌더가 끝난 **카드 자체**를 본다. 폼 칸이 아니라 **순간에 실제로 써 넣은 값**이라야
 // 한다 — 사진 추가는 곧바로 저장·재렌더하므로 폼에만 채우면 그 즉시 사라진다.
 const editFilled = await page.evaluate(() => {
@@ -1827,7 +1896,8 @@ await keptCard.locator('.moment-photo-input').setInputFiles([
 ]);
 await page.waitForSelector('.pe-overlay', { timeout: 20000 });
 await page.getByRole('button', { name: '적용', exact: true }).click();
-await page.waitForTimeout(1500);
+await page.waitForSelector('.pe-overlay', { state: 'detached', timeout: 30000 });
+await page.waitForSelector('.undo-toast', { timeout: 30000 });
 const kept2 = await page.evaluate(() => {
   const card = [...document.querySelectorAll('.moment-card')].find((c) => c.textContent?.includes('편집 폼 장소 검증'));
   return card?.querySelector('.chip.gps')?.textContent ?? '';
@@ -1846,8 +1916,8 @@ await page.unroute('**/reverse**');
 //  ② 좌표만 들어가고 이름이 없으면 칩을 안 그렸다 → **넣었는데 화면은 그대로**였다.
 await page.fill('input[placeholder^="이 순간을"]', 'GPS 없는 사진 검증');
 await page.getByRole('button', { name: '순간 저장' }).click();
-await page.waitForTimeout(1200);
 const noGpsCard = page.locator('.moment-card', { hasText: 'GPS 없는 사진 검증' }).first();
+await noGpsCard.waitFor();
 await noGpsCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
 await settle(page);
 // 🔴 앞 블록의 토스트가 5초 남아 있다 — 지우지 않으면 **남의 토스트를 내 결과로 읽는다**
@@ -1894,7 +1964,7 @@ check(
 // (§10 ③). 그래서 이제 **잰다** — 폰 폭에서 넘침·잘림·화면 밖 여부를.
 // ─────────────────────────────────────────────────────────────────────────────
 await page.setViewportSize({ width: 344, height: 800 }); // 폴드5 접은 폭
-await page.waitForTimeout(200);
+await settle(page);
 const toastFit = await page.evaluate(() => {
   const t = document.querySelector('.undo-toast');
   const m = t?.querySelector('.undo-msg');
@@ -1929,7 +1999,7 @@ check(
   JSON.stringify(toastFit),
 );
 await page.setViewportSize({ width: 390, height: 844 }); // §3-C — 내가 바꾼 뷰포트를 되돌린다
-await page.waitForTimeout(150);
+await settle(page);
 
 // ② 이름 없이 좌표만 들어간 순간도 **칩으로 보인다**(동의 없이 좌표만 넣은 경우가 그것이다).
 await noGpsCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
@@ -1944,7 +2014,10 @@ await noGpsCard.locator('.moment-photo-input').setInputFiles([
 await page.waitForSelector('.pe-overlay', { timeout: 20000 });
 await page.getByRole('button', { name: '적용', exact: true }).click();
 await page.waitForSelector('.undo-toast', { timeout: 20000 });
-await page.waitForTimeout(600);
+await page.waitForFunction(() => {
+  const card = [...document.querySelectorAll('.moment-card')].find((c) => c.textContent?.includes('GPS 없는 사진 검증'));
+  return (card?.querySelector('.chip.gps')?.textContent ?? '').includes('37.5665');
+});
 const coordOnly = await page.evaluate(() => {
   const c = [...document.querySelectorAll('.moment-card')].find((x) => x.textContent?.includes('GPS 없는 사진 검증'));
   return { chip: c?.querySelector('.chip.gps')?.textContent ?? '', toast: document.querySelector('.undo-toast')?.textContent ?? '' };
@@ -1967,7 +2040,7 @@ await page.unroute('**/reverse**');
 // 개수를 세지 않으므로 그대로 둔다. 세는 검사가 생기면 여기서 지워야 한다).
 await editCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
 await page.evaluate(() => window.scrollTo(0, 0));
-await page.waitForTimeout(300);
+await settle(page);
 
 // ── 🕒 시간대: `<input list>`가 아니라 **진짜 드롭다운**인가 ──
 // 사용자 제안: *"드롭다운해서 선택하게끔"*. 이건 취향이 아니라 **내가 이미 flag한 위험**이었다 —
@@ -2012,13 +2085,13 @@ check('시간대: 「미지정」이 맨 앞이고 빈 값이다(비우는 것�
 // 알아야 한다(그래서 `buildZoneSelect`에 `ensureOption`이 있다 — 저장된 별칭이 조용히
 // 「미지정」으로 바뀌지 않게).
 await page.selectOption('[data-zone-input]', 'Asia/Bangkok');
-await page.waitForTimeout(250);
+await settle(page);
 const zonePick = await page.evaluate(() => document.querySelector('.zone-field .zone-preview')?.textContent ?? '');
 check('시간대: 고르면 미리보기가 **다시 그려진다**', /UTC\+7/.test(zonePick), zonePick);
 
 // §3-C 되돌리기 — 뒤 검사들이 보는 화면을 바꿔 놓지 않는다.
 await page.selectOption('[data-zone-input]', '');
-await page.waitForTimeout(150);
+await settle(page);
 await page.locator('.hero-edit').first().click(); // 패널을 닫아 원래 상태로
 await settle(page);
 const zoneRestored = await page.evaluate(() => {
@@ -2030,7 +2103,7 @@ check('시간대: 되돌렸다(내 상태를 뒤 검사에 남기지 않는다 �
 // `.detail-compose`(sticky)와 타임라인의 **top 차이**를 재므로 스크롤된 채로는 어긋난다.
 // goto·fetch 스텁·뷰포트에 이어 **네 번째** 형태다 — 되돌릴 것의 목록은 내가 생각한 것보다 길다.
 await page.evaluate(() => window.scrollTo(0, 0));
-await page.waitForTimeout(150);
+await settle(page);
 
 // ── 🔴 v1.27 (M-0049 후반): 「그 자리의 시계」가 **화면에 실제로 나오는가** ────────────
 // 사용자 지적(2026-07-29, 스크린샷): *"사진 찍은 나라 또는 지역의 시간으로 적용되게 고정하고,
@@ -2084,7 +2157,7 @@ check('시계: 버튼이 잠긴 채 남지 않는다', afterFix.btnStillEnabled 
 
 // 집 시간대를 명시로 고정한다 — 이 컨테이너의 기기 시간대에 기대면 검사가 환경에 흔들린다.
 await page.selectOption('[data-home-zone-input]', 'Asia/Seoul');
-await page.waitForTimeout(200);
+await settle(page);
 const homePrev = await page.evaluate(() => {
   const i = document.querySelector('[data-home-zone-input]');
   return i?.parentElement?.querySelector('.zone-preview')?.textContent ?? '';
@@ -2101,13 +2174,18 @@ const noFreeText = await page.evaluate(() => {
 check('시계: 오타를 칠 자리가 **없다**(드롭다운이라 값이 목록 안에서만 나온다)', noFreeText.tag === 'SELECT' && noFreeText.values, JSON.stringify(noFreeText));
 
 await page.selectOption('[data-zone-input]', 'Asia/Bangkok');
-await page.waitForTimeout(200);
+await settle(page);
 const preview = await page.evaluate(() => document.querySelector('.zone-field .zone-preview')?.textContent ?? '');
 check('시계: 고른 시간대를 **눈으로 확인**시킨다(id만 보고는 아무도 모른다 — §12)', /UTC\+7/.test(preview) && preview.includes('인도차이나'), preview);
 
 await page.locator('.edit-panel .btn-primary', { hasText: '저장' }).first().click();
 await page.waitForSelector('.tl-time', { timeout: 10000 });
-await page.waitForTimeout(500);
+await page.waitForFunction((oldTime) => {
+  const time = document.querySelector('.tl-time')?.textContent ?? '';
+  const home = document.querySelector('.tl-time-home')?.textContent ?? '';
+  return document.querySelectorAll('.zone-notice').length === 0 &&
+    /^\d{2}:\d{2}$/.test(time) && time !== oldTime && /\d{2}:\d{2}/.test(home);
+}, clock0.times[0] ?? '');
 const clock1 = await page.evaluate(() => ({
   time: document.querySelector('.tl-time')?.textContent ?? '',
   home: document.querySelector('.tl-time-home')?.textContent ?? '',
@@ -2130,7 +2208,7 @@ await page.locator('.hero-edit').first().click();
 await settle(page);
 await page.selectOption('[data-zone-input]', '');
 await page.selectOption('[data-home-zone-input]', homeZoneBefore);
-await page.waitForTimeout(150);
+await settle(page);
 await page.locator('.edit-panel .btn-primary', { hasText: '저장' }).first().click();
 await page.waitForSelector('.zone-notice', { timeout: 10000 });
 const restored = await page.evaluate(() => ({
@@ -2205,7 +2283,7 @@ await page.waitForSelector('.chip.audio', { timeout: 10000 });
 // **화면 안으로 들여놓고** 잰다. `elementFromPoint`는 뷰포트 밖이면 null을 돌려주는데,
 // 그걸 "안 눌린다"로 읽으면 멀쩡한 것을 결함이라 부른다(오탐은 틀린 게이트다 — §11 ③).
 await page.evaluate(() => document.querySelector('.chip.audio')?.scrollIntoView({ block: 'center' }));
-await page.waitForTimeout(150);
+await settle(page);
 const chipGeo = await page.evaluate(() => {
   const audio = document.querySelector('.chip.audio');
   const sibling = document.querySelector('.chip.gps') ?? document.querySelector('.chip:not(.audio)');
@@ -2352,7 +2430,7 @@ const seededCard = page.locator('.moment-card', { hasText: placeSeed?.title ?? '
 const seededChip = seededCard.locator('.chip.gps').first();
 const seededMapButton = seededChip.locator('.place-chip-map');
 await seededChip.scrollIntoViewIfNeeded();
-await page.waitForTimeout(150);
+await settle(page);
 const chipIsButton = await seededMapButton.evaluate((c) => ({
   tag: c.tagName,
   tappable: c.classList.contains('place-chip-map'),
@@ -2517,7 +2595,7 @@ await page.evaluate(async () => {
 await page.reload();
 await page.waitForSelector('.moment-form .emo-row', { timeout: 15000 }).catch(() => {});
 await page.setViewportSize({ width: 412, height: 915 });
-await page.waitForTimeout(220);
+await settle(page);
 if (process.env.FORM_DENSITY_SCREENSHOT) {
   await page.screenshot({ path: resolve(process.env.FORM_DENSITY_SCREENSHOT), fullPage: true });
 }
@@ -2585,7 +2663,7 @@ check('감정 선택: 같은 버튼을 다시 누르면 해제됨', emotionOn ==
 // 계약: ①어느 폭에서도 가로 넘침 0 ②1100px 이상에서 [기록 폼 | 타임라인] 2단 ③그 미만은 세로.
 async function layoutAt(w, h) {
   await page.setViewportSize({ width: w, height: h });
-  await page.waitForTimeout(220);
+  await settle(page);
   return page.evaluate(() => {
     // 🔴 **재기 전에 맨 위로 올린다.** `.detail-compose`는 넓은 화면에서 `position: sticky`라
     // 스크롤된 상태에서는 타임라인과 top이 어긋나고, 그러면 2단인데도 「2단 아님」이 된다.
@@ -2627,7 +2705,7 @@ check('히어로: 상태 배지가 뒤로가기 버튼과 안 겹침', noOverlap
 // 계약: 정상 상태(동기화됨)는 내용 폭만 차지하고 헤더 우측 도구 묶음에 선다.
 // 여행 카드는 기억 제목·기간을 잃지 않는 범위에서 높이를 줄여 한 화면에 더 많이 보인다.
 await page.setViewportSize({ width: 1480, height: 920 });
-await page.waitForTimeout(200);
+await settle(page);
 // `.sync-note`는 홈과 여행 상세 **양쪽에** 있다 — 어디를 보고 있는지 명시하지 않으면
 // 엉뚱한 줄을 검사한다(실제로 그렇게 짰다가 이 검사가 잡았다). 홈으로 돌아가서 본다.
 await page.goto(`http://localhost:4173${BASE}`);
@@ -2711,7 +2789,7 @@ await page.waitForSelector('.home-tree button', { timeout: 15000 }).catch(() => 
 
 async function homeTreeAt(w, h, targetPage = page) {
   await targetPage.setViewportSize({ width: w, height: h });
-  await targetPage.waitForTimeout(220);
+  await settle(targetPage);
   return targetPage.evaluate(() => {
     window.scrollTo(0, 0);
     const de = document.documentElement;
@@ -2813,7 +2891,7 @@ if (!treeWide.exists) {
   check('홈 트리 밀도: 좁은 화면은 44px 터치 표적 유지', phoneTreeTarget >= 44, `${phoneTreeTarget}px`);
   // 되돌리기 + 상호작용: 넓은 화면에서 트리 버튼을 실제로 누른다.
   await page.setViewportSize({ width: 1480, height: 920 });
-  await page.waitForTimeout(220);
+  await settle(page);
   const before = await page.evaluate(() => document.querySelectorAll('.trip-list > *').length);
   // '전체'가 아닌 첫 항목(연도/월/기간 미정)을 누른다 — 없으면 대상 미확보로 실패.
   const clicked = await page.evaluate(() => {
@@ -2822,7 +2900,7 @@ if (!treeWide.exists) {
     b.click();
     return true;
   });
-  await page.waitForTimeout(250);
+  await settle(page);
   const filtered = await page.evaluate(() => ({
     nowShown: !document.querySelector('.filter-now')?.hidden,
     nowText: document.querySelector('.filter-now')?.textContent ?? '',
@@ -2936,7 +3014,12 @@ check('상태 줄: 갈 곳이 있다는 신호가 글리프로 보인다(색만�
 check('상태 줄: 손가락 표적 44px 이상', (noteAct2?.h ?? 0) >= 44, `${noteAct2?.h}px`);
 
 await page.click('.sync-note');
-await page.waitForTimeout(1200);
+await page.waitForFunction(() => {
+  const ov = document.querySelector('.guide-overlay');
+  return Boolean(ov?.querySelector('.guide-detail-title'))
+    && Boolean(ov?.querySelector('.guide-back'))
+    && ov.querySelectorAll('.guide-card').length === 0;
+});
 const jumped = await page.evaluate(() => {
   const ov = document.querySelector('.guide-overlay');
   return {
@@ -2956,7 +3039,7 @@ check('상태 줄: 거기서 허브 홈으로 되돌아올 길이 있다', jumpe
 
 // 뒷정리 — 주입한 픽스처를 남기면 뒤따르는 검사가 오염된다.
 await page.keyboard.press('Escape');
-await page.waitForTimeout(300);
+await settle(page);
 await page.evaluate(async () => {
   await new Promise((resolve) => {
     const req = indexedDB.open('journey-archive');
@@ -2970,20 +3053,24 @@ await page.evaluate(async () => {
   });
 });
 await page.reload();
-await page.waitForTimeout(900);
+await page.waitForSelector('.sync-note');
 
 // ── v0.69: 진단 도구가 **판정**을 하는가(정적 게이트가 못 보는 층) ──
 // 계약(CLAUDE.md §8): ① 총괄 판정이 계산되어 '확인 중…'을 벗어난다 ② 정상 지표는 카드가 아니라
 // 접힌 한 줄이다 ③ 이상 지표만 카드로 남는다 ④ 지표에 기대값('정상')이 화면에 실제로 보인다.
 await page.setViewportSize({ width: 412, height: 915 });
 await page.goto(`http://localhost:4173${BASE}`);
-await page.waitForTimeout(400);
+await page.getByRole('button', { name: /데이터 관리/ }).first().waitFor();
 // [데이터 관리] → [진단 도구] 경로로 실제 사용자처럼 진입한다(번들을 직접 import하지 않는다 —
 // 해시가 바뀌기도 하고, 무엇보다 사용자가 실제로 걷는 길을 걸어야 의미가 있다).
 await page.getByRole('button', { name: /데이터 관리/ }).first().click().catch(() => {});
-await page.waitForTimeout(400);
+await page.locator('[data-card="진단 도구"], .guide-card:has-text("진단 도구")').first().waitFor();
 await page.locator('[data-card="진단 도구"], .guide-card:has-text("진단 도구")').first().click().catch(() => {});
-await page.waitForTimeout(1200);
+await page.waitForFunction(() => {
+  const roll = document.querySelector('[data-rollup]');
+  const line = roll?.querySelector('.vd-rollup-line')?.textContent ?? '';
+  return line.length > 0 && !line.includes('확인 중') && !roll?.classList.contains('pending');
+});
 
 const hub = await page.evaluate(() => {
   const roll = document.querySelector('[data-rollup]');
@@ -3001,7 +3088,10 @@ check('진단 허브: 총괄 판정이 계산됨(확인 중… 벗어남)',
 
 // 도구 하나를 열어 판정 레이아웃을 실제로 확인한다(동기화 상태 — 지표 3개 중 정상이 접히는가).
 await page.locator('[data-tool="동기화 상태"]').first().click().catch(() => {});
-await page.waitForTimeout(1200);
+await page.waitForFunction(() => {
+  const head = document.querySelector('[data-verdict-tool] .vd-headline')?.textContent ?? '';
+  return head.length > 0 && !head.includes('확인 중');
+});
 const tool = await page.evaluate(() => {
   const w = document.querySelector('[data-verdict-tool]');
   if (!w) return null;
@@ -3031,12 +3121,13 @@ check('진단 도구: 폰 세로 가로 넘침 0', Boolean(tool) && tool.overflo
 // v0.75: 저장 상태 도구 — 로그인 전에는 '확인 불가'로 정직하게 말하는가(실패로 겁주지 않는다)
 // 앞 검사가 상세 화면을 열어 둔 상태다 — 허브로 돌아가야 카드가 존재한다.
 await page.locator('.guide-back').first().click().catch(() => {});
-await page.waitForTimeout(500);
+await page.locator('[data-tool="진단 요약 복사"]').first().waitFor();
 // ── v0.97: 진단 요약이 **지표까지** 담는가(스크린샷 대신 붙여넣을 수 있는가) ────────
 // 왜 이 층인가(2026-07-26 사용자 "수백 장은 찍은 거 같아"): 요약에 판정 한 줄만 있으면
 // 복사해 봐야 숫자가 없어 결국 다시 사진을 찍게 된다. 실제로 만들어진 문자열을 본다.
 await page.locator('[data-tool="진단 요약 복사"]').first().click();
-await page.waitForTimeout(2000);
+await page.waitForFunction(() => [...document.querySelectorAll('.vd-evidence-sum')]
+  .some((node) => (node.textContent ?? '').includes('원문')));
 // 요약은 클립보드로만 나가고 화면엔 안 보인다 → 접힌 「원문 보기」를 펼쳐 실제 문자열을 읽는다.
 // (복사가 막힌 브라우저에서 사용자가 쓰는 경로도 이것이라, 이 경로가 곧 사용자의 경로다.)
 await page.evaluate(() => {
@@ -3044,15 +3135,23 @@ await page.evaluate(() => {
     if ((d.querySelector('.vd-evidence-sum')?.textContent || '').includes('원문')) d.open = true;
   }
 });
-await page.waitForTimeout(1500);
+await page.waitForFunction(() => {
+  const text = document.querySelector('.vd-pre')?.textContent ?? '';
+  return text.length > 0 && !text.includes('만드는 중');
+});
 const summaryTxt = await page.evaluate(() => document.querySelector('.vd-pre')?.textContent ?? '');
 check('진단 요약: 지표의 「지금 / 정상」이 글로 들어간다(사진 대신 붙여넣기)',
   /지금 .{1,40} \/ 정상 /.test(summaryTxt), summaryTxt.slice(0, 140));
 await page.locator('.guide-back').first().click().catch(() => {});
-await page.waitForTimeout(500);
+await page.locator('[data-tool="저장 상태 · 기기별 현황"]').first().waitFor();
 
 await page.locator('[data-tool="저장 상태 · 기기별 현황"]').first().click();
-await page.waitForTimeout(900);
+await page.waitForFunction(() => {
+  const w = document.querySelector('[data-verdict-tool]');
+  const head = w?.querySelector('.vd-headline')?.textContent ?? '';
+  const badge = w?.querySelector('.vd-badge-txt')?.textContent ?? '';
+  return head.length > 0 && badge.length > 0 && !head.includes('확인 중');
+});
 const store = await page.evaluate(() => {
   const w = document.querySelector('[data-verdict-tool]');
   return w ? { head: w.querySelector('.vd-headline')?.textContent ?? '', badge: w.querySelector('.vd-badge-txt')?.textContent ?? '' } : null;
@@ -3085,7 +3184,11 @@ check('저장 상태: 이름 바꾸기는 주행동이 아니다(§5.4)', rename
 // 실제로 쳐 넣고 눌러서 **화면이 바뀌는지** 본다 — 저장했다는 말이 아니라 결과를 읽는다.
 await page.fill('[data-rename-device-input]', '갤럭시 탭');
 await page.click('[data-rename-device]');
-await page.waitForTimeout(700);
+await page.waitForFunction(() => {
+  const ctx = document.querySelector('.vd-context')?.textContent ?? '';
+  const kept = document.querySelector('[data-rename-device-input]')?.value ?? '';
+  return ctx.includes('갤럭시 탭') && kept === '갤럭시 탭';
+});
 const renamed = await page.evaluate(() => ({
   msg: document.querySelector('.vd-msg')?.textContent ?? '',
   ctx: document.querySelector('.vd-context')?.textContent ?? '',
@@ -3099,7 +3202,11 @@ check('저장 상태: 재판정 후에도 입력칸이 방금 지은 이름을 �
 // 되돌릴 길이 있는가 — 비우고 누르면 자동 감지로 돌아가야 한다.
 await page.fill('[data-rename-device-input]', '');
 await page.click('[data-rename-device]');
-await page.waitForTimeout(700);
+await page.waitForFunction(() => {
+  const ctx = document.querySelector('.vd-context')?.textContent ?? '';
+  const msg = document.querySelector('.vd-msg')?.textContent ?? '';
+  return !ctx.includes('갤럭시 탭') && msg.includes('자동 감지');
+});
 const reverted = await page.evaluate(() => ({
   ctx: document.querySelector('.vd-context')?.textContent ?? '',
   msg: document.querySelector('.vd-msg')?.textContent ?? '',
@@ -3112,11 +3219,11 @@ check('저장 상태: 이름을 비우면 자동 감지로 되돌아간다(되�
 // 유닛은 파싱 규칙만 본다. "사용자 눈에 별표가 보이는가"는 실제 렌더만 답할 수 있다.
 // 원래 결함은 [데이터 관리 › 휴지통]의 영구삭제 설명에서 사용자가 발견했다 — 그 화면을 연다.
 await page.goto(`http://localhost:4173${BASE}`);
-await page.waitForTimeout(400);
+await page.getByRole('button', { name: /데이터 관리/ }).first().waitFor();
 await page.getByRole('button', { name: /데이터 관리/ }).first().click().catch(() => {});
-await page.waitForTimeout(400);
+await page.locator('.guide-card:has-text("휴지통")').first().waitFor();
 await page.locator('.guide-card:has-text("휴지통")').first().click().catch(() => {});
-await page.waitForTimeout(600);
+await page.getByRole('button', { name: '휴지통 모두 영구삭제' }).waitFor();
 const bulkTrashPurge = page.getByRole('button', { name: '휴지통 모두 영구삭제' });
 check('휴지통 일괄삭제: 현재 보이는 항목을 비우는 버튼이 실제로 있다', await bulkTrashPurge.count() === 1);
 await bulkTrashPurge.click();
@@ -3137,10 +3244,15 @@ const trashText = await page.evaluate(() => {
 await page.locator('.dm-trash-row button:has-text("영구삭제")').first().click().catch(() => {});
 await settle(page);
 await page.locator('.dm-trash-row button:has-text("정말 지움")').first().click().catch(() => {});
-await page.waitForTimeout(1000);
+await page.waitForFunction(() => [...document.querySelectorAll('.guide-overlay .sync-note')]
+  .some((node) => !node.hidden
+    && (node.querySelector('.sync-note-go')?.getAttribute('aria-label') ?? '').length > 0));
 const trashNote = await page.evaluate(() => {
-  const n = document.querySelector('.guide-overlay .sync-note');
-  if (!n || n.hidden) return null;
+  const n = [...document.querySelectorAll('.guide-overlay .sync-note')]
+    .find((node) => node instanceof HTMLElement
+      && !node.hidden
+      && (node.querySelector('.sync-note-go')?.getAttribute('aria-label') ?? '').length > 0);
+  if (!(n instanceof HTMLElement)) return null;
   const r = n.getBoundingClientRect();
   const panel = n.closest('.guide-detail-body')?.getBoundingClientRect();
   return {
@@ -3167,9 +3279,9 @@ check('휴지통: 강조가 <strong>으로 실제 렌더된다', trashText.stron
 
 // 앱 정보(변경 이력) — 내가 v0.69 노트에 새 `**`를 넣었던 자리.
 await page.goto(`http://localhost:4173${BASE}`);
-await page.waitForTimeout(400);
+await page.getByRole('button', { name: /앱 정보|정보/ }).first().waitFor();
 await page.getByRole('button', { name: /앱 정보|정보/ }).first().click().catch(() => {});
-await page.waitForTimeout(600);
+await page.locator('.guide-modal, .about-modal').first().waitFor();
 const aboutTxt = await page.evaluate(() => document.querySelector('.guide-modal, .about-modal, body')?.textContent ?? '');
 check('변경 이력: 화면에 마크다운 별표가 안 보인다', !aboutTxt.includes('**'),
   aboutTxt.includes('**') ? `노출: ${aboutTxt.slice(aboutTxt.indexOf('**') - 20, aboutTxt.indexOf('**') + 40)}` : 'clean');
@@ -3180,7 +3292,7 @@ check('변경 이력: 화면에 마크다운 별표가 안 보인다', !aboutTxt
 // 같은 결함이 드러났다 — 좌표를 찍고 나면 되돌릴 길이 없었다.
 await page.setViewportSize({ width: 412, height: 915 });
 await page.goto(`http://localhost:4173${BASE}`);
-await page.waitForTimeout(500);
+await page.locator('.trip-card').first().waitFor();
 await page.locator('.trip-card').first().click();
 await page.waitForSelector('.moment-form', { timeout: 8000 });
 
@@ -3211,7 +3323,8 @@ await page.setInputFiles('.moment-photo-input', [
   { name: 'p2.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgBuf) },
   { name: 'p3.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgBuf) },
 ]);
-await page.waitForTimeout(400);
+await page.waitForFunction(() => document.querySelectorAll('.pick-cell').length === 3
+  && document.querySelector('.moment-photo-input')?.files?.length === 3);
 const pick0 = await page.evaluate(() => ({
   cells: document.querySelectorAll('.pick-cell').length,
   count: document.querySelector('.moment-photo-count')?.textContent ?? '',
@@ -3235,7 +3348,11 @@ check(
 await page.setInputFiles('.moment-photo-input', [
   { name: 'exif.jpg', mimeType: 'image/jpeg', buffer: withExifDateTime(imgBuf, '2026:07:16 09:30:00') },
 ]);
-await page.waitForTimeout(500);
+await page.waitForFunction(() => {
+  const note = document.querySelector('.when-note')?.textContent ?? '';
+  const value = document.querySelector('.when-input')?.value ?? '';
+  return note.includes('사진에서') && value.startsWith('2026-07-16T09:30');
+});
 const whenExif = await page.evaluate(() => ({
   note: document.querySelector('.when-note')?.textContent ?? '',
   value: document.querySelector('.when-input')?.value ?? '',
@@ -3249,7 +3366,8 @@ check(
 // 사용자가 직접 고친 값은 **사진을 더 골라도 덮이지 않는다**(앱이 사용자를 이기지 않는다).
 await page.fill('.when-input', '2026-07-16T09:30');
 await page.setInputFiles('.moment-photo-input', [{ name: 'p9.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgBuf) }]);
-await page.waitForTimeout(400);
+await page.waitForFunction(() => document.querySelectorAll('.pick-cell').length === 1
+  && document.querySelector('.moment-photo-input')?.files?.length === 1);
 const kept = await page.evaluate(() => document.querySelector('.when-input')?.value ?? '');
 check('발생 시각: 사용자가 고친 값을 추측이 덮지 않는다', kept === '2026-07-16T09:30', kept);
 await page.setInputFiles('.moment-photo-input', [
@@ -3257,7 +3375,8 @@ await page.setInputFiles('.moment-photo-input', [
   { name: 'p2.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgBuf) },
   { name: 'p3.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(imgBuf) },
 ]);
-await page.waitForTimeout(400);
+await page.waitForFunction(() => document.querySelectorAll('.pick-cell').length === 3
+  && document.querySelector('.moment-photo-input')?.files?.length === 3);
 
 await page.locator('.pick-x').first().click();
 await settle(page);
@@ -3622,10 +3741,33 @@ await page.evaluate(() => {
     boundingbox: ['37.5794', '37.5798', '126.9768', '126.9772'],
     address: { borough: '종로구', state: '서울특별시', country_code: 'kr' },
   };
+  const delayed = {
+    ...one,
+    name: '창덕궁',
+    display_name: '창덕궁, 율곡로, 종로구, 서울특별시, 대한민국',
+  };
+  let reverseCount = 0;
   const real = window.fetch;
   window.fetch = (input, init) => {
     const url = typeof input === 'string' ? input : input.url;
     if (url.includes('nominatim.openstreetmap.org/reverse')) {
+      reverseCount += 1;
+      if (reverseCount === 2) {
+        return new Promise((resolve) => {
+          window.__releaseReverse = () => {
+            const response = new Response(JSON.stringify(delayed), {
+              status: 200, headers: { 'Content-Type': 'application/json' },
+            });
+            const readJson = response.json.bind(response);
+            response.json = async () => {
+              const value = await readJson();
+              window.__secondReverseConsumed = true;
+              return value;
+            };
+            resolve(response);
+          };
+        });
+      }
       return Promise.resolve(new Response(JSON.stringify(one), {
         status: 200, headers: { 'Content-Type': 'application/json' },
       }));
@@ -3660,7 +3802,9 @@ await page.fill('.place-input', '37.5796, 126.9770');
 await page.locator('.place-search').first().click();
 await settle(page);
 await page.fill('.place-input', '내가 적은 이름'); // 역지오코딩이 돌아오기 전에 사용자가 적는다
-await page.waitForTimeout(800);
+await page.evaluate(() => window.__releaseReverse?.());
+await page.waitForFunction(() => window.__secondReverseConsumed === true);
+await settle(page);
 const keptName = await page.evaluate(() => document.querySelector('.place-input')?.value ?? '');
 check(
   '🔴 역지오코딩: 사용자가 그 사이에 적었으면 **덮지 않는다**',
@@ -3756,7 +3900,7 @@ await page.evaluate(({ b64 }) => {
   zone.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientX, clientY, dataTransfer: transfer }));
   zone.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX, clientY, dataTransfer: transfer }));
 }, { b64: withExifGps(imgBuf, '2026:07:16 09:30:00', 16.0544, 108.2022).toString('base64') });
-await page.waitForTimeout(500);
+await page.locator('.single-photo-moment-overlay').waitFor();
 const singleComposerOpened = await page.locator('.single-photo-moment-overlay').count() === 1;
 check(
   'Windows 한 장 드롭: 빈 타임라인이면 **사진으로 새 순간 작성 창**을 연다',
@@ -3974,7 +4118,7 @@ check('플랫폼 지도: 화면에 마크다운 별표가 안 보인다', !plat.
   });
   await page.goto(`http://localhost:4173${BASE}`);
   await page.evaluate(() => document.fonts.ready);
-  await page.waitForTimeout(600);
+  await waitUntil(() => seen.has('pretendard-core.woff2') && seen.has('pretendard-ko.woff2'), 15000);
 
   const width = (text, fam) =>
     page.evaluate(
@@ -4014,7 +4158,7 @@ check('플랫폼 지도: 화면에 마크다운 별표가 안 보인다', !plat.
     document.body.appendChild(h);
   }, RARE);
   await page.evaluate(() => document.fonts.ready);
-  await page.waitForTimeout(900);
+  await waitUntil(() => seen.has('pretendard-ko-ext.woff2'), 15000);
   check('폰트 조각: 희귀 받침이 나오면 그때 ko-ext를 받는다', seen.has('pretendard-ko-ext.woff2'), [...seen].sort().join(', '));
   const rarePre = await width(RARE, "'Pretendard', monospace");
   const rareFall = await width(RARE, 'monospace');
@@ -4055,10 +4199,8 @@ check('플랫폼 지도: 화면에 마크다운 별표가 안 보인다', !plat.
 
   // 워커는 두 번째 방문에서 캐시를 채운다(미리받기 목록이 없으므로). 세 번째부터가 정상 상태.
   await swPage.reload({ waitUntil: 'networkidle' });
-  await swPage.waitForTimeout(700);
   served.length = 0; // 서버가 내준 파일 기록을 비우고 정상 상태만 잰다
   await swPage.reload({ waitUntil: 'networkidle' });
-  await swPage.waitForTimeout(700);
   // 서버는 BASE를 떼고 기록하므로 경로가 `assets/…`다(선행 슬래시 없음).
   // `/assets/`로 찾다가 **아무것도 매칭되지 않아 늘 0건으로 통과**했다 — 셀렉터 불일치로
   // 조용히 통과하는 §4의 그 형태였고, 주입시험에서만 드러났다.
@@ -4110,7 +4252,8 @@ check('플랫폼 지도: 화면에 마크다운 별표가 안 보인다', !plat.
 // 넓은 화면에서 같은 줄인지, 오른쪽에 붙는지, 넘치지 않는지를 **실측**한다.
 await page.setViewportSize({ width: 900, height: 900 });
 await page.goto(`http://localhost:4173${BASE}`);
-await page.waitForTimeout(800);
+await page.waitForSelector('.app-title-row');
+await page.waitForSelector('.auth-area');
 // 로그인 상태를 이 환경에서 만들 수 없으므로 계정 영역에 실제와 같은 내용을 주입해 폭만 잰다.
 await page.evaluate(() => {
   const a = document.querySelector('.auth-area');
@@ -4127,7 +4270,7 @@ await page.evaluate(() => {
   }
   a.insertBefore(who, a.firstChild);
 });
-await page.waitForTimeout(300);
+await settle(page);
 const headM = await page.evaluate(() => {
   const t = document.querySelector('.app-title-row')?.getBoundingClientRect();
   const a = document.querySelector('.auth-area')?.getBoundingClientRect();
@@ -4272,7 +4415,7 @@ check('헤더: 가로 넘침 0', headM.overflow === 0, `overflow=${headM.overflo
     // 먼저 화면 안으로 올린다: `getBoundingClientRect`는 뷰포트 기준이라, 격자가 아래에 있으면
     // 좌표가 화면 밖을 가리키고 마우스가 엉뚱한 곳을 누른다(처음에 그렇게 헛돌았다).
     await grid.scrollIntoViewIfNeeded();
-    await page.waitForTimeout(250);
+    await settle(page);
     const boxOf = async (mediaId) =>
       await grid.evaluate((g, id) => {
         const e = g.querySelector(`.photo-thumb-wrap[data-media-id="${id}"]`);
@@ -4300,13 +4443,13 @@ check('헤더: 가로 넘침 0', headM.overflow === 0, `overflow=${headM.overflo
         touchPoints: type === 'touchEnd' ? [] : [{ x, y, radiusX: 12, radiusY: 12, force: 1 }],
       });
     await touch('touchStart', fromBox.x, fromBox.y);
-    await page.waitForTimeout(600); // HOLD_MS(420) 보다 길게 — 여기서 드래그가 시작돼야 한다
+    await grid.locator('.drag-lift').waitFor();
     const lifted = await grid.locator('.drag-lift').count();
     check('🔴 R③ **손가락으로** 꾹 누르면 칸이 들린다(마우스가 아니다 · 사용자 실기기 2026-08-06)', lifted === 1, `들린 칸 ${lifted}개`);
     const steps = 10;
     for (let i = 1; i <= steps; i++) {
       await touch('touchMove', fromBox.x + ((toBox.x - fromBox.x) * i) / steps, fromBox.y + ((toBox.y - fromBox.y) * i) / steps);
-      await page.waitForTimeout(30);
+      await settle(page);
     }
     // 🔴 끄는 도중에 **드래그가 살아 있는가** — 브라우저가 스크롤로 가져가면 여기서 죽는다.
     const aliveMid = await grid.locator('.drag-lift').count();
@@ -4342,7 +4485,29 @@ check('헤더: 가로 넘침 0', headM.overflow === 0, `overflow=${headM.overflo
       `비켜선 칸 ${moved.others}개`,
     );
     await touch('touchEnd', toBox.x, toBox.y);
-    await page.waitForTimeout(1200);
+    await grid.locator('.drag-lift').waitFor({ state: 'detached' });
+    await waitUntil(
+      () => page.evaluate(
+        (momentId) => new Promise((resolve) => {
+          const req = indexedDB.open('journey-archive');
+          req.onsuccess = () => {
+            const tx = req.result.transaction('localMedia', 'readonly');
+            const all = tx.objectStore('localMedia').getAll();
+            all.onsuccess = () => {
+              const mine = all.result
+                .filter((m) => m.momentId === momentId && m.deletedAt === null && m.id.startsWith('ro-'))
+                .sort((a, b) => (a.sortOrder ?? 99) - (b.sortOrder ?? 99))
+                .map((m) => m.id);
+              resolve(mine.join(',') === 'ro-tall,ro-wide,ro-square');
+            };
+            all.onerror = () => resolve(false);
+          };
+          req.onerror = () => resolve(false);
+        }),
+        seeded.momentId,
+      ),
+      15000,
+    );
 
     // ④ 순서가 실제로 **저장**됐는가 — 화면이 아니라 저장소에 물어본다.
     const saved = await page.evaluate(
@@ -4410,10 +4575,10 @@ check('헤더: 가로 넘침 0', headM.overflow === 0, `overflow=${headM.overflo
     if (mouseFrom && mouseTo) {
       await page.mouse.move(mouseFrom.x, mouseFrom.y);
       await page.mouse.down();
-      await page.waitForTimeout(600);
+      await grid.locator('.drag-lift').waitFor();
       await page.mouse.move(mouseTo.x, mouseTo.y, { steps: 10 });
       await page.mouse.up();
-      await page.waitForTimeout(60);
+      await settle(page);
       check('R⑦ Windows 마우스 재배열 완료 때 사진 뷰어가 열리지 않는다', await page.locator('.photo-viewer').count() === 0);
       const nextClick = await boxOf('ro-wide');
       if (nextClick) {

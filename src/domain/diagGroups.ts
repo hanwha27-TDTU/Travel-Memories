@@ -271,8 +271,7 @@ export const BLIND_SPOTS: BlindSpot[] = [
     group: 'safety',
     ownerToolId: 'backup',
     kind: 'structural',
-    coveredBy: null,
-    pendingReason: '「복원 왕복」 도구로 만든다(다음 묶음)',
+    coveredBy: 'backup',
   },
   // ── 사람·CI만 판단할 수 있는 것(앱이 재는 척하면 안 된다) ──
   {

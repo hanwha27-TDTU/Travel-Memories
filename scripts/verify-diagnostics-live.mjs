@@ -261,6 +261,32 @@ function actionPanel() {
   document.body.appendChild(host);
 }
 
+/** 파일 입력도 텍스트 입력처럼 모든 도구가 공용 렌더러를 지나야 한다(T-012). */
+function fileActionPanel() {
+  const host = document.createElement('section');
+  host.setAttribute('data-panel', 'file-act');
+  host.appendChild(
+    renderTool({
+      title: '파일 행동 배선',
+      lead: '주입 판정',
+      probe: async () => ({
+        level: 'todo',
+        headline: '파일을 골라 주세요',
+        metrics: [{ label: '파일', actual: '미선택', expected: '선택됨', level: 'todo' }],
+        actions: [{
+          label: '선택 파일 읽기',
+          hook: 'data-file-act',
+          input: { type: 'file', label: '복원 시험 파일', accept: '.json,application/json' },
+          run: async (file) => '파일을 읽었어요: ' + file.name + ' · ' + file.size + '바이트',
+        }],
+        evidence: [],
+        context: [],
+      }),
+    }),
+  );
+  document.body.appendChild(host);
+}
+
 /** 판정 불가를 '정상'으로 반올림하지 않는지 보려고 섞어 넣는다. */
 const UNKNOWN = { label: '확인 못 한 지표', actual: '확인 못 함', expected: '0개', level: 'unknown', meaning: '물어보지 못했어요' };
 
@@ -270,6 +296,7 @@ panel('hascopy', new Set([A]), [UNKNOWN]);     // 사본 있음 → 다시 올�
 // 그때 화면은 [지운 소리 기록 정리]를 주버튼으로 권했다 — 따랐으면 태블릿의 사본까지 잃었다.
 panel('otherdev', new Set(), null, 1);
 actionPanel();
+fileActionPanel();
 stuckPanel();
 headlinePanel('hl-sound', [{ noun: '사진', n: 0 }, { noun: '소리', n: 1 }]);
 headlinePanel('hl-both', [{ noun: '사진', n: 1 }, { noun: '소리', n: 2 }]);
@@ -593,6 +620,26 @@ check(
 );
 check('C⑤ 실패해도 버튼이 잠기지 않는다(다시 시도할 수 있다)', c2.enabled, `enabled=${c2.enabled}`);
 
+// 파일을 안 고른 경우와 실제 FileList를 넣은 경우를 둘 다 누른다. 브라우저의 파일 입력 경계를
+// 거치지 않고 타입만 맞추면 T-012가 겨냥한 사각지대가 그대로 남는다.
+await page.click('[data-panel="file-act"] [data-file-act]');
+const fileEmpty = await page.locator('[data-panel="file-act"] .vd-msg').textContent();
+check(
+  'C⑥ 파일 행동은 미선택을 조용히 넘기지 않는다',
+  (fileEmpty ?? '').includes('파일을 먼저 골라'),
+  `msg="${(fileEmpty ?? '').trim()}"`,
+);
+const fileInput = page.locator('[data-panel="file-act"] [data-file-act-input]');
+await fileInput.setInputFiles({ name: 'roundtrip.json', mimeType: 'application/json', buffer: Buffer.from('{"ok":true}') });
+await page.click('[data-panel="file-act"] [data-file-act]');
+await page.waitForFunction(() => document.querySelector('[data-panel="file-act"] .vd-msg')?.textContent?.includes('roundtrip.json'));
+const fileRead = await page.locator('[data-panel="file-act"] .vd-msg').textContent();
+check(
+  'C⑦ 실제 FileList가 공용 렌더러를 지나 action에 전달된다',
+  (fileRead ?? '').includes('roundtrip.json') && (fileRead ?? '').includes('11바이트'),
+  `msg="${(fileRead ?? '').trim()}"`,
+);
+
 // 실제 앱에서도 한 번 누른다 — **안전한 행동**(다시 확인)만. 파괴적 버튼은 누르지 않는다:
 // 이 검사는 사용자의 실제 기억을 담은 기기에서도 돌 수 있다(§0 — 원본 자료를 건드리지 않는다).
 //
@@ -614,12 +661,12 @@ if (firstTool) {
     stuck: document.body.innerText.includes('확인 중…'),
   }));
   check(
-    'C⑥ 실제 앱에서 [다시 확인]을 눌러도 판정이 다시 그려진다(「확인 중…」에 멈추지 않는다)',
+    'C⑧ 실제 앱에서 [다시 확인]을 눌러도 판정이 다시 그려진다(「확인 중…」에 멈추지 않는다)',
     had > 0 && c3.badge.length > 0 && !c3.stuck,
     `버튼=${had} 뱃지="${c3.badge}"`,
   );
 } else {
-  check('C⑥ 이하 — 도구를 못 열어 재지 못함(공허 통과 방지)', false, '허브에서 도구를 찾지 못했다');
+  check('C⑧ 이하 — 도구를 못 열어 재지 못함(공허 통과 방지)', false, '허브에서 도구를 찾지 못했다');
 }
 
 // ── E층 v1.81: 🖼️ 「파일 실물」의 [열어 보기]를 **실제 앱에서 진짜로 누른다**(§13 4항) ──

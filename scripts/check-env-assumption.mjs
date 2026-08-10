@@ -153,8 +153,15 @@ export function buildBarrenWorld(root) {
   git(['commit', '-q', '--no-verify', '-m', 'barren world']);
   // node_modules는 세계가 아니라 **연장**이다(CI도 `npm ci`로 갖춰 준다). 벗기면 전부가
   // "모듈 없음"으로 죽어 이 검사는 아무것도 못 본다.
-  if (existsSync(join(root, 'node_modules'))) symlinkSync(join(root, 'node_modules'), join(dir, 'node_modules'), 'dir');
+  if (existsSync(join(root, 'node_modules'))) {
+    symlinkSync(join(root, 'node_modules'), join(dir, 'node_modules'), directoryLinkType(process.platform));
+  }
   return { dir, fileCount: files.length };
+}
+
+/** Windows의 directory symlink는 개발자 모드/관리자 권한을 요구한다. junction은 같은 역할을 권한 없이 한다. */
+export function directoryLinkType(platform) {
+  return platform === 'win32' ? 'junction' : 'dir';
 }
 
 /** 게이트 하나를 어느 세계에서 돌린다(동기 — 카나리아·집 재측정처럼 드문 자리에서만). */
@@ -199,6 +206,10 @@ export function selfTest() {
   // ① 원장 판정
   const names = ['check-a', 'check-b'];
   if (ledgerProblems(names, { 'check-a': '', 'check-b': 'baseRef dist' }).length) throw new Error('SELF-TEST 실패: 정상 원장을 걸렀다(오탐)');
+  SELF.neg += 1;
+  if (directoryLinkType('win32') !== 'junction' || directoryLinkType('linux') !== 'dir') {
+    throw new Error('SELF-TEST 실패: 플랫폼별 node_modules 연결 종류가 틀렸다');
+  }
   SELF.neg += 1;
   const ledgerBad = [
     ['선언 누락', names, { 'check-a': '' }, '세계 선언이 없다'],

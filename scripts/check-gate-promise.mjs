@@ -38,6 +38,7 @@ const AXIS_MIN = 20;
 
 /** gates.ts의 Record 리터럴에서 키를 뽑는다(형제 게이트 check-registry-gen과 같은 규율). */
 export function recordKeys(source, constName) {
+  source = source.replace(/\r\n?/g, '\n');
   const start = source.search(new RegExp(`export const ${constName}(?![\\w$])`));
   if (start < 0) return [];
   const open = source.indexOf('{', start);
@@ -47,6 +48,7 @@ export function recordKeys(source, constName) {
 
 /** 키 → 값(문자열). 여러 줄에 걸친 값도 받는다. */
 export function recordValues(source, constName) {
+  source = source.replace(/\r\n?/g, '\n');
   const start = source.search(new RegExp(`export const ${constName}(?![\\w$])`));
   if (start < 0) return {};
   const open = source.indexOf('{', start);
@@ -95,6 +97,11 @@ export function selfTest() {
   const good = { 'check-a': '건수가 아니라, 스캔 범위가 전부를 덮는지', 'check-b': '파일 수가 아니라, 계약이 한 곳에만 있는지' };
   if (findProblems(names, good, []).length) throw new Error('SELF-TEST 실패: 정상 원장을 걸렀다(오탐)');
   SELF.neg = 1;
+  const crlf = "export const GATE_AXIS = {\r\n  'check-a': '건수가 아니라, 스캔 범위가 전부를 덮는지',\r\n};\r\n";
+  if (recordKeys(crlf, 'GATE_AXIS').join() !== 'check-a' || !recordValues(crlf, 'GATE_AXIS')['check-a']) {
+    throw new Error('SELF-TEST 실패: Windows CRLF 원장을 읽지 못했다');
+  }
+  SELF.neg += 1;
 
   const bad = [
     ['축 누락', names, { 'check-a': good['check-a'] }, [], '축** 선언이 없다'],
