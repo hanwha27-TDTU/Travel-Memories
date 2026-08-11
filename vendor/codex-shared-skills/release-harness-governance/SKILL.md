@@ -15,6 +15,8 @@ description: 소프트웨어 저장소의 검증 게이트, CI 재실행, 버전
 3. 프로젝트 프로필이 없으면 기존 실행 경로를 지도화하고 프로필을 먼저 만든다. 공통 법에 프로젝트 값을 넣지 않는다.
 4. 프로필 검사는 `scripts/validate-profile.mjs <profile.json>`을 사용한다. 필드 계약은
    [project-profile.md](references/project-profile.md)를 따른다.
+5. 게이트를 새로 만들거나 판정 범위·파서·대상 모집단을 바꾸면
+   [gate-integrity.md](references/gate-integrity.md)를 읽고 정상·결함·오탐 대조군을 함께 만든다.
 
 ## 2. 공통 불변식
 

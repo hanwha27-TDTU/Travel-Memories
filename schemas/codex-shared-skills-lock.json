@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "policyApi": 1,
   "source": "https://github.com/hanwha27-TDTU/Codex-Shared-Skills",
-  "commit": "da440fb366c01c0d6ffbb0bdc515b13e5a357b42",
-  "manifestSha256": "621675c8921f9bd67fa65551f89639c93f86f375c0e444910b9fdec382512c7c",
+  "commit": "5192c34ff8536f4388e3dfd6ebf834f779bc940e",
+  "manifestSha256": "1176b9a07bfc9f5294355fad7bdcb12d36fec753051879907b675a1646dfc7f1",
   "skills": [
     {
       "name": "bg-codex-autorouter",
@@ -13,7 +13,22 @@
     {
       "name": "release-harness-governance",
       "path": "vendor/codex-shared-skills/release-harness-governance",
-      "contentSha256": "856c8aba33a636bc425bdf0886fcca7890dad69e6f9a2bb0bc1a252830088ad5"
+      "contentSha256": "e06b8d9e019d4a390968518390d05bcf49ee901d833e0c3fd9346008248f13b4"
+    },
+    {
+      "name": "offline-sync-governance",
+      "path": "vendor/codex-shared-skills/offline-sync-governance",
+      "contentSha256": "190f8e5b158e30097913b17484d71d4c5df0d24bdde7ba1230883f844d50d788"
+    },
+    {
+      "name": "backup-recovery-governance",
+      "path": "vendor/codex-shared-skills/backup-recovery-governance",
+      "contentSha256": "ab91c86bb592ccf4c042f633d541364ae1025f09bdaecc477ca96d701d466736"
+    },
+    {
+      "name": "diagnostic-verdict-governance",
+      "path": "vendor/codex-shared-skills/diagnostic-verdict-governance",
+      "contentSha256": "80d5f622e5d062f0276ff302444836a6a6a43ba4318f07f814beb67b0a3a0428"
     }
   ],
   "adapter": {
