@@ -42,6 +42,8 @@ export const SKILL_ROUTES = [
   // 개별 스킬 문서는 아래 skillsFor()가 자기 자신도 함께 라우팅한다.
   { match: /^\.claude\/skills\//, skill: 'gates-mechanization-dev' },
   { match: /^docs\/(CONSTITUTION|HANDOFF(?:_CODEX)?)\.md$/, skill: 'gates-mechanization-dev' },
+  // 생성 설계서는 손편집 대상이 아니다. 이 경로를 고치려는 순간 생성기·드리프트 계약부터 읽힌다.
+  { match: /^docs\/모듈별 설계서\//, skill: 'gates-mechanization-dev' },
   // Current-work and decision maps change what the next agent is allowed to start.
   // Treat them as governance inputs, not unscoped prose.
   { match: /^docs\/(BACKLOG|DECISIONS|ROADMAP)\.md$/, skill: 'gates-mechanization-dev' },

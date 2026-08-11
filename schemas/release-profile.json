@@ -284,6 +284,10 @@
       "check": "node scripts/check-registry-gen.mjs"
     },
     {
+      "writer": "scripts/gen-module-design-docs.mjs",
+      "check": "node scripts/check-module-design-docs.mjs"
+    },
+    {
       "writer": "scripts/gen-platform-map.mjs",
       "check": "node scripts/check-platform-map.mjs"
     },
