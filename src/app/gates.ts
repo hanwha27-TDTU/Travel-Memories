@@ -66,6 +66,8 @@ export const GATE_DESC: Record<string, string> = {
     'Claude와 Codex가 **같은 계약**을 읽는지(두 지시문서가 갈라지면 두 AI가 다르게 판단한다)',
   'check-doc-governance':
     '새 규정·기준 문서와 새 AI 지시문이 **등록 없이 생기지 않는지**(등록 안 되면 비교 대상에도 못 들어온다)',
+  'check-module-design-docs':
+    '모듈별 설계서가 실행 코드의 파일·API·의존·I/O·내용 해시에서 재생성됐는지(손편집 설계 드리프트 차단)',
   'check-gate-integrity':
     '모든 check-*.mjs가 harness에 배선되고 셀프테스트(대조군)를 갖는지 — 게이트도 검사받는다(§11, 사용자 질문 2026-08-05)',
   'check-diag-blindspots':
@@ -160,6 +162,8 @@ export const GATE_AXIS: Record<string, string> = {
   'check-constitution-gen': '조문 수가 아니라, 화면이 헌법을 손으로 옮겨 적지 않고 **생성으로 파생**하는지',
   'check-adapter-parity': '문서 수가 아니라, 커밋본과 재생성본이 **글자 단위**로 같은지 — 두 AI가 다른 계약을 읽지 못한다',
   'check-doc-governance': '문서 수가 아니라, 등록되지 않은 문서·지시문이 조용히 생기지 않는지',
+  'check-module-design-docs':
+    '문서 수가 아니라, 실행 파일 **전수**가 단일 모듈 소유를 갖고 커밋 설계서가 현재 코드에서 재생성한 결과와 같은지',
   'check-gate-integrity':
     '게이트 수가 아니라, **원장이 돌리는 게이트 전수**가 배선·대조군·실패 기대 케이스를 갖는지 — 모집단을 파일명이 아니라 원장에서 뽑는다',
   'check-diag-blindspots': '사각 수가 아니라, 알려진 사각이 도구로 덮이거나 **이유 있는** 대기인지',
@@ -259,6 +263,7 @@ export const GATE_WORLD: Record<string, string> = {
   'check-constitution-gen': '',
   'check-adapter-parity': '',
   'check-doc-governance': '',
+  'check-module-design-docs': '',
   'check-gate-integrity': '',
   'check-diag-blindspots': '',
   'check-page-size-parity': '',
@@ -332,6 +337,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-constitution-gen': 'generated',
   'check-adapter-parity': 'generated',
   'check-doc-governance': 'generated',
+  'check-module-design-docs': 'generated',
   'check-gate-integrity': 'generated',
   'check-diag-blindspots': 'generated',
   'check-page-size-parity': 'generated',
