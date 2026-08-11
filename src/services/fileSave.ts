@@ -1,4 +1,4 @@
-// services/fileSave.ts — 백업 Blob을 사용자가 고른 실제 파일로 저장하고 가능한 표면에서는 되읽는다.
+// services/fileSave.ts — 앱 Blob을 사용자가 고른 실제 파일로 저장하고 가능한 표면에서는 되읽는다.
 //
 // `<a download>`는 다운로드 요청만 만들 뿐 저장 위치·완료·실물 바이트를 알려주지 않는다.
 // Android 셸은 SAF 문서를 청크로 쓰고 네이티브에서 SHA-256 read-back, 지원 브라우저는
@@ -9,10 +9,19 @@ import { backupFileWriter } from './capacitorShell';
 
 const CHUNK_BYTES = 256 * 1024;
 
-export type BackupSaveReceipt =
+export type FileSaveReceipt =
   | { state: 'verified'; method: 'android-downloads' | 'android-picker' | 'browser-picker'; filename: string; bytes: number }
   | { state: 'requested'; method: 'browser-download'; filename: string; bytes: number }
   | { state: 'cancelled'; method: 'android-picker' | 'browser-picker'; filename: string; bytes: 0 };
+
+/** 기존 백업 호출부의 공개 타입 이름은 호환을 위해 유지한다. */
+export type BackupSaveReceipt = FileSaveReceipt;
+
+export interface FileSaveOptions {
+  mime: string;
+  description: string;
+  androidDestination?: 'downloads' | 'picker';
+}
 
 interface WritableFileHandle {
   createWritable(): Promise<{ write(data: Blob): Promise<void>; close(): Promise<void>; abort?(): Promise<void> }>;
@@ -62,7 +71,7 @@ async function saveWithAndroid(
   filename: string,
   mime: string,
   destination: 'downloads' | 'picker',
-): Promise<BackupSaveReceipt | null> {
+): Promise<FileSaveReceipt | null> {
   const writer = backupFileWriter();
   if (!writer) return null;
   const started = await writer.begin({ filename, mime, destination });
@@ -78,7 +87,7 @@ async function saveWithAndroid(
       await writer.append({ token, data: bytesToBase64(bytes), sha256: await sha256Hex(chunk) });
     }
     const done = await writer.finish({ token });
-    if (!done.verified || done.bytes !== blob.size) throw new Error('저장한 백업을 다시 읽었더니 원래 바이트와 다릅니다.');
+    if (!done.verified || done.bytes !== blob.size) throw new Error('저장한 파일을 다시 읽었더니 원래 바이트와 다릅니다.');
     const actualDestination = done.destination ?? started.destination ?? 'picker';
     return {
       state: 'verified',
@@ -92,15 +101,45 @@ async function saveWithAndroid(
   }
 }
 
-async function saveWithBrowserPicker(blob: Blob, filename: string, mime: string): Promise<BackupSaveReceipt | null> {
+function extensionOf(filename: string): string {
+  const match = /\.[a-z0-9]+$/i.exec(filename);
+  if (!match) throw new Error('저장할 파일 이름에 확장자가 없습니다.');
+  return match[0]!.toLowerCase();
+}
+
+const MIME_EXTENSIONS: Readonly<Record<string, readonly string[]>> = {
+  'application/zip': ['.zip'],
+  'application/json': ['.json'],
+  'application/octet-stream': ['.enc'],
+  'image/webp': ['.webp'],
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/png': ['.png'],
+  'image/avif': ['.avif'],
+  'video/mp4': ['.mp4'],
+  'video/webm': ['.webm'],
+};
+
+function assertMimeExtension(mime: string, extension: string): void {
+  const allowed = MIME_EXTENSIONS[mime];
+  if (!allowed?.includes(extension)) {
+    throw new Error(`파일 형식과 확장자가 맞지 않습니다: ${mime} / ${extension}`);
+  }
+}
+
+async function saveWithBrowserPicker(
+  blob: Blob,
+  filename: string,
+  mime: string,
+  description: string,
+): Promise<FileSaveReceipt | null> {
   const picker = (window as SavePickerWindow).showSaveFilePicker;
   if (!picker) return null;
   let handle: WritableFileHandle;
   try {
-    const extension = filename.endsWith('.enc') ? '.enc' : filename.endsWith('.json') ? '.json' : '.zip';
+    const extension = extensionOf(filename);
     handle = await picker.call(window, {
       suggestedName: filename,
-      types: [{ description: 'Bugeon Journey 백업', accept: { [mime]: [extension] } }],
+      types: [{ description, accept: { [mime]: [extension] } }],
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
@@ -117,11 +156,11 @@ async function saveWithBrowserPicker(blob: Blob, filename: string, mime: string)
     throw error;
   }
   const saved = await handle.getFile();
-  if (!(await exactBlobParity(blob, saved))) throw new Error('저장한 백업을 다시 읽었더니 원래 바이트와 다릅니다.');
+  if (!(await exactBlobParity(blob, saved))) throw new Error('저장한 파일을 다시 읽었더니 원래 바이트와 다릅니다.');
   return { state: 'verified', method: 'browser-picker', filename: saved.name || filename, bytes: saved.size };
 }
 
-function requestBrowserDownload(blob: Blob, filename: string): BackupSaveReceipt {
+function requestBrowserDownload(blob: Blob, filename: string): FileSaveReceipt {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -133,15 +172,40 @@ function requestBrowserDownload(blob: Blob, filename: string): BackupSaveReceipt
   return { state: 'requested', method: 'browser-download', filename, bytes: blob.size };
 }
 
+/**
+ * 백업·사진·영상이 공유하는 저장 문. Android와 지원 브라우저는 쓴 파일을 되읽고,
+ * 일반 브라우저의 anchor fallback은 저장 요청으로만 판정한다.
+ */
+export async function saveFileBlob(
+  blob: Blob,
+  filename: string,
+  options: FileSaveOptions,
+): Promise<FileSaveReceipt> {
+  if (blob.size <= 0) throw new Error('빈 파일은 저장할 수 없습니다.');
+  const extension = extensionOf(filename);
+  const mime = options.mime.split(';', 1)[0]?.trim() || 'application/octet-stream';
+  const blobMime = blob.type.split(';', 1)[0]?.trim();
+  if (blobMime && blobMime !== mime) {
+    throw new Error(`파일 바이트 형식과 기록된 형식이 맞지 않습니다: ${blobMime} / ${mime}`);
+  }
+  assertMimeExtension(mime, extension);
+  const destination = options.androidDestination ?? 'downloads';
+  return (await saveWithAndroid(blob, filename, mime, destination))
+    ?? (await saveWithBrowserPicker(blob, filename, mime, options.description))
+    ?? requestBrowserDownload(blob, filename);
+}
+
 async function saveBackupBlobAt(
   blob: Blob,
   filename: string,
   androidDestination: 'downloads' | 'picker',
 ): Promise<BackupSaveReceipt> {
   const mime = filename.endsWith('.enc') ? 'application/octet-stream' : filename.endsWith('.json') ? 'application/json' : 'application/zip';
-  return (await saveWithAndroid(blob, filename, mime, androidDestination))
-    ?? (await saveWithBrowserPicker(blob, filename, mime))
-    ?? requestBrowserDownload(blob, filename);
+  return saveFileBlob(blob, filename, {
+    mime,
+    description: 'Bugeon Journey 백업',
+    androidDestination,
+  });
 }
 
 /** Android는 취소될 수 있는 선택기 없이 Download/Bugeon Journey에 저장하고, 그 밖의 표면은 가능한 저장 문을 쓴다. */
@@ -167,4 +231,27 @@ export function backupSaveMessage(receipt: BackupSaveReceipt): string {
     return `저장하고 다시 읽어 확인했어요 · ${receipt.filename} · ${location}`;
   }
   return `다운로드를 요청했어요 · ${receipt.filename} · 브라우저가 정한 다운로드 폴더(보통 Android의 Download). 실제 저장 여부는 파일 앱에서 확인해 주세요.`;
+}
+
+export type MediaSaveKind = '사진' | '영상';
+
+/** 뷰어 저장 결과 문장은 호출부에서 조립하지 않고 이 순수 함수 한 곳에서 판정한다. */
+export function mediaSaveMessage(receipt: FileSaveReceipt, kind: MediaSaveKind): string {
+  if (receipt.state === 'cancelled') {
+    return `${kind} 앱 보관본 저장을 취소했어요. 파일은 만들어지지 않았어요.`;
+  }
+  if (receipt.state === 'verified') {
+    const location = receipt.method === 'android-downloads'
+      ? '기기 내 저장공간/Download/Bugeon Journey'
+      : receipt.method === 'android-picker'
+        ? '선택한 Android 폴더'
+        : '선택한 폴더';
+    return `${kind} 앱 보관본을 저장하고 다시 읽어 확인했어요 · ${receipt.filename} · ${location}`;
+  }
+  return `${kind} 앱 보관본 다운로드를 요청했어요 · ${receipt.filename} · 브라우저가 정한 다운로드 폴더. 실제 저장 여부는 파일 앱에서 확인해 주세요.`;
+}
+
+export function mediaSaveErrorMessage(kind: MediaSaveKind, error: unknown): string {
+  const detail = error instanceof Error && error.message.trim() ? error.message.trim() : '확인할 수 없는 오류';
+  return `${kind} 앱 보관본을 저장하지 못했어요 · ${detail}`;
 }

@@ -16,7 +16,7 @@ description: 안드로이드 APK 생성·배포 개발 프롬프트 — android-
 | `android-shell/capacitor.config.json` | `server.url`이 배포된 웹사이트를 가리킴 | **웹 자산을 번들하지 않는다**는 계약의 심장 |
 | `android-shell/android/app/src/main/java/app/bugeon/journey/MainActivity.java` | Capacitor 표준 진입점 | 거의 손대지 않음(딥링크 처리 정도) |
 | `android-shell/android/app/src/main/java/app/bugeon/journey/OriginalPhotosPlugin.java` | **셸의 존재 이유** — SAF+MediaStore+`ACCESS_MEDIA_LOCATION`으로 원본 사진 바이트를 base64로 웹에 넘김 | 네이티브 플러그인 예시. 실패해도 사진은 돌려주고 사유(`reason`)만 적는다(§8 — 판정 안 함) |
-| `android-shell/android/app/src/main/java/app/bugeon/journey/BackupFilesPlugin.java` | MediaStore Download 기본 저장 + SAF 다른 폴더 저장 + 같은 URI 길이·SHA-256 되읽기 | 큰 파일은 청크 append, 실패한 부분 문서만 정리 |
+| `android-shell/android/app/src/main/java/app/bugeon/journey/BackupFilesPlugin.java` | 백업·사진·영상 같은 큰 앱 파일의 MediaStore Download 기본 저장 + SAF 다른 폴더 저장 + 같은 URI 길이·SHA-256 되읽기 | wire 이름은 구형 APK 호환으로 유지. 실제 요청 파일명·MIME을 쓰고 실패한 부분 문서만 정리 |
 | `.github/workflows/android-apk.yml` | CI가 Gradle로 debug APK를 굽고, main이면 고정 릴리스에 `--clobber` | 「항상 최신」 계약의 ①번 자리 |
 | `src/app/apk.ts` | 고정 다운로드 URL(`APK_LATEST_URL`)·설치 안내 데이터 | 「항상 최신」 계약의 ②번 자리 — **SSOT, 손편집 중복 금지** |
 | `src/ui/screens/guide.ts` | 위 상수를 import해서 버튼 href로 씀 | 계약의 ③번 자리 |
@@ -141,6 +141,10 @@ description: 안드로이드 APK 생성·배포 개발 프롬프트 — android-
   이제 **배경=흐린 장면(cover+blur) · 전경=흰 여백 자른 선명한 카드를 안전지대(~72%)**에 둔다.
   🔴 아이콘/마스크가 걸리는 자리는 **가정하지 말고 원·스퀘어클 두 마스크로 렌더해 눈으로 본다**
   (§13 — 정적 게이트가 못 보는 층). anydpi-v26 XML 10개는 생성기가 SSOT로 함께 쓴다.
+- **ADR-0058 · 뷰어 개별 저장도 같은 검증 문을 쓴다**: `BackupFiles`라는 wire 이름은 백업 전용
+  의미가 아니라 이미 설치된 APK와의 호환 경계다. 사진·영상은 요청한 이름·MIME으로 저장하고,
+  표시명 조회 실패 때 고정 ZIP명을 돌려주지 않는다. 개별 저장은 외부 원본이 아니라 앱 보관본이며
+  백업 완료 시각을 갱신하지 않는다.
 - 전체 상세는 `docs/DECISIONS.md`의 해당 ADR을 정본으로 본다 — 이 절은 요약일 뿐이다.
 
 ## 4. 검증 레시피 (정직한 완료)

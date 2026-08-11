@@ -1,6 +1,6 @@
 package app.bugeon.journey;
 
-// 큰 백업 파일을 JS↔네이티브 브리지 한 번에 base64로 넘기지 않는다. 기본은 MediaStore의
+// 큰 앱 파일을 JS↔네이티브 브리지 한 번에 base64로 넘기지 않는다. 기본은 MediaStore의
 // Download/Bugeon Journey, 보조 경로는 SAF로 고른 URI에 256KiB 청크를 순서대로 쓴다.
 // 두 경로 모두 같은 URI를 다시 읽어 SHA-256과 길이를 대조한다.
 // 쓰기 실패·취소 시 이 플러그인이 만든 미완성 문서만 제거한다. 외부 원본에는 손대지 않는다.
@@ -43,7 +43,7 @@ public class BackupFilesPlugin extends Plugin {
   @PluginMethod
   public synchronized void begin(PluginCall call) {
     if (beginPending || activeToken != null) {
-      call.reject("다른 백업 파일을 저장하는 중입니다.");
+      call.reject("다른 파일을 저장하는 중입니다.");
       return;
     }
     String filename = call.getString("filename", "Bugeon-Journey.zip");
@@ -103,7 +103,7 @@ public class BackupFilesPlugin extends Plugin {
     } catch (Exception error) {
       deleteActiveDocument();
       clearActive();
-      call.reject("백업 파일을 열지 못했습니다.", error);
+      call.reject("파일을 열지 못했습니다.", error);
     }
   }
 
@@ -113,7 +113,7 @@ public class BackupFilesPlugin extends Plugin {
     if (activeOutput == null) throw new IllegalStateException("출력 스트림을 열 수 없습니다.");
     writeDigest = MessageDigest.getInstance("SHA-256");
     activeToken = UUID.randomUUID().toString();
-    activeName = displayName(activeUri);
+    activeName = displayName(activeUri, call.getString("filename", "Bugeon-Journey.zip"));
     activeDestination = destination;
     writtenBytes = 0;
     JSObject ret = new JSObject();
@@ -129,7 +129,7 @@ public class BackupFilesPlugin extends Plugin {
     String data = call.getString("data");
     String expectedSha256 = call.getString("sha256");
     if (data == null || expectedSha256 == null) {
-      call.reject("저장할 백업 청크 또는 원본 해시가 없습니다.");
+      call.reject("저장할 파일 청크 또는 원본 해시가 없습니다.");
       return;
     }
     try {
@@ -146,7 +146,7 @@ public class BackupFilesPlugin extends Plugin {
       ret.put("bytes", writtenBytes);
       call.resolve(ret);
     } catch (Exception error) {
-      failAndDelete(call, "백업 파일을 쓰지 못했습니다.", error);
+      failAndDelete(call, "파일을 쓰지 못했습니다.", error);
     }
   }
 
@@ -175,7 +175,7 @@ public class BackupFilesPlugin extends Plugin {
         ContentValues ready = new ContentValues();
         ready.put(MediaStore.MediaColumns.IS_PENDING, 0);
         int updated = getContext().getContentResolver().update(activeUri, ready, null, null);
-        if (updated != 1) throw new IllegalStateException("검증한 백업 파일을 Download 폴더에 게시하지 못했습니다.");
+        if (updated != 1) throw new IllegalStateException("검증한 파일을 Download 폴더에 게시하지 못했습니다.");
       }
       JSObject ret = new JSObject();
       ret.put("verified", true);
@@ -185,7 +185,7 @@ public class BackupFilesPlugin extends Plugin {
       clearActive();
       call.resolve(ret);
     } catch (Exception error) {
-      failAndDelete(call, "저장한 백업을 다시 읽어 확인하지 못했습니다.", error);
+      failAndDelete(call, "저장한 파일을 다시 읽어 확인하지 못했습니다.", error);
     }
   }
 
@@ -197,7 +197,7 @@ public class BackupFilesPlugin extends Plugin {
     }
     String token = call.getString("token");
     if (!activeToken.equals(token)) {
-      call.reject("다른 백업 저장 토큰입니다.");
+      call.reject("다른 파일 저장 토큰입니다.");
       return;
     }
     deleteActiveDocument();
@@ -208,7 +208,7 @@ public class BackupFilesPlugin extends Plugin {
   private boolean matches(PluginCall call) {
     String token = call.getString("token");
     if (activeToken == null || !activeToken.equals(token) || activeOutput == null || activeUri == null) {
-      call.reject("유효한 백업 저장 세션이 아닙니다.");
+      call.reject("유효한 파일 저장 세션이 아닙니다.");
       return false;
     }
     return true;
@@ -247,7 +247,7 @@ public class BackupFilesPlugin extends Plugin {
     return out.toString();
   }
 
-  private String displayName(Uri uri) {
+  private String displayName(Uri uri, String requestedName) {
     try (android.database.Cursor cursor = getContext().getContentResolver().query(
         uri, new String[] { OpenableColumns.DISPLAY_NAME }, null, null, null)) {
       if (cursor != null && cursor.moveToFirst()) {
@@ -255,7 +255,7 @@ public class BackupFilesPlugin extends Plugin {
         if (name != null && !name.isEmpty()) return name;
       }
     } catch (Exception ignored) { }
-    return "Bugeon-Journey.zip";
+    return requestedName == null || requestedName.isEmpty() ? "Bugeon-Journey.zip" : requestedName;
   }
 
   @Override
