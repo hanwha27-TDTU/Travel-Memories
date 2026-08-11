@@ -10,7 +10,7 @@ import { backupFileWriter } from './capacitorShell';
 const CHUNK_BYTES = 256 * 1024;
 
 export type BackupSaveReceipt =
-  | { state: 'verified'; method: 'android-picker' | 'browser-picker'; filename: string; bytes: number }
+  | { state: 'verified'; method: 'android-downloads' | 'android-picker' | 'browser-picker'; filename: string; bytes: number }
   | { state: 'requested'; method: 'browser-download'; filename: string; bytes: number }
   | { state: 'cancelled'; method: 'android-picker' | 'browser-picker'; filename: string; bytes: 0 };
 
@@ -57,10 +57,15 @@ async function exactBlobParity(a: Blob, b: Blob): Promise<boolean> {
   return true;
 }
 
-async function saveWithAndroid(blob: Blob, filename: string, mime: string): Promise<BackupSaveReceipt | null> {
+async function saveWithAndroid(
+  blob: Blob,
+  filename: string,
+  mime: string,
+  destination: 'downloads' | 'picker',
+): Promise<BackupSaveReceipt | null> {
   const writer = backupFileWriter();
   if (!writer) return null;
-  const started = await writer.begin({ filename, mime });
+  const started = await writer.begin({ filename, mime, destination });
   if (started.cancelled) return { state: 'cancelled', method: 'android-picker', filename, bytes: 0 };
   if (!started.token) throw new Error('Android 저장 문이 파일 토큰을 돌려주지 않았습니다.');
   const token = started.token;
@@ -74,7 +79,13 @@ async function saveWithAndroid(blob: Blob, filename: string, mime: string): Prom
     }
     const done = await writer.finish({ token });
     if (!done.verified || done.bytes !== blob.size) throw new Error('저장한 백업을 다시 읽었더니 원래 바이트와 다릅니다.');
-    return { state: 'verified', method: 'android-picker', filename: done.name || filename, bytes: done.bytes };
+    const actualDestination = done.destination ?? started.destination ?? 'picker';
+    return {
+      state: 'verified',
+      method: actualDestination === 'downloads' ? 'android-downloads' : 'android-picker',
+      filename: done.name || filename,
+      bytes: done.bytes,
+    };
   } catch (error) {
     try { await writer.abort({ token }); } catch { /* 실패한 문서만 네이티브 쪽에서 제거를 시도한다. */ }
     throw error;
@@ -122,18 +133,38 @@ function requestBrowserDownload(blob: Blob, filename: string): BackupSaveReceipt
   return { state: 'requested', method: 'browser-download', filename, bytes: blob.size };
 }
 
-/** Android SAF → 브라우저 저장 선택기 → 브라우저 다운로드 순으로 가장 강한 저장 경계를 고른다. */
-export async function saveBackupBlob(blob: Blob, filename: string): Promise<BackupSaveReceipt> {
+async function saveBackupBlobAt(
+  blob: Blob,
+  filename: string,
+  androidDestination: 'downloads' | 'picker',
+): Promise<BackupSaveReceipt> {
   const mime = filename.endsWith('.enc') ? 'application/octet-stream' : filename.endsWith('.json') ? 'application/json' : 'application/zip';
-  return (await saveWithAndroid(blob, filename, mime))
+  return (await saveWithAndroid(blob, filename, mime, androidDestination))
     ?? (await saveWithBrowserPicker(blob, filename, mime))
     ?? requestBrowserDownload(blob, filename);
 }
 
+/** Android는 취소될 수 있는 선택기 없이 Download/Bugeon Journey에 저장하고, 그 밖의 표면은 가능한 저장 문을 쓴다. */
+export async function saveBackupBlob(blob: Blob, filename: string): Promise<BackupSaveReceipt> {
+  return saveBackupBlobAt(blob, filename, 'downloads');
+}
+
+/** Android에서 사용자가 다른 폴더를 직접 고르고 싶을 때만 SAF 선택기를 연다. */
+export async function saveBackupBlobToChosenFolder(blob: Blob, filename: string): Promise<BackupSaveReceipt> {
+  return saveBackupBlobAt(blob, filename, 'picker');
+}
+
 export function backupSaveMessage(receipt: BackupSaveReceipt): string {
-  if (receipt.state === 'cancelled') return '저장을 취소했어요. 기기의 기록은 바뀌지 않았습니다.';
+  if (receipt.state === 'cancelled') {
+    return '저장 창이 닫혀 백업 파일은 만들어지지 않았어요. 다시 누르고 폴더를 고른 뒤 화면의 [저장]을 눌러 주세요.';
+  }
   if (receipt.state === 'verified') {
-    return `저장하고 다시 읽어 확인했어요 · ${receipt.filename} · ${receipt.method === 'android-picker' ? '선택한 Android 폴더' : '선택한 폴더'}`;
+    const location = receipt.method === 'android-downloads'
+      ? '기기 내 저장공간/Download/Bugeon Journey'
+      : receipt.method === 'android-picker'
+        ? '선택한 Android 폴더'
+        : '선택한 폴더';
+    return `저장하고 다시 읽어 확인했어요 · ${receipt.filename} · ${location}`;
   }
   return `다운로드를 요청했어요 · ${receipt.filename} · 브라우저가 정한 다운로드 폴더(보통 Android의 Download). 실제 저장 여부는 파일 앱에서 확인해 주세요.`;
 }

@@ -8,6 +8,14 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0142 · v2.14 · **Android 백업 기본 경로를 확정 Download 저장으로 전환** (2026-08-11 · 릴리스 후보)
+
+- 사용자 실기기에서 ZIP 버튼 뒤 「저장 창이 닫혀 파일이 생기지 않음」이 관측됐다. ZIP 생성 실패라고 단정하지 않고, 네이티브 결과가 picker 취소였다는 관측과 picker 하나에만 의존한 설계 결함을 분리했다(M-0143).
+- 새 APK의 기본 ZIP·JSON 백업은 MediaStore로 `기기 내 저장공간/Download/Bugeon Journey`에 바로 만든다. `IS_PENDING` 상태에서 256KiB 청크별 JS 원본 SHA-256↔네이티브 수신값을 대조하고, 닫은 뒤 동일 URI의 전체 길이+SHA-256을 되읽은 뒤에만 파일을 게시하고 완료로 말한다.
+- Drive 등 다른 위치는 별도 「다른 폴더 선택 백업」으로 기존 SAF를 보존한다. Android 9 이하 또는 MediaStore 생성 실패는 SAF로 안전하게 내려간다. 사용자가 선택 창을 닫으면 파일이 없다는 사실과 폴더 선택 뒤 [저장]을 눌러야 한다는 다음 행동을 말한다.
+- 표적 유닛 5/5, TypeScript, Android Java compile, build, 실제 Chromium의 브라우저/가상 Android 셸 두 표면과 전체 라이브(editor 신규 4건 포함·diagnostics 70/70)가 통과했다. 실제 Galaxy 기기의 MediaStore 파일 출현·대용량 ZIP은 새 APK 설치 뒤 사용자 실기기 확인 경계다.
+- 영향 표면은 Pages v2.14와 `apk-latest`다. 최신 revision의 전체 하네스·Ready PR CI·squash merge·두 배포 표면 read-back은 릴리스 완료 뒤 이 항목에 덧붙인다.
+
 ## HANDOFF-0141 · v2.13 · **확정 ZIP 백업·영상/포스터 운영 서버 왕복** (2026-08-10 · 릴리스 후보)
 
 - HANDOFF-0140의 백업 구현을 v2.13으로 마감하고, 사용자 후속 요청의 운영 영상 왕복을 별도 진단 도구로 추가했다. 백업은 `YYYYMMDD_HHMM_Bugeon-Journey.zip`, Android SAF/브라우저 picker read-back, CRC·manifest 정확집합·필수 영상 본체/포스터 fail-closed 복원을 사용한다.
@@ -962,7 +970,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.13<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->213<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->128<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.14<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->214<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->128<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->30<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

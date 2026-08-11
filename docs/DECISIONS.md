@@ -22,7 +22,7 @@ shape_reason: ADR은 결정에 이른 경위가 값이다. 항목으로 자르�
 - **맥락**: Android 진단 화면은 `<a download>`를 누른 직후 실제 파일이 생겼는지 확인하지 않고 「내려받았어요」라고 말했다. 사용자가 파일 앱의 최근 목록을 열었지만 백업은 보이지 않았다. 같은 화면의 복원 왕복도 JSON trip 한 건만 써서 영상 파일 경계를 재지 않았다.
 - **사용자 결정**: 백업 파일명은 `날짜_시간_앱이름` 순서로 하고 ZIP 백업·복원을 기본으로 하며 모든 데이터와 영상 파일 왕복검사를 포함한다.
 - **결정**: 기본 전체 백업은 `YYYYMMDD_HHMM_Bugeon-Journey.zip`. ZIP은 사진 표시본·썸네일·선택된 임시 원본, 소리, 영상 본체·포스터와 모든 메타·tombstone을 담고 기존 JSON도 호환 복원 형식으로 유지한다. CRC, 중복 경로, manifest 폴더 정확집합, `places.json`, v2 audio/videos 목록과 참조 바이트를 검증해 하나라도 빠지거나 바뀌면 일부 성공으로 반올림하지 않는다. 이미 기기에 실물 바이트가 없는 행은 메타만 담겼다고 개수로 경고한다.
-- **저장 경계**: Android 셸은 SAF `ACTION_CREATE_DOCUMENT`로 사용자가 위치를 고른 뒤 256KiB 청크마다 JS 원본 SHA-256과 네이티브 수신값을 대조해 쓰고, 같은 URI를 다시 읽어 전체 길이+SHA-256을 확인한다. picker 중복 실행은 막는다. 지원 브라우저는 File System Access API로 쓰고 조각별 정확 비교한다. 둘 다 없으면 anchor 다운로드를 요청하되 「저장 완료」라고 말하지 않고 보통 `Download` 폴더임과 파일 앱 확인 필요를 밝힌다.
+- **저장 경계(2026-08-11 v2.14 보정)**: Android 셸의 기본 문은 MediaStore `Download/Bugeon Journey` 직접 저장이며, 다른 위치를 원할 때만 SAF `ACTION_CREATE_DOCUMENT`를 연다. 두 문 모두 256KiB 청크마다 JS 원본 SHA-256과 네이티브 수신값을 대조해 쓰고, 같은 URI를 다시 읽어 전체 길이+SHA-256을 확인한다. 직접 저장을 지원하지 않는 Android에서는 SAF로 내려가며 picker 중복 실행을 막는다. 지원 브라우저는 File System Access API로 쓰고 조각별 정확 비교한다. 둘 다 없으면 anchor 다운로드를 요청하되 「저장 완료」라고 말하지 않고 보통 `Download` 폴더임과 파일 앱 확인 필요를 밝힌다.
 - **왕복검사**: 진단 ZIP은 사용자 자료가 아니라 고유 trip·moment·video 한 묶음만 담는다. 선택 파일 해시, ZIP 영상+poster 바이트, production 병합, 세 행의 Blob 제외 전 필드, 영상 바이트 read-back, 각 entity의 정확한 `update + unpurge` 큐, 의도적 abort와 잔재 0건이 모두 맞아야 통과한다.
 - **되돌리기**: 웹은 `fileSave.ts`를 제거하면 기존 anchor 다운로드로 돌아간다. Android는 `BackupFilesPlugin` 등록을 제거하면 브라우저 fallback으로 내려간다. 이미 만든 사용자 백업 형식은 기존 ZIP v1이므로 계속 복원된다.
 

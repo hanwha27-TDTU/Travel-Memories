@@ -442,6 +442,63 @@ await page.evaluate(async () => {
 // 실제 두 번째 버튼은 클라우드 전체 교체이므로 라이브 픽스처에서 실행하지 않는다.
 await page.locator('.data-open').click();
 await page.waitForSelector('.guide-overlay');
+await page.getByRole('button', { name: /백업 \(내보내기\)/ }).click();
+const backupPanelText = await page.$eval('.guide-detail-body', (node) => node.textContent ?? '');
+check(
+  'v2.14 백업: 기본 Android 저장 위치를 화면에서 미리 알려 준다',
+  backupPanelText.includes('내 저장공간/Download/Bugeon Journey'),
+  backupPanelText.slice(0, 220),
+);
+check(
+  'v2.14 백업: 브라우저에는 Android 전용 다른 폴더 버튼을 노출하지 않는다',
+  await page.getByRole('button', { name: /다른 폴더 선택 백업/ }).count() === 0,
+  `count=${await page.getByRole('button', { name: /다른 폴더 선택 백업/ }).count()}`,
+);
+check(
+  'v2.14 백업: ZIP과 JSON 두 복원 호환 형식을 같은 화면에서 제공한다',
+  await page.getByRole('button', { name: /여행별 폴더 백업 \(ZIP\)/ }).count() === 1
+    && await page.getByRole('button', { name: /단일 파일 백업 \(JSON\)/ }).count() === 1,
+  '',
+);
+if (process.env.BACKUP_SCREENSHOT) {
+  await page.screenshot({ path: resolve(process.env.BACKUP_SCREENSHOT), fullPage: false });
+}
+await page.keyboard.press('Escape');
+await settle(page);
+while ((await page.locator('.guide-overlay').count()) > 0) {
+  await page.keyboard.press('Escape');
+  await settle(page);
+}
+
+// Android 셸 표면은 같은 원격 웹을 그리지만 BackupFiles 플러그인이 있을 때만 보조 선택 문을
+// 보여 준다. 브라우저 페이지를 네이티브라고 사후 조작하지 않고 별도 context의 시작 전역으로 잰다.
+const backupShellContext = await browser.newContext({ viewport: { width: 412, height: 915 }, hasTouch: true });
+await backupShellContext.addInitScript(() => {
+  Object.defineProperty(window, 'Capacitor', {
+    configurable: true,
+    value: {
+      isNativePlatform: () => true,
+      Plugins: { OriginalPhotos: {}, BackupFiles: {} },
+    },
+  });
+});
+const backupShellPage = await backupShellContext.newPage();
+await backupShellPage.goto(`http://localhost:4173${BASE}`, { waitUntil: 'networkidle' });
+await backupShellPage.getByRole('button', { name: /데이터 관리/ }).first().click();
+await backupShellPage.getByRole('button', { name: /백업 \(내보내기\)/ }).click();
+check(
+  'v2.14 백업: Android 셸에는 기본 ZIP과 다른 폴더 선택 ZIP을 함께 제공한다',
+  await backupShellPage.getByRole('button', { name: /여행별 폴더 백업 \(ZIP\)/ }).count() === 1
+    && await backupShellPage.getByRole('button', { name: /다른 폴더 선택 백업 \(ZIP\)/ }).count() === 1,
+  '',
+);
+if (process.env.BACKUP_SHELL_SCREENSHOT) {
+  await backupShellPage.screenshot({ path: resolve(process.env.BACKUP_SHELL_SCREENSHOT), fullPage: false });
+}
+await backupShellContext.close();
+
+await page.locator('.data-open').click();
+await page.waitForSelector('.guide-overlay');
 await page.getByRole('button', { name: /이 기기를 클라우드 최종본으로/ }).click();
 const canonicalText = await page.$eval('.guide-body', (b) => b.textContent ?? '');
 check(
