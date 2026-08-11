@@ -66,10 +66,14 @@ description: 안드로이드 APK 생성·배포 개발 프롬프트 — android-
    `build.gradle`이 `APP_VERSION_CODE` 속성을 읽는다 · `apk.ts`가 `APK_RELEASE_API`(api.github.com —
    자산 URL은 CORS로 막힘·함정 D)+`parseShellBuild`를 가진다. `check-apk-release-link`가 넷을
    대조한다. 🔴 「닫기」는 세션 한정(함정 E) — 저장하면 미루는 사용자를 영영 놓친다.
-10. **사용자 파일 저장은 실제 URI 되읽기로 끝까지 확인한다** — 백업처럼 큰 Blob은 Android에서
-    MediaStore `Download/Bugeon Journey`를 기본으로 하고, 다른 위치는 `ACTION_CREATE_DOCUMENT`로 고르게 한다. 고정 크기 청크로 순서대로 쓴 뒤
-    같은 URI를 다시 열어 길이+SHA-256이 모두 맞아야 성공이다. WebView의 `<a download>` 클릭은
-    저장 완료 증거가 아니며, 네이티브 문이 없는 브라우저 fallback은 요청 상태로만 보고한다.
+10. **사용자 파일 저장은 결정적인 기본 문 + 실제 URI 되읽기로 끝까지 확인한다** — 백업처럼
+    잃으면 안 되는 큰 Blob은 취소 가능한 선택기를 **유일한 저장 문**으로 두지 않는다. Android
+    10+(API 29+)의 기본 버튼은 MediaStore `Download/Bugeon Journey`에 `IS_PENDING=1`로 만들고,
+    다른 위치를 원하는 사용자가 누른 보조 버튼만 `ACTION_CREATE_DOCUMENT`를 연다. 직접 저장을
+    지원하지 않는 옛 Android나 MediaStore 생성 실패 때만 SAF로 내려간다. 고정 크기 청크를
+    순서대로 쓴 뒤 같은 URI를 다시 열어 길이+SHA-256이 모두 맞아야 `IS_PENDING=0`으로 공개하고
+    성공이다. WebView의 `<a download>` 클릭은 저장 완료 증거가 아니며, 네이티브 문이 없는
+    브라우저 fallback은 요청 상태로만 보고한다.
 
 ## 2. 코드 관례 (실제로 걸렸던 것)
 
@@ -91,6 +95,14 @@ description: 안드로이드 APK 생성·배포 개발 프롬프트 — android-
   그 호출이 만든 부분 문서만 지운다. 사용자 기존 파일이나 외부 원본은 건드리지 않는다.
 - **네이티브 성공은 되읽기까지**: 출력 스트림 close 성공만으로 끝내지 않는다. 동일 URI를 다시
   읽어 길이와 digest를 확인하고, 불일치·재열기 실패는 성공으로 반올림하지 않는다.
+- **저장 위치는 요청값이 아니라 영수증이다**: `begin`/`finish`가 실제 `destination`을 돌려주고,
+  웹은 그 값을 사용자 문장과 백업 신선도 판정에 쓴다. 구형 APK처럼 이 필드가 없으면
+  `picker`로 보수적으로 분류한다 — 새 웹을 배포했다고 옛 네이티브 셸이 MediaStore 저장을
+  얻은 것처럼 말하지 않는다. 셸 변경은 새 APK 설치 전까지 기기에 존재하지 않는다.
+- **취소는 관측까지만 말한다**: 확인된 사실은 `RESULT_OK` URI를 받지 못해 파일을 만들지
+  못했다는 것뿐이다. 사용자 취소인지 제공자 종료인지 추측하지 말고, 「파일이 생기지 않았음」과
+  다음 행동(기본 백업 또는 다른 폴더 다시 선택)을 함께 말한다. 취소·실패 때 백업 완료 시각을
+  갱신하지 않고, 이 호출이 만든 pending URI만 정리한다.
 
 ## 3. 결정 기록 (ADR) 요약
 
@@ -137,6 +149,9 @@ description: 안드로이드 APK 생성·배포 개발 프롬프트 — android-
 1. `npm run harness` — `check-apk-release-link`(고정 URL 3자리 + 배너 4자리 계약) + `check-update-signal`(4자리 계약)
 2. CI(`android-apk.yml`)가 실제로 Gradle 빌드에 성공하는가 — **이 샌드박스는 Android SDK가
    없어 로컬로 재현할 수 없다.** 컴파일 확인은 CI 몫이다(정직한 경계).
+3. 네이티브 파일 저장을 바꿨다면 `tests/unit/fileSave.test.ts`에서 기본 버튼은 `downloads`,
+   보조 버튼은 `picker`, 취소는 미완료, 실제 `destination`별 안내가 갈리는지 확인한다. 가능하면
+   `:app:compileDebugJavaWithJavac`도 실행하되, 그 결과는 실기기 MediaStore/SAF 동작 증거가 아니다.
 
 실기기(정적 게이트가 못 보는 층 — §10):
 1. APK를 설치하고 사진 고르기 버튼을 눌러 실제로 네이티브 선택기가 뜨는가.
@@ -144,13 +159,19 @@ description: 안드로이드 APK 생성·배포 개발 프롬프트 — android-
    폰에서 `setRequireOriginal` 승격이 됐는지 판정하는 유일한 창이다.
 3. 웹만 배포를 새로 했을 때, 앱을 다시 설치하지 않고 재실행만으로 새 화면이 뜨는가
    (`appUpdate.ts`가 실제로 도는지).
+4. 기본 백업을 눌렀을 때 선택기 없이 `내 파일 > 다운로드 > Bugeon Journey`에 파일이 생기고,
+   앱이 그 경로와 되읽기 완료를 말하는가. 이어서 「다른 폴더」는 SAF가 열리고 취소 시 파일·
+   마지막 백업 시각이 생기지 않는가.
+5. 한 번은 기존 앱 위에 최신 APK를 실제 설치해 셸 build가 바뀌었는지 확인한다. 웹 화면이
+   최신인 것과 새 네이티브 플러그인이 설치된 것은 서로 다른 사실이다.
 
 **정직한 한계**: 이 개발 환경에는 Android SDK도 실기기도 없다. 컴파일은 CI가, 네이티브
 동작 확인(권한 승격이 실제로 되는가)은 사용자 실기기가 한다.
 
 ## 5. 변경 후 의무
 
-- `changelog.ts` +0.01 · `docs/HANDOFF.md` · 새 교훈은 이 문서 §3(또는 §6)에 추가
+- 앱 동작·셸 계약을 바꾼 릴리스라면 `changelog.ts` +0.01 · `docs/HANDOFF.md` · 새 교훈은 이
+  문서 §3(또는 §6)에 추가한다. **스킬 산문만 보강한 후속 정리는 앱 버전을 올리지 않는다.**
 - `check-apk-release-link`·`check-update-signal`이 걸린 파일을 바꿨다면 그 셀프테스트가
   여전히 비공허한지 확인(§4·§11 — 넓히면 새 게이트다, 다시 주입해 RED 확인)
 - 네이티브 플러그인을 추가/변경했다면 `docs/DECISIONS.md`에 ADR을 남긴다(왜 이 권한이,
