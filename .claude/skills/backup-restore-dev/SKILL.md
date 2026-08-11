@@ -45,11 +45,15 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
     사용자는 무엇이 보호됐는지 알 수 없다. 사진·소리·영상 개수는 공용 backup stats에서 파생하고
     serializer·복원 read-back·사용자 문장이 같은 값을 쓴다.
 13. **파일 저장 요청과 저장 완료는 다르다**: 기본 이름은 `backupFilename()` 한 곳에서
-    `YYYYMMDD_HHMM_Bugeon-Journey.zip`으로 만든다. Android 셸은 `Download/Bugeon Journey` 직접 저장을 기본으로 하고 다른 폴더만 SAF로 고르게 하며
-    같은 URI를 길이+SHA-256으로 되읽는다. 브라우저 저장 선택기도 쓴 바이트를 다시 비교한다.
+    `YYYYMMDD_HHMM_Bugeon-Journey.zip`으로 만든다. Android 셸은 취소 가능한 선택기를 유일한
+    백업 문으로 두지 않고, 기본 버튼은 `Download/Bugeon Journey`에 직접 저장한다. 다른 폴더를
+    원하는 사용자가 누른 보조 버튼만 SAF를 열며, 직접 저장 미지원/생성 실패만 SAF로 내려간다.
+    네이티브가 돌려준 **실제 destination**과 같은 URI의 길이+SHA-256 되읽기를 함께 영수증으로
+    삼는다. 구형 APK가 destination을 안 주면 picker로 보수적으로 분류하고, 새 웹만으로 옛 셸의
+    저장 능력이 바뀐 것처럼 말하지 않는다. 브라우저 저장 선택기도 쓴 바이트를 다시 비교한다.
     anchor fallback은 브라우저에 다운로드를 **요청**했을 뿐이므로 「저장했어요」라고 말하거나
     마지막 백업 시각을 갱신하지 않는다. 실제 경로를 앱이 모르면 보통 Download라고만 안내하고
-    파일 앱 확인을 요청한다.
+    파일 앱 확인을 요청한다. 선택기 취소도 파일 미생성으로 닫고 신선도를 갱신하지 않는다.
 14. **참조한 바이트가 없으면 ZIP 전체를 거절한다**: manifest가 사진·소리·영상 본문 또는 poster를
     가리키는데 엔트리가 없으면 빈 Blob으로 보정하거나 행을 건너뛰지 않는다. 일부 복원 성공은
     자족 백업 계약을 깨므로 손상 파일로 닫는다.
@@ -85,6 +89,7 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 | 2.11 | 백업 코어에는 영상을 넣었지만 첫 사용자 대면 성공 요약에서 영상 개수가 빠질 수 있었음 | 파일 형식 대칭만 검사하고 **전달 문장도 같은 완료 표면**이라는 역방향 규율을 놓침 | 공용 backup stats에서 serializer·복원 read-back·성공 문장을 함께 파생하고, 영상 파생본+poster·옛 백업의 videos 부재·미래 버전 거부를 왕복 픽스처로 확인 |
 | 2.12 예정 | `<a download>` 클릭 직후 「내려받았어요」라고 했고 실제 파일 왕복은 JSON trip 한 건만 검사 | **브라우저 요청을 파일 존재로 반올림**했고, 바이트 형제인 영상을 진단 경계에서 제외 | Android SAF/브라우저 picker 되읽기 검증 + anchor 요청 상태 분리. 왕복 fixture를 ZIP trip+moment+video 본문+poster로 확장하고 production 병합·Dexie read-back·abort 잔재 0건을 검사 |
 | 2.12 예정 | ZIP writer의 CRC·manifest를 reader가 소비하지 않아 동일크기 바이트 변조와 여행 폴더 통째 누락이 성공 | **무결성 메타를 기록한 것을 검증한 것으로 착각** | 중앙/로컬 헤더+CRC+중복 경로 대조, manifest bundle 정확집합·필수 목록·0바이트 주입 RED(M-0141) |
+| 2.14 | Android 백업의 유일한 문이 `ACTION_CREATE_DOCUMENT`라 선택기가 결과 URI를 안 돌려주면 사용자는 반복해서 「저장을 취소했어요」만 봤고 파일은 없었음 | **사용자에게 맡긴 선택을 최후 방어선의 필수 성공 조건으로 만들었다.** 요청과 완료를 가른 뒤에도 완료에 이르는 기본 문이 결정적이지 않았음 | 기본 버튼=MediaStore `Download/Bugeon Journey` 직접 저장·다른 폴더=명시적 SAF 보조 버튼. 실제 destination+길이+SHA-256 영수증, 취소 시 파일/신선도 불변, 구형 APK fallback 판정과 native compile·가짜 셸 라이브·실기기 경계를 각각 분리 |
 
 ## 3-B. 🔴 **복원이 안 됐을 때 확인 순서** (이 절차가 없어서 두 번 헤맸다)
 
@@ -124,6 +129,12 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 7. `tests/unit/backupNaming`: 파일명 형식·FS 금지문자·충돌 방지
 8. `tests/unit/backupFileRoundTrip`: 실제 `File` 바이트를 production 병합으로 복원·되읽고 abort 뒤 사용자 행·큐·원장 불변 확인
 9. `verify-diagnostics-live` 파일 행동: 미선택 실패 + 실제 `FileList`가 공용 렌더러를 지나 action에 전달되는지 확인
+10. `tests/unit/fileSave`: 기본 Android 경로가 `downloads`, 명시적 다른 폴더만 `picker`, 취소·
+    digest 불일치·구형 APK의 destination 부재가 완료/신선도로 반올림되지 않는지 확인
+11. `verify-editor-live` 또는 동등한 가짜 Capacitor 셸: 브라우저에는 Android 전용 보조 버튼이
+    숨고, 셸에는 기본 백업·다른 폴더 버튼과 실제 저장 위치 문장이 함께 보이는지 확인
+12. 네이티브 파일 저장을 바꿨다면 Java 컴파일/Android CI를 통과시킨다. 단, MediaStore 저장·
+    SAF 취소·기존 APK 위 업데이트는 실기기에서 각각 읽기 전까지 미확인으로 남긴다.
 
 외부 도구 상호운용(권장):
 - 생성된 ZIP에 **표준 `unzip -l` / `unzip -t`** 를 돌려 `No errors detected` 확인 — 우리 구현만의 착각이 아님을 증명하고, 사용자가 탐색기에서 여행별 폴더로 사진을 바로 열 수 있음을 보증.
@@ -144,6 +155,8 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 
 ## 5. 변경 후 의무
 
-- `changelog.ts` +0.01 · `researchLog.ts` · `docs/HANDOFF.md` · 새 교훈은 **이 문서 §3에 행 추가**
+- 백업 동작·wire format·사용자 화면을 바꾼 릴리스라면 `changelog.ts` +0.01 · `researchLog.ts` ·
+  `docs/HANDOFF.md` · 새 교훈은 **이 문서 §3에 행 추가**한다. **스킬 산문만 보강한 후속 정리는
+  앱 버전을 올리지 않는다.**
 - 복구 지도(계층·시나리오)가 바뀌면 `docs/DISASTER_RECOVERY.md`를 갱신(그쪽이 정본)
 - 백업·복원 변경은 `.claude/agents/disaster-recovery-guardian`로 사전·사후 감사(문서만 보고 PASS 금지)
