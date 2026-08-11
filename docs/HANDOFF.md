@@ -8,13 +8,21 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0144 · **`HANDOFF.md`는 Records 계층 영구 이력 — 스킬 문서와의 역할 분리를 ADR로 확정** (2026-08-11 · 문서 계약)
+
+- HANDOFF-0143 CI/배포 read-back을 채워 넣는 과정에서 사용자가 물었다: *"handoff는 인계서이니 임시문서 맞지? 서로 인수인계 다 끝나면 해당내용은 어차피 스킬문서로 갈거고 인계서는 필요 없지 않아?"*
+- `docs/HANDOFF_CODEX.md`의 「변경 후 의무」가 이미 "새 교훈은 해당 스킬 문서에 행 추가"라고 적어 뒀지만, 그게 `HANDOFF.md` 자체를 폐기해도 된다는 뜻은 아니다 — 스킬 문서·`records/coding-mistakes.md`는 **시간에 무관한 규율**을, `HANDOFF.md`는 **PR·커밋·날짜별 시간순 근거**를 담아 역할이 다르다. 사용자가 이 정리에 동의해 **ADR-0059**로 확정했다.
+- 이 프로젝트엔 사람 대 사람의 1회성 인수인계와 달리 "다 끝나는" 고정 시점이 없다 — AI 세션마다(Claude↔Codex 전환 포함) 컨텍스트가 리셋되므로 매 세션 경계가 곧 새 인계 지점이다. `HANDOFF.md`는 그 연속된 기억의 저장소로 계속 자란다.
+- 공통 계약이라 `docs/CONSTITUTION.md`의 「문서 지도」에만 주석을 달고 `npm run gen:adapters`로 `CLAUDE.md`·`AGENTS.md`(Codex가 읽는 파일)에 글자 단위로 심었다 — Codex와 별도 공유가 필요 없다, 다음에 그 파일을 열면 이미 같은 문장을 읽는다. 새 게이트는 만들지 않았고(§14) `check-adapter-parity`·`check-doc-governance`가 기존 계약대로 지킨다.
+- 코드·앱 버전·배포 표면 변화 없음(문서 전용). `npm run gates`만 재확인했다.
+
 ## HANDOFF-0143 · v2.15 · **사진·영상 뷰어의 현재 앱 보관본 개별 저장** (2026-08-11 · 릴리스 후보)
 
 - 사용자 요청으로 사진 전체보기와 영상 재생 화면에 공용 「저장」 동작을 추가했다. 사진을 넘긴 뒤에는 현재 보이는 `displayBlob`, 영상은 재생 중인 `LocalVideo.blob`을 클릭 순간에 고정해 저장한다. 뷰어 object URL은 저장 입력으로 쓰지 않는다.
 - 사진은 외부 JPEG 원본이 아니라 앱 표시용 WebP, 영상은 앱 감상용 파생본이다. 접근성 이름과 성공·요청·취소·실패 문장에 「앱 보관본」을 명시하고, 실패 원인은 관측된 오류 메시지만 표시한다. 취소·실패 뒤 버튼을 다시 활성화하고 뷰어는 유지한다.
 - 기존 백업 저장 코어를 일반 앱 파일 저장 경계로 확장했다. 백업 래퍼·ZIP/JSON/ENC 형식과 마지막 백업 신선도는 그대로이며 개별 미디어 저장은 신선도를 건드리지 않는다. 0바이트, MIME·확장자 불일치, 영상 행 MIME·실제 Blob MIME 불일치, 같은 길이 다른 바이트와 native 미검증을 모두 fail-closed로 닫는다.
 - Android `BackupFiles` wire 이름은 구형 APK 호환을 위해 유지한다. 플러그인 오류 표현을 일반 파일로 바꾸고 표시명 조회 실패 시 요청 파일명을 돌려줘 사진을 `.zip`으로 보고하지 않는다. 새 권한은 없지만 네이티브 코드가 바뀌어 Pages와 `apk-latest`가 모두 배포 표면이다.
-- 표적 유닛 16/16, TypeScript, Android Java compile, production build와 전체 하네스가 통과했다. Chromium은 현재 두 번째 사진 WebP와 재생 영상 WebM을 실제 다운로드해 각각 원 Blob과 정확 바이트를 대조했고, 실패 뒤 재활성·344px 비겹침을 포함해 editor 401/401을 통과했다. 독립 DR 사후감사는 P0/P1 없음으로 배포 PASS를 판정했고, 발견한 복구지도 P2 문구도 기본 MediaStore+보조 SAF 현실로 맞췄다. Ready PR CI와 두 배포 read-back은 릴리스 진행 뒤 덧붙인다. 실제 Android Download 파일 출현과 갤러리/파일 앱에서 사진·영상이 열리는지는 최신 APK 설치 뒤 사용자 실기기 확인 경계다.
+- 표적 유닛 16/16, TypeScript, Android Java compile, production build와 전체 하네스가 통과했다. Chromium은 현재 두 번째 사진 WebP와 재생 영상 WebM을 실제 다운로드해 각각 원 Blob과 정확 바이트를 대조했고, 실패 뒤 재활성·344px 비겹침을 포함해 editor 401/401을 통과했다. 독립 DR 사후감사는 P0/P1 없음으로 배포 PASS를 판정했고, 발견한 복구지도 P2 문구도 기본 MediaStore+보조 SAF 현실로 맞췄다. Ready PR #253(head `9ac9e68`)의 harness·live-render·fast-gates 세 검사가 모두 success였고, main squash 병합 `8b97ea2` 뒤 Deploy to GitHub Pages(run #31481222858)·Android APK(run #31481222886) 두 배포 워크플로도 모두 success다. 이 샌드박스는 `*.github.io`를 막아(§15) 공개 `version.json` read-back은 하지 못했다 — 「배포 확인함」과 「사이트에서 확인함」은 다른 말이다. 실제 Android Download 파일 출현과 갤러리/파일 앱에서 사진·영상이 열리는지는 최신 APK 설치 뒤 사용자 실기기 확인 경계다.
 
 ## HANDOFF-0142 · v2.14 · **Android 백업 기본 경로를 확정 Download 저장으로 전환** (2026-08-11 · 릴리스 후보)
 
@@ -22,7 +30,7 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 - 새 APK의 기본 ZIP·JSON 백업은 MediaStore로 `기기 내 저장공간/Download/Bugeon Journey`에 바로 만든다. `IS_PENDING` 상태에서 256KiB 청크별 JS 원본 SHA-256↔네이티브 수신값을 대조하고, 닫은 뒤 동일 URI의 전체 길이+SHA-256을 되읽은 뒤에만 파일을 게시하고 완료로 말한다.
 - Drive 등 다른 위치는 별도 「다른 폴더 선택 백업」으로 기존 SAF를 보존한다. Android 9 이하 또는 MediaStore 생성 실패는 SAF로 안전하게 내려간다. 사용자가 선택 창을 닫으면 파일이 없다는 사실과 폴더 선택 뒤 [저장]을 눌러야 한다는 다음 행동을 말한다.
 - 표적 유닛 5/5, TypeScript, Android Java compile, build, 실제 Chromium의 브라우저/가상 Android 셸 두 표면과 전체 라이브(editor 신규 4건 포함·diagnostics 70/70)가 통과했다. 실제 Galaxy 기기의 MediaStore 파일 출현·대용량 ZIP은 새 APK 설치 뒤 사용자 실기기 확인 경계다.
-- 영향 표면은 Pages v2.14와 `apk-latest`다. 최신 revision의 전체 하네스·Ready PR CI·squash merge·두 배포 표면 read-back은 릴리스 완료 뒤 이 항목에 덧붙인다.
+- 영향 표면은 Pages v2.14와 `apk-latest`다. Ready PR #250의 fast-gates·harness·live-render·apk 네 검사가 모두 success였고, main squash 병합 `64ff828` 뒤 Deploy to GitHub Pages(run #31463387842)·Android APK(run #31463387866) 두 배포 워크플로도 모두 success다. 이 샌드박스는 `*.github.io`를 막아(§15) 공개 `version.json` read-back은 하지 못했다.
 
 ## HANDOFF-0141 · v2.13 · **확정 ZIP 백업·영상/포스터 운영 서버 왕복** (2026-08-10 · 릴리스 후보)
 
