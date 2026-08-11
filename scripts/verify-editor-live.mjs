@@ -334,6 +334,72 @@ while ((await page.locator('.guide-overlay').count()) > 0) {
 // v0.49: 환율 기준통화 설정 — 데이터 관리 → 카드 → 통화 선택기(UZS 포함) 렌더·저장
 await page.locator('.data-open').click();
 await page.waitForSelector('.guide-overlay');
+await page.waitForSelector('.dm-usage-total');
+const dmVisual = await page.evaluate(() => {
+  const weight = (selector) => Number.parseInt(getComputedStyle(document.querySelector(selector)).fontWeight, 10);
+  const rightEdges = [...document.querySelectorAll('.dm-usage-val')]
+    .map((node) => node.getBoundingClientRect().right);
+  const iconContract = [...document.querySelectorAll('.dm-usage svg, .dm-tool-group svg')].every((node) =>
+    node.getAttribute('fill') === 'none'
+      && node.getAttribute('stroke') === 'currentColor'
+      && node.getAttribute('aria-hidden') === 'true',
+  );
+  const body = document.querySelector('.guide-body');
+  return {
+    titleIcons: document.querySelectorAll('.dm-title-icon').length,
+    usageIcons: document.querySelectorAll('.dm-usage-ic').length,
+    groupIcons: document.querySelectorAll('.dm-group-icon').length,
+    menuIcons: document.querySelectorAll('.dm-card-icon').length,
+    menuCards: document.querySelectorAll('.dm-tool-group .guide-card').length,
+    iconContract,
+    hasDecorativeEmoji: /\p{Extended_Pictographic}/u.test(body?.textContent ?? ''),
+    hasPlainRecordLabel: [...document.querySelectorAll('.dm-usage-name')].some((node) => node.textContent === '기록'),
+    weights: {
+      title: weight('.dm-usage-title'),
+      rowLabel: weight('.dm-usage-name'),
+      rowValue: weight('.dm-usage-line:not(.dm-usage-total) .dm-usage-val'),
+      totalValue: weight('.dm-usage-total .dm-usage-val'),
+      menuLabel: weight('.dm-tool-group .guide-card-label'),
+      menuHint: weight('.dm-tool-group .guide-card-hint'),
+    },
+    valueEdgeSpread: Math.max(...rightEdges) - Math.min(...rightEdges),
+    overflowX: body ? body.scrollWidth - body.clientWidth : Number.POSITIVE_INFINITY,
+  };
+});
+check(
+  'v2.16 데이터 관리: 저장 3종과 메뉴 전부가 같은 단색 SVG 아이콘 계약을 쓴다',
+  dmVisual.titleIcons === 1
+    && dmVisual.usageIcons === 3
+    && dmVisual.groupIcons === 1
+    && dmVisual.menuIcons === dmVisual.menuCards
+    && dmVisual.menuCards >= 9
+    && dmVisual.iconContract,
+  JSON.stringify(dmVisual),
+);
+check(
+  'v2.16 데이터 관리: 장식 이모지를 없애고 텍스트 기록을 간결한 「기록」으로 말한다',
+  !dmVisual.hasDecorativeEmoji && dmVisual.hasPlainRecordLabel,
+  JSON.stringify(dmVisual),
+);
+check(
+  'v2.16 데이터 관리: 개별 항목은 본문 무게이고 합계만 한 단계 강조한다',
+  dmVisual.weights.title <= 650
+    && dmVisual.weights.rowLabel <= 600
+    && dmVisual.weights.rowValue <= 600
+    && dmVisual.weights.totalValue >= 700
+    && dmVisual.weights.totalValue > dmVisual.weights.rowValue
+    && dmVisual.weights.menuLabel <= 600
+    && dmVisual.weights.menuHint <= 400,
+  JSON.stringify(dmVisual.weights),
+);
+check(
+  'v2.16 데이터 관리: 좁은 화면에서도 용량 숫자 열이 맞고 가로 넘침이 없다',
+  dmVisual.valueEdgeSpread <= 1 && dmVisual.overflowX <= 0,
+  `right spread=${dmVisual.valueEdgeSpread.toFixed(1)}px · overflow=${dmVisual.overflowX}px`,
+);
+if (process.env.DATA_MANAGER_SCREENSHOT) {
+  await page.screenshot({ path: resolve(process.env.DATA_MANAGER_SCREENSHOT), fullPage: false });
+}
 await page.getByText('환율 기준통화', { exact: false }).first().click();
 await page.waitForSelector('.dm-row select');
 const fxOpts = await page.$$eval('.dm-row select option', (els) => els.map((e) => e.value));

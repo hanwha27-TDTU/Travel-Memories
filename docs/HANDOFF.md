@@ -8,6 +8,15 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0147 · v2.16 · **데이터 관리의 이모지·초굵기 제거와 기존 커밋 단일 릴리스** (2026-08-11 · 릴리스 후보)
+
+- 사용자가 데이터 관리 화면 캡처에서 *"글자 굵기, 이모티콘 등 뭔가 조잡하지 않아?"*라고 지적했다. 실측 전 육안 판정은 레이아웃보다 ① 사진 글리프가 깨진 기호처럼 보임 ② 플랫폼별 컬러 이모지의 크기·색·무게 불일치 ③ 항목명·개별 용량·합계가 모두 굵어 강조가 서로 경쟁함이었다.
+- `dataManager.ts` 안의 `DATA_MANAGER_ICON_PATHS` 하나에서 저장 3종과 메뉴 9종을 같은 24px 단색 SVG 계약으로 생성한다. 저장 용량 제목과 그룹 제목도 같은 체계를 쓰며, 백업·복원 상세의 장식 이모지는 글자에서 제거했다. 「텍스트(기록)」은 「기록」으로 줄였고 실제 저장량 계산·백업·복원·동기화 로직은 바꾸지 않았다.
+- `app.css`는 항목·개별 값·메뉴 이름을 600 이하로 낮추고 합계 값만 700으로 남겼다. 412×915 Chromium 실측에서 아이콘 모집단 14개, 메뉴 9/9, 숫자 오른쪽 경계 편차 0px, 가로 넘침 0px이며 새 화면 캡처를 직접 열어 확인했다.
+- 라이브 게이트에 실제 앱이 그린 화면의 SVG 속성·장식 이모지 부재·계산된 font-weight·숫자 열·가로 넘침 판정 4개를 추가했다. 제목 이모지와 개별 용량 800을 되돌린 결함 주입은 해당 두 판정을 RED로 만들었고 복원 전 정상판은 editor live 405/405·콘솔 오류 0이었다.
+- 이 릴리스는 같은 초안 PR #255의 앞선 두 커밋(HANDOFF-0145 T-007 폐기, HANDOFF-0146 공용 스킬 `1454e82` 채택)까지 v2.16 하나로 묶는다. 영향 표면은 GitHub Pages다. Android 셸은 원격 Pages를 읽고 `android-shell/**`·APK 워크플로 변경이 없으므로 APK 재빌드는 `not-applicable`이다. Supabase DB·R2·Edge Function도 변경하지 않는다.
+- 릴리스 판정은 최신 PR SHA에서 Ready Required CI를 한 번 통과한 뒤 squash merge하고, main Pages workflow conclusion과 운영 `version.json` v2.16을 되읽는다. 배포 read-back만 적기 위한 후속 문서 커밋은 만들지 않아 배포 횟수를 한 번으로 유지한다.
+
 ## HANDOFF-0146 · **공통 스킬 `1454e82` 소비 앱 채택 완료** (2026-08-11 · 공급망 계약)
 
 - 다른 앱 작업에서 전역 설치된 `92ad778`과 공통 정본의 병합 커밋 `1454e82`는 커밋 ID만 다르고 tree 해시는 같았다. 깨끗한 `Codex-Shared-Skills` `origin/main`(`1454e82`)에서 공식 설치기를 다시 실행해 전역 Codex·Claude 12개 설치 경로와 상태 메타데이터를 병합 커밋으로 정규화했다.
@@ -1003,7 +1012,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.15<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->215<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->129<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.16<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->216<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->130<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->30<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

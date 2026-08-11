@@ -5,7 +5,7 @@ shape_reason: 맥락 없는 AI가 처음부터 따라 읽는 문서다 — 순�
 # HANDOFF_CODEX · Bugeon Journey 인계서
 
 > **읽는 사람**: 이 앱 제작에 거의 참여하지 않은 AI(Codex 등) 또는 새 Claude 세션.
-> **작성**: 2026-07-27 · **상태 포인터 갱신 2026-08-08**. 현재 버전·migration·배포 상태는
+> **작성**: 2026-07-27 · **상태 포인터 갱신 2026-08-11**. 현재 버전·migration·배포 상태는
 > `src/app/registry.gen.ts`와 `docs/HANDOFF.md` 맨 위가 정본이다. 이 문서의 버전별 절은 역사·구조 설명이며
 > 현재 상태로 읽지 않는다.
 >
@@ -19,19 +19,15 @@ shape_reason: 맥락 없는 AI가 처음부터 따라 읽는 문서다 — 순�
 
 ---
 
-## 🆕 현재 시작점 — 생성 등록부와 최신 인계로 이동 (2026-08-10 · **v2.13 ZIP 저장·운영 영상 왕복 릴리스 후보**)
+## 🆕 현재 시작점 — 생성 등록부와 최신 인계로 이동 (2026-08-11 · **v2.16 데이터 관리 시각 정리 릴리스 후보**)
 
 - 앱 버전, 적용 migration, 도구·게이트 개수는 손으로 복제하지 않는다. `src/app/registry.gen.ts`를 읽는다.
-- 현재 작업·검증·배포 상태는 `docs/HANDOFF.md` 맨 위 최신 HANDOFF를 읽는다.
+- 현재 작업·검증·배포 상태는 `docs/HANDOFF.md` 맨 위 HANDOFF-0147을 읽는다. 같은 PR #255에는
+  T-007 폐기(HANDOFF-0145)와 공용 스킬 `1454e82` 채택(HANDOFF-0146)도 함께 들어 있다.
 - 진단 시스템의 재사용 가능한 계약은 `docs/DIAGNOSTIC_TOOL_DESIGN_BLUEPRINT.md`가 정본이다.
-- 전체 백업은 `YYYYMMDD_HHMM_Bugeon-Journey.zip`이 기본이다. Android 셸은 사용자가 고른
-  문서 URI에 쓰고 길이+SHA-256으로 되읽으며, 진단 파일 왕복은 trip·moment·video 본문·poster를
-  실제 ZIP으로 복원·되읽고 abort 뒤 잔재 0건을 확인한다. 상세는 `docs/HANDOFF.md` HANDOFF-0140,
-  ADR-0056, `docs/DISASTER_RECOVERY.md`를 읽는다. **네이티브 플러그인이 추가됐으므로 다음 출시에
-  APK 재빌드·재설치가 필요하다.**
-- 별도 「영상 서버 왕복」은 사용자 영상을 읽지 않고 합성 WebM을 운영 DB/R2에 실제로 올린다.
-  영상+poster SHA-256·재생·다른 기기식 pull·tombstone·restore·purge·exact cleanup을 확인하며,
-  운영 저장 계약도 두 객체가 모두 되읽혀야 완료하도록 바뀌었다. 상세는 HANDOFF-0141·ADR-0057.
+- v2.16은 데이터 관리의 장식 이모지를 단색 SVG 체계로 바꾸고 개별 값의 굵기를 낮춰 합계만
+  강조한다. 사용자 기록·저장량 계산·백업 형식은 바뀌지 않는다. 웹 UI 변경이므로 Pages만
+  영향받고, 원격 Pages를 읽는 Android 셸의 APK 재빌드는 필요하지 않다.
 - 아래 v1.75 이하 절은 과거 사건의 근거이며 최신 상태가 아니다.
 
 ### 🔴 릴리스를 하려면 이 문서 하나부터 — `docs/HARNESS_RELEASE_LAW.md` (2026-08-09 신설)
