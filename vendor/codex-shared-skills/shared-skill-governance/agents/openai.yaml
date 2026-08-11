@@ -1,0 +1,4 @@
+interface:
+  display_name: "Shared Skill Governance"
+  short_description: "공통 스킬과 소비 앱 프로필의 호환성을 안전하게 관리"
+  default_prompt: "Use $shared-skill-governance to promote or update a shared skill while preserving each consumer app profile."

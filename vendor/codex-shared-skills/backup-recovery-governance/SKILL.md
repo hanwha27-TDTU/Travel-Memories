@@ -21,7 +21,9 @@ description: 사용자 데이터의 전체 백업, ZIP·JSON 직렬화, 암호�
 
 - 사용자 기억을 잃게 하는 테이블·행·바이트는 기본 포함이다. 캐시만 근거와 함께 제외한다.
 - JSON, ZIP 등 여러 형식은 하나의 collect/import core를 공유한다. 형식별 데이터 수집·병합을 복제하지 않는다.
-- 백업은 자족적이어야 한다. 복원에 필요한 앱 정본 바이트와 메타데이터를 품고 외부 URL을 유일한 사본으로 참조하지 않는다.
+- **복구 가능한 백업 세트**는 자족적이어야 한다. 단일 파일이 모든 바이트를 품을 수도 있고, 본문과 미디어를
+  동반 보관본으로 나눌 수도 있다. 나눈 경우 manifest·digest·보존 위치·복원 순서로 서로를 결속하고,
+  동반 보관본을 독립적으로 보존한다. 외부 URL만을 유일한 사본으로 두지 않는다.
 - 파일명은 사람이 읽기 위한 표현이고 복원은 manifest의 안정된 id·경로로 한다.
 - wire format이 바뀔 때만 format version을 올린다. 지원하는 과거 버전과 변환을 명시하고 알 수 없는 미래 버전은 추측 복원하지 않는다.
 
@@ -49,6 +51,9 @@ description: 사용자 데이터의 전체 백업, ZIP·JSON 직렬화, 암호�
 
 ## 3. 구현 구조
 
+운영 데이터베이스와 앱 내보내기, 동반 미디어 보관본, 암호 키 수명주기를 다룰 때는
+[재해복구 무결성](references/disaster-recovery-integrity.md)을 함께 읽는다.
+
 - DB collect/merge, 순수 serialize/deserialize, 파일 저장, 암호화, 신선도 메타를 분리한다.
 - 큰 Blob은 단일 base64로 브리지하지 않고 순서 있는 청크와 청크 digest를 사용한다.
 - transaction 안의 비DB 비동기가 transaction을 조기 종료하지 않는지 사용 DB의 keep-alive 방식을 확인한다.
@@ -62,7 +67,9 @@ description: 사용자 데이터의 전체 백업, ZIP·JSON 직렬화, 암호�
 - Corruption: 같은 크기 다른 바이트, CRC 변조, 누락 bundle, 중복 경로, 잘못된 offset, 0바이트 누락을 주입한다.
 - Compatibility: 지원하는 과거 버전은 읽고 미래 버전은 거부한다.
 - Actual file boundary: 메모리 Blob을 바로 읽지 말고 실제 저장→사용자 선택/handle→production importer 경계를 지난다.
-- Production restore drill: 격리된 고유 fixture를 실제 DB에 병합하고 전 필드·바이트를 되읽은 뒤 바깥 transaction을 의도적으로 abort한다. 종료 후 행·큐·원장 잔재 0을 확인한다.
+- Production restore drill: 격리된 고유 fixture를 실제 복원 경계에 넣고 전 필드·바이트를 되읽는다.
+  제공자가 바깥 transaction abort를 보장하면 의도적으로 abort하고, 그렇지 않으면 격리된 대상과 내구성 cleanup journal을 사용한다.
+  종료 후 행·큐·원장·바이트 잔재 0을 권위 있는 표면에서 확인한다.
 - Storage receipt: 취소, 부분 쓰기, digest 불일치, 구형 네이티브 응답이 완료·신선도로 반올림되지 않는지 검사한다.
 - External interoperability: 표준 ZIP 도구처럼 독립 구현으로 목록과 무결성을 대조한다.
 

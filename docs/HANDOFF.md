@@ -8,6 +8,14 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0146 · **공통 스킬 `1454e82` 소비 앱 채택 완료** (2026-08-11 · 공급망 계약)
+
+- 다른 앱 작업에서 전역 설치된 `92ad778`과 공통 정본의 병합 커밋 `1454e82`는 커밋 ID만 다르고 tree 해시는 같았다. 깨끗한 `Codex-Shared-Skills` `origin/main`(`1454e82`)에서 공식 설치기를 다시 실행해 전역 Codex·Claude 12개 설치 경로와 상태 메타데이터를 병합 커밋으로 정규화했다.
+- 같은 정본의 `sync-skills.mjs --vendor`로 프로젝트 vendor와 `schemas/codex-shared-skills-lock.json`을 재생성했다. 모집단은 5개→6개로 늘어 `shared-skill-governance`가 들어왔고, 동기화·백업 스킬은 새 무결성 reference를 함께 품는다. 파생물은 직접 편집하지 않았다.
+- `scripts/check-shared-skill-contract.mjs`의 승인 커밋·기대 모집단과 `schemas/release-profile.json`의 `sharedLaw.commit`을 `1454e82`로 맞췄다. 게이트의 설치본 드리프트 대조군은 새 여섯 번째 스킬을 자동 상속해 주입증명이 25→27축으로 늘었다.
+- 공통 소비 앱 프로필이 요구하는 동기화·백업 capability를 현행 `docs/SYNC_PROTOCOL.md`와 `docs/DISASTER_RECOVERY.md`에 대조했다. 앱은 이미 entity+operation 원자 커밋, canonical 정확집합, operation/version/바이트 read-back, manifest·CRC·digest fail-closed, 저장 영수증과 격리 복원 드릴을 더 엄격하게 갖고 있어 런타임·DB·R2·Android 셸 변경은 필요하지 않았다. 앱 버전은 v2.15 유지다.
+- 검증: 공통 정본 `npm test` PASS, 전역·vendor 정합 검사 PASS, 프로젝트 공유 스킬 계약(6개·CI 그룹 2·릴리스 노드 10·배포 표면 5) PASS, 릴리스 프로필 주입증명 19축 PASS, 빠른 게이트 60개 PASS. 최종 production build와 전체 harness는 선택 게이트 SKIP 없이 PASS했고, 별도 live는 편집기 401/401·진단 70/70 PASS했다. 배포는 실행하지 않았다.
+
 ## HANDOFF-0145 · **T-007 Phase 7 AI 확장 폐기** (2026-08-11 · 사용자 결정)
 
 - 사용자가 T-007이 꼭 필요한지 재검토한 뒤 *"007은 폐기하자"*고 결정했다. 현재 앱은 AI 없이도 기억을 안전하게 보관하고 다시 보는 북극성을 달성하며, AI 부재로 막힌 구체적 사용자 흐름은 관측되지 않았다.
