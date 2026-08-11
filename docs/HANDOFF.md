@@ -14,7 +14,7 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 - 사진은 외부 JPEG 원본이 아니라 앱 표시용 WebP, 영상은 앱 감상용 파생본이다. 접근성 이름과 성공·요청·취소·실패 문장에 「앱 보관본」을 명시하고, 실패 원인은 관측된 오류 메시지만 표시한다. 취소·실패 뒤 버튼을 다시 활성화하고 뷰어는 유지한다.
 - 기존 백업 저장 코어를 일반 앱 파일 저장 경계로 확장했다. 백업 래퍼·ZIP/JSON/ENC 형식과 마지막 백업 신선도는 그대로이며 개별 미디어 저장은 신선도를 건드리지 않는다. 0바이트, MIME·확장자 불일치, 영상 행 MIME·실제 Blob MIME 불일치, 같은 길이 다른 바이트와 native 미검증을 모두 fail-closed로 닫는다.
 - Android `BackupFiles` wire 이름은 구형 APK 호환을 위해 유지한다. 플러그인 오류 표현을 일반 파일로 바꾸고 표시명 조회 실패 시 요청 파일명을 돌려줘 사진을 `.zip`으로 보고하지 않는다. 새 권한은 없지만 네이티브 코드가 바뀌어 Pages와 `apk-latest`가 모두 배포 표면이다.
-- 표적 유닛 16/16, TypeScript, Android Java compile, production build와 전체 하네스가 통과했다. Chromium은 현재 두 번째 사진 WebP와 재생 영상 WebM을 실제 다운로드해 각각 원 Blob과 정확 바이트를 대조했고, 실패 뒤 재활성·344px 비겹침을 포함해 editor 401/401을 통과했다. 독립 DR 사후감사는 P0/P1 없음으로 배포 PASS를 판정했고, 발견한 복구지도 P2 문구도 기본 MediaStore+보조 SAF 현실로 맞췄다. Ready PR CI와 두 배포 read-back은 릴리스 진행 뒤 덧붙인다. 실제 Android Download 파일 출현과 갤러리/파일 앱에서 사진·영상이 열리는지는 최신 APK 설치 뒤 사용자 실기기 확인 경계다.
+- 표적 유닛 16/16, TypeScript, Android Java compile, production build와 전체 하네스가 통과했다. Chromium은 현재 두 번째 사진 WebP와 재생 영상 WebM을 실제 다운로드해 각각 원 Blob과 정확 바이트를 대조했고, 실패 뒤 재활성·344px 비겹침을 포함해 editor 401/401을 통과했다. 독립 DR 사후감사는 P0/P1 없음으로 배포 PASS를 판정했고, 발견한 복구지도 P2 문구도 기본 MediaStore+보조 SAF 현실로 맞췄다. Ready PR #253(head `9ac9e68`)의 harness·live-render·fast-gates 세 검사가 모두 success였고, main squash 병합 `8b97ea2` 뒤 Deploy to GitHub Pages(run #31481222858)·Android APK(run #31481222886) 두 배포 워크플로도 모두 success다. 이 샌드박스는 `*.github.io`를 막아(§15) 공개 `version.json` read-back은 하지 못했다 — 「배포 확인함」과 「사이트에서 확인함」은 다른 말이다. 실제 Android Download 파일 출현과 갤러리/파일 앱에서 사진·영상이 열리는지는 최신 APK 설치 뒤 사용자 실기기 확인 경계다.
 
 ## HANDOFF-0142 · v2.14 · **Android 백업 기본 경로를 확정 Download 저장으로 전환** (2026-08-11 · 릴리스 후보)
 
@@ -22,7 +22,7 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 - 새 APK의 기본 ZIP·JSON 백업은 MediaStore로 `기기 내 저장공간/Download/Bugeon Journey`에 바로 만든다. `IS_PENDING` 상태에서 256KiB 청크별 JS 원본 SHA-256↔네이티브 수신값을 대조하고, 닫은 뒤 동일 URI의 전체 길이+SHA-256을 되읽은 뒤에만 파일을 게시하고 완료로 말한다.
 - Drive 등 다른 위치는 별도 「다른 폴더 선택 백업」으로 기존 SAF를 보존한다. Android 9 이하 또는 MediaStore 생성 실패는 SAF로 안전하게 내려간다. 사용자가 선택 창을 닫으면 파일이 없다는 사실과 폴더 선택 뒤 [저장]을 눌러야 한다는 다음 행동을 말한다.
 - 표적 유닛 5/5, TypeScript, Android Java compile, build, 실제 Chromium의 브라우저/가상 Android 셸 두 표면과 전체 라이브(editor 신규 4건 포함·diagnostics 70/70)가 통과했다. 실제 Galaxy 기기의 MediaStore 파일 출현·대용량 ZIP은 새 APK 설치 뒤 사용자 실기기 확인 경계다.
-- 영향 표면은 Pages v2.14와 `apk-latest`다. 최신 revision의 전체 하네스·Ready PR CI·squash merge·두 배포 표면 read-back은 릴리스 완료 뒤 이 항목에 덧붙인다.
+- 영향 표면은 Pages v2.14와 `apk-latest`다. Ready PR #250의 fast-gates·harness·live-render·apk 네 검사가 모두 success였고, main squash 병합 `64ff828` 뒤 Deploy to GitHub Pages(run #31463387842)·Android APK(run #31463387866) 두 배포 워크플로도 모두 success다. 이 샌드박스는 `*.github.io`를 막아(§15) 공개 `version.json` read-back은 하지 못했다.
 
 ## HANDOFF-0141 · v2.13 · **확정 ZIP 백업·영상/포스터 운영 서버 왕복** (2026-08-10 · 릴리스 후보)
 
