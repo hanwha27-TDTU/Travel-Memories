@@ -57,9 +57,23 @@ export function iconSwitcher(): IconSwitcher | null {
 
 /** Android SAF 문서에 큰 백업을 청크로 쓰고, 닫은 뒤 다시 읽어 검증하는 셸 문. */
 export interface BackupFileWriter {
-  begin(options: { filename: string; mime: string }): Promise<{ cancelled?: boolean; token?: string; name?: string }>;
+  begin(options: {
+    filename: string;
+    mime: string;
+    destination: 'downloads' | 'picker';
+  }): Promise<{
+    cancelled?: boolean;
+    token?: string;
+    name?: string;
+    destination?: 'downloads' | 'picker';
+  }>;
   append(options: { token: string; data: string; sha256: string }): Promise<{ bytes: number }>;
-  finish(options: { token: string }): Promise<{ verified: boolean; bytes: number; name: string }>;
+  finish(options: { token: string }): Promise<{
+    verified: boolean;
+    bytes: number;
+    name: string;
+    destination?: 'downloads' | 'picker';
+  }>;
   abort(options: { token: string }): Promise<void>;
 }
 

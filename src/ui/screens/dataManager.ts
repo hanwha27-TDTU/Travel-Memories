@@ -18,7 +18,8 @@ import {
   type TrashedChild,
 } from '../../services/trash';
 import { assertBackupImportSize, backupFilename, exportBackup, exportBackupZip, importBackupAuto, type BackupStats } from '../../services/backup';
-import { backupSaveMessage, saveBackupBlob } from '../../services/fileSave';
+import { backupSaveMessage, saveBackupBlob, saveBackupBlobToChosenFolder } from '../../services/fileSave';
+import { backupFileWriter } from '../../services/capacitorShell';
 import { recordBackupNow, getLastBackupAt, backupFreshness } from '../../services/backupMeta';
 import {
   listDeletedTrips, listDeletedTripsFromServer, restoreTripFromTrash, purgeTripPermanently, prepareTripForAction,
@@ -126,7 +127,7 @@ function backupPanel(): HTMLElement {
   const box = el('div', 'guide-detail-body');
   box.append(
     el('h3', 'guide-h', '완전 백업 파일 만들기'),
-    el('p', 'guide-p', '여행·순간·장소·감정·비용과 사진·소리·영상 파일을 하나의 ZIP으로 저장합니다. Android 앱에서는 저장할 폴더를 직접 고르고, 저장 뒤 파일을 다시 읽어 확인합니다.'),
+    el('p', 'guide-p', '여행·순간·장소·감정·비용과 사진·소리·영상 파일을 하나의 ZIP으로 저장합니다. Android 앱에서는 기본 Download 폴더에 바로 저장하거나 다른 폴더를 직접 고를 수 있고, 저장 뒤 파일을 다시 읽어 확인합니다.'),
   );
   const status = el('p', 'dm-status');
   status.setAttribute('role', 'status');
@@ -147,6 +148,7 @@ function backupPanel(): HTMLElement {
     // "백업에 오디오도 들어 있나?"를 물어야 했던 이유다(§12). 필드가 늘면 여기도 따라온다.
     make: () => Promise<{ blob: Blob; stats: BackupStats }>,
     filename: (now: Date) => string,
+    save = saveBackupBlob,
   ) => {
     btn.disabled = true;
     status.textContent = '백업 만드는 중…';
@@ -154,7 +156,7 @@ function backupPanel(): HTMLElement {
       try {
         const { blob, stats } = await make();
         const now = new Date();
-        const receipt = await saveBackupBlob(blob, filename(now));
+        const receipt = await save(blob, filename(now));
         if (receipt.state === 'verified' && stats.missingFiles === 0) {
           recordBackupNow();
           renderFresh();
@@ -204,6 +206,21 @@ function backupPanel(): HTMLElement {
       (now) => backupFilename(now, 'zip', withOrig ? { encrypted: !!p } : { encrypted: !!p, suffix: '표시본만' }),
     );
   });
+  // 새 APK는 취소될 수 있는 선택기를 기본 경로에서 제거한다. 그래도 사용자가 Drive나 다른
+  // 폴더를 원하면 같은 ZIP 생성기와 검증 경계를 통과하는 명시적 보조 문을 제공한다(§7).
+  const btnZipPicker = el('button', 'btn-ghost dm-wide', '📁 다른 폴더 선택 백업 (ZIP)') as HTMLButtonElement;
+  btnZipPicker.type = 'button';
+  btnZipPicker.addEventListener('click', () => {
+    const p = pass();
+    if (!confirmPlaintext(p)) return;
+    const withOrig = incOrig.checked;
+    runExport(
+      btnZipPicker,
+      () => exportBackupZip(withOrig, p),
+      (now) => backupFilename(now, 'zip', withOrig ? { encrypted: !!p } : { encrypted: !!p, suffix: '표시본만' }),
+      saveBackupBlobToChosenFolder,
+    );
+  });
 
   const btnJson = el('button', 'btn-ghost dm-wide', '💾 단일 파일 백업 (JSON)') as HTMLButtonElement;
   btnJson.type = 'button';
@@ -214,11 +231,12 @@ function backupPanel(): HTMLElement {
   });
 
   box.append(
-    el('p', 'guide-p', 'ZIP은 여행마다 폴더로 나뉘고 사진 표시본·썸네일, 소리, 영상 본체·포스터가 실제 파일로 들어갑니다. 아직 전송 확인 전인 사진의 임시 원본도 기본으로 함께 담습니다. JSON도 같은 데이터를 담는 호환 형식이며 둘 다 자동 복원할 수 있어요.'),
+    el('p', 'guide-p', 'ZIP은 여행마다 폴더로 나뉘고 사진 표시본·썸네일, 소리, 영상 본체·포스터가 실제 파일로 들어갑니다. Android 앱의 기본 저장 위치는 기기 내 저장공간/Download/Bugeon Journey입니다. 아직 전송 확인 전인 사진의 임시 원본도 기본으로 함께 담습니다. JSON도 같은 데이터를 담는 호환 형식이며 둘 다 자동 복원할 수 있어요.'),
     fresh,
     passInput,
     incOrigLabel,
     btnZip,
+    ...(backupFileWriter() ? [btnZipPicker] : []),
     btnJson,
     status,
     el('p', 'guide-note', '클라우드 저장이 확인된 사진은 태블릿 감상용 표시본이 정본이며, 큰 입력 원본 복사본은 기기에서 자동 정리됩니다. 암호를 입력하면 백업 파일을 열 때 그 암호가 필요합니다 — 분실하면 복원할 수 없으니 암호도 안전하게 보관하세요.'),

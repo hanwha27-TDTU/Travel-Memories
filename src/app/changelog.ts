@@ -31,6 +31,16 @@ export const DEVELOPER = {
 /** 최신이 맨 앞. 각 항목 = 실제 병합된 릴리스. */
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: '2.14',
+    date: '2026-08-11',
+    title: '**Android 백업을 Download 폴더에 바로 저장합니다**',
+    notes: [
+      'Android 앱의 기본 ZIP·JSON 백업은 시스템 저장 창에만 의존하지 않고 기기 내 저장공간/Download/Bugeon Journey에 바로 만듭니다. 저장한 URI를 다시 열어 길이와 SHA-256이 같을 때만 완료로 표시합니다.',
+      'Google Drive나 다른 폴더를 원하면 「다른 폴더 선택 백업」을 사용할 수 있습니다. 저장 창을 닫은 경우에는 파일이 만들어지지 않았다는 사실과 다음에 눌러야 할 「저장」 동작을 분명히 안내합니다.',
+      '백업 파일 이름과 내용·복원 규칙은 그대로입니다. 새 기본 저장 경로는 Android 네이티브 기능이므로 최신 APK로 업데이트해야 적용됩니다.',
+    ],
+  },
+  {
     version: '2.13',
     date: '2026-08-11',
     title: '**전체 ZIP 백업을 확정 저장하고 영상·포스터의 실제 서버 왕복을 검사합니다**',

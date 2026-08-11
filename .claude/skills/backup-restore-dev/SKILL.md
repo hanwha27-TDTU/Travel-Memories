@@ -17,7 +17,7 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 | `src/services/zip.ts` | 의존성 0 store(무압축) ZIP 리더/라이터 + CRC32 | 순수 → 유닛테스트 대상 |
 | `src/services/backupCrypto.ts` | AES-GCM-256 + PBKDF2 210k 봉투(MAGIC `BGJENC1\n`) | WebCrypto. **키를 저장하지 않는다** |
 | `src/services/backupMeta.ts` | 마지막 백업 시각·신선도(localStorage) | 캐시성 메타(기억 아님) |
-| `src/services/fileSave.ts` | Android SAF·브라우저 저장 선택기·anchor fallback의 공용 저장 경계 | 되읽어 검증한 저장과 다운로드 요청을 구분 |
+| `src/services/fileSave.ts` | Android Download 직접 저장·SAF 다른 폴더·브라우저 선택기·anchor fallback의 공용 저장 경계 | 되읽어 검증한 저장과 다운로드 요청을 구분 |
 | `src/services/backupRoundTrip.ts` | 실제 내려받기→파일 선택→파싱→Dexie 병합→read-back 왕복 시험 | 고유 trip·moment·video만 복원하고 바깥 transaction을 의도적으로 abort |
 
 ## 1. 불변 계약
@@ -45,7 +45,7 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
     사용자는 무엇이 보호됐는지 알 수 없다. 사진·소리·영상 개수는 공용 backup stats에서 파생하고
     serializer·복원 read-back·사용자 문장이 같은 값을 쓴다.
 13. **파일 저장 요청과 저장 완료는 다르다**: 기본 이름은 `backupFilename()` 한 곳에서
-    `YYYYMMDD_HHMM_Bugeon-Journey.zip`으로 만든다. Android 셸은 SAF로 사용자가 위치를 고르게 하고
+    `YYYYMMDD_HHMM_Bugeon-Journey.zip`으로 만든다. Android 셸은 `Download/Bugeon Journey` 직접 저장을 기본으로 하고 다른 폴더만 SAF로 고르게 하며
     같은 URI를 길이+SHA-256으로 되읽는다. 브라우저 저장 선택기도 쓴 바이트를 다시 비교한다.
     anchor fallback은 브라우저에 다운로드를 **요청**했을 뿐이므로 「저장했어요」라고 말하거나
     마지막 백업 시각을 갱신하지 않는다. 실제 경로를 앱이 모르면 보통 Download라고만 안내하고
