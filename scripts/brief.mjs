@@ -42,6 +42,12 @@ export const SKILL_ROUTES = [
   // 개별 스킬 문서는 아래 skillsFor()가 자기 자신도 함께 라우팅한다.
   { match: /^\.claude\/skills\//, skill: 'gates-mechanization-dev' },
   { match: /^docs\/(CONSTITUTION|HANDOFF(?:_CODEX)?)\.md$/, skill: 'gates-mechanization-dev' },
+  // Current-work and decision maps change what the next agent is allowed to start.
+  // Treat them as governance inputs, not unscoped prose.
+  { match: /^docs\/(BACKLOG|DECISIONS|ROADMAP)\.md$/, skill: 'gates-mechanization-dev' },
+  // 실수 원장은 체크포인트를 넘은 결함과 그 기계층을 기록한다. 이 파일을 고치면서
+  // 게이트 헌장이 비어 있으면 「기록은 남겼지만 예방층은 안 봄」으로 다시 갈라진다(M-0096).
+  { match: /^docs\/records\/coding-mistakes\.md$/, skill: 'gates-mechanization-dev' },
   { match: /^docs\/DISASTER_RECOVERY\.md$/, skill: 'backup-restore-dev' },
   // 계약 스키마는 게이트가 읽는 **기계 계약**이다. 특히 release-profile.json은 릴리스 그래프·
   // 재생성 원장의 정본이라, 여기를 고치는 것은 게이트를 고치는 것과 같은 규율을 받는다.
@@ -322,6 +328,35 @@ export function siblingsOf(path) {
     .filter((f) => f !== path);
 }
 
+/** BACKLOG의 완료 아카이브를 열린 과제로 다시 살리지 않고 BKL-1 표만 읽는다. */
+export function openBacklogRows(text) {
+  const start = text.search(/^## BKL-1\b/m);
+  if (start < 0) throw new Error('BACKLOG.md에 BKL-1 열린 과제 절이 없습니다.');
+  const bodyStart = text.indexOf('\n', start);
+  if (bodyStart < 0) throw new Error('BACKLOG.md의 BKL-1 절 본문을 읽을 수 없습니다.');
+  const rest = text.slice(bodyStart + 1);
+  const nextHeading = rest.search(/^##\s+/m);
+  const openSection = nextHeading < 0 ? rest : rest.slice(0, nextHeading);
+  return openSection.split('\n').filter((line) => /^\|\s*T-[A-Z0-9-]+\s*\|/.test(line));
+}
+
+// 비공허 대조군: 완료 아카이브의 행을 열린 과제로 세던 실제 결함을 되살리면 첫 케이스가 RED다.
+{
+  const sample = [
+    '## BKL-1 열린 과제',
+    '| T-007 | 열림 | 대기 |',
+    '## BKL-2 완료 아카이브',
+    '| T-008 | 닫힘 | 안 하기로 결정 |',
+  ].join('\n');
+  const rows = openBacklogRows(sample);
+  if (rows.length !== 1 || !rows[0].includes('T-007') || rows[0].includes('T-008')) {
+    throw new Error('brief: BACKLOG BKL-1 범위 자체검사 실패 — 완료 과제를 열린 과제로 셀 수 있습니다.');
+  }
+  if (openBacklogRows('## BKL-1 열린 과제\n\n열린 과제 없음.\n## BKL-2 완료 아카이브').length !== 0) {
+    throw new Error('brief: 빈 BACKLOG 자체검사 실패 — 열린 과제 0건을 만들 수 없습니다.');
+  }
+}
+
 function changedPaths() {
   try {
     const out = execSync('git status --porcelain', { cwd: ROOT, encoding: 'utf8' });
@@ -452,16 +487,19 @@ console.log('  · 어떻게 — 검증 경로는? 알려진 실패를 주입해 
   const backlogFile = join(ROOT, 'docs/BACKLOG.md');
   if (existsSync(backlogFile)) {
     const text = readFileSync(backlogFile, 'utf8');
-    const open = text.split('## 완료 아카이브')[0];
-    const rows = open.split('\n').filter((l) => /^\|\s*T-\d/.test(l));
-    console.log(`\n⑦ 열린 과제 ${rows.length}건 (정본 docs/BACKLOG.md — 상태 변경은 그 파일에서만):`);
-    for (const r of rows) {
-      const c = r.split('|').map((x) => x.trim());
-      // | ID | 과제 | 상태 | ... — 셀 수가 모자라면 지어내지 않고 원문 줄을 그대로 보여준다.
-      if (c.length >= 4) console.log(`  · ${c[1]} [${c[3]}] ${c[2]}`);
-      else console.log(`  · ${r}`);
+    const rows = openBacklogRows(text);
+    if (rows.length === 0) {
+      console.log('\n⑦ 열린 과제 없음 (정본 docs/BACKLOG.md BKL-1).');
+    } else {
+      console.log(`\n⑦ 열린 과제 ${rows.length}건 (정본 docs/BACKLOG.md — 상태 변경은 그 파일에서만):`);
+      for (const r of rows) {
+        const c = r.split('|').map((x) => x.trim());
+        // | ID | 과제 | 상태 | ... — 셀 수가 모자라면 지어내지 않고 원문 줄을 그대로 보여준다.
+        if (c.length >= 4) console.log(`  · ${c[1]} [${c[3]}] ${c[2]}`);
+        else console.log(`  · ${r}`);
+      }
+      console.log('  → 끝낸 과제는 **같은 커밋에서** 완료 아카이브로 옮긴다(증거 필수).');
     }
-    console.log('  → 끝낸 과제는 **같은 커밋에서** 완료 아카이브로 옮긴다(증거 필수).');
   } else {
     console.log('\n⑦ ⚠️ docs/BACKLOG.md가 없습니다 — 미완료 과제 정본이 사라졌습니다(그 자체가 결함).');
   }
