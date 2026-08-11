@@ -128,6 +128,16 @@ let selfTestCount = 0;
       actual: [...skillsFor(['docs/DIAGNOSTIC_TOOL_DESIGN_BLUEPRINT.md']).keys()],
       expected: ['diagnostics-dev', 'gates-mechanization-dev'],
     },
+    {
+      name: 'current-work governance docs route to gates',
+      actual: [...skillsFor(['docs/BACKLOG.md', 'docs/DECISIONS.md', 'docs/ROADMAP.md']).keys()],
+      expected: ['gates-mechanization-dev'],
+    },
+    {
+      name: 'coding-mistakes ledger routes to gates',
+      actual: [...skillsFor(['docs/records/coding-mistakes.md']).keys()],
+      expected: ['gates-mechanization-dev'],
+    },
   ];
   const broken = routingCases.filter(
     ({ actual, expected }) => actual.length !== expected.length || expected.some((skill) => !actual.includes(skill)),

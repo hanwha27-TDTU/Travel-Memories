@@ -49,20 +49,75 @@ function fmtBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+type DataManagerIcon =
+  | 'storage'
+  | 'photo'
+  | 'audio'
+  | 'record'
+  | 'folder'
+  | 'currency'
+  | 'cloud'
+  | 'backup'
+  | 'restore'
+  | 'canonical'
+  | 'diagnostics'
+  | 'location'
+  | 'trash'
+  | 'guide';
+
+/** 데이터 관리 화면의 장식 아이콘 SSOT — 플랫폼마다 달라지는 컬러 이모지를 쓰지 않는다. */
+const DATA_MANAGER_ICON_PATHS: Record<DataManagerIcon, readonly string[]> = {
+  storage: ['M4 6c0-2 16-2 16 0s-16 2-16 0', 'M4 6v6c0 2 16 2 16 0V6', 'M4 12v6c0 2 16 2 16 0v-6'],
+  photo: ['M3 5h18v14H3z', 'm3 16 5-5 4 4 3-3 6 6', 'M8 8h.01'],
+  audio: ['M11 5 6 9H2v6h4l5 4z', 'M15.5 8.5a5 5 0 0 1 0 7', 'M19 5a10 10 0 0 1 0 14'],
+  record: ['M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z', 'M14 2v6h6', 'M8 13h8', 'M8 17h6'],
+  folder: ['M3 5h6l2 2h10v12H3z'],
+  currency: ['M7 7h11l-3-3', 'm17 17H6l3 3'],
+  cloud: ['M17.5 19H7a5 5 0 1 1 1.3-9.8A7 7 0 0 1 21 13a4 4 0 0 1-3.5 6z'],
+  backup: ['M12 3v12', 'm7 10 5 5 5-5', 'M5 21h14'],
+  restore: ['M12 21V9', 'm7 14 5-5 5 5', 'M5 3h14'],
+  canonical: ['M12 3 20 7v5c0 5-3.4 8.4-8 10-4.6-1.6-8-5-8-10V7z', 'm9 12 2 2 4-4'],
+  diagnostics: ['M3 12h4l2-5 4 10 2-5h6'],
+  location: ['M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0z', 'M12 10h.01'],
+  trash: ['M3 6h18', 'M8 6V4h8v2', 'M6 6l1 15h10l1-15', 'M10 10v7', 'M14 10v7'],
+  guide: ['M4 5a3 3 0 0 1 3-2h5v17H7a3 3 0 0 0-3 2z', 'M20 5a3 3 0 0 0-3-2h-5v17h5a3 3 0 0 1 3 2z'],
+};
+
+function dataManagerIcon(name: DataManagerIcon, className: string): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.classList.add(className);
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '1.75');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  for (const d of DATA_MANAGER_ICON_PATHS[name]) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    svg.appendChild(path);
+  }
+  return svg;
+}
+
 /** 저장 용량 요약 카드 — 사진(blob) vs 텍스트(기록)로 나눠 보여준다. 비동기로 채운다. */
 function buildUsageCard(): HTMLElement {
   const card = el('div', 'dm-usage');
-  card.append(el('div', 'dm-usage-title', '📦 저장 용량'));
+  const title = el('div', 'dm-usage-title');
+  title.append(dataManagerIcon('storage', 'dm-title-icon'), document.createTextNode('저장 용량'));
+  card.append(title);
   const rows = el('div', 'dm-usage-rows');
   const loading = el('div', 'dm-usage-loading muted small', '계산 중…');
   rows.appendChild(loading);
   card.appendChild(rows);
 
-  const line = (icon: string, label: string, value: string, sub?: string): HTMLElement => {
+  const line = (icon: DataManagerIcon, label: string, value: string, sub?: string): HTMLElement => {
     const r = el('div', 'dm-usage-line');
     const left = el('div', 'dm-usage-label');
     const name = el('span', 'dm-usage-name');
-    name.append(el('span', 'dm-usage-ic', icon), document.createTextNode(` ${label}`));
+    name.append(dataManagerIcon(icon, 'dm-usage-ic'), document.createTextNode(label));
     left.appendChild(name);
     if (sub) left.appendChild(el('span', 'dm-usage-sub muted small', sub));
     const right = el('span', 'dm-usage-val');
@@ -77,7 +132,7 @@ function buildUsageCard(): HTMLElement {
       const known = u.photoBytes + u.audioBytes + u.textBytes;
       rows.append(
         line(
-          '🖼',
+          'photo',
           '사진',
           formatBytes(u.photoBytes),
           u.photoCount > 0
@@ -86,8 +141,8 @@ function buildUsageCard(): HTMLElement {
         ),
         // 소리는 **사진과 같은 자리에 같은 어휘**로 선다(§7 사용자 대면 대칭). 0이어도 줄을
         // 없애지 않는다 — 줄이 사라지면 "이 앱이 소리를 세고 있다"는 사실 자체가 안 보인다.
-        line('🔊', '소리', formatBytes(u.audioBytes), u.audioCount > 0 ? `${u.audioCount}개 · 녹음 원본` : '아직 없음'),
-        line('📝', '텍스트(기록)', formatBytes(u.textBytes), '여행·순간·비용·메모'),
+        line('audio', '소리', formatBytes(u.audioBytes), u.audioCount > 0 ? `${u.audioCount}개 · 녹음 원본` : '아직 없음'),
+        line('record', '기록', formatBytes(u.textBytes), '여행·순간·비용·메모'),
       );
       const total = el('div', 'dm-usage-line dm-usage-total');
       total.append(el('span', 'dm-usage-label', '합계'), el('span', 'dm-usage-val', formatBytes(known)));
@@ -136,7 +191,7 @@ function backupPanel(): HTMLElement {
   const fresh = el('p', 'dm-fresh');
   const renderFresh = () => {
     const f = backupFreshness(getLastBackupAt());
-    fresh.textContent = f.never ? `🔔 ${f.text} — 지금 한 번 내려받아 두는 걸 권해요.` : `${f.stale ? '🔔 ' : '🗓️ '}${f.text}${f.stale ? ' — 오래됐어요. 새로 백업해 두세요.' : ''}`;
+    fresh.textContent = f.never ? `${f.text} — 지금 한 번 내려받아 두는 걸 권해요.` : `${f.text}${f.stale ? ' — 오래됐어요. 새로 백업해 두세요.' : ''}`;
     fresh.classList.toggle('dm-fresh-warn', f.stale);
   };
   renderFresh();
@@ -162,7 +217,7 @@ function backupPanel(): HTMLElement {
           renderFresh();
         }
         const counts = `여행 ${stats.trips} · 순간 ${stats.moments} · 사진 ${stats.media} · 비용 ${stats.expenses} · 소리 ${stats.audio} · 영상 ${stats.videos} · ${fmtBytes(blob.size)}`;
-        const missing = stats.missingFiles > 0 ? ` · ⚠ 이 기기에 실물 파일이 없는 항목 ${stats.missingFiles}개는 메타만 포함` : '';
+        const missing = stats.missingFiles > 0 ? ` · 주의: 이 기기에 실물 파일이 없는 항목 ${stats.missingFiles}개는 메타만 포함` : '';
         status.textContent = receipt.state === 'cancelled' ? backupSaveMessage(receipt) : `${backupSaveMessage(receipt)} · ${counts}${missing}`;
       } catch (err) {
         status.textContent = `내보내기 실패: ${err instanceof Error ? err.message : String(err)}`;
@@ -194,7 +249,7 @@ function backupPanel(): HTMLElement {
   incOrigLabel.htmlFor = 'dm-inc-orig';
   incOrigLabel.append(incOrig, document.createTextNode(' 아직 전송 확인 전인 사진의 임시 원본도 포함'));
 
-  const btnZip = el('button', 'btn-primary dm-wide', '🗂️ 여행별 폴더 백업 (ZIP)') as HTMLButtonElement;
+  const btnZip = el('button', 'btn-primary dm-wide', '여행별 폴더 백업 (ZIP)') as HTMLButtonElement;
   btnZip.type = 'button';
   btnZip.addEventListener('click', () => {
     const p = pass();
@@ -222,7 +277,7 @@ function backupPanel(): HTMLElement {
     );
   });
 
-  const btnJson = el('button', 'btn-ghost dm-wide', '💾 단일 파일 백업 (JSON)') as HTMLButtonElement;
+  const btnJson = el('button', 'btn-ghost dm-wide', '단일 파일 백업 (JSON)') as HTMLButtonElement;
   btnJson.type = 'button';
   btnJson.addEventListener('click', () => {
     const p = pass();
@@ -261,7 +316,7 @@ function restorePanel(onChanged: () => void): HTMLElement {
   fileInput.type = 'file';
   fileInput.accept = 'application/zip,.zip,application/json,.json,.enc';
   const label = el('label', 'btn-primary dm-wide');
-  label.append(document.createTextNode('📥 백업 파일 선택'), fileInput);
+  label.append(document.createTextNode('백업 파일 선택'), fileInput);
   fileInput.addEventListener('change', () => {
     const file = fileInput.files?.[0];
     if (!file) return;
@@ -272,14 +327,14 @@ function restorePanel(onChanged: () => void): HTMLElement {
         const buf = await file.arrayBuffer();
         const r = await importBackupAuto(buf, passInput.value.trim() || undefined);
         if (r.needsPassphrase) {
-          status.textContent = '🔒 암호화된 백업이에요. 위에 암호를 입력하고 파일을 다시 선택하세요.';
+          status.textContent = '암호화된 백업이에요. 위에 암호를 입력하고 파일을 다시 선택하세요.';
         } else if (r.skippedEmptyGuard) {
-          status.textContent = '⚠️ 백업이 비어 있어 건너뛰었어요(현재 데이터 보존).';
+          status.textContent = '백업이 비어 있어 건너뛰었어요(현재 데이터 보존).';
         } else {
           // 영구삭제했던 것을 되살렸으면 **그렇게 말한다.** 2026-07-26에 이 문장이 없어서,
           // 복원이 서버 원장에 막혀 통째로 무효화되는 동안 사용자는 「✅ 복원됨」만 봤다.
           const back = r.unpurged ? ` · 영구삭제했던 ${r.unpurged}건을 되살립니다` : '';
-          status.textContent = `✅ 복원됨 · 여행 ${r.trips} · 순간 ${r.moments} · 사진 ${r.media} · 비용 ${r.expenses} · 소리 ${r.audio} · 영상 ${r.videos} 반영${back}`;
+          status.textContent = `복원 확인 · 여행 ${r.trips} · 순간 ${r.moments} · 사진 ${r.media} · 비용 ${r.expenses} · 소리 ${r.audio} · 영상 ${r.videos} 반영${back}`;
           onChanged();
           // 복원한 기억이 이 기기에만 갇히지 않게 곧바로 올린다(기기 분실 후 복구가 이 경로다).
           void requestSync('백업 복원');
@@ -633,7 +688,7 @@ function trashPanel(onChanged: () => void, closeHub: () => void): HTMLElement {
 // ── 허브 카드 정의 ───────────────────────────────────────────────────
 interface HubCard {
   hook?: string;
-  icon: string;
+  icon: DataManagerIcon;
   label: string;
   hint: string;
   open: (host: {
@@ -691,7 +746,7 @@ function canonicalPanel(onChanged: () => void): HTMLElement {
   wrap.append(
     el('h3', 'guide-h', '이 기기를 클라우드 최종본으로'),
     el('p', 'guide-p', '현재 이 기기에 저장된 여행·장소·순간·사진·비용·소리·영상과 영구삭제 원장을 클라우드의 정확한 최종본으로 지정합니다.'),
-    el('p', 'guide-note', '⚠️ 일반 동기화와 다릅니다. 클라우드에만 있던 항목은 최종본에서 빠지고, 다른 기기는 다음 동기화 때 자기 로컬 전용 항목을 보존하지 않고 이 최종본에 맞춥니다. 먼저 완전백업을 내려받는 것을 권합니다.'),
+    el('p', 'guide-note', '주의: 일반 동기화와 다릅니다. 클라우드에만 있던 항목은 최종본에서 빠지고, 다른 기기는 다음 동기화 때 자기 로컬 전용 항목을 보존하지 않고 이 최종본에 맞춥니다. 먼저 완전백업을 내려받는 것을 권합니다.'),
   );
   const status = el('p', 'dm-status');
   status.setAttribute('role', 'status');
@@ -728,7 +783,7 @@ function canonicalPanel(onChanged: () => void): HTMLElement {
         const user = await currentUser();
         if (!client || !user) throw new Error('로그인과 Supabase 연결이 필요합니다.');
         const result = await publishDeviceAsCanonical(client, user.id);
-        status.textContent = `✅ 최종본 교체 확인 · 기록 ${result.rows}건 · 영구삭제 표식 ${result.purgedIds}건. 다른 기기는 다음 동기화 때 이 기준을 받습니다.`;
+        status.textContent = `최종본 교체 확인 · 기록 ${result.rows}건 · 영구삭제 표식 ${result.purgedIds}건. 다른 기기는 다음 동기화 때 이 기준을 받습니다.`;
         confirm.hidden = true;
         cancel.hidden = true;
         onChanged();
@@ -750,15 +805,15 @@ function cards(
   reopen: () => HTMLElement | void,
 ): HubCard[] {
   return [
-    { icon: '💱', label: '환율 기준통화', hint: '비용 옆에 환산값 표시', open: (h) => h.detail('💱 환율 기준통화', currencyPanel()) },
-    { icon: '☁️', label: 'R2 저장소 설정', hint: '사진 저장소 설정 절차·함정 기록', open: (h) => { h.close(); openR2Setup(); } },
-    { icon: '💾', label: '백업 (내보내기)', hint: '기억을 파일로 저장', open: (h) => h.detail('💾 백업 (내보내기)', backupPanel()) },
-    { icon: '📥', label: '복원 (가져오기)', hint: '백업 파일에서 병합 복원', open: (h) => h.detail('📥 복원 (가져오기)', restorePanel(onChanged)) },
-    { icon: '🔐', label: '이 기기를 클라우드 최종본으로', hint: '일반 병합이 아닌 명시적 전체 교체', open: (h) => h.detail('🔐 클라우드 최종본 지정', canonicalPanel(onChanged)) },
-    { hook: 'diagnostics', icon: '🩺', label: '진단 도구', hint: '동기화·무결성·저장소·환경·오류 한 곳에', open: (h) => { h.close(); openDiagnosticsHub(undefined, { onClose: reopen }); } },
-    { icon: '📍', label: '위치관리대장', hint: '등록한 장소를 찾고 좌표·주소 고치기', open: (h) => h.detail('📍 위치관리대장', placeRegistryPanel(onChanged, (id, target) => { h.close(); goToTrip(id, target); })) },
-    { icon: '🗑', label: '휴지통', hint: '삭제한 여행 복원·영구삭제', open: (h) => h.detail('🗑 휴지통', trashPanel(onChanged, h.close)) },
-    { icon: '📖', label: '가이드', hint: '연결·설정과 개발·설계 안내', open: (h) => { h.close(); openGuide(); } },
+    { icon: 'currency', label: '환율 기준통화', hint: '비용 옆에 환산값 표시', open: (h) => h.detail('환율 기준통화', currencyPanel()) },
+    { icon: 'cloud', label: 'R2 저장소 설정', hint: '사진 저장소 설정 절차·함정 기록', open: (h) => { h.close(); openR2Setup(); } },
+    { icon: 'backup', label: '백업 (내보내기)', hint: '기억을 파일로 저장', open: (h) => h.detail('백업 (내보내기)', backupPanel()) },
+    { icon: 'restore', label: '복원 (가져오기)', hint: '백업 파일에서 병합 복원', open: (h) => h.detail('복원 (가져오기)', restorePanel(onChanged)) },
+    { icon: 'canonical', label: '이 기기를 클라우드 최종본으로', hint: '일반 병합이 아닌 명시적 전체 교체', open: (h) => h.detail('클라우드 최종본 지정', canonicalPanel(onChanged)) },
+    { hook: 'diagnostics', icon: 'diagnostics', label: '진단 도구', hint: '동기화·무결성·저장소·환경·오류 한 곳에', open: (h) => { h.close(); openDiagnosticsHub(undefined, { onClose: reopen }); } },
+    { icon: 'location', label: '위치관리대장', hint: '등록한 장소를 찾고 좌표·주소 고치기', open: (h) => h.detail('위치관리대장', placeRegistryPanel(onChanged, (id, target) => { h.close(); goToTrip(id, target); })) },
+    { icon: 'trash', label: '휴지통', hint: '삭제한 여행 복원·영구삭제', open: (h) => h.detail('휴지통', trashPanel(onChanged, h.close)) },
+    { icon: 'guide', label: '가이드', hint: '연결·설정과 개발·설계 안내', open: (h) => { h.close(); openGuide(); } },
   ];
 }
 
@@ -799,11 +854,10 @@ export function openDataManager(opts: DataManagerOpts): void {
   const showHome = (): void => {
     bodyEl.innerHTML = '';
     bodyEl.appendChild(buildUsageCard()); // 저장 용량 요약(사진/텍스트) — 최상단
-    const group = el('section', 'guide-group');
-    group.append(
-      el('div', 'guide-group-title', '🗂 데이터 관리'),
-      el('div', 'guide-group-hint', '기억을 지키고 되살리는 도구'),
-    );
+    const group = el('section', 'guide-group dm-tool-group');
+    const groupTitle = el('div', 'guide-group-title dm-group-title');
+    groupTitle.append(dataManagerIcon('folder', 'dm-group-icon'), document.createTextNode('데이터 관리'));
+    group.append(groupTitle, el('div', 'guide-group-hint', '기억을 지키고 되살리는 도구'));
     const grid = el('div', 'guide-card-grid');
     // 🔴 진단 허브가 닫힐 때 **이 화면으로 돌아온다** — 자기를 닫고 열기 때문에, 돌아갈 길을
     // 넘기지 않으면 첫 화면이 나온다(사용자 지적 2026-08-06).
@@ -814,10 +868,10 @@ export function openDataManager(opts: DataManagerOpts): void {
       const btn = el('button', 'guide-card') as HTMLButtonElement;
       btn.type = 'button';
       if (c.hook) btn.setAttribute('data-hub-card', c.hook);
-      const ic = el('span', 'guide-card-ic', c.icon);
-      ic.setAttribute('aria-hidden', 'true');
+      const ic = el('span', 'guide-card-ic');
+      ic.appendChild(dataManagerIcon(c.icon, 'dm-card-icon'));
       const mid = el('span', 'guide-card-mid');
-      mid.append(el('b', 'guide-card-label', c.label), el('small', 'guide-card-hint', c.hint));
+      mid.append(el('span', 'guide-card-label', c.label), el('small', 'guide-card-hint', c.hint));
       const chev = el('span', 'guide-card-chev', '›');
       chev.setAttribute('aria-hidden', 'true');
       btn.append(ic, mid, chev);

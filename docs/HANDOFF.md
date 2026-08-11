@@ -8,6 +8,32 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0147 · v2.16 · **데이터 관리의 이모지·초굵기 제거와 기존 커밋 단일 릴리스** (2026-08-11 · 릴리스 후보)
+
+- 사용자가 데이터 관리 화면 캡처에서 *"글자 굵기, 이모티콘 등 뭔가 조잡하지 않아?"*라고 지적했다. 실측 전 육안 판정은 레이아웃보다 ① 사진 글리프가 깨진 기호처럼 보임 ② 플랫폼별 컬러 이모지의 크기·색·무게 불일치 ③ 항목명·개별 용량·합계가 모두 굵어 강조가 서로 경쟁함이었다.
+- `dataManager.ts` 안의 `DATA_MANAGER_ICON_PATHS` 하나에서 저장 3종과 메뉴 9종을 같은 24px 단색 SVG 계약으로 생성한다. 저장 용량 제목과 그룹 제목도 같은 체계를 쓰며, 백업·복원 상세의 장식 이모지는 글자에서 제거했다. 「텍스트(기록)」은 「기록」으로 줄였고 실제 저장량 계산·백업·복원·동기화 로직은 바꾸지 않았다.
+- `app.css`는 항목·개별 값·메뉴 이름을 600 이하로 낮추고 합계 값만 700으로 남겼다. 412×915 Chromium 실측에서 아이콘 모집단 14개, 메뉴 9/9, 숫자 오른쪽 경계 편차 0px, 가로 넘침 0px이며 새 화면 캡처를 직접 열어 확인했다.
+- 라이브 게이트에 실제 앱이 그린 화면의 SVG 속성·장식 이모지 부재·계산된 font-weight·숫자 열·가로 넘침 판정 4개를 추가했다. 제목 이모지와 개별 용량 800을 되돌린 결함 주입은 해당 두 판정을 RED로 만들었고 복원 전 정상판은 editor live 405/405·콘솔 오류 0이었다.
+- 이 릴리스는 같은 초안 PR #255의 앞선 두 커밋(HANDOFF-0145 T-007 폐기, HANDOFF-0146 공용 스킬 `1454e82` 채택)까지 v2.16 하나로 묶는다. 영향 표면은 GitHub Pages다. Android 셸은 원격 Pages를 읽고 `android-shell/**`·APK 워크플로 변경이 없으므로 APK 재빌드는 `not-applicable`이다. Supabase DB·R2·Edge Function도 변경하지 않는다.
+- 릴리스 판정은 최신 PR SHA에서 Ready Required CI를 한 번 통과한 뒤 squash merge하고, main Pages workflow conclusion과 운영 `version.json` v2.16을 되읽는다. 배포 read-back만 적기 위한 후속 문서 커밋은 만들지 않아 배포 횟수를 한 번으로 유지한다.
+
+## HANDOFF-0146 · **공통 스킬 `1454e82` 소비 앱 채택 완료** (2026-08-11 · 공급망 계약)
+
+- 다른 앱 작업에서 전역 설치된 `92ad778`과 공통 정본의 병합 커밋 `1454e82`는 커밋 ID만 다르고 tree 해시는 같았다. 깨끗한 `Codex-Shared-Skills` `origin/main`(`1454e82`)에서 공식 설치기를 다시 실행해 전역 Codex·Claude 12개 설치 경로와 상태 메타데이터를 병합 커밋으로 정규화했다.
+- 같은 정본의 `sync-skills.mjs --vendor`로 프로젝트 vendor와 `schemas/codex-shared-skills-lock.json`을 재생성했다. 모집단은 5개→6개로 늘어 `shared-skill-governance`가 들어왔고, 동기화·백업 스킬은 새 무결성 reference를 함께 품는다. 파생물은 직접 편집하지 않았다.
+- `scripts/check-shared-skill-contract.mjs`의 승인 커밋·기대 모집단과 `schemas/release-profile.json`의 `sharedLaw.commit`을 `1454e82`로 맞췄다. 게이트의 설치본 드리프트 대조군은 새 여섯 번째 스킬을 자동 상속해 주입증명이 25→27축으로 늘었다.
+- 공통 소비 앱 프로필이 요구하는 동기화·백업 capability를 현행 `docs/SYNC_PROTOCOL.md`와 `docs/DISASTER_RECOVERY.md`에 대조했다. 앱은 이미 entity+operation 원자 커밋, canonical 정확집합, operation/version/바이트 read-back, manifest·CRC·digest fail-closed, 저장 영수증과 격리 복원 드릴을 더 엄격하게 갖고 있어 런타임·DB·R2·Android 셸 변경은 필요하지 않았다. 앱 버전은 v2.15 유지다.
+- 검증: 공통 정본 `npm test` PASS, 전역·vendor 정합 검사 PASS, 프로젝트 공유 스킬 계약(6개·CI 그룹 2·릴리스 노드 10·배포 표면 5) PASS, 릴리스 프로필 주입증명 19축 PASS, 빠른 게이트 60개 PASS. 최종 production build와 전체 harness는 선택 게이트 SKIP 없이 PASS했고, 별도 live는 편집기 401/401·진단 70/70 PASS했다. 배포는 실행하지 않았다.
+
+## HANDOFF-0145 · **T-007 Phase 7 AI 확장 폐기** (2026-08-11 · 사용자 결정)
+
+- 사용자가 T-007이 꼭 필요한지 재검토한 뒤 *"007은 폐기하자"*고 결정했다. 현재 앱은 AI 없이도 기억을 안전하게 보관하고 다시 보는 북극성을 달성하며, AI 부재로 막힌 구체적 사용자 흐름은 관측되지 않았다.
+- ADR-0060으로 AI 요약·태그·의미 검색·OCR·비용추출·로컬 LLM을 묶은 Phase 7을 구현하지 않기로 확정했다. BACKLOG의 유일한 열린 행 T-007은 완료 아카이브의 **안 하기로 결정**으로 옮겼고, ROADMAP의 「미착수」 표기도 결정 결과로 바꿨다.
+- 미래에 구체적 불편이 관측되면 필요한 기능 하나만 새 과제와 개인정보 심사로 다시 연다. AI 산출물을 사용자 원문과 섞지 않는 비타협 원칙과 `ai_artifacts` 예약 설계는 우발적 인라인 저장을 막는 보호 경계로 남긴다.
+- read-back 중 `npm run brief`가 BKL-2 완료 아카이브까지 「열린 과제 18건」으로 다시 세는 기존 결함(M-0144)을 발견했다. BKL-1 절만 읽는 순수 파서와 열린/완료·0건 대조군을 추가했다. BACKLOG·DECISIONS·ROADMAP·실수 원장은 게이트 헌장으로 라우팅하고 그 경로를 자기검사에 고정했다. 이제 브리핑은 「열린 과제 없음」을 명시한다.
+- ROADMAP은 `prose-debt` 상태에서 손볼 때 트리로 이관하라는 문서 게이트의 경고 대상이었다. 이번 수정에서 각 Phase를 구현 범위·종결 근거 축으로 나누고, 현재 운영 사실과 미래 과제를 이 문서가 직접 판정하지 못한다는 사각지대를 명시해 `shape: tree`로 전환했다.
+- 문서와 착수 브리핑 개발도구만 변경했다. 앱 런타임·버전(v2.15)·Supabase·R2·Android 셸·배포 표면 변화는 없다. 대상 파일 brief를 먼저 실행했다. 첫 `npm run gates`는 생성 등록부·헌법 어댑터 드리프트 두 건을 RED로 보고했고, 정본 생성기(`gen-registry`·`gen-adapters`) 실행 뒤 재실행은 PASS했다. 최신 파일에서 production build와 별도 live(편집기 401/401 · 진단 70/70)는 PASS했다. 전체 harness는 편집기 live 399/401과 이 PC의 전역 공유 스킬 설치본↔프로젝트 lock 불일치로 RED였고, 편집기 live는 즉시 단독 재실행과 별도 live에서 401/401로 회복했다. 공유 스킬 불일치는 재실행에서도 동일해, 다른 앱도 쓰는 전역 설치본을 이 문서 작업에서 덮어쓰지 않고 확인된 외부 상태로 남겼다.
+
 ## HANDOFF-0144 · **`HANDOFF.md`는 Records 계층 영구 이력 — 스킬 문서와의 역할 분리를 ADR로 확정** (2026-08-11 · 문서 계약)
 
 - HANDOFF-0143 CI/배포 read-back을 채워 넣는 과정에서 사용자가 물었다: *"handoff는 인계서이니 임시문서 맞지? 서로 인수인계 다 끝나면 해당내용은 어차피 스킬문서로 갈거고 인계서는 필요 없지 않아?"*
@@ -986,7 +1012,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.15<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->215<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->129<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.16<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->216<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->130<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->30<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

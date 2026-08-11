@@ -1614,18 +1614,29 @@ select.zone-input { text-overflow: ellipsis; }
   padding: var(--space-3) var(--space-4); margin-bottom: var(--space-3);
   border: 1px solid var(--line); border-radius: var(--radius-medium); background: var(--bg);
 }
-.dm-usage-title { font-family: var(--font-disp); font-size: 0.95rem; color: var(--ink); margin-bottom: var(--space-2); }
-.dm-usage-rows { display: flex; flex-direction: column; gap: 8px; }
+.dm-usage-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.9rem; font-weight: 650; color: var(--ink); margin-bottom: var(--space-3);
+}
+.dm-title-icon, .dm-group-icon { width: 18px; height: 18px; flex: 0 0 auto; color: var(--ink-soft); }
+.dm-usage-rows { display: flex; flex-direction: column; gap: 10px; }
 .dm-usage-line { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
 .dm-usage-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.dm-usage-name { font-size: 0.9rem; font-weight: 700; color: var(--ink); }
+.dm-usage-name { display: flex; align-items: center; gap: 7px; font-size: 0.86rem; font-weight: 600; color: var(--ink); }
+.dm-usage-ic { width: 16px; height: 16px; flex: 0 0 auto; color: var(--ink-soft); }
 .dm-usage-sub { line-height: 1.4; }
-.dm-usage-val { flex: 0 0 auto; font-size: 0.95rem; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
+.dm-usage-val { flex: 0 0 auto; font-size: 0.9rem; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 .dm-usage-total { border-top: 1px dashed var(--line); padding-top: 8px; margin-top: 2px; align-items: center; }
-.dm-usage-total .dm-usage-label { font-size: 0.9rem; font-weight: 800; color: var(--ink); }
+.dm-usage-total .dm-usage-label { font-size: 0.9rem; font-weight: 650; color: var(--ink); }
+.dm-usage-total .dm-usage-val { font-size: 0.95rem; font-weight: 700; }
 .dm-usage-bar { height: 8px; border-radius: var(--radius-pill); background: var(--bg-2); overflow: hidden; margin-top: 4px; }
 .dm-usage-bar-fill { height: 100%; background: linear-gradient(90deg, var(--a2), var(--a1)); border-radius: inherit; }
 .dm-usage-quota { line-height: 1.5; }
+.dm-group-title { display: flex; align-items: center; gap: 8px; font-weight: 650; }
+.dm-tool-group .guide-card-ic { color: var(--ink-soft); }
+.dm-card-icon { width: 20px; height: 20px; }
+.dm-tool-group .guide-card-label { font-size: 0.88rem; font-weight: 600; }
+.dm-tool-group .guide-card-hint { font-size: 0.74rem; font-weight: 400; line-height: 1.4; }
 .dm-trash-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
 .dm-trash-bulk { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2); padding: var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-soft); }
 .dm-trash-bulk-summary { margin: 0; flex: 1 1 16rem; }

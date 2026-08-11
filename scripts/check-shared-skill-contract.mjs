@@ -10,15 +10,17 @@ import { validateProfile } from '../vendor/codex-shared-skills/release-harness-g
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const SOURCE = 'https://github.com/hanwha27-TDTU/Codex-Shared-Skills';
-// 🔴 HRL-18~20, Windows 공급망 경계와 데이터 안전 스킬 3종까지 검증된 공통 정본 커밋이다.
+// 🔴 HRL-18~20, Windows 공급망 경계, 데이터 안전 스킬 3종과 소비 앱 호환성 원장까지
+// 검증된 공통 정본 커밋이다.
 // 각 앱의 lock이 커밋을 고정하므로 다른 앱은 자기 승인 커밋에 계속 머문다.
-const APPROVED_COMMIT = '5192c34ff8536f4388e3dfd6ebf834f779bc940e';
+const APPROVED_COMMIT = '1454e8218e841de06f8079d7db041556e7f3b3ae';
 const EXPECTED_SKILLS = [
   'backup-recovery-governance',
   'bg-codex-autorouter',
   'diagnostic-verdict-governance',
   'offline-sync-governance',
   'release-harness-governance',
+  'shared-skill-governance',
 ];
 
 function markedBlock(text, start, end) {
