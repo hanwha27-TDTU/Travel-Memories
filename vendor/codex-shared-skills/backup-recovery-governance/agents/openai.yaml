@@ -1,0 +1,4 @@
+interface:
+  display_name: "Backup Recovery Governance"
+  short_description: "백업 생성·저장·복원·왕복검사를 안전하게 설계"
+  default_prompt: "Use $backup-recovery-governance to design and verify this backup or recovery workflow."

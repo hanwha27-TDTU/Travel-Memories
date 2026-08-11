@@ -1,0 +1,4 @@
+interface:
+  display_name: "Diagnostic Verdict Governance"
+  short_description: "진단 지표를 판정·복구·되읽기 중심으로 안전하게 설계"
+  default_prompt: "Use $diagnostic-verdict-governance to design a trustworthy diagnostic and repair workflow."

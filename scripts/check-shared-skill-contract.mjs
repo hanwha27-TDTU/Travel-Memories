@@ -10,10 +10,16 @@ import { validateProfile } from '../vendor/codex-shared-skills/release-harness-g
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const SOURCE = 'https://github.com/hanwha27-TDTU/Codex-Shared-Skills';
-// 🔴 HRL-18~20과 Windows 공급망 경계까지 검증된 공통 정본 커밋이다.
+// 🔴 HRL-18~20, Windows 공급망 경계와 데이터 안전 스킬 3종까지 검증된 공통 정본 커밋이다.
 // 각 앱의 lock이 커밋을 고정하므로 다른 앱은 자기 승인 커밋에 계속 머문다.
-const APPROVED_COMMIT = 'da440fb366c01c0d6ffbb0bdc515b13e5a357b42';
-const EXPECTED_SKILLS = ['bg-codex-autorouter', 'release-harness-governance'];
+const APPROVED_COMMIT = '5192c34ff8536f4388e3dfd6ebf834f779bc940e';
+const EXPECTED_SKILLS = [
+  'backup-recovery-governance',
+  'bg-codex-autorouter',
+  'diagnostic-verdict-governance',
+  'offline-sync-governance',
+  'release-harness-governance',
+];
 
 function markedBlock(text, start, end) {
   const begin = text.indexOf(start);
@@ -82,7 +88,7 @@ export function validateContract({
 
   const entries = Array.isArray(lock?.skills) ? lock.skills : [];
   const names = entries.map((entry) => entry.name).sort();
-  if (JSON.stringify(names) !== JSON.stringify(EXPECTED_SKILLS)) errors.push('공통 스킬 목록이 승인된 두 스킬과 다름');
+  if (JSON.stringify(names) !== JSON.stringify(EXPECTED_SKILLS)) errors.push('공통 스킬 목록이 승인된 스킬 모집단과 다름');
   for (const entry of entries) {
     if (vendorHashes?.[entry.name] !== entry.contentSha256) errors.push(`${entry.name} 프로젝트 스냅샷 해시가 lock과 다름`);
     auditInstalled('Codex', entry, installedHashes, errors, unknowns);
@@ -173,8 +179,6 @@ function selfTest(lock, profile, vendorHashes, adapterText, workflows) {
     ['어댑터 마커 누락 주입', (x) => { x.adapterText = ''; }, '마커'],
     ['프로필 그룹 누락 주입', (x) => { x.profile.groups.pop(); }, '프로필 그룹'],
     ['승인 커밋 드리프트 주입', (x) => { x.lock.commit = 'f'.repeat(40); }, '승인된 고정 커밋'],
-    ['Codex 설치본 드리프트 주입', (x) => { x.installedHashes = Object.fromEntries(x.lock.skills.map((s) => [s.name, s.contentSha256])); x.installedHashes[EXPECTED_SKILLS[0]] = '1'.repeat(64); }, 'Codex 전역 설치본'],
-    ['Claude 설치본 드리프트 주입', (x) => { x.claudeHashes = Object.fromEntries(x.lock.skills.map((s) => [s.name, s.contentSha256])); x.claudeHashes[EXPECTED_SKILLS[1]] = '2'.repeat(64); }, 'Claude 전역 설치본'],
     ['전역 어댑터 드리프트 주입', (x) => { x.globalBlock = `${x.adapterText}\n변조`; }, '전역 Codex AutoRouter'],
     ['공통 법 복사 주입', (x) => { x.commonLawCopies = 1; }, '공통 HRL 조문'],
     ['CI 그룹 드리프트 주입', (x) => { x.workflows.ci = x.workflows.ci.replace('npm run live', 'npm run missing'); }, 'CI live-render'],
@@ -184,6 +188,23 @@ function selfTest(lock, profile, vendorHashes, adapterText, workflows) {
     ['동기화 계약 영향 조건 누락 주입', (x) => { const surface = x.profile.deploymentSurfaces.find((entry) => entry.id === 'supabase-media-sign'); surface.affectedBy = surface.affectedBy.filter((path) => path !== 'schemas/sync-release-contract.json'); }, '동기화 릴리스 계약 변경'],
     ['정확한 운영 정체성 누락 주입', (x) => { const surface = x.profile.deploymentSurfaces.find((entry) => entry.id === 'supabase-media-sign'); surface.readback = 'FN_VERSION=6'; }, '운영 정체성 read-back'],
   ];
+  // 새 전역 스킬은 Codex·Claude 설치 경계 **양쪽**의 변조 대조군을 자동 상속한다.
+  // 두 대표만 손으로 고르면 다음 스킬이 설치 검증 셀프테스트에서 조용히 빠진다.
+  for (const [field, tool, marker] of [
+    ['installedHashes', 'Codex', '1'],
+    ['claudeHashes', 'Claude', '2'],
+  ]) {
+    for (const skill of EXPECTED_SKILLS) {
+      cases.push([
+        `${skill} ${tool} 설치본 드리프트 주입`,
+        (x) => {
+          x[field] = Object.fromEntries(x.lock.skills.map((entry) => [entry.name, entry.contentSha256]));
+          x[field][skill] = marker.repeat(64);
+        },
+        `${skill} ${tool} 전역 설치본`,
+      ]);
+    }
+  }
   for (const [name, mutate, expected] of cases) {
     const sample = structuredClone(base);
     mutate(sample);

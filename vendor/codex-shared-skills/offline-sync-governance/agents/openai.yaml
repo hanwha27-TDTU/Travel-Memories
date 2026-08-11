@@ -1,0 +1,4 @@
+interface:
+  display_name: "Offline Sync Governance"
+  short_description: "오프라인 동기화와 최종본 전환을 안전하게 설계"
+  default_prompt: "Use $offline-sync-governance to design and verify this offline-first synchronization change safely."
