@@ -120,6 +120,35 @@ await new Promise((r) => server.listen(4173, r));
 const results = [];
 const check = (name, ok, extra = '') => { results.push({ name, ok, extra }); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' — ' + extra : ''}`); };
 
+async function observeViewerObjectUrls(targetPage) {
+  await targetPage.evaluate(() => {
+    window.__liveOriginalCreateObjectURL = URL.createObjectURL.bind(URL);
+    window.__liveObjectUrlBlobs = new Map();
+    window.__liveOriginalShowSaveFilePicker = window.showSaveFilePicker;
+    // 이 블록은 anchor fallback의 정직한 `requested` 판정을 재므로 브라우저 구현 유무를 고정한다.
+    window.showSaveFilePicker = undefined;
+    URL.createObjectURL = (blob) => {
+      const url = window.__liveOriginalCreateObjectURL(blob);
+      window.__liveObjectUrlBlobs.set(url, blob);
+      return url;
+    };
+  });
+}
+
+async function stopObservingViewerObjectUrls(targetPage) {
+  await targetPage.evaluate(() => {
+    URL.createObjectURL = window.__liveOriginalCreateObjectURL;
+    delete window.__liveOriginalCreateObjectURL;
+    delete window.__liveObjectUrlBlobs;
+    if (window.__liveOriginalShowSaveFilePicker) {
+      window.showSaveFilePicker = window.__liveOriginalShowSaveFilePicker;
+    } else {
+      delete window.showSaveFilePicker;
+    }
+    delete window.__liveOriginalShowSaveFilePicker;
+  });
+}
+
 // 브라우저를 **띄우지 못하는 것**은 앱의 결함이 아니라 전제 미충족이다(브라우저 바이너리
 // 없음·판 불일치·샌드박스 제약). harness가 SKIP과 FAIL을 가르므로 여기서 그 신호를 정확히
 // 준다 — 크래시로 죽으면 harness는 이걸 "위반을 찾음(FAIL)"으로 읽고, 그건 **오탐**이다(§2-B ③).
@@ -942,6 +971,9 @@ const thumbs = await page.evaluate(() => document.querySelectorAll('img').length
 check('저장 후 썸네일 렌더(이미지 ≥2)', thumbs >= 2, `imgs=${thumbs}`);
 
 // 뷰어: 사진 탭 → 닫히지 않음, ◀▶·방향키 넘기기, Esc → 닫힘
+// blob: URL은 fetch가 가능한 주소라는 보장이 없다. 뷰어가 실제로 createObjectURL에 건넨 Blob을
+// 옆에서 기록해, 다운로드 파일과 같은 원본 바이트를 대조한다.
+await observeViewerObjectUrls(page);
 const firstThumb = page.locator('.photo-thumb').first();
 await firstThumb.click();
 await page.waitForSelector('.photo-viewer');
@@ -954,6 +986,52 @@ await page.locator('.photo-viewer-next').click();
 await settle(page);
 const counterNext = await page.$eval('.photo-viewer-count', (e) => e.textContent);
 check('뷰어: ▶ 다음 사진(2 / 2)', counterNext === '2 / 2', counterNext);
+
+// v2.15: 지금 보고 있는 **두 번째** 사진의 앱 보관본을 실제 브라우저 다운로드로 받아 바이트를 대조한다.
+const visiblePhotoBytes = Buffer.from(await page.locator('.photo-viewer img').evaluate(async (image) => {
+  const blob = window.__liveObjectUrlBlobs.get(image.src);
+  if (!blob) throw new Error(`사진 뷰어의 원본 Blob을 확보하지 못했습니다: ${image.src}`);
+  return Array.from(new Uint8Array(await blob.arrayBuffer()));
+}));
+const photoDownloadStarted = page.waitForEvent('download');
+await page.getByRole('button', { name: '이 사진 앱 보관본 저장' }).click();
+const photoDownload = await photoDownloadStarted;
+const photoDownloadPath = await photoDownload.path();
+const savedPhotoBytes = photoDownloadPath ? await readFile(photoDownloadPath) : Buffer.alloc(0);
+await page.waitForFunction(() => /사진 앱 보관본 다운로드를 요청했어요/.test(
+  document.querySelector('.photo-viewer .media-viewer-save-status')?.textContent ?? '',
+));
+check('v2.15 사진 저장: 현재 두 번째 표시본의 이름·바이트를 그대로 다운로드한다',
+  photoDownload.suggestedFilename().endsWith('.webp') && savedPhotoBytes.equals(visiblePhotoBytes),
+  `${photoDownload.suggestedFilename()} bytes=${savedPhotoBytes.length}/${visiblePhotoBytes.length}`);
+
+// 저장 실패도 완료로 반올림하지 않고, 관측된 사유를 말한 뒤 버튼과 뷰어를 되살린다.
+await page.evaluate(() => {
+  window.showSaveFilePicker = async () => { throw new Error('라이브 저장 실패'); };
+});
+await page.getByRole('button', { name: '이 사진 앱 보관본 저장' }).click();
+await page.waitForFunction(() => /라이브 저장 실패/.test(
+  document.querySelector('.photo-viewer .media-viewer-save-status')?.textContent ?? '',
+));
+check('v2.15 사진 저장: 실패 사유 표시 뒤 버튼 재활성·뷰어 유지',
+  await page.getByRole('button', { name: '이 사진 앱 보관본 저장' }).isEnabled()
+    && await page.locator('.photo-viewer').count() === 1);
+await page.evaluate(() => { window.showSaveFilePicker = undefined; });
+
+// 가장 좁은 폰에서도 편집·저장과 카운터가 겹치지 않고 터치 목표가 44px 이상이다.
+const beforeViewerViewport = page.viewportSize();
+await page.setViewportSize({ width: 344, height: 760 });
+const narrowViewer = await page.locator('.photo-viewer').evaluate((overlay) => {
+  const actions = overlay.querySelector('.media-viewer-actions').getBoundingClientRect();
+  const count = overlay.querySelector('.photo-viewer-count').getBoundingClientRect();
+  const buttons = [...overlay.querySelectorAll('.media-viewer-actions button')].map((button) => button.getBoundingClientRect().height);
+  return { actionsBottom: actions.bottom, countTop: count.top, minButtonHeight: Math.min(...buttons) };
+});
+check('v2.15 사진 저장: 344px에서 액션·카운터 비겹침과 44px 터치 목표',
+  narrowViewer.actionsBottom <= narrowViewer.countTop && narrowViewer.minButtonHeight >= 44,
+  JSON.stringify(narrowViewer));
+  await page.setViewportSize(beforeViewerViewport ?? { width: 1280, height: 900 });
+
 await page.keyboard.press('ArrowRight'); // 순환 → 1/2
 await settle(page);
 const counterWrap = await page.$eval('.photo-viewer-count', (e) => e.textContent);
@@ -982,6 +1060,7 @@ check("뷰어: '0' 키 → 확대 원복(1x)", resetScale === 1, `scale=${resetS
 await page.keyboard.press('Escape');
 await settle(page);
 check('뷰어: Esc로 닫힘', (await page.locator('.photo-viewer').count()) === 0);
+await stopObservingViewerObjectUrls(page);
 
 // ── v0.26: 세로 사진 잘림(M-flex-clip) + Ctrl+휠 줌 + 핀치 줌 ──
 // 세로(500x1200) 사진 1장을 새 순간으로 → 편집기에서 스테이지가 캔버스를 짜부라뜨리지 않는지.
@@ -4901,6 +4980,7 @@ check('v2.11 영상: 실제 File 입력이 압축·포스터 생성 뒤 localVid
     && videoReadBack?.durationSec <= 60.1 && videoReadBack?.width <= 1280 && videoReadBack?.height <= 1280
     && videoReadBack?.blobSize <= 25 * 1024 * 1024,
   JSON.stringify(videoReadBack));
+await observeViewerObjectUrls(page);
 await videoCard.locator('.video-thumb-button').click();
 await page.waitForSelector('.video-viewer .video-viewer-player');
 const videoViewer = await page.locator('.video-viewer').evaluate((overlay) => ({
@@ -4910,8 +4990,25 @@ const videoViewer = await page.locator('.video-viewer').evaluate((overlay) => ({
 check('v2.11 영상: 포스터를 누르면 접근 가능한 blob 재생기가 열린다',
   videoViewer.role === 'dialog' && videoViewer.modal === 'true' && videoViewer.controls === true && videoViewer.src === true,
   JSON.stringify(videoViewer));
-await page.keyboard.press('Escape');
-check('v2.11 영상: Esc로 재생기를 닫아 object URL 생명주기를 끝낸다', await page.locator('.video-viewer').count() === 0);
+  const visibleVideoBytes = Buffer.from(await page.locator('.video-viewer-player').evaluate(async (player) => {
+    const blob = window.__liveObjectUrlBlobs.get(player.src);
+    if (!blob) throw new Error(`영상 뷰어의 원본 Blob을 확보하지 못했습니다: ${player.src}`);
+    return Array.from(new Uint8Array(await blob.arrayBuffer()));
+  }));
+const videoDownloadStarted = page.waitForEvent('download');
+await page.getByRole('button', { name: '이 영상 앱 보관본 저장' }).click();
+const videoDownload = await videoDownloadStarted;
+const videoDownloadPath = await videoDownload.path();
+const savedVideoBytes = videoDownloadPath ? await readFile(videoDownloadPath) : Buffer.alloc(0);
+await page.waitForFunction(() => /영상 앱 보관본 다운로드를 요청했어요/.test(
+  document.querySelector('.video-viewer .media-viewer-save-status')?.textContent ?? '',
+));
+check('v2.15 영상 저장: 재생 중인 앱 보관본의 형식·바이트를 그대로 다운로드한다',
+  /\.(mp4|webm)$/.test(videoDownload.suggestedFilename()) && savedVideoBytes.equals(visibleVideoBytes),
+  `${videoDownload.suggestedFilename()} bytes=${savedVideoBytes.length}/${visibleVideoBytes.length}`);
+  await page.keyboard.press('Escape');
+  check('v2.11 영상: Esc로 재생기를 닫아 object URL 생명주기를 끝낸다', await page.locator('.video-viewer').count() === 0);
+  await stopObservingViewerObjectUrls(page);
 
 await page.evaluate(async (ids) => {
   await new Promise((resolve) => {

@@ -1,7 +1,9 @@
 import type { LocalVideo } from '../offline/db';
+import { videoDownloadFilename } from '../domain/media/download';
 import { el } from './dom';
+import { createMediaSaveControl } from './mediaSave';
 
-export function openVideoViewer(item: LocalVideo): void {
+export function openVideoViewer(item: LocalVideo, tripTitle: string): void {
   const url = URL.createObjectURL(item.blob);
   const overlay = el('div', 'video-viewer');
   overlay.setAttribute('role', 'dialog');
@@ -15,6 +17,13 @@ export function openVideoViewer(item: LocalVideo): void {
   video.controls = true;
   video.playsInline = true;
   video.preload = 'metadata';
+  const save = createMediaSaveControl('영상', () => ({
+    blob: item.blob,
+    mime: item.mime,
+    filename: videoDownloadFilename(item.takenAt, tripTitle, item.id, item.mime),
+  }));
+  const actions = el('div', 'media-viewer-actions');
+  actions.append(save.button);
 
   const dispose = (): void => {
     video.pause();
@@ -32,7 +41,7 @@ export function openVideoViewer(item: LocalVideo): void {
     if (event.target === overlay) dispose();
   });
   document.addEventListener('keydown', onKey);
-  overlay.append(close, video);
+  overlay.append(close, video, actions, save.status);
   document.body.appendChild(overlay);
   close.focus();
 }

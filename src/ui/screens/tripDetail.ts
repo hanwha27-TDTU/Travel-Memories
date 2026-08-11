@@ -1988,12 +1988,13 @@ function groupByMoment<T extends { momentId: string }>(rows: T[]): Map<string, T
 function buildPhotoGrid(o: {
   mediaList: LocalMedia[];
   momentId: string;
+  tripTitle: string;
   objectUrls: string[];
   detach: (() => void)[];
   refresh: () => Promise<void>;
   clock: TripClock;
 }): HTMLElement {
-  const { mediaList, momentId, objectUrls, detach, refresh, clock } = o;
+  const { mediaList, momentId, tripTitle, objectUrls, detach, refresh, clock } = o;
   const grid = el('div', 'photo-thumbs');
   for (const [mdIdx, md] of mediaList.entries()) {
     const url = URL.createObjectURL(md.thumbBlob);
@@ -2006,7 +2007,7 @@ function buildPhotoGrid(o: {
     img.src = url;
     img.alt = '여행 사진';
     img.loading = 'lazy';
-    img.addEventListener('click', () => openPhotoViewer(mediaList, mdIdx, refresh, clock));
+    img.addEventListener('click', () => openPhotoViewer(mediaList, mdIdx, refresh, clock, tripTitle));
     const pdel = el('button', 'photo-del', '✕') as HTMLButtonElement;
     pdel.type = 'button';
     pdel.setAttribute('aria-label', '이 사진 삭제');
@@ -2067,6 +2068,7 @@ function buildPhotoGrid(o: {
 
 function buildVideoGrid(o: {
   videos: LocalVideo[];
+  tripTitle: string;
   objectUrls: string[];
   refresh: () => Promise<void>;
 }): HTMLElement {
@@ -2084,7 +2086,7 @@ function buildVideoGrid(o: {
     img.alt = '';
     img.loading = 'lazy';
     button.append(img, el('span', 'video-duration', `▶ ${Math.round(item.durationSec)}초`));
-    button.addEventListener('click', () => openVideoViewer(item));
+    button.addEventListener('click', () => openVideoViewer(item, o.tripTitle));
     const del = el('button', 'photo-del', '✕') as HTMLButtonElement;
     del.type = 'button';
     del.setAttribute('aria-label', '이 영상 삭제');
@@ -2200,7 +2202,13 @@ function tripTargetController(initial?: TripNavigationTarget) {
     closePlaceEditor: (momentId: string): void => {
       if (placeEditorMomentId === momentId) placeEditorMomentId = undefined;
     },
-    reveal(timeline: HTMLElement, byMoment: Map<string, LocalMedia[]>, refresh: () => Promise<void>, clock: TripClock): void {
+    reveal(
+      timeline: HTMLElement,
+      byMoment: Map<string, LocalMedia[]>,
+      refresh: () => Promise<void>,
+      clock: TripClock,
+      tripTitle: string,
+    ): void {
       const next = pending;
       pending = undefined;
       if (!next?.momentId) return;
@@ -2220,7 +2228,7 @@ function tripTargetController(initial?: TripNavigationTarget) {
       if (!next.mediaId) return;
       const mediaList = byMoment.get(next.momentId) ?? [];
       const index = mediaList.findIndex((media) => media.id === next.mediaId);
-      if (index >= 0) openPhotoViewer(mediaList, index, refresh, clock);
+      if (index >= 0) openPhotoViewer(mediaList, index, refresh, clock, tripTitle);
     },
   };
 }
@@ -2401,7 +2409,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       const videoByMoment = groupByMoment(videos);
       locatedPoints = toMapPoints(moments, byMoment, clock);
       renderTimeline(moments, byMoment, expByMoment, audioByMoment, videoByMoment);
-      targetController.reveal(timeline, byMoment, refresh, clock);
+      targetController.reveal(timeline, byMoment, refresh, clock, trip!.title);
       const groups = groupMomentsByDay(moments, clock, trip!.startDate || undefined);
       statRow.innerHTML = '';
       statRow.append(
@@ -2666,10 +2674,10 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       }
       if (mediaList.length) {
         card.appendChild(
-          buildPhotoGrid({ mediaList, momentId: m.id, objectUrls, detach, refresh, clock }),
+          buildPhotoGrid({ mediaList, momentId: m.id, tripTitle: trip!.title, objectUrls, detach, refresh, clock }),
         );
       }
-      if (videoList.length) card.appendChild(buildVideoGrid({ videos: videoList, objectUrls, refresh }));
+      if (videoList.length) card.appendChild(buildVideoGrid({ videos: videoList, tripTitle: trip!.title, objectUrls, refresh }));
       card.append(addPhotoWrap, editForm);
       item.appendChild(card);
       return item;

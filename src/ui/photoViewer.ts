@@ -13,7 +13,9 @@ import { momentWhen, type TripClock } from '../domain/time';
 import { openPhotoEditor } from './photoEditor';
 import { rotateMediaLocalFirst, reeditMediaLocalFirst } from '../services/media';
 import { requestSync } from '../services/autoSync';
+import { photoDownloadFilename } from '../domain/media/download';
 import type { LocalMedia } from '../offline/db';
+import { createMediaSaveControl } from './mediaSave';
 
 /** 화면에 있는 두 포인터 사이 거리 — 핀치 확대의 기준. */
 type Pts = Map<number, { x: number; y: number }>;
@@ -34,6 +36,37 @@ function pinchMid(pts: Pts): { x: number; y: number } {
   return { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 };
 }
 
+function buildPhotoSave(
+  current: () => LocalMedia,
+  tripTitle: string,
+  editButton: HTMLButtonElement,
+): { actions: HTMLElement; status: HTMLElement } {
+  const save = createMediaSaveControl('사진', () => {
+    const item = current();
+    const mime = item.displayBlob.type || 'image/webp';
+    return {
+      blob: item.displayBlob,
+      mime,
+      filename: photoDownloadFilename(item.takenAt, tripTitle, item.id, mime),
+    };
+  });
+  const actions = el('div', 'media-viewer-actions');
+  actions.addEventListener('click', (event) => event.stopPropagation());
+  actions.append(editButton, save.button);
+  return { actions, status: save.status };
+}
+
+function buildCloseButton(close: () => void): HTMLButtonElement {
+  const button = el('button', 'photo-viewer-close', '✕') as HTMLButtonElement;
+  button.type = 'button';
+  button.setAttribute('aria-label', '닫기');
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    close();
+  });
+  return button;
+}
+
 /**
  * 사진을 전체화면으로 연다.
  * @param onChanged 회전·재편집으로 사진이 바뀌면 호출(뒤 목록 썸네일 갱신).
@@ -46,6 +79,7 @@ export function openPhotoViewer(
   startIndex: number,
   onChanged: () => Promise<void>,
   clock: TripClock,
+  tripTitle: string,
 ): void {
   let idx = Math.max(0, Math.min(startIndex, list.length - 1));
   let current = list[idx]!;
@@ -234,13 +268,7 @@ export function openPhotoViewer(
       }
     })();
   });
-  const closeBtn = el('button', 'photo-viewer-close', '✕') as HTMLButtonElement;
-  closeBtn.type = 'button';
-  closeBtn.setAttribute('aria-label', '닫기');
-  closeBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    close();
-  });
+  const closeBtn = buildCloseButton(close);
 
   // 재편집 — 저장된 사진을 편집기로 다시 연다. 원본에서 파생(비파괴), 이전 편집을 이어서 조정.
   const editPhotoBtn = el('button', 'photo-viewer-edit', '✎ 편집') as HTMLButtonElement;
@@ -270,7 +298,9 @@ export function openPhotoViewer(
     })();
   });
 
-  overlay.append(img, counter, editPhotoBtn, rotateBtn, closeBtn);
+  const save = buildPhotoSave(() => current, tripTitle, editPhotoBtn);
+
+  overlay.append(img, counter, save.actions, save.status, rotateBtn, closeBtn);
   if (list.length > 1) {
     const prevBtn = el('button', 'photo-viewer-nav photo-viewer-prev', '‹') as HTMLButtonElement;
     prevBtn.type = 'button';

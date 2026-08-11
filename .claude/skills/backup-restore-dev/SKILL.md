@@ -17,7 +17,7 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 | `src/services/zip.ts` | 의존성 0 store(무압축) ZIP 리더/라이터 + CRC32 | 순수 → 유닛테스트 대상 |
 | `src/services/backupCrypto.ts` | AES-GCM-256 + PBKDF2 210k 봉투(MAGIC `BGJENC1\n`) | WebCrypto. **키를 저장하지 않는다** |
 | `src/services/backupMeta.ts` | 마지막 백업 시각·신선도(localStorage) | 캐시성 메타(기억 아님) |
-| `src/services/fileSave.ts` | Android Download 직접 저장·SAF 다른 폴더·브라우저 선택기·anchor fallback의 공용 저장 경계 | 되읽어 검증한 저장과 다운로드 요청을 구분 |
+| `src/services/fileSave.ts` | 백업·사진·영상이 공유하는 Android Download·SAF·브라우저 선택기·anchor fallback 저장 경계 | 되읽어 검증한 저장과 다운로드 요청을 구분. 백업 래퍼만 신선도 계약을 소비 |
 | `src/services/backupRoundTrip.ts` | 실제 내려받기→파일 선택→파싱→Dexie 병합→read-back 왕복 시험 | 고유 trip·moment·video만 복원하고 바깥 transaction을 의도적으로 abort |
 
 ## 1. 불변 계약
@@ -90,6 +90,7 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 | 2.12 예정 | `<a download>` 클릭 직후 「내려받았어요」라고 했고 실제 파일 왕복은 JSON trip 한 건만 검사 | **브라우저 요청을 파일 존재로 반올림**했고, 바이트 형제인 영상을 진단 경계에서 제외 | Android SAF/브라우저 picker 되읽기 검증 + anchor 요청 상태 분리. 왕복 fixture를 ZIP trip+moment+video 본문+poster로 확장하고 production 병합·Dexie read-back·abort 잔재 0건을 검사 |
 | 2.12 예정 | ZIP writer의 CRC·manifest를 reader가 소비하지 않아 동일크기 바이트 변조와 여행 폴더 통째 누락이 성공 | **무결성 메타를 기록한 것을 검증한 것으로 착각** | 중앙/로컬 헤더+CRC+중복 경로 대조, manifest bundle 정확집합·필수 목록·0바이트 주입 RED(M-0141) |
 | 2.14 | Android 백업의 유일한 문이 `ACTION_CREATE_DOCUMENT`라 선택기가 결과 URI를 안 돌려주면 사용자는 반복해서 「저장을 취소했어요」만 봤고 파일은 없었음 | **사용자에게 맡긴 선택을 최후 방어선의 필수 성공 조건으로 만들었다.** 요청과 완료를 가른 뒤에도 완료에 이르는 기본 문이 결정적이지 않았음 | 기본 버튼=MediaStore `Download/Bugeon Journey` 직접 저장·다른 폴더=명시적 SAF 보조 버튼. 실제 destination+길이+SHA-256 영수증, 취소 시 파일/신선도 불변, 구형 APK fallback 판정과 native compile·가짜 셸 라이브·실기기 경계를 각각 분리 |
+| 2.15 | 백업 저장 문을 사진·영상에 재사용하면 표시명 조회 실패가 `.zip`으로 반올림되고 개별 저장이 완전백업 신선도를 오염시킬 수 있었음 | 구현은 공용이 됐지만 **영수증 어휘·fallback·메타 부작용은 백업 전용 전제를 품음** | 공용 core는 MIME·확장자·Blob MIME과 read-back만 판정하고, 백업 wrapper와 미디어 문장을 분리한다. native fallback은 요청명을 유지하며 개별 저장은 `recordBackupNow`에 닿지 않는다 |
 
 ## 3-B. 🔴 **복원이 안 됐을 때 확인 순서** (이 절차가 없어서 두 번 헤맸다)
 
@@ -130,7 +131,8 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 8. `tests/unit/backupFileRoundTrip`: 실제 `File` 바이트를 production 병합으로 복원·되읽고 abort 뒤 사용자 행·큐·원장 불변 확인
 9. `verify-diagnostics-live` 파일 행동: 미선택 실패 + 실제 `FileList`가 공용 렌더러를 지나 action에 전달되는지 확인
 10. `tests/unit/fileSave`: 기본 Android 경로가 `downloads`, 명시적 다른 폴더만 `picker`, 취소·
-    digest 불일치·구형 APK의 destination 부재가 완료/신선도로 반올림되지 않는지 확인
+    digest 불일치·구형 APK의 destination 부재가 완료/신선도로 반올림되지 않는지 확인. 사진·영상은
+    MIME↔확장자↔Blob MIME, 실제 요청 이름, 브라우저 취소·쓰기 실패·같은 길이 다른 바이트를 추가 대조
 11. `verify-editor-live` 또는 동등한 가짜 Capacitor 셸: 브라우저에는 Android 전용 보조 버튼이
     숨고, 셸에는 기본 백업·다른 폴더 버튼과 실제 저장 위치 문장이 함께 보이는지 확인
 12. 네이티브 파일 저장을 바꿨다면 Java 컴파일/Android CI를 통과시킨다. 단, MediaStore 저장·

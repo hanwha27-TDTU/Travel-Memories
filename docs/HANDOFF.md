@@ -8,6 +8,14 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0143 · v2.15 · **사진·영상 뷰어의 현재 앱 보관본 개별 저장** (2026-08-11 · 릴리스 후보)
+
+- 사용자 요청으로 사진 전체보기와 영상 재생 화면에 공용 「저장」 동작을 추가했다. 사진을 넘긴 뒤에는 현재 보이는 `displayBlob`, 영상은 재생 중인 `LocalVideo.blob`을 클릭 순간에 고정해 저장한다. 뷰어 object URL은 저장 입력으로 쓰지 않는다.
+- 사진은 외부 JPEG 원본이 아니라 앱 표시용 WebP, 영상은 앱 감상용 파생본이다. 접근성 이름과 성공·요청·취소·실패 문장에 「앱 보관본」을 명시하고, 실패 원인은 관측된 오류 메시지만 표시한다. 취소·실패 뒤 버튼을 다시 활성화하고 뷰어는 유지한다.
+- 기존 백업 저장 코어를 일반 앱 파일 저장 경계로 확장했다. 백업 래퍼·ZIP/JSON/ENC 형식과 마지막 백업 신선도는 그대로이며 개별 미디어 저장은 신선도를 건드리지 않는다. 0바이트, MIME·확장자 불일치, 영상 행 MIME·실제 Blob MIME 불일치, 같은 길이 다른 바이트와 native 미검증을 모두 fail-closed로 닫는다.
+- Android `BackupFiles` wire 이름은 구형 APK 호환을 위해 유지한다. 플러그인 오류 표현을 일반 파일로 바꾸고 표시명 조회 실패 시 요청 파일명을 돌려줘 사진을 `.zip`으로 보고하지 않는다. 새 권한은 없지만 네이티브 코드가 바뀌어 Pages와 `apk-latest`가 모두 배포 표면이다.
+- 표적 유닛 16/16, TypeScript, Android Java compile, production build와 전체 하네스가 통과했다. Chromium은 현재 두 번째 사진 WebP와 재생 영상 WebM을 실제 다운로드해 각각 원 Blob과 정확 바이트를 대조했고, 실패 뒤 재활성·344px 비겹침을 포함해 editor 401/401을 통과했다. 독립 DR 사후감사는 P0/P1 없음으로 배포 PASS를 판정했고, 발견한 복구지도 P2 문구도 기본 MediaStore+보조 SAF 현실로 맞췄다. Ready PR CI와 두 배포 read-back은 릴리스 진행 뒤 덧붙인다. 실제 Android Download 파일 출현과 갤러리/파일 앱에서 사진·영상이 열리는지는 최신 APK 설치 뒤 사용자 실기기 확인 경계다.
+
 ## HANDOFF-0142 · v2.14 · **Android 백업 기본 경로를 확정 Download 저장으로 전환** (2026-08-11 · 릴리스 후보)
 
 - 사용자 실기기에서 ZIP 버튼 뒤 「저장 창이 닫혀 파일이 생기지 않음」이 관측됐다. ZIP 생성 실패라고 단정하지 않고, 네이티브 결과가 picker 취소였다는 관측과 picker 하나에만 의존한 설계 결함을 분리했다(M-0143).
@@ -970,7 +978,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.14<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->214<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->128<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.15<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->215<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->129<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->30<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

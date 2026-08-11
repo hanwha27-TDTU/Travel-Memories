@@ -1011,6 +1011,29 @@ select.zone-input { text-overflow: ellipsis; }
 .video-viewer { position: fixed; inset: 0; z-index: 1100; display: grid; place-items: center; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); background: rgb(0 0 0 / 88%); overflow: auto; }
 .video-viewer-player { display: block; max-width: min(100%, 1100px); max-height: calc(100dvh - 48px); border-radius: 12px; background: #000; }
 .video-viewer-close { position: fixed; z-index: 1; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); width: 44px; height: 44px; border: 0; border-radius: 999px; color: #fff; background: rgb(0 0 0 / 65%); font-size: 1.25rem; }
+.media-viewer-actions {
+  position: fixed; top: max(16px, env(safe-area-inset-top, 0)); left: max(16px, env(safe-area-inset-left, 0));
+  display: flex; gap: 8px;
+}
+.photo-viewer .media-viewer-actions { z-index: 51; }
+.video-viewer .media-viewer-actions { z-index: 2; }
+.media-viewer-actions button {
+  min-height: var(--touch-target-min); padding: 0 16px; border-radius: var(--radius-pill); cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--bg) 40%, transparent);
+  background: color-mix(in srgb, var(--ink) 72%, transparent);
+  backdrop-filter: blur(6px); color: var(--bg); font: inherit; font-size: .9rem; font-weight: 700;
+  white-space: nowrap; flex-shrink: 0;
+}
+.media-viewer-actions button:disabled { opacity: .6; cursor: default; }
+.media-viewer-save-status {
+  position: fixed; left: 50%; bottom: calc(max(20px, env(safe-area-inset-bottom, 0)) + 58px);
+  transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px);
+  padding: 9px 12px; border-radius: var(--radius-medium);
+  background: color-mix(in srgb, var(--ink) 82%, transparent); color: var(--bg); font-size: .82rem; font-weight: 600;
+  line-height: 1.4; text-align: center; overflow-wrap: anywhere;
+}
+.photo-viewer .media-viewer-save-status { z-index: 51; }
+.video-viewer .media-viewer-save-status { z-index: 2; }
 /* 🔴 **칸을 정사각으로 고정한다**(사용자 지적 2026-08-06: *"썸네일 사진의 가로 세로 크기가
    제각각이라 보기 불편함"*).
 
@@ -1796,13 +1819,6 @@ select.zone-input { text-overflow: ellipsis; }
   border: 1px solid rgba(255,255,255,.4); background: rgba(255,255,255,.18);
   backdrop-filter: blur(6px); color: #fff; font-size: 1.2rem; font-weight: 700; cursor: pointer;
 }
-.photo-viewer-edit {
-  position: fixed; top: max(16px, env(safe-area-inset-top, 0)); left: 16px; z-index: 51;
-  min-height: 44px; padding: 0 16px; border-radius: var(--radius-pill); cursor: pointer;
-  border: 1px solid rgba(255,255,255,.4); background: rgba(255,255,255,.18);
-  backdrop-filter: blur(6px); color: #fff; font-size: 0.9rem; font-weight: 700;
-}
-.photo-viewer-edit:disabled { opacity: 0.6; cursor: default; }
 .photo-viewer-rotate {
   position: fixed; bottom: max(20px, env(safe-area-inset-bottom, 0)); left: 50%; transform: translateX(-50%); z-index: 51;
   min-height: 44px; padding: 0 22px; border-radius: var(--radius-pill); cursor: pointer;
@@ -1824,6 +1840,9 @@ select.zone-input { text-overflow: ellipsis; }
   z-index: 51; padding: 4px 12px; border-radius: var(--radius-pill);
   background: rgba(8,8,18,.55); color: #fff; font-size: 0.8rem; font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+@media (max-width: 520px) {
+  .photo-viewer-count { top: calc(max(16px, env(safe-area-inset-top, 0)) + 54px); }
 }
 
 /* 사진 편집 모달 (photoEditor) */

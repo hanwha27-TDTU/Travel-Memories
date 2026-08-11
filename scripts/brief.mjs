@@ -42,6 +42,7 @@ export const SKILL_ROUTES = [
   // 개별 스킬 문서는 아래 skillsFor()가 자기 자신도 함께 라우팅한다.
   { match: /^\.claude\/skills\//, skill: 'gates-mechanization-dev' },
   { match: /^docs\/(CONSTITUTION|HANDOFF(?:_CODEX)?)\.md$/, skill: 'gates-mechanization-dev' },
+  { match: /^docs\/DISASTER_RECOVERY\.md$/, skill: 'backup-restore-dev' },
   // 계약 스키마는 게이트가 읽는 **기계 계약**이다. 특히 release-profile.json은 릴리스 그래프·
   // 재생성 원장의 정본이라, 여기를 고치는 것은 게이트를 고치는 것과 같은 규율을 받는다.
   // (2026-08-09: 이 영역이 라우팅 표에 아예 없어 브리핑이 「읽을 문서 없음」을 냈다 — §9 2단계)
@@ -73,6 +74,8 @@ export const SKILL_ROUTES = [
   // 「자동으로 넣지 않는다」는 결정이 전부 domain/place/here.ts와 한 몸이다.
   { match: /^src\/services\/here/, skill: 'map-place-dev' },
   { match: /^src\/ui\/(photoEditor|photoViewer|editor)/, skill: 'photo-editor-dev' },
+  { match: /^src\/ui\/mediaSave/, skill: 'ui-responsive-dev' },
+  { match: /^src\/ui\/mediaSave/, skill: 'photo-storage-dev' },
   { match: /^src\/ui\/videoViewer/, skill: 'ui-responsive-dev' },
   { match: /^src\/ui\/videoViewer/, skill: 'photo-storage-dev' },
   // 🔴 **사진 바이트가 지나는 자리는 전용 헌장을 함께 읽는다**(사용자 지시 2026-08-01:

@@ -41,5 +41,5 @@ describe('hashchain', () => {
     RESEARCH_LOG.forEach((e, i) => expect(e.seq).toBe(i + 1));
     const links = await buildChain(RESEARCH_LOG);
     expect(await verifyChain(links)).toBe(true);
-  });
+  }, 15_000); // build+verify는 체인 정의상 순차 SHA-256이므로 로그 규모에 맞는 상한을 둔다.
 });
