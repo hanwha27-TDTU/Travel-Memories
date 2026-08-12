@@ -5,6 +5,7 @@
   "type": "module",
   "description": "개인 여행기록 앱 (Bugeon Journey)",
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
     "dev": "vite",
     "build": "tsc --noEmit && vite build && node scripts/gen-version-file.mjs",
     "preview": "vite preview",
