@@ -12,8 +12,8 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 서버 스키마, migration, RLS/grant와 독립 배포 Edge Function을 소유한다.
 
 - 모듈 ID: `supabase-backend`
-- 관측 파일: 40개 · 논리 줄: 3930 · 최상위 선언: 73개(외부 공개 47개)
-- 코드 내용 SHA-256: `144dc9c28587bfff7bda0fea57fc83c501953c2fc64ddeed74f72b6d8409c6b7`
+- 관측 파일: 40개 · 논리 줄: 3960 · 최상위 선언: 74개(외부 공개 47개)
+- 코드 내용 SHA-256: `347119de21bb59ec8504a2d4aa72da7aaade7e682253e5f2f4f58b81052259d5`
 - 생성기 스키마: 1
 
 ## 2. 진입점과 모듈 간 흐름
@@ -73,7 +73,7 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 
 | 파일 | 줄 | export/선언 | 저장소 내부 의존 | 코드에서 관측한 I/O·생명주기 신호 |
 |---|---:|---:|---|---|
-| `supabase/functions/geocode/index.ts` | 456 | 14/25 | — | network fetch |
+| `supabase/functions/geocode/index.ts` | 486 | 14/26 | — | network fetch |
 | `supabase/functions/media-sign/index.ts` | 761 | 33/48 | — | network fetch; integrity/crypto; deletion lifecycle |
 | `supabase/migrations/0001_journey_schema_trips.sql` | 78 | 0/0 | — | SQL table: trips; SQL function: set_updated_at; deletion lifecycle |
 | `supabase/migrations/0002_journey_invite_only.sql` | 65 | 0/0 | — | SQL table: allowed_users; SQL function: is_allowed; deletion lifecycle |
@@ -132,6 +132,7 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 | `supabase/functions/geocode/index.ts` | export | function | `normalizeKakaoAddress(json: unknown): NormalizedRow[]` | Array.isArray, num, str, splitKoreanAddress, out.push, kakaoAddressRank, out.slice | 카카오 주소 검색 응답 → 표준 행. 랭크는 `address_type`이 정한다(위 함수 참조). |
 | `supabase/functions/geocode/index.ts` | export | function | `normalizeVworld(json: unknown, asked: 'place' \\| 'address'): NormalizedRow[]` | Array.isArray, num, str, splitKoreanAddress, out.push, out.slice | VWorld 검색 응답 → 표준 행. VWorld는 `type=place`(POI)와 `type=address`(주소)를 나눠 부르며, 응답 모양은 같다 (`response.result.items[]`). 그래서 랭크는 무엇을 물었는지 로 정한다. |
 | `supabase/functions/geocode/index.ts` | export | function | `availableProviders(env: (k: string) => string \\| undefined): string[]` | env, out.push | 설정된 시크릿으로부터 지금 실제로 쓸 수 있는 제공자 목록. 없으면 빈 배열. |
+| `supabase/functions/geocode/index.ts` | internal | const | `CORS: Record<string, string>` | — | 🔴 이 함수는 다른 출처 (앱은 ` .github.io`, 함수는 ` .supabase.co`)에서 불린다. 그러면 브라우저가 본 요청 앞에 사전요청(OPTIONS) 을 먼저 보내는데, 그 요청에는 본문이 없어 아래 `req.json()`이 던지고 400 이 나갔다. 본 요청은 나가지도 못했다. 실측(2026-08-1… |
 | `supabase/functions/geocode/index.ts` | internal | function const | `json(body: unknown, status = 200)` | JSON.stringify | — |
 | `supabase/functions/geocode/index.ts` | internal | async function | `verifyUser(req: Request): Promise<string \\| null>` | req.headers.get, envGet, auth.startsWith, fetch, r.json | 요청자의 JWT를 직접 확인한다(플랫폼 설정에 기대지 않는다 — media-sign과 같은 규율). 🔴 예전에는 `boolean`을 돌려줬다. 이제 사용자 id 를 돌려준다 — 속도 한도를 걸려면 「누가」가 필요한데, 이 호출이 이미 사용자 본문을 받아오므로 왕복을 더 늘리지 않는다. 실패·불명은 `null`이고, 그… |
 | `supabase/functions/geocode/index.ts` | export | const | `MAX_QUERY_LEN` | — | 질의 길이 상한. 실제 주소·상호는 이보다 훨씬 짧다 — 넘는 것은 검색이 아니라 부하다. |
@@ -204,7 +205,7 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 ## 6. 복구 시 먼저 볼 큰 파일
 
 - `supabase/functions/media-sign/index.ts` — 761줄
-- `supabase/functions/geocode/index.ts` — 456줄
+- `supabase/functions/geocode/index.ts` — 486줄
 - `supabase/migrations/0027_canonical_sync_meta.sql` — 342줄
 - `supabase/migrations/0022_journey_places.sql` — 200줄
 - `supabase/tests/canonical_sync_meta.sql` — 188줄

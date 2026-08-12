@@ -205,6 +205,7 @@ const gates = [
   { name: 'check-purge-scope', cmd: 'node scripts/check-purge-scope.mjs' },
   // 「진짜 좌표인가」 판정이 isRealCoord 한 곳에만 있는가 — 손으로 쓴 0,0 검사가 다시 생기면 RED(H-3).
   { name: 'check-real-coord', cmd: 'node scripts/check-real-coord.mjs' },
+  { name: 'check-edge-cors', cmd: 'node scripts/check-edge-cors.mjs' },
   // 브랜드 색이 UI TS에 하드코딩되지 않는가 — 색 SSOT는 tokens.css(H-6).
   { name: 'check-ui-color-token', cmd: 'node scripts/check-ui-color-token.mjs' },
   { slow: true, name: 'unit-tests', cmd: 'npm run -s test' },

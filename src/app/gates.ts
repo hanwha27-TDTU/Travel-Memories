@@ -100,6 +100,8 @@ export const GATE_DESC: Record<string, string> = {
     '「진짜 좌표인가」 판정(유한·범위·0,0 아님)이 isRealCoord 한 곳에만 있는가 — 손으로 쓴 좌표 0,0 검사를 차단(H-3)',
   'check-ui-color-token':
     '브랜드 색이 UI TS에 하드코딩되지 않는가 — 색 SSOT는 tokens.css, 예외는 color-token-ok 표시(H-6)',
+  'check-edge-cors':
+    '모든 Edge Function이 사전요청(OPTIONS)을 본문 읽기 전에 답하고 CORS 헤더를 붙이는가 — 브라우저가 못 부르는 함수를 차단(M-0148)',
   'unit-tests': '순수 로직 유닛(비공허 확인)',
   'verify-editor-live':
     '실제 브라우저가 앱을 열어 화면·편집기·서비스워커·폰트를 확인(정적 검사가 원리적으로 못 보는 층)',
@@ -189,6 +191,7 @@ export const GATE_AXIS: Record<string, string> = {
   'check-purge-scope': '도메인 수가 아니라, cascadeParents가 migration의 cascade 폐포·rowmap과 일치하는지',
   'check-real-coord': '파일 수가 아니라, 좌표 판정이 **isRealCoord 한 곳에만** 있는지',
   'check-ui-color-token': '파일 수가 아니라, 하드코딩 색이 0이고 전부 토큰을 지나는지',
+  'check-edge-cors': '함수 수가 아니라, **형제 전부**가 사전요청에 답하고 순서가 맞는지 — 하나만 빠지면 그 함수는 못 불린다',
   'check-gate-promise': '게이트 수가 아니라, **모든 게이트가 개수 아닌 축을 선언**했고 부채가 늘지 않는지 — 래칫은 한 방향이다',
   'check-doc-tree':
     '문서 수가 아니라, 형제를 나란히 세워 **빈칸이 모양으로 드러나는지** — 미선언은 통과가 아니고, 이관 부채는 매번 이름째 출력된다',
@@ -289,6 +292,7 @@ export const GATE_WORLD: Record<string, string> = {
   'check-purge-scope': '',
   'check-real-coord': '',
   'check-ui-color-token': '',
+  'check-edge-cors': '',
   'check-env-assumption': '',
   'check-live-sleep': '',
   'unit-tests': '',
@@ -364,6 +368,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-purge-scope': 'static',
   'check-real-coord': 'static',
   'check-ui-color-token': 'static',
+  'check-edge-cors': 'static',
   'unit-tests': 'unit',
   'verify-editor-live': 'live',
   'verify-diagnostics-live': 'live',
