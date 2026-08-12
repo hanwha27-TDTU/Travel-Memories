@@ -102,6 +102,10 @@ export const GATE_DESC: Record<string, string> = {
     '브랜드 색이 UI TS에 하드코딩되지 않는가 — 색 SSOT는 tokens.css, 예외는 color-token-ok 표시(H-6)',
   'check-edge-cors':
     '모든 Edge Function이 사전요청(OPTIONS)을 본문 읽기 전에 답하고 CORS 헤더를 붙이는가 — 브라우저가 못 부르는 함수를 차단(M-0148)',
+  'check-gate-control':
+    '게이트에 대조군(셀프테스트)이 있고 그것이 실제로 통과하는가 — §4를 처음으로 기계화한 래칫',
+  'check-enforcement-parity':
+    'Claude와 코덱스가 같은 강제를 받는가 — 공통 층(git 훅) 자동 배선과 Claude 전용 훅의 대체 명시',
   'unit-tests': '순수 로직 유닛(비공허 확인)',
   'verify-editor-live':
     '실제 브라우저가 앱을 열어 화면·편집기·서비스워커·폰트를 확인(정적 검사가 원리적으로 못 보는 층)',
@@ -192,6 +196,8 @@ export const GATE_AXIS: Record<string, string> = {
   'check-real-coord': '파일 수가 아니라, 좌표 판정이 **isRealCoord 한 곳에만** 있는지',
   'check-ui-color-token': '파일 수가 아니라, 하드코딩 색이 0이고 전부 토큰을 지나는지',
   'check-edge-cors': '함수 수가 아니라, **형제 전부**가 사전요청에 답하고 순서가 맞는지 — 하나만 빠지면 그 함수는 못 불린다',
+  'check-gate-control': '게이트 수가 아니라, **대조군을 가진 게이트가 줄지 않는지**와 그 대조군이 실제로 도는지 — 래칫은 한 방향이다',
+  'check-enforcement-parity': '훅 수가 아니라, **공통 층이 자동 배선되고** 한쪽만 묶는 훅이 이유와 함께 등록됐는지',
   'check-gate-promise': '게이트 수가 아니라, **모든 게이트가 개수 아닌 축을 선언**했고 부채가 늘지 않는지 — 래칫은 한 방향이다',
   'check-doc-tree':
     '문서 수가 아니라, 형제를 나란히 세워 **빈칸이 모양으로 드러나는지** — 미선언은 통과가 아니고, 이관 부채는 매번 이름째 출력된다',
@@ -293,6 +299,8 @@ export const GATE_WORLD: Record<string, string> = {
   'check-real-coord': '',
   'check-ui-color-token': '',
   'check-edge-cors': '',
+  'check-gate-control': '',
+  'check-enforcement-parity': '',
   'check-env-assumption': '',
   'check-live-sleep': '',
   'unit-tests': '',
@@ -369,6 +377,8 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-real-coord': 'static',
   'check-ui-color-token': 'static',
   'check-edge-cors': 'static',
+  'check-gate-control': 'static',
+  'check-enforcement-parity': 'static',
   'unit-tests': 'unit',
   'verify-editor-live': 'live',
   'verify-diagnostics-live': 'live',

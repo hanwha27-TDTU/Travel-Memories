@@ -580,8 +580,40 @@ npm run live                  # 릴리스 후보 라이브 층(build 다음에)
 ## 강제 규칙은 hook으로 (S-09)
 
 
-- **CLAUDE.md는 context, deterministic hook과 CI가 enforcement다 (S-09).** CLAUDE.md/AGENTS.md 지시문은 강제수단이 아니라 맥락이다. 실제 강제는 `.claude/settings.json`의 command hook과 CI 게이트가 한다. LLM 판단 hook만으로 보안을 보장하지 않는다.
+- **CLAUDE.md는 context, deterministic hook과 CI가 enforcement다 (S-09).** CLAUDE.md/AGENTS.md 지시문은 강제수단이 아니라 맥락이다. LLM 판단 hook만으로 보안을 보장하지 않는다.
 - 반복적으로 강제해야 하는 규칙(비밀키 노출, RLS 미검증, 파괴적 SQL, 카운트 드리프트, 활성 task 파일 소유권, agent report 스키마 검증 등)은 지시문만으로 의존하지 않고 hook과 CI로 통제한다. 후보 목록은 `docs/SECURITY.md`와 `.claude/settings.json`.
+
+### 🔴 강제에는 **세 층이 있고, 묶는 대상이 다르다** (2026-08-12 실측 · 사용자 지시)
+
+> 사용자: *"코덱스와 클로드가 항상 같은 규칙 및 스킬을 보고 작업할 수 있도록 강제하도록 할 방법을 찾아 반영하자."*
+
+이 절은 원래 *"실제 강제는 `.claude/settings.json`의 command hook과 CI 게이트가 한다"*고만
+적혀 있었다. **그 문장은 `AGENTS.md`에도 그대로 심겨 코덱스가 읽는다.** 그런데 코덱스는
+Claude Code 훅을 발화시키지 않는다 — **없는 보호막을 있다고 말하고 있었다.** 모르는 것보다
+**틀리게 아는 것**이 위험하다.
+
+| 층 | 누구를 묶나 | 무엇이 여기 있나 |
+|---|---|---|
+| **① CI 게이트** | **둘 다** (PR에서 막힌다) | `npm run harness`의 게이트 전부 |
+| **② git 훅**(`.githooks/`) | **둘 다** — `git commit`은 누구나 친다 | `commit-msg`(커밋 형식·`chore(wip):` 표식) |
+| **③ Claude Code 훅**(`.claude/settings.json`) | **Claude만** | 파괴적 SQL · 비밀키 · 파이프 금지(§18-A) · 릴리스 얼림(§18-H) |
+
+**규칙 셋.**
+
+1. **새 강제는 위쪽 층부터 고른다.** ①에 넣을 수 있으면 ①에, 안 되면 ②, ③은 마지막이다.
+   ③은 *실행 직전의 명령*을 봐야만 하는 것(파이프·SQL 문자열)에만 쓴다 — 파일이 아니라서
+   ①②가 원리적으로 못 보는 자리다.
+2. 🔴 **③에 넣었으면 「코덱스는 무엇이 대신하는가」를 등록부에 적는다.** 없으면 「없음」이라고
+   적는다 — 빈칸과 「없음」은 다른 말이다. 등록 없는 훅은 `check-enforcement-parity`가 RED로 잡는다.
+3. 🔴 **②는 배선이 자동이어야 한다.** 실측(2026-08-12): 이 클론에서 `core.hooksPath`가
+   **설정돼 있지 않아 `.githooks/commit-msg`가 아무에게도 안 걸리고 있었다.** 헌법은 그때도
+   *"`.githooks/commit-msg`가 거부한다"*고 단정하고 있었다. 이제 `package.json`의 `prepare`가
+   `npm install` 뒤 자동으로 배선하고, 게이트가 그 한 줄의 존재를 강제한다.
+   **사람이 기억해서 켜는 층은 반드시 새어 나간다.**
+
+**정직한 한계**: 게이트는 *"`prepare`가 적혀 있다"*까지만 안다 — 어떤 사람의 로컬에서 실제로
+설정됐는지는 못 본다. 그리고 코덱스가 `AGENTS.md`를 읽었는지도 못 본다(§16의 *"기계는 「물었는가」를
+못 본다"*와 같은 부류).
 
 ## 실행 단계 분리 (S-10)
 
