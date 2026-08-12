@@ -105,6 +105,8 @@ export const GATE_DESC: Record<string, string> = {
     '실제 브라우저가 앱을 열어 화면·편집기·서비스워커·폰트를 확인(정적 검사가 원리적으로 못 보는 층)',
   'verify-diagnostics-live':
     '실제 브라우저가 진단 도구를 하나씩 열어 **사용자에게 나가는 문장·자리·버튼**을 확인(자료구조가 옳아도 화면이 틀릴 수 있다 — M-0046)',
+  'verify-authgate-live':
+    '실제 브라우저가 **로그아웃 상태의 데이터 관리**를 열어 잠긴 카드·열린 카드를 확인(빌드 시 박히는 값이라 다른 라이브 픽스처는 이 갈래에 닿지 못한다 — ADR-0063)',
 };
 
 /**
@@ -203,6 +205,7 @@ export const GATE_AXIS: Record<string, string> = {
   'unit-tests': '통과 개수가 아니라, 순수 로직 계약이 유지되는지',
   'verify-editor-live': '검사 수가 아니라, **실제 브라우저에서** 사용자 경로가 실제로 도는지',
   'verify-diagnostics-live': '도구 수가 아니라, **실제 DOM에** 판정 문장·자리·버튼이 나오는지',
+  'verify-authgate-live': '검사 수가 아니라, 로그아웃에서 **파괴적 동작이 실제로 막히고 내보내기는 열리는지**',
 };
 
 /**
@@ -291,6 +294,7 @@ export const GATE_WORLD: Record<string, string> = {
   'unit-tests': '',
   'verify-editor-live': 'browser dist',
   'verify-diagnostics-live': 'browser dist',
+  'verify-authgate-live': 'browser',
 };
 
 /** 게이트 카테고리. 없으면 'static'으로 본다. 목록은 registry.gen에서 오므로 개수는 파생. */
@@ -363,6 +367,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'unit-tests': 'unit',
   'verify-editor-live': 'live',
   'verify-diagnostics-live': 'live',
+  'verify-authgate-live': 'live',
 };
 
 export function categoryOf(gate: string): GateCategory {

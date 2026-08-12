@@ -217,6 +217,7 @@ const gates = [
   // 30분 뒤 사용자 실기기 스크린샷이 잡았다(§10 ③).
   { slow: true, name: 'verify-editor-live', cmd: 'node scripts/verify-editor-live.mjs', optional: true },
   { slow: true, name: 'verify-diagnostics-live', cmd: 'node scripts/verify-diagnostics-live.mjs', optional: true },
+  { slow: true, name: 'verify-authgate-live', cmd: 'node scripts/verify-authgate-live.mjs', optional: true },
 ];
 
 /**
