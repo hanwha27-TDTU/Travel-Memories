@@ -60,14 +60,28 @@ describe('🔴 지오코딩 속도 한도', () => {
     expect(allowRequest(full, T0 + RATE_WINDOW_MS - 1).ok).toBe(false);
   });
 
-  it('사람이 손으로 검색하는 속도는 넉넉히 덮는다 — 정상 사용을 막으면 그것도 결함이다', () => {
-    // 2초에 한 번씩 1분간 검색해도(30회) 막히지 않는다.
+  it('🔴 사람이 **원리적으로 닿을 수 없는** 자리에 있다 — 불편 0이 이 앱의 우선순위다', () => {
+    // Edge를 타는 유일한 경로는 버튼 검색이고, 검색 1회가 Edge를 최대 2번 부른다.
+    // 1초에 한 번씩(버튼이 요청 중 잠기므로 이미 매우 빠르다) 1분 내내 검색해도
+    // Edge 호출은 120회 — 한도 300의 절반도 안 된다.
     let state: RateState | undefined;
-    for (let i = 0; i < 30; i++) {
-      const r = allowRequest(state, T0 + i * 2000);
-      expect(r.ok, `${i + 1}번째 정상 검색이 막혔다`).toBe(true);
+    for (let i = 0; i < 120; i++) {
+      const r = allowRequest(state, T0 + Math.floor(i / 2) * 1000);
+      expect(r.ok, `${i + 1}번째 정상 호출이 막혔다`).toBe(true);
       state = r.next;
     }
+  });
+
+  it('🔴 폭주 루프는 즉시 걸린다 — 잡으려던 것은 악의가 아니라 버그다', () => {
+    // 초당 100회(같은 밀리초에 몰려 들어오는 루프)면 3초 안에 막힌다.
+    let state: RateState | undefined;
+    let blockedAt = -1;
+    for (let i = 0; i < 500; i++) {
+      const r = allowRequest(state, T0 + Math.floor(i / 100) * 1000);
+      if (!r.ok) { blockedAt = i; break; }
+      state = r.next;
+    }
+    expect(blockedAt).toBe(RATE_MAX_PER_WINDOW);
   });
 });
 

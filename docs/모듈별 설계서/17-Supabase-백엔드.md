@@ -12,8 +12,8 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 서버 스키마, migration, RLS/grant와 독립 배포 Edge Function을 소유한다.
 
 - 모듈 ID: `supabase-backend`
-- 관측 파일: 40개 · 논리 줄: 3912 · 최상위 선언: 73개(외부 공개 47개)
-- 코드 내용 SHA-256: `4e978f3f74ac8568335ff0f45c940159ae09beb1877bb6e8390c101c2aeea978`
+- 관측 파일: 40개 · 논리 줄: 3930 · 최상위 선언: 73개(외부 공개 47개)
+- 코드 내용 SHA-256: `144dc9c28587bfff7bda0fea57fc83c501953c2fc64ddeed74f72b6d8409c6b7`
 - 생성기 스키마: 1
 
 ## 2. 진입점과 모듈 간 흐름
@@ -73,7 +73,7 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 
 | 파일 | 줄 | export/선언 | 저장소 내부 의존 | 코드에서 관측한 I/O·생명주기 신호 |
 |---|---:|---:|---|---|
-| `supabase/functions/geocode/index.ts` | 438 | 14/25 | — | network fetch |
+| `supabase/functions/geocode/index.ts` | 456 | 14/25 | — | network fetch |
 | `supabase/functions/media-sign/index.ts` | 761 | 33/48 | — | network fetch; integrity/crypto; deletion lifecycle |
 | `supabase/migrations/0001_journey_schema_trips.sql` | 78 | 0/0 | — | SQL table: trips; SQL function: set_updated_at; deletion lifecycle |
 | `supabase/migrations/0002_journey_invite_only.sql` | 65 | 0/0 | — | SQL table: allowed_users; SQL function: is_allowed; deletion lifecycle |
@@ -135,7 +135,7 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 | `supabase/functions/geocode/index.ts` | internal | function const | `json(body: unknown, status = 200)` | JSON.stringify | — |
 | `supabase/functions/geocode/index.ts` | internal | async function | `verifyUser(req: Request): Promise<string \\| null>` | req.headers.get, envGet, auth.startsWith, fetch, r.json | 요청자의 JWT를 직접 확인한다(플랫폼 설정에 기대지 않는다 — media-sign과 같은 규율). 🔴 예전에는 `boolean`을 돌려줬다. 이제 사용자 id 를 돌려준다 — 속도 한도를 걸려면 「누가」가 필요한데, 이 호출이 이미 사용자 본문을 받아오므로 왕복을 더 늘리지 않는다. 실패·불명은 `null`이고, 그… |
 | `supabase/functions/geocode/index.ts` | export | const | `MAX_QUERY_LEN` | — | 질의 길이 상한. 실제 주소·상호는 이보다 훨씬 짧다 — 넘는 것은 검색이 아니라 부하다. |
-| `supabase/functions/geocode/index.ts` | export | const | `RATE_WINDOW_MS` | — | 한 사용자에게 허용하는 창의 길이와 횟수. 사람이 손으로 검색하는 속도를 넉넉히 덮는다. |
+| `supabase/functions/geocode/index.ts` | export | const | `RATE_WINDOW_MS` | — | 한 사용자에게 허용하는 창의 길이와 횟수. 🔴 이 숫자는 「악의를 막는 선」이 아니라 「폭주를 잡는 선」이다 (사용자 결정 2026-08-12 · ADR-0065). 이 함수는 초대제 뒤에 있어서 부르려면 이미 허용목록 안의 계정 이어야 한다 — 혼자 쓰는 앱에서 그건 사용자 자신이다. 그래서 남는 실제 위험은 악의가… |
 | `supabase/functions/geocode/index.ts` | export | const | `RATE_MAX_PER_WINDOW` | — | — |
 | `supabase/functions/geocode/index.ts` | export | interface | `RateState` | — | — |
 | `supabase/functions/geocode/index.ts` | export | function | `allowRequest(prev: RateState \\| undefined, now: number, max = RATE_MAX_PER_WINDOW, windowMs = RATE_WINDOW_MS): { ok: boolean; next: RateState; retryAfterSec: number }` | Math.max, Math.ceil | 순수 판정 — 이 요청을 받아도 되는가. 상태를 돌려주고 저장은 호출부가 한다. 순수하니 유닛이 시계를 직접 먹여 경계를 잰다(§10 ③ — 재려면 순수해야 한다). |
@@ -204,7 +204,7 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 ## 6. 복구 시 먼저 볼 큰 파일
 
 - `supabase/functions/media-sign/index.ts` — 761줄
-- `supabase/functions/geocode/index.ts` — 438줄
+- `supabase/functions/geocode/index.ts` — 456줄
 - `supabase/migrations/0027_canonical_sync_meta.sql` — 342줄
 - `supabase/migrations/0022_journey_places.sql` — 200줄
 - `supabase/tests/canonical_sync_meta.sql` — 188줄
