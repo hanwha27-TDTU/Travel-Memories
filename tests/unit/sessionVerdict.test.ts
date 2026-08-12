@@ -5,7 +5,14 @@
 // 여기가 빨개지면 로그아웃해도 남의 기록이 보인다는 뜻이다(§0 개인자료 기본 비공개).
 
 import { describe, it, expect } from 'vitest';
-import { canViewLocalRecords, authGateMismatches, AUTH_GATE_CASES } from '../../src/domain/authGate';
+import {
+  canViewLocalRecords,
+  canRunLocalDataAction,
+  authGateMismatches,
+  AUTH_GATE_CASES,
+  LOCAL_DATA_ACTION_CASES,
+  type LocalDataAction,
+} from '../../src/domain/authGate';
 import {
   sessionLifetimeMetric,
   lockWiringMetric,
@@ -48,6 +55,44 @@ describe('🔴 기록을 볼 자격 판정 (authGate — 홈 잠금·딥링크 �
     const seen = new Set(AUTH_GATE_CASES.map((c) => `${c.cloudConfigured}:${c.signedIn}`));
     expect(seen.size).toBe(4);
     for (const c of AUTH_GATE_CASES) expect(c.why.length).toBeGreaterThan(0);
+  });
+});
+
+describe('🔴 로컬 자료 동작 잠금 (T-020 — 「보는 것」과 「하는 것」은 다른 판정)', () => {
+  it('🔴 내보내기는 로그아웃에도 열린다 — 기억을 꺼낼 마지막 문을 막지 않는다', () => {
+    expect(canRunLocalDataAction('export', true, false)).toBe(true);
+  });
+
+  it('🔴 복원은 로그아웃에서 막힌다 — 로컬 자료를 덮어쓰기 때문', () => {
+    expect(canRunLocalDataAction('restore', true, false)).toBe(false);
+    expect(canRunLocalDataAction('restore', true, true)).toBe(true);
+  });
+
+  it('🔴 영구삭제는 로그아웃에서 막힌다 — 되돌릴 수 없기 때문', () => {
+    expect(canRunLocalDataAction('purge', true, false)).toBe(false);
+    expect(canRunLocalDataAction('purge', true, true)).toBe(true);
+  });
+
+  it('클라우드를 안 쓰는 배포는 세 동작이 전부 열린다 — 막을 상대가 없다', () => {
+    for (const action of ['export', 'restore', 'purge'] as LocalDataAction[]) {
+      expect(canRunLocalDataAction(action, false, false)).toBe(true);
+    }
+  });
+
+  it('자가확인 표가 전부 통과한다 — 진단이 이걸 그대로 돌린다', () => {
+    expect(authGateMismatches()).toEqual([]);
+  });
+
+  it('🔴 표가 **모든 동작을 로그인/로그아웃 양쪽에서** 덮는다(빠진 동작이 곧 사각지대다)', () => {
+    // 유니온에 새 동작을 넣고 표에 안 넣으면 여기가 빨개진다.
+    // `Record<LocalDataAction, …>`의 컴파일 오류와 **두 층**으로 막는다.
+    const actions: LocalDataAction[] = ['export', 'restore', 'purge'];
+    for (const action of actions) {
+      const rows = LOCAL_DATA_ACTION_CASES.filter((c) => c.action === action && c.cloudConfigured);
+      const seen = new Set(rows.map((c) => String(c.signedIn)));
+      expect(seen, `${action}이 클라우드 배포의 두 갈래를 다 덮지 않는다`).toEqual(new Set(['true', 'false']));
+    }
+    for (const c of LOCAL_DATA_ACTION_CASES) expect(c.why.length).toBeGreaterThan(0);
   });
 });
 
