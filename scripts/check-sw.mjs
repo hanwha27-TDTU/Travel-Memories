@@ -32,6 +32,25 @@ export function codeOnly(source) {
   return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1 ');
 }
 
+// ── 비공허 자체검사(§4) ─────────────────────────────────────────────────────
+// 🔴 왜 `codeOnly`부터 재나: 오늘 하루에 **주석을 코드로 센 결함이 세 번** 나왔다
+//    (check-edge-cors · check-gate-control 두 번). 같은 함정이 여기에도 있다 —
+//    sw.js는 계약을 주석으로 설명하는 파일이라, 주석을 안 지우면 **설명이 곧 위반**이 된다.
+{
+  const cases = [
+    ['블록 주석을 지운다', () => !codeOnly('/* skipWaiting() 금지 */').includes('skipWaiting')],
+    ['줄 주석을 지운다', () => !codeOnly('// self.skipWaiting();').includes('skipWaiting')],
+    ['🔴 URL의 //는 주석이 아니다(오탐 금지)', () => codeOnly("const u = 'https://x.io/a';").includes('https://x.io/a')],
+    ['진짜 코드는 남긴다', () => codeOnly('self.skipWaiting();').includes('skipWaiting')],
+    ['주석 뒤 같은 줄의 코드는 이미 지나갔으므로 앞부분은 남는다', () => codeOnly('a(); // b()').includes('a()')],
+  ];
+  const broken = cases.filter(([, fn]) => !fn());
+  if (broken.length) {
+    console.error(`check-sw: 셀프테스트 실패 — 게이트가 공허하다(§4): ${broken.map((c) => c[0]).join(', ')}`);
+    process.exit(2);
+  }
+}
+
 /** sw.js 코드가 지켜야 할 계약 위반 목록(순수 — 자체검사가 직접 부른다). */
 export function swViolations(source, externalHosts) {
   const code = codeOnly(source);

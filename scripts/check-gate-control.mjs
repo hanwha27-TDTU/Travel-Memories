@@ -45,7 +45,7 @@ const HARNESS = 'scripts/harness.mjs';
  *  · `RUNNABLE`    — 그 대조군을 **밖에서 돌려 볼 수 있는가**(`--selftest` 플래그).
  *                    이게 있어야 이 게이트가 「살아 있는지」까지 확인할 수 있다.
  */
-export const HAS_CONTROL_BASELINE = 22;
+export const HAS_CONTROL_BASELINE = 51;
 export const RUNNABLE_BASELINE = 15;
 
 /** 하네스에 등록된 게이트 중 `node scripts/*.mjs`로 도는 것의 스크립트 경로를 뽑는다. */
@@ -82,8 +82,28 @@ export function declaresSelftest(src) {
  */
 export function hasControl(src) {
   const code = stripComments(src);
+  return hasSelfTestFunction(code) || hasInlineSelfCheck(code);
+}
+
+/** ① 이름 붙인 형태 — `function selfTest()`를 정의하고 **실제로 부른다**. */
+function hasSelfTestFunction(code) {
   if (!/function\s+selfTest\s*\(/.test(code)) return false;
   return /(^|[^\w.])selfTest\s*\([^)]*\)\s*;/m.test(code.replace(/function\s+selfTest\s*\([^)]*\)/g, ''));
+}
+
+/**
+ * ② 블록 형태 — 이름 없는 `{ … }` 안에서 사례를 돌리고 **실패하면 `exit(2)`로 나간다.**
+ *
+ * 🔴 이 갈래를 놓쳐서 이 게이트는 **대조군 41개를 「없음」으로 셌다**(2026-08-12 · M-0151).
+ *    `check-ui-color-token`은 양성·음성 6사례를 갖고도 「없음」이었다. 검출기가 **한 가지
+ *    모양만 알면**, 다른 모양으로 쓴 형제는 전부 결함으로 보인다(§7의 반대 방향 사고).
+ *
+ * 판정 근거는 이 저장소의 **종료코드 계약**이다: 자체검사 실패는 위반(1)이 아니라
+ * **전제 미충족(2)**이다. 그래서 「자체검사가 실패했다고 말하며 exit 2로 나가는 길이
+ * 코드에 있는가」를 본다.
+ */
+function hasInlineSelfCheck(code) {
+  return /(셀프테스트|자체검사)/.test(code) && /process\.exit\(\s*2\s*\)/.test(code);
 }
 
 function selfTest() {
@@ -119,6 +139,21 @@ function selfTest() {
     ],
     ['대조군: 아예 없으면 거짓', () => !hasControl(`console.log('hi');`)],
     [
+      '🔴 대조군: **블록 형태**도 참 — 이름을 안 붙였다고 없는 게 아니다(M-0151)',
+      () =>
+        hasControl(
+          `{ const bad = cases.filter(f); if (bad.length) { console.error('x: 셀프테스트 실패'); process.exit(2); } }`,
+        ),
+    ],
+    [
+      '블록 형태: exit(2) 없이 말만 하면 거짓(나가지 않으면 판정이 아니다)',
+      () => !hasControl(`console.error('셀프테스트 실패했지만 계속 간다');`),
+    ],
+    [
+      '블록 형태: exit(2)만 있고 자체검사가 아니면 거짓(전제 미충족은 대조군이 아니다)',
+      () => !hasControl(`if (!existsSync(X)) { console.error('대상 없음'); process.exit(2); }`),
+    ],
+    [
       '🔴 대조군: 호출이 **주석 처리**돼 있으면 거짓 — 첫 판이 여기서 뚫렸다',
       () => !hasControl(`function selfTest() { }\n// selfTest();`),
     ],
@@ -137,7 +172,7 @@ function selfTest() {
 
 selfTest();
 if (process.argv.includes('--selftest')) {
-  console.log('check-gate-control: 셀프테스트 통과 (잡아야 할 것 5 · 잡으면 안 되는 것 7)');
+  console.log('check-gate-control: 셀프테스트 통과 (잡아야 할 것 6 · 잡으면 안 되는 것 9)');
   process.exit(0);
 }
 

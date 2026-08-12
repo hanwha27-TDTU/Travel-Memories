@@ -48,6 +48,28 @@ export function staticRelativeImports(source) {
   return out;
 }
 
+// ── 비공허 자체검사(§4) ─────────────────────────────────────────────────────
+// 이 게이트가 잡으려는 것은 「무겁게 만든 화면이 **정적 import로 다시 끌려 들어오는 것**」이다.
+// 그래서 대조군의 핵심은 **동적 import를 정적으로 오인하지 않는 것**이다 — 오인하면
+// 게이트가 정상 코드를 막고, 사람이 무시하기 시작하면 그 게이트는 죽는다(§11 ③).
+{
+  const cases = [
+    ['정적 import를 잡는다', () => staticRelativeImports("import { a } from './x';").length === 1],
+    ['export ... from도 잡는다', () => staticRelativeImports("export { a } from './x';").length === 1],
+    ['🔴 동적 import()는 안 잡는다(오탐 금지 — 이게 우리가 권장하는 형태다)', () =>
+      staticRelativeImports("const m = await import('./x');").length === 0],
+    ['🔴 import type은 안 잡는다(타입은 런타임에 안 남는다)', () =>
+      staticRelativeImports("import type { A } from './x';").length === 0],
+    ['패키지 import는 대상이 아니다(상대 경로만 본다)', () =>
+      staticRelativeImports("import { a } from 'dexie';").length === 0],
+  ];
+  const broken = cases.filter(([, fn]) => !fn());
+  if (broken.length) {
+    console.error(`check-lazy-screens: 셀프테스트 실패 — 게이트가 공허하다(§4): ${broken.map((c) => c[0]).join(', ')}`);
+    process.exit(2);
+  }
+}
+
 /** fromFile 기준 상대 명세자를 실제 .ts 파일 경로로. 없으면 null. */
 function resolveTs(fromFile, spec) {
   const base = resolve(dirname(fromFile), spec);
