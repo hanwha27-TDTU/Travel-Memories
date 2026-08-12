@@ -11,6 +11,7 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MIG_DIR = join(ROOT, 'supabase/migrations');
@@ -120,7 +121,7 @@ function selfTest(server) {
 }
 
 const server = parseServerColumns();
-selfTest(server);
+runSelfTest('check-schema-parity', () => selfTest(server));
 const rowmaps = parseRowmapInterfaces();
 if (rowmaps.length === 0) {
   console.error('check-schema-parity: rowmap interface를 하나도 못 찾음(파서 회귀?).');

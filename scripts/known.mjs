@@ -279,7 +279,8 @@ if (argv === null) {
   if (fails.length) {
     console.error('known: **자기점검 실패** — 이 도구를 믿을 수 없습니다(§4).');
     for (const f of fails) console.error(`  ✗ ${f}`);
-    process.exit(1);
+    // 자기점검 실패는 **위반이 아니라** 「이 도구를 믿을 수 없다」이다 → exit 2(§18-G).
+    process.exit(2);
   }
   console.log(`known: OK — 네 층에서 ${collectEntries().length}덩어리를 색인합니다(자기점검 9건 포함).`);
 } else {

@@ -123,7 +123,8 @@ const selfFails = selfTest();
 if (selfFails.length > 0) {
   console.error('check-bytes-upload-symmetry: **자체검사 실패** — 이 게이트를 믿을 수 없습니다(§4).');
   for (const f of selfFails) console.error(`  ✗ ${f}`);
-  process.exit(1);
+  // 자체검사 실패는 **위반이 아니라** 「이 게이트를 믿을 수 없다」이다 → exit 2(§18-G).
+  process.exit(2);
 }
 
 const sync = readFileSync(SYNC, 'utf8');

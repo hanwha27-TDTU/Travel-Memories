@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { digestDirectory as contentHash, digestFile as fileHash } from '../vendor/codex-shared-skills/release-harness-governance/scripts/content-digest.mjs';
 import { validateProfile } from '../vendor/codex-shared-skills/release-harness-governance/scripts/validate-profile.mjs';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const SOURCE = 'https://github.com/hanwha27-TDTU/Codex-Shared-Skills';
@@ -251,7 +252,8 @@ workflows.functionVersions = Object.fromEntries(workflows.functionNames.map((nam
   return [name, version];
 }));
 
-selfTest(lock, profile, vendorHashes, adapterText, workflows);
+runSelfTest('check-shared-skill-contract', () =>
+  selfTest(lock, profile, vendorHashes, adapterText, workflows));
 
 function installedHashesAt(root) {
   return Object.fromEntries(lock.skills.map((entry) => {

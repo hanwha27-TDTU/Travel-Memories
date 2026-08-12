@@ -18,6 +18,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DB_FILE = join(ROOT, 'src/offline/db.ts');
@@ -103,7 +104,7 @@ if (!existsSync(DB_FILE) || !existsSync(BACKUP_FILE)) {
   process.exit(1);
 }
 
-selfTest();
+runSelfTest('check-backup-coverage', () => selfTest());
 if (process.argv.includes('--selftest')) {
   console.log('check-backup-coverage: 셀프테스트 통과');
   process.exit(0);

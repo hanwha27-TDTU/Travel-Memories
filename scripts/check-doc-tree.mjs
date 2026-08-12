@@ -19,6 +19,7 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SHAPES = Object.freeze(['tree', 'prose', 'prose-debt']);
@@ -130,7 +131,7 @@ export function selfTest() {
   SELF.pos += 2;
 }
 
-selfTest();
+runSelfTest('check-doc-tree', () => selfTest());
 
 const isMain = process.argv[1] && process.argv[1].endsWith('check-doc-tree.mjs');
 if (isMain) {
