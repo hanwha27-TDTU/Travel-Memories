@@ -117,7 +117,22 @@ const check = (label, ok, detail = '') => {
   console.log(`${ok ? '  ✓' : '  ✗'} ${label}${detail ? ` — ${detail}` : ''}`);
 };
 
-const browser = await chromium.launch();
+// 🔴 §18-G — **없는 세계를 만나면 판정하지 말고 말한다.** `playwright` 패키지가 있다고
+//    브라우저 실물이 설치돼 있는 것은 아니다: CI의 `harness` job은 Chromium을 설치하지 않고
+//    `live-render` job만 설치한다. 여기서 예외를 그대로 뱉으면 종료코드가 1이 되고 하네스는
+//    그것을 **「위반을 찾았다」로 적는다** — 죽음을 위반으로 보고하는 것은 거짓말이다(M-0135).
+let browser;
+try {
+  browser = await chromium.launch();
+} catch (e) {
+  console.error(
+    `verify-authgate-live: 브라우저를 띄우지 못했습니다 — ${String(e).split('\n')[0]}\n` +
+      '  → 이 실행은 잠금 갈래를 재지 않았습니다(통과가 아닙니다).',
+  );
+  server.close();
+  await rm(TMP, { recursive: true, force: true });
+  process.exit(2);
+}
 const page = await browser.newPage();
 const consoleErrors = [];
 page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
