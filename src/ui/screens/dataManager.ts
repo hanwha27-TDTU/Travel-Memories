@@ -32,7 +32,7 @@ import { openR2Setup } from './r2Setup';
 import { placeRegistryPanel } from './placeRegistry';
 import { CURRENCIES, currencyLabel } from '../../domain/expense/format';
 import { publishDeviceAsCanonical } from '../../services/canonicalSync';
-import { currentUser } from '../../services/auth';
+import { currentUser, onAuthChange } from '../../services/auth';
 import { supabase, isConfigured } from '../../services/supabase/client';
 import { canRunLocalDataAction, type LocalDataAction } from '../../domain/authGate';
 import type { TripNavigationTarget } from '../../app/router';
@@ -827,12 +827,12 @@ function cards(
   ];
 }
 
-/** '데이터 관리' 허브를 연다. 현재 화면 위에 오버레이로 뜬다. */
-export function openDataManager(opts: DataManagerOpts): void {
-  const prevFocus = document.activeElement as HTMLElement | null;
-  // 아래 `currentUser()`가 답하기 전까지의 값. **모름은 잠김 쪽으로 접는다**(fail-closed).
-  let signedIn = false;
-
+/** 허브 오버레이의 껍데기(모달·제목·닫기·본문). top-level — 함수 크기 래칫(§7 구조적 강제). */
+function buildHubShell(): {
+  overlay: HTMLElement;
+  bodyEl: HTMLElement;
+  closeBtn: HTMLButtonElement;
+} {
   const overlay = el('div', 'overlay-base guide-overlay');
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
@@ -853,8 +853,65 @@ export function openDataManager(opts: DataManagerOpts): void {
   const bodyEl = el('div', 'guide-body');
   modal.append(header, bodyEl);
   overlay.appendChild(modal);
+  return { overlay, bodyEl, closeBtn };
+}
+
+/**
+ * 허브 카드 하나를 버튼으로 만든다(top-level — 함수 크기 래칫, §7 구조적 강제).
+ *
+ * 🔴 잠금은 **여는 순간** 건다. 눌러서 화면이 열린 뒤 막으면 그 사이에 이미 보인다.
+ *    판정은 손으로 쓰지 않고 `domain/authGate.ts` 한 곳이 한다(§7 2층 — M-0102가
+ *    두 곳에 손으로 있어 한쪽이 우회로가 됐던 그 자리).
+ */
+function buildHubButton(
+  c: HubCard,
+  signedIn: boolean,
+  onOpen: (card: HubCard) => void,
+): HTMLButtonElement {
+  const btn = el('button', 'guide-card') as HTMLButtonElement;
+  btn.type = 'button';
+  if (c.hook) btn.setAttribute('data-hub-card', c.hook);
+  const ic = el('span', 'guide-card-ic');
+  ic.appendChild(dataManagerIcon(c.icon, 'dm-card-icon'));
+  const mid = el('span', 'guide-card-mid');
+  mid.append(el('span', 'guide-card-label', c.label), el('small', 'guide-card-hint', c.hint));
+  const chev = el('span', 'guide-card-chev', '›');
+  chev.setAttribute('aria-hidden', 'true');
+  btn.append(ic, mid, chev);
+
+  const blocked = c.needs !== null && !canRunLocalDataAction(c.needs, isConfigured(), signedIn);
+  if (!blocked) {
+    btn.addEventListener('click', () => onOpen(c));
+    return btn;
+  }
+  btn.disabled = true;
+  btn.classList.add('is-locked');
+  // 하나는 판정, 하나는 다음 행동. 「왜 막혔는지」만 적고 「어떻게 푸는지」를 빼면
+  // 사용자는 앱이 고장 났다고 읽는다(§12).
+  mid.replaceChildren(
+    el('span', 'guide-card-label', c.label),
+    el('small', 'guide-card-hint', '🔒 로그인해야 쓸 수 있어요 — 백업(내보내기)은 로그인 없이도 됩니다'),
+  );
+  btn.setAttribute('aria-label', `${c.label} — 로그인해야 쓸 수 있어요`);
+  return btn;
+}
+
+/** '데이터 관리' 허브를 연다. 현재 화면 위에 오버레이로 뜬다. */
+export function openDataManager(opts: DataManagerOpts): void {
+  const prevFocus = document.activeElement as HTMLElement | null;
+  // 아래 `currentUser()`가 답하기 전까지의 값. **모름은 잠김 쪽으로 접는다**(fail-closed).
+  let signedIn = false;
+
+  const { overlay, bodyEl, closeBtn } = buildHubShell();
+
+  // 지금 열어 둔 상세가 로그인을 요구하는 도구인가. 로그아웃이 들어오면 이 값으로
+  // 「그 자리에서 닫아야 하는지」를 판정한다(null이면 상세가 없거나 잠금 대상이 아니다).
+  let openDetailNeeds: LocalDataAction | null = null;
+  let stopAuth: (() => void) | null = null;
 
   const close = (): void => {
+    stopAuth?.();
+    stopAuth = null;
     overlay.remove();
     document.removeEventListener('keydown', onKey);
     if (prevFocus && document.contains(prevFocus)) prevFocus.focus();
@@ -864,6 +921,7 @@ export function openDataManager(opts: DataManagerOpts): void {
   }
 
   const showHome = (): void => {
+    openDetailNeeds = null;
     bodyEl.innerHTML = '';
     bodyEl.appendChild(buildUsageCard()); // 저장 용량 요약(사진/텍스트) — 최상단
     const group = el('section', 'guide-group dm-tool-group');
@@ -877,34 +935,12 @@ export function openDataManager(opts: DataManagerOpts): void {
       openDataManager(opts);
       return document.querySelector<HTMLElement>('[data-hub-card="diagnostics"]') ?? undefined;
     })) {
-      const btn = el('button', 'guide-card') as HTMLButtonElement;
-      btn.type = 'button';
-      if (c.hook) btn.setAttribute('data-hub-card', c.hook);
-      const ic = el('span', 'guide-card-ic');
-      ic.appendChild(dataManagerIcon(c.icon, 'dm-card-icon'));
-      const mid = el('span', 'guide-card-mid');
-      mid.append(el('span', 'guide-card-label', c.label), el('small', 'guide-card-hint', c.hint));
-      const chev = el('span', 'guide-card-chev', '›');
-      chev.setAttribute('aria-hidden', 'true');
-      btn.append(ic, mid, chev);
-      // 🔴 잠금은 **여는 순간** 건다. 눌러서 화면이 열린 뒤 막으면 그 사이에 이미 보인다.
-      //    판정은 손으로 쓰지 않고 `domain/authGate.ts` 한 곳이 한다(§7 2층 — M-0102가
-      //    두 곳에 손으로 있어 한쪽이 우회로가 됐던 그 자리).
-      const blocked = c.needs !== null && !canRunLocalDataAction(c.needs, isConfigured(), signedIn);
-      if (blocked) {
-        btn.disabled = true;
-        btn.classList.add('is-locked');
-        // 하나는 판정, 하나는 다음 행동. 「왜 막혔는지」만 적고 「어떻게 푸는지」를 빼면
-        // 사용자는 앱이 고장 났다고 읽는다(§12).
-        mid.replaceChildren(
-          el('span', 'guide-card-label', c.label),
-          el('small', 'guide-card-hint', '🔒 로그인해야 쓸 수 있어요 — 백업(내보내기)은 로그인 없이도 됩니다'),
-        );
-        btn.setAttribute('aria-label', `${c.label} — 로그인해야 쓸 수 있어요`);
-      } else {
-        btn.addEventListener('click', () => c.open({ detail: showDetail, close }));
-      }
-      grid.appendChild(btn);
+      grid.appendChild(
+        buildHubButton(c, signedIn, (card) => {
+          openDetailNeeds = card.needs;
+          card.open({ detail: showDetail, close });
+        }),
+      );
     }
     group.appendChild(grid);
     bodyEl.appendChild(group);
@@ -922,6 +958,23 @@ export function openDataManager(opts: DataManagerOpts): void {
     back.focus();
   };
 
+  /**
+   * 로그인 상태가 바뀌었을 때 잠금을 다시 건다. **첫 확인과 이후 사건이 같은 길을 탄다.**
+   *
+   * - 상태가 그대로면 아무것도 하지 않는다(토큰 갱신이 화면을 흔들지 않게).
+   * - 첫 화면이면 다시 그린다.
+   * - 로그인이 필요한 **상세를 열어 둔 채** 로그아웃됐으면 그 상세를 닫고 첫 화면으로
+   *   돌린다. 열려 있다는 이유로 계속 쓸 수 있으면 잠금이 아니다.
+   */
+  const applySignedIn = (next: boolean): void => {
+    if (next === signedIn) return;
+    signedIn = next;
+    const onHub = bodyEl.querySelector('.dm-tool-group') !== null;
+    const lockedNow =
+      openDetailNeeds !== null && !canRunLocalDataAction(openDetailNeeds, isConfigured(), signedIn);
+    if (onHub || lockedNow) showHome();
+  };
+
   closeBtn.addEventListener('click', close);
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) close();
@@ -935,13 +988,15 @@ export function openDataManager(opts: DataManagerOpts): void {
   //    상태를 「열림」으로 반올림하면 그 사이가 곧 우회로다(§8 — 모르는 것을 정상으로
   //    반올림하지 않는다). 로그인이 확인되면 그때 다시 그려 연다.
   void currentUser()
-    .then((u) => {
-      const next = Boolean(u);
-      if (next === signedIn) return;
-      signedIn = next;
-      if (bodyEl.querySelector('.dm-tool-group')) showHome(); // 첫 화면일 때만 — 상세를 열어 뒀으면 건드리지 않는다
-    })
+    .then((u) => applySignedIn(Boolean(u)))
     .catch(() => {
       // 조회 실패는 「로그인됨」의 근거가 아니다. 잠긴 채로 둔다.
     });
+
+  // 🔴 화면이 **열려 있는 동안** 로그아웃되면 잠금은 따라와야 한다. 잠금을 「여는 순간」에만
+  //    걸면, 열어 둔 채 로그아웃한 화면이 그대로 열린 채로 남아 그 자체가 우회로가 된다.
+  //    판정은 위와 **같은 함수**가 한다 — 두 곳에 손으로 쓰면 갈라진다(M-0060).
+  //    토큰 갱신처럼 로그인 상태가 그대로인 사건은 `applySignedIn`이 조기 반환하므로
+  //    **작업 중인 사용자를 화면 밖으로 밀어내지 않는다.**
+  stopAuth = onAuthChange((u) => applySignedIn(Boolean(u)));
 }

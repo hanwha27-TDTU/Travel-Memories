@@ -25,4 +25,35 @@ describe('diagnostic report redaction boundary', () => {
     expect(redacted).toContain('[이메일 숨김]');
     expect(redacted).toContain('[주소 숨김]');
   });
+
+  // 사용자가 진단 화면의 JSON을 그대로 붙여 넣는 것이 가장 흔한 경로다. 열쇠말과 콜론 사이에
+  // 닫는 따옴표가 끼어 있어도 값은 같은 비밀값이다(2026-08-12 실측 — 이 형태만 새 나갔다).
+  it('hides secrets written in quoted JSON form', () => {
+    const cases = [
+      '{"api_key": "sk_live_SECRET123"}',
+      '{"access_token":"opaque-token-value"}',
+      "{'refresh_token' : 'rt_SECRET_VALUE'}",
+      '{"password": "hunter2"}',
+    ];
+    const leaked = [
+      'sk_live_SECRET123',
+      'opaque-token-value',
+      'rt_SECRET_VALUE',
+      'hunter2',
+    ];
+
+    cases.forEach((source, i) => {
+      const redacted = redactDiagnosticText(source);
+      expect(redacted).not.toContain(leaked[i]);
+      expect(redacted).toContain('[비밀값 숨김]');
+    });
+  });
+
+  it('does not swallow the next field while hiding one', () => {
+    const redacted = redactDiagnosticText('{"api_key": "s3cr3t", "대기": 3}');
+
+    expect(redacted).not.toContain('s3cr3t');
+    expect(redacted).toContain('대기');
+    expect(redacted).toContain('3');
+  });
 });

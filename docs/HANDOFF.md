@@ -8,6 +8,21 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0163 · **T-024 나머지 판정 — 둘은 고치고 둘은 안 한다** (2026-08-12 · ADR-0067 · v2.20)
+
+- **branch**: `claude/t-019-fact-verification-4jlqq4` · **버전**: v2.20(누적 커밋 6건을 한 묶음으로 배포)
+- **변경 파일**: `src/domain/diagnosticReport.ts` · `src/ui/screens/dataManager.ts` · `tests/unit/diagnosticReport.test.ts` · `.claude/agents/security-privacy.md` · 문서 5종 · 생성물(모듈 설계서)
+- 🔴 **① 진단 redaction — 후보가 사실이었다.** 실측으로 갈렸다: `api_key=SECRET`는 가려지는데 **`{"api_key": "SECRET"}`만 그대로 샜다.** 열쇠말과 `:` 사이의 닫는 따옴표가 `SECRET_PAIR`를 깨뜨린다. 진단 보고서는 **사용자가 복사해 전달하는 경계**이고 JSON 붙여넣기가 가장 흔한 경로라 이론이 아니다. 값 끝에서 닫는 따옴표·괄호를 제외해 다음 항목을 삼키지 않는 것까지 유닛으로 잠갔다.
+- **주입 증명(§4)**: 옛 정규식으로 되돌려 새 유닛을 돌렸다 → **exit 1**, 로그에 `sk_live_SECRET123`이 3번 그대로 찍혔다. 되돌린 뒤 exit 0.
+- **② 「데이터 관리」 세션 잔존 — 고쳤다.** ADR-0063의 잠금이 **여는 순간에만** 걸려, 열어 둔 채 로그아웃하면 그 화면이 남아 복원·영구삭제를 계속 쓸 수 있었다. `onAuthChange` 구독을 붙이고 **첫 확인과 같은 함수**(`applySignedIn`)를 타게 했다 — 두 곳에 손으로 쓰면 갈라진다(M-0060). 로그인이 필요한 상세를 열어 둔 채 로그아웃되면 그 상세도 닫힌다.
+- 🔴 **불편이 없음을 구조로 보장했다**: `applySignedIn`은 상태가 그대로면 **조기 반환**한다. 토큰 갱신(`TOKEN_REFRESHED`)은 로그인 상태를 바꾸지 않으므로 작업 중인 화면이 흔들리지 않는다. 이 성질이 ③을 안 하는 근거이기도 하다.
+- **함수 크기 래칫이 설계를 밀었다**(§11): `openDataManager`가 147줄이 되어 RED. 주석을 줄이는 대신 `buildHubShell()`·`buildHubButton()`을 top-level로 뽑았고 결과가 더 낫다.
+- 🔴 **③ 여행 상세 세션 잔존 — 안 한다.** `guardTripDetail()`이 라우트 진입에서만 돌고 `main.ts`에 구독이 없는 것은 **사실이다.** 그런데 여기서 재검사를 걸면 정상 사건이 **작업 중 화면 이동**을 일으킬 수 있고, 그 화면이 보여주는 것은 **이 기기의 로컬 기록 읽기**다. 되돌릴 수 없는 쓰기와 같은 무게로 잠그지 않는다. 사유·다시 열 조건은 ADR-0067.
+- **④ 감사 에이전트 `Bash` — 결함이 아니었다.** 여덟 파일을 다 읽었더니 **여섯이 이미 「Write/Edit 없음」**이라고 정확히 적고 있었다. 「읽기전용」은 *쓰기 도구 없음*의 줄임말이었고, `Bash`를 빼면 RLS 침투·명암비 측정·테스트 실행이 죽는다. 표현이 느슨했던 `security-privacy` 하나만 형제와 같은 문장으로 맞추고 **「빼지 마라」와 그 이유를 그 자리에 남겼다**(§7 — 이유 없는 비대칭은 다음 사람이 「고친다」).
+- **실행 검사**: `npx tsc --noEmit` exit 0 · `npx vitest run` **114파일 1630건 전부 통과** · `npm run gates` exit 0(재본 61 · 안 잰 5는 릴리스 하네스에서).
+- **잔여 위험**: 🔴 **`onAuthChange`로 잠금이 다시 걸리는 것을 라이브로 재지 못했다.** `verify-authgate-live`의 픽스처는 가짜 Supabase URL이라 실제 인증 사건을 만들 수 없다. 다만 새 경로는 **이미 라이브로 증명된 `applySignedIn`과 같은 함수**로 합류하므로, 안 잰 것은 「사건이 도달하는가」 한 조각이다. **「라이브 렌더 미실행」으로 적는다**(원칙 #4).
+- **다음 작업**: 사용자 실기기에서 ①장소 검색 1회(HANDOFF-0162의 남은 확인) ②데이터 관리를 연 채 로그아웃 → 잠기는지.
+
 ## HANDOFF-0162 · **`geocode` 운영 배포 — T-022 마감** (2026-08-12 · 제공자 표면)
 
 - `geocode` Edge Function을 운영에 배포했다. **version 1 → 2**, `ezbr_sha256` `3536e964…` → `56d7048e…`, **`verify_jwt: false` 유지**(이 함수는 플랫폼 설정에 기대지 않고 매 요청 JWT를 직접 확인하는 설계라, 바꾸면 계약이 달라진다).
@@ -1180,7 +1195,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.19<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->219<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.20<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->220<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->30<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
