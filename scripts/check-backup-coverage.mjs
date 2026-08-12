@@ -104,6 +104,10 @@ if (!existsSync(DB_FILE) || !existsSync(BACKUP_FILE)) {
 }
 
 selfTest();
+if (process.argv.includes('--selftest')) {
+  console.log('check-backup-coverage: 셀프테스트 통과');
+  process.exit(0);
+}
 
 const tables = parseTableNames(readFileSync(DB_FILE, 'utf8'));
 if (tables.length === 0) {
