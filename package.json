@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "harness": "node scripts/harness.mjs",
-    "live": "node scripts/verify-editor-live.mjs && node scripts/verify-diagnostics-live.mjs",
+    "live": "node scripts/verify-editor-live.mjs && node scripts/verify-diagnostics-live.mjs && node scripts/verify-authgate-live.mjs",
     "brief": "node scripts/brief.mjs",
     "compare:geocoders": "node scripts/compare-geocoders.mjs",
     "check:secrets": "node scripts/check-secret-leak.mjs",

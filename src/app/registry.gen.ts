@@ -70,10 +70,11 @@ export const REGISTRY = {
   'unit-tests',
   'verify-editor-live',
   'verify-diagnostics-live',
+  'verify-authgate-live',
   ] as const,
-  gateCount: 65,
+  gateCount: 66,
   /** 최신 앱 버전(정본: src/app/changelog.ts의 첫 항목). 첫 로드 화면은 이걸 읽는다. */
-  appVersion: '2.17',
+  appVersion: '2.18',
   /** 에이전트 정의 이름(정본: .claude/agents/ — frontmatter가 있는 파일만). */
   agents: [
   'accessibility-design-auditor',
@@ -110,6 +111,6 @@ export const REGISTRY = {
   skillCount: 12,
   screenCount: 12,
   migrationCount: 30,
-  changelogCount: 217,
+  changelogCount: 218,
   researchCount: 132,
 } as const;

@@ -37,6 +37,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const SLEEP_BASELINE = Object.freeze({
   'verify-editor-live': 0,
   'verify-diagnostics-live': 11,
+  'verify-authgate-live': 0,
 });
 
 /** 소스에서 고정 대기 호출부 수를 센다. 주석 속 글자는 세지 않는다(오탐은 틀린 게이트다 · §11 ③). */

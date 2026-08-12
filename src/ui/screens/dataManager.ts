@@ -33,7 +33,8 @@ import { placeRegistryPanel } from './placeRegistry';
 import { CURRENCIES, currencyLabel } from '../../domain/expense/format';
 import { publishDeviceAsCanonical } from '../../services/canonicalSync';
 import { currentUser } from '../../services/auth';
-import { supabase } from '../../services/supabase/client';
+import { supabase, isConfigured } from '../../services/supabase/client';
+import { canRunLocalDataAction, type LocalDataAction } from '../../domain/authGate';
 import type { TripNavigationTarget } from '../../app/router';
 
 interface DataManagerOpts {
@@ -691,6 +692,15 @@ interface HubCard {
   icon: DataManagerIcon;
   label: string;
   hint: string;
+  /**
+   * 이 카드가 로컬 기억 자료에 하는 동작. **필수 필드다** — 새 카드를 만들면서 빠뜨리면
+   * 컴파일이 실패한다(§7 2층). 산문 규칙이었다면 다음 카드가 또 조용히 빠졌을 것이다.
+   *
+   * `null`은 「이 카드는 기억 자료를 건드리지 않는다」가 아니라 **「이번 결정(ADR-0063)의
+   * 범위 밖이다」**라는 뜻이다. 그 경계는 `docs/HANDOFF.md`에 그대로 적혀 있다 —
+   * 위치관리대장·진단 복구 액션은 아직 심사하지 않았고, 심사 전에 여기서 몰래 잠그지 않는다.
+   */
+  needs: LocalDataAction | null;
   open: (host: {
     detail: (title: string, node: HTMLElement) => void;
     close: () => void;
@@ -805,21 +815,23 @@ function cards(
   reopen: () => HTMLElement | void,
 ): HubCard[] {
   return [
-    { icon: 'currency', label: '환율 기준통화', hint: '비용 옆에 환산값 표시', open: (h) => h.detail('환율 기준통화', currencyPanel()) },
-    { icon: 'cloud', label: 'R2 저장소 설정', hint: '사진 저장소 설정 절차·함정 기록', open: (h) => { h.close(); openR2Setup(); } },
-    { icon: 'backup', label: '백업 (내보내기)', hint: '기억을 파일로 저장', open: (h) => h.detail('백업 (내보내기)', backupPanel()) },
-    { icon: 'restore', label: '복원 (가져오기)', hint: '백업 파일에서 병합 복원', open: (h) => h.detail('복원 (가져오기)', restorePanel(onChanged)) },
-    { icon: 'canonical', label: '이 기기를 클라우드 최종본으로', hint: '일반 병합이 아닌 명시적 전체 교체', open: (h) => h.detail('클라우드 최종본 지정', canonicalPanel(onChanged)) },
-    { hook: 'diagnostics', icon: 'diagnostics', label: '진단 도구', hint: '동기화·무결성·저장소·환경·오류 한 곳에', open: (h) => { h.close(); openDiagnosticsHub(undefined, { onClose: reopen }); } },
-    { icon: 'location', label: '위치관리대장', hint: '등록한 장소를 찾고 좌표·주소 고치기', open: (h) => h.detail('위치관리대장', placeRegistryPanel(onChanged, (id, target) => { h.close(); goToTrip(id, target); })) },
-    { icon: 'trash', label: '휴지통', hint: '삭제한 여행 복원·영구삭제', open: (h) => h.detail('휴지통', trashPanel(onChanged, h.close)) },
-    { icon: 'guide', label: '가이드', hint: '연결·설정과 개발·설계 안내', open: (h) => { h.close(); openGuide(); } },
+    { icon: 'currency', needs: null, label: '환율 기준통화', hint: '비용 옆에 환산값 표시', open: (h) => h.detail('환율 기준통화', currencyPanel()) },
+    { icon: 'cloud', needs: null, label: 'R2 저장소 설정', hint: '사진 저장소 설정 절차·함정 기록', open: (h) => { h.close(); openR2Setup(); } },
+    { icon: 'backup', needs: 'export', label: '백업 (내보내기)', hint: '기억을 파일로 저장', open: (h) => h.detail('백업 (내보내기)', backupPanel()) },
+    { icon: 'restore', needs: 'restore', label: '복원 (가져오기)', hint: '백업 파일에서 병합 복원', open: (h) => h.detail('복원 (가져오기)', restorePanel(onChanged)) },
+    { icon: 'canonical', needs: 'purge', label: '이 기기를 클라우드 최종본으로', hint: '일반 병합이 아닌 명시적 전체 교체', open: (h) => h.detail('클라우드 최종본 지정', canonicalPanel(onChanged)) },
+    { hook: 'diagnostics', icon: 'diagnostics', needs: null, label: '진단 도구', hint: '동기화·무결성·저장소·환경·오류 한 곳에', open: (h) => { h.close(); openDiagnosticsHub(undefined, { onClose: reopen }); } },
+    { icon: 'location', needs: null, label: '위치관리대장', hint: '등록한 장소를 찾고 좌표·주소 고치기', open: (h) => h.detail('위치관리대장', placeRegistryPanel(onChanged, (id, target) => { h.close(); goToTrip(id, target); })) },
+    { icon: 'trash', needs: 'purge', label: '휴지통', hint: '삭제한 여행 복원·영구삭제', open: (h) => h.detail('휴지통', trashPanel(onChanged, h.close)) },
+    { icon: 'guide', needs: null, label: '가이드', hint: '연결·설정과 개발·설계 안내', open: (h) => { h.close(); openGuide(); } },
   ];
 }
 
 /** '데이터 관리' 허브를 연다. 현재 화면 위에 오버레이로 뜬다. */
 export function openDataManager(opts: DataManagerOpts): void {
   const prevFocus = document.activeElement as HTMLElement | null;
+  // 아래 `currentUser()`가 답하기 전까지의 값. **모름은 잠김 쪽으로 접는다**(fail-closed).
+  let signedIn = false;
 
   const overlay = el('div', 'overlay-base guide-overlay');
   overlay.setAttribute('role', 'dialog');
@@ -875,7 +887,23 @@ export function openDataManager(opts: DataManagerOpts): void {
       const chev = el('span', 'guide-card-chev', '›');
       chev.setAttribute('aria-hidden', 'true');
       btn.append(ic, mid, chev);
-      btn.addEventListener('click', () => c.open({ detail: showDetail, close }));
+      // 🔴 잠금은 **여는 순간** 건다. 눌러서 화면이 열린 뒤 막으면 그 사이에 이미 보인다.
+      //    판정은 손으로 쓰지 않고 `domain/authGate.ts` 한 곳이 한다(§7 2층 — M-0102가
+      //    두 곳에 손으로 있어 한쪽이 우회로가 됐던 그 자리).
+      const blocked = c.needs !== null && !canRunLocalDataAction(c.needs, isConfigured(), signedIn);
+      if (blocked) {
+        btn.disabled = true;
+        btn.classList.add('is-locked');
+        // 하나는 판정, 하나는 다음 행동. 「왜 막혔는지」만 적고 「어떻게 푸는지」를 빼면
+        // 사용자는 앱이 고장 났다고 읽는다(§12).
+        mid.replaceChildren(
+          el('span', 'guide-card-label', c.label),
+          el('small', 'guide-card-hint', '🔒 로그인해야 쓸 수 있어요 — 백업(내보내기)은 로그인 없이도 됩니다'),
+        );
+        btn.setAttribute('aria-label', `${c.label} — 로그인해야 쓸 수 있어요`);
+      } else {
+        btn.addEventListener('click', () => c.open({ detail: showDetail, close }));
+      }
       grid.appendChild(btn);
     }
     group.appendChild(grid);
@@ -902,4 +930,18 @@ export function openDataManager(opts: DataManagerOpts): void {
 
   document.body.appendChild(overlay);
   showHome();
+
+  // 🔴 **기본값은 잠김이다.** `currentUser()`는 비동기라 첫 그리기 때 답이 없는데, 모르는
+  //    상태를 「열림」으로 반올림하면 그 사이가 곧 우회로다(§8 — 모르는 것을 정상으로
+  //    반올림하지 않는다). 로그인이 확인되면 그때 다시 그려 연다.
+  void currentUser()
+    .then((u) => {
+      const next = Boolean(u);
+      if (next === signedIn) return;
+      signedIn = next;
+      if (bodyEl.querySelector('.dm-tool-group')) showHome(); // 첫 화면일 때만 — 상세를 열어 뒀으면 건드리지 않는다
+    })
+    .catch(() => {
+      // 조회 실패는 「로그인됨」의 근거가 아니다. 잠긴 채로 둔다.
+    });
 }

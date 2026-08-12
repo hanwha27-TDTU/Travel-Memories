@@ -8,6 +8,80 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0155 · **T-020 라이브 층 — 잠긴 화면을 실제 브라우저로 보고 눌러서 닫음** (2026-08-12 · 새 게이트)
+
+- HANDOFF-0154가 남긴 유일한 구멍을 메웠다. 잠금은 `isConfigured()===true`에서만 도는데 그 값은 **빌드 시 박히고**, `dist`와 `verify-editor-live` 픽스처는 둘 다 클라우드 미설정이라 **그 갈래에 원리적으로 닿지 못했다.**
+- 🔴 **처방은 §13 1항이다 — 값을 먹여 실제 렌더러로 그린다.** 새 게이트 `verify-authgate-live`가 진단 라이브와 같은 기계(임시 vite 빌드 → 로컬 서버 → Chromium)를 쓰되, **픽스처를 가짜 Supabase 환경변수로 빌드**한다. 가짜 URL이라 서버에 닿지 못하므로 **로그인되지 않은 채 `isConfigured()`만 참**이 된다 — 정확히 재려던 상태다. 그 위에 **진짜** `openDataManager`를 그린다.
+- **결과 12/12 PASS**: 백업(내보내기)은 `disabled=false`로 열려 있고, 복원·휴지통·클라우드 최종본 셋은 `disabled=true`로 잠기며 각 카드가 「🔒 로그인해야 쓸 수 있어요 — 백업(내보내기)은 로그인 없이도 됩니다」를 말한다. 콘솔 오류 0.
+- 🔴 **라벨만 읽지 않고 눌렀다**(§13 4항). 잠긴 휴지통 카드를 클릭해도 상세바가 **0개**로 안 열리고, 열린 백업 카드는 클릭하면 상세바가 **1개**로 실제로 열린다. 「잠금이 전부를 막아 버리는 것」도 결함이므로 양쪽을 함께 잰다.
+- 🔴 **자기가 공허하지 않은지 먼저 판정한다**(§4). 클라우드 미설정에서는 **모든 카드가 열려 있는 것이 정상**이라, 전제를 확인하지 않으면 이 검사는 영원히 초록이다. 그래서 ①픽스처가 정말 클라우드 설정 상태인가 ②카드가 실제로 그려졌는가를 먼저 묻고, 무너지면 **나머지를 재지 않고 실패**한다.
+- **주입 2종으로 RED 확인**: ①`purge` 잠금 무력화 → 잠금 판정 **5건 RED**(누르면 상세가 열리는 것까지 잡혔다) ②전제 파괴(환경변수 제거) → *"전제가 무너져 잠금 판정을 재지 않았습니다 — 이건 통과가 아닙니다"*로 **실패**. 둘 다 원복 후 12/12 GREEN.
+- **새 형제는 형제의 규율을 물려받는다(§7) — 게이트가 그걸 물었다.** 등록만으로 끝나지 않고 `check-live-sleep`(고정 대기 래칫 기준선 0 등록) · `check-live-coverage`(`@live-covers`가 **실재하는** 화면 경로여야 함 — 처음엔 괄호 설명을 붙여 「유령을 덮고 있다」로 RED) · `check-registry-gen` · `check-doc-counts`(게이트 수 65→66) · `check-module-design-docs`가 차례로 RED를 냈고 전부 맞췄다.
+- **등록**: `src/app/gates.ts` 4곳(설명·축·세계·분류) · `scripts/harness.mjs` · `package.json`의 `live`. 세계는 `browser`다 — `dist`를 읽지 않고 자기 픽스처를 직접 빌드하므로 `browser dist`가 아니다(§18-G).
+- **검증**: 빠른 게이트 **61개 PASS** · 안 잰 5개는 릴리스 차선(새 게이트 포함). **T-020을 닫는다** — 남은 것은 이 변경 묶음의 릴리스뿐이고, 그건 과제가 아니라 절차다. 앱 버전은 아직 v2.17이다.
+
+## HANDOFF-0154 · **T-020 구현 — 로그아웃 상태 동작 잠금(내보내기는 열고 복원·영구삭제는 잠금)** (2026-08-12 · 구현됨·릴리스 대기)
+
+- 사용자가 3안 중 **2안**을 선택했다(ADR-0063): 백업 내보내기는 로그아웃에도 열고, 복원·영구삭제·클라우드 최종본 교체는 로그인해야 한다. 「전부 잠금」은 로그인이 안 되는 상황에서 기억을 꺼낼 마지막 문을 없애므로 기각했다(비타협 원칙 #5).
+- **판정은 `domain/authGate.ts` 한 곳에 넣었다** — `canRunLocalDataAction(action, cloudConfigured, signedIn)`. 분류는 `Record<LocalDataAction, boolean>`이라 **유니온에 동작을 추가하면 분류가 강제**되고, `NEEDS_SIGN_IN`에 **기본값을 두지 않았다**(새 형제가 조용히 열린 쪽으로 태어나는 것이 M-0060의 재발형이다).
+- 🔴 **근본형을 함께 고쳤다.** HANDOFF-0153이 찾은 것은 *"판정의 SSOT는 있는데 적용의 SSOT가 없다"*였다. 그래서 카드 등록부의 `HubCard`에 **필수 필드** `needs: LocalDataAction | null`을 세웠다 — 새 카드가 분류를 빠뜨리면 **컴파일이 실패한다.** 주입으로 확인했다: 휴지통 카드의 분류를 지우자 `TS2741: Property 'needs' is missing`으로 RED, 원복 후 GREEN.
+- **`authGateMismatches()`가 두 표를 함께 돈다.** 그래서 이미 그 함수를 쓰던 진단(`services/sessionState.ts`)이 **손대지 않아도** 새 규칙을 함께 잰다 — 소비처를 손으로 고쳐야 했다면 그게 다음 누락의 씨앗이다(§7).
+- **모름은 잠김으로 접었다.** `currentUser()`가 비동기라 첫 그리기에 답이 없다. 기본값을 `signedIn = false`로 두고 로그인이 확인된 뒤에만 다시 그려 연다. 조회 실패도 로그인의 근거가 아니다(§8).
+- **잠긴 카드의 문장은 판정과 다음 행동을 함께 준다**: 「🔒 로그인해야 쓸 수 있어요 — 백업(내보내기)은 로그인 없이도 됩니다」. 왜 막혔는지만 적으면 사용자는 앱이 고장 났다고 읽는다(§12).
+- **범위 밖으로 남긴 것**: 위치관리대장·진단 복구 액션·환율은 `needs: null`이다. 「안전하다」가 아니라 **「아직 심사하지 않았다」**는 뜻이고, 심사 전에 몰래 잠그지 않는다. 화면 12개 중 이번에 답한 것은 데이터 관리 하나다.
+- **검증**: 표적 유닛 24/24(신규 6건 포함) · 전체 유닛 **1612/1612** · `tsc --noEmit` PASS · 빠른 게이트 **61개 PASS**. §4 주입 2종 — ①`restore` 잠금 무력화 → 유닛 3건 RED, 원복 GREEN ②카드 분류 누락 → 컴파일 RED, 원복 GREEN. 소스가 바뀌어 `check-module-design-docs`가 RED였고 `npm run gen:module-designs` 재생성 뒤 통과했다.
+- 🔴 **라이브 렌더 미실행 — 그리고 기존 라이브 게이트는 이 갈래에 닿지 못한다.** 잠금은 `isConfigured()===true`에서만 도는데 이 컨테이너엔 `.env`가 없다. `verify-editor-live`가 `screens/dataManager.ts`를 `@live-covers`로 덮지만 그 픽스처도 클라우드 미설정이라, 그 초록은 「잠금이 옳다」가 아니라 **「그 갈래를 안 봤다」**이다(§17). **릴리스 전에 픽스처가 클라우드 설정+로그아웃 상태를 만들어 잠긴 카드를 실제로 그려 재야 한다.** 이것이 T-020에 남은 유일한 작업이라 과제를 닫지 않았다.
+- **상태**: 「구현됨·릴리스 대기」이지 「릴리스 완료」가 아니다(완료의 정의). 문서 아닌 코드가 바뀌었으므로 다음 기능 릴리스에 버전과 함께 묶는다. 앱 버전은 아직 v2.17이다.
+
+## HANDOFF-0153 · **T-019 결정 종결 · T-020 도달 가능성을 코드로 확정** (2026-08-12 · 조사 · 코드 변경 없음)
+
+- **T-019를 「안 하기로 결정」으로 닫았다**(ADR-0062 · 사용자 확인 *"번갈아 쓸일은 없어요"*). 위험 갈래는 로컬 행이 **남의 것**일 때만 열리므로 단일 계정 기기에서는 성립하지 않는다. 🔴 ADR의 본론은 기각이 아니라 **고치면 안 되는 이유**다 — `setLegacyBaseline`이 로컬을 안 지우는 것은 오프라인 우선 계약이라, 이 자리를 「열린 문」으로 보고 선의로 잠그면 여행 중 오프라인에서 적은 기억이 로그인 순간 사라진다. 남은 `unknown` 3건은 「확인함」이 아니라 **「물을 조건이 사라짐」**으로 적었다. 열린 과제 6→5.
+- **T-020 판정: 도달 가능성은 사실이다.** `openDataManager`의 호출처는 `home.ts:857` **한 곳**이고, 그 버튼은 `buildHeader`가 만든다. 그런데 `applySignedOutLock`이 가리는 것은 `viewBar`·`fold`·`form`·`filterNow`·`list` **다섯**뿐이고 **헤더는 그 목록에 없다.** `buildHeader`는 `user`를 인자로 받지도 않는다. 따라서 클라우드 배포에서 로그아웃 상태에도 「📦 데이터 관리」 버튼이 보이고 눌린다.
+- **거기서 무엇이 되는가**: ZIP·JSON 백업(로컬 Dexie를 그대로 읽어 파일로 내보냄 · 서버 인증 불필요), 파일 복원, 휴지통 개별·일괄 영구삭제는 **로컬만으로 완결된다.** 「이 기기 기준으로 클라우드 교체」만 서버 인증이 필요해 실패할 것이다(미검증). 즉 **`M-0102`가 화면에서 가린 바로 그 자료가 백업 파일로는 나간다.**
+- 🔴 **근본형 — SSOT가 「판정」에는 있고 「적용」에는 없다.** `domain/authGate.ts`는 M-0102 직후 *"이 판정이 두 곳에 손으로 있으면 한쪽이 우회로가 된다"*는 이유로 만들어진 단일 판정 함수이고, 그 서술은 옳다. 그런데 **그 판정을 어느 표면에 거는가는 여전히 표면마다 손으로 배선된다**(`home.ts` 목록 · `main.ts` 딥링크). 그래서 새 표면은 묻지 않으면 그냥 빠진다 — 지금 화면 12개 중 걸린 것은 2개다. 판정의 SSOT는 적용의 SSOT가 아니다.
+- **결함인지 여부는 아직 판정하지 않았다 — 사용자 결정이 먼저다.** 로그아웃 상태 백업은 **비상 복구 수단으로 의도된 것일 수 있다**(로그인이 안 될 때 기억을 꺼낼 마지막 문). 그렇다면 열어 두는 것이 옳고, 대신 복원·영구삭제만 재인증을 요구하는 비대칭이 답이 된다. 위협 모델을 사용자가 정한 뒤에 고친다.
+- **재현 한계**: 잠금은 `isConfigured()===true`에서만 도는데 이 컨테이너엔 `.env`가 없어 **라이브 렌더 미실행**이다(M-0102가 같은 이유로 못 본 그 층). 지금 근거는 **코드 경로**이고, 실제 화면 확인은 배포본 또는 키를 넣은 빌드가 필요하다.
+
+## HANDOFF-0152 · **단계 1 — T-019 계정 전환 소유 경계를 실제로 재서 조건부 사실로 확정** (2026-08-12 · 조사 · 코드 변경 없음)
+
+- **재현 환경의 한계를 먼저 적는다**: 이 컨테이너에는 `.env`가 없어 `isConfigured()===false`이므로 **실제 두 계정 로그인 재현은 불가**했다(`M-0102`가 같은 이유로 잠금 화면을 못 열어 본 그 한계). 그래서 §13 1항대로 **판정 함수에 값을 직접 먹여 실제 로직을 돌렸다** — `ensureCanonicalBeforeSync`에 A의 잔재(여행 1건 + 미전송 큐 1건 + `canonical:A` 상태)를 심고 `userId=B`로 호출했다.
+- 🔴 **탐침은 커밋하지 않았다.** 결함일 수 있는 현재 거동을 유닛으로 못박으면 게이트가 결함 편에 선다(`M-0057` — 틀린 계약을 잠그면 그 결함은 영원히 초록이다). 관측만 하고 파일을 지웠다.
+- **관측 — 갈래가 둘이고 정반대다.**
+
+  | B의 서버 상태 | 반환 | A의 여행 | A의 미전송 큐 | 뜻 |
+  |---|---|---|---|---|
+  | 최종본 **있음** | `applied` | **지워짐** | **0건** | `replaceLocalSnapshot`이 전부 교체하고 push하지 않는다 — **안전** |
+  | 최종본 **없음**(`legacy`) | `normal` | **남음** | **1건 남음** | `setLegacyBaseline`이 A의 행을 **B의 기준 세대로 찍고** push를 연다 |
+
+- **판정: T-019 후보는 사실이다 — 단, 조건부다.** 위험은 「계정 전환」 자체가 아니라 **「전환 대상 계정이 아직 최종본을 게시한 적 없을 때」**로 좁혀졌다. 그 갈래에서 A의 여행은 B 화면에 남고, A의 미전송 큐는 살아남아 이후 `pushPending*(remote, userId=B)`가 읽는다.
+- 🔴 **근본형 — 옳은 규율이 사정권 밖에서 정반대로 작동했다**(`M-0057`의 재현). `setLegacyBaseline`이 로컬을 지우지 않는 것은 **오프라인 우선에서 옳다**(로그인 전에 만든 내 기록이 사라지면 안 된다). 기존 유닛 *"legacy 첫 기준선은 로컬을 지우지 않고 현재 세대만 찍는다"*가 그 계약을 **한 사용자 기준으로** 잠가 뒀다. 그런데 같은 코드가 **다른 사용자**에게도 그대로 돌고, 「로그인 전의 내 기록」과 「이전 계정의 기록」을 가르는 신호가 없다. 거동은 한 사용자에게 옳고 두 사용자에게 틀리다.
+- **아직 `unknown`인 것**: ①A의 큐가 실제로 서버에 B의 `user_id`로 착지하는지는 **재지 않았다** — `runSync`의 push 단계까지 돌려야 한다(코드 근거는 강하다: 큐는 전역이고 push는 현재 세션의 `userId`를 인자로 받는다). ②로그인 직후 sync가 끝나기 전 **화면에 A의 기록이 보이는 창**의 길이. ③서버 RLS가 최종 경계에서 이를 거르는지 — 이건 서버 몫이라 별도 확인이 필요하다.
+- **관련 사실**: `signOut()`은 Supabase 세션만 끊고 로컬 Dexie·큐를 **전혀 건드리지 않는다**(설계대로 — 비타협 원칙 #1은 지우는 것이 아니라 가리는 것을 요구한다). 계정 전환을 다루는 유닛은 **0건**이다.
+- **아무것도 고치지 않았다.** 조사 구간의 산출물은 판정이고, 수정은 확정 뒤 별도 묶음이다. 코드·버전(v2.17)·배포 표면 변화 없음.
+
+## HANDOFF-0151 · **헌법 §20(쉬운 말 설명) · 보안감사 후보 단계 0 사실 대조** (2026-08-12 · 문서 전용 · 조사)
+
+- **헌법 §20 신설**(사용자 지시): 기능 변경을 마치면 기술 보고와 **별도 절**로 「무엇이 좋아졌는가」를 초등학생도 읽을 수 있는 말로 적는다. 섞어 쓰지 않는 이유는 섞으면 둘 다 어려워지기 때문이다. 🔴 **좋아진 것이 없으면 없다고 쓴다** — 문서·검사만 바꾼 작업에 「좋아졌다」를 적는 것은 비타협 원칙 #4 위반이고, 정직한 문장은 「이번엔 화면이 바뀌지 않았어요」다. 못 고친 것도 같은 쉬운 말로 적는다(§12 — 모르면 사용자가 판단할 수 없다). 구조 층은 `src/app/changelog.ts` 하나다(그 `notes`가 앱 화면에 그대로 보인다). 기계 층은 **없고, 없다고 적었다** — 「이 문장이 쉬운가」는 §10이 이미 기계 밖이라고 판정한 자리다.
+- **단계 0 = 후보를 조사하기 전에 기존 결정부터 대조**했다. 여섯 과제에 흩어 확인하면 같은 문서를 여섯 번 읽게 되고, 실제로 `M-0102`는 T-019·T-020·T-024가 함께 딛고 선 표면이었다.
+- 🔴 **정직한 한계 — 원본 후보 21개의 본문은 저장소에 없다.** 중단된 감사에서 살아남은 것은 `docs/BACKLOG.md`의 여섯 묶음 서술뿐이라, 분류는 **후보 번호가 아니라 서술된 항목 단위**(22개)로 했다. 번호↔항목 1:1 대응은 복원할 수 없다.
+- **기각 2건(사용자가 이미 결정함)**: ①APK 고정 debug 키스토어 — `ADR-0039`가 사이드로드 전용·관례 공개 비번이라 §0의 비밀 부류가 아님을 이미 판정했다. 다만 「별도 release signing이 필요한가」는 다른 질문으로 T-023에 남는다. ②anti-framing(`frame-ancestors`) — `ADR-0048`이 호스팅 이전 비용 대비 이득이 낮다고 사용자 결정으로 닫았다.
+- **부분적으로 이미 고쳐짐**: `M-0102`가 로그아웃 상태의 **홈 화면과 여행 상세 딥링크**를 가렸다(Dexie는 지우지 않고 가린다). 그래서 T-024의 세션 잔존 항목 중 그 두 화면분은 닫혔다.
+- 🔴 **확정된 사실 2건(코드 실측)**: ①`src/offline/db.ts`의 DB 이름은 전역 `journey-archive`이고, 소유자 필드 `userId`를 가진 테이블은 `syncState` **하나뿐**이다 — 여행·순간·사진·비용 같은 기억 행에는 없다. T-019의 코드 근거는 참이다. ②`dataManager.ts`에는 로그인 경계 참조가 **0건**이고, `canViewLocalRecords`는 `home.ts` **한 곳**에서만 쓰인다. T-020의 코드 근거도 참이다.
+- 🔴 **단계 0이 찾은 근본형(§7)**: 로그인 경계가 걸린 화면은 `src/ui/screens/` **12개 중 2개**(`home`·`tripDetail`)뿐이다. T-020은 그 형제 중 하나(`dataManager`)를 지목한 것이고, 실제 질문은 **「나머지 10개는 왜 제외됐고 그 이유가 코드에 적혀 있는가」**다. 이유 없는 제외는 §7이 결함이라 부른다.
+- **아직 재지 않은 것**: 위 둘은 **코드 근거**이지 재현이 아니다. 실제 2계정 전환에서 무엇이 보이는지는 단계 1의 라이브 재현 몫이고, 지금은 `unknown`이다. T-021(메모리)·T-022(서버 한도)·T-023 나머지는 손대지 않았다.
+- **검증**: `npm run gates` 재본 61개 PASS · 안 잰 4개는 릴리스 차선. `check-adapter-parity` PASS. 조사와 문서뿐이라 코드·버전(v2.17)·배포 표면 변화가 없고 릴리스하지 않는다(§15 ②).
+
+## HANDOFF-0150 · **사용자 대면 언어 §19 · CHANGELOG의 거짓 라벨 정정 · 코덱스 보안감사 인계 흡수** (2026-08-12 · 문서 전용)
+
+- 사용자가 *"저장소 미배포본이 있으면 그것부터 정리해주세요"*라고 지시했다. 🔴 **첫 보고가 틀렸다** — `git branch -r`이 `origin/main`과 작업 브랜치만 보여 「미배포본 없음」이라고 답했는데, 이 세션 클론의 원격 참조가 낡아 있었다. 사용자가 브랜치 주소를 직접 주고 나서 `git fetch --prune`을 돌리자 `origin/codex/security-audit-backlog-handoff`가 나타났고, 동시에 이미 삭제된 작업 브랜치 참조가 사라졌다. **근본형: 클론의 원격 목록은 「세계」가 아니라 「마지막에 본 세계」다**(§9 4단계). 브랜치 유무를 판정하기 전에 `fetch --prune`을 먼저 돌린다.
+- 그 미머지 커밋(`3c92fa1`)을 작업 브랜치로 fast-forward 병합했다. 내용은 중단된 Codex Security Deep Scan의 discovery 후보 21개를 여섯 실행 단위로 묶은 **T-019~T-024** 백로그 행이다. 이것들은 확정 취약점이 아니라 **후보**이고, 각 과제는 기존 ADR·실수 원장·코드·운영 환경과 대조해 사실·미검증·기각을 가른 뒤에만 닫는다. 착수는 사용자 승인 단위로 한 구간씩 한다.
+- **헌법 §19 신설**: 사용자에게 가는 산문은 한국어로만 쓴다(사용자 지시). 범위는 사용자가 좁혀 준 대로 **기술 식별자를 제외**한다 — 명령어·경로·코드 심볼·T/M/ADR 번호·커밋 sha·오류 원문은 번역하면 실행되지 않거나 검색이 안 된다. 커밋 메시지도 대상이 아니다(`.githooks/commit-msg`가 접두사 형식을 강제하므로 바꾸면 커밋이 거부된다). 정본만 고치고 `npm run gen:adapters`로 두 어댑터에 심었다. 근거는 ADR-0061.
+- 🔴 **§19에는 기계 층이 없고, 그렇게 적었다.** 게이트는 파일을 보는데 이 조항이 지배하는 것은 대화 출력이라 저장소에 존재하지 않는다. 없는 검사를 만들어 초록을 띄우면 그 초록의 뜻은 「지켰다」가 아니라 **「안 봤다」**가 된다(§17). 검출기는 사용자뿐이라는 한계를 조항 안에 명시했다.
+- **`docs/CHANGELOG.md`의 `[Unreleased]` 라벨을 정정했다.** 그 절 아래 항목은 전부 이미 배포됐다 — 가장 최근 항목이 v2.15인데 저장소는 v2.17까지 배포를 마쳤다(run 287 · `84d8bb2` · success). Keep a Changelog 서식을 들여오고 절을 한 번도 닫지 않아 굳은 **문서 ↔ 코드 모순**(§17)이었고, 「미배포본 있나?」를 이 파일로 판단하면 정확히 오답이 나온다.
+- 🔴 **버전별로 쪼개지 않았다 — 그건 정리가 아니라 날조였을 것이다.** 이 문서의 항목은 **35개**인데 실제 릴리스는 **217개**다(`src/app/changelog.ts` 실측). 2026-07-23 하루에만 v0.01~v0.34가 있어 1:1 대응이 **존재하지 않는다**. 그래서 라벨만 사실로 고치고, 이 문서가 배포 여부를 판정하지 못한다는 것과 **항목 없음은 「미배포」가 아니라 「여기 안 적음」**이라는 한계를 절 머리에 적었다.
+- **검증**: `npm run gates` 재본 61개 PASS · 안 잰 4개(`check-timezone`·`unit-tests`·`verify-editor-live`·`verify-diagnostics-live`)는 릴리스 차선이다. `check-adapter-parity` PASS로 정본↔두 어댑터 정합을 확인했다. 이 세션 컨테이너는 `node_modules`가 비어 있어 첫 실행이 4건 FAIL이었고 `npm ci` 뒤 재실행에서 통과했다 — **환경 미설치이지 코드 결함이 아니었다.**
+- **문서 전용이라 릴리스하지 않는다**(§15 ②). 앱 버전은 v2.17 그대로이고 build·전체 harness·머지·배포를 단독으로 일으키지 않는다. 다음 기능 릴리스에 묶는다. Supabase·R2·Android 셸·배포 표면 변화 없음.
+
 ## HANDOFF-0149 · v2.17 · **모듈 설계서 규율 스킬 흡수와 단일 배포** (2026-08-11 · 릴리스 후보)
 
 - 사용자가 HANDOFF-0148의 코드 기반 모듈 설계서 작업을 스킬에 흡수한 뒤 현재 변경 전부를 한 번에 배포하도록 요청했다.
@@ -1029,7 +1103,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.17<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->217<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.18<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->218<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->30<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
@@ -1228,7 +1302,7 @@ SCAN 범위도 `android-shell/android/app/src`(java)로 넓혔다 — node_modul
 | 비상 복구 체계(하네스 게이트·복원 드릴·좀비 트리거·DR 감사관) | ✅ | `scripts/harness.mjs`, `docs/DISASTER_RECOVERY.md`, `.claude/agents/disaster-recovery-guardian.md` |
 | 개발자정보·버전·연구노트(해시체인)·가이드 화면 | ✅ | `app/{changelog,researchLog,hashchain}.ts`, `ui/screens/guide.ts` |
 
-**하네스 게이트**: SSOT=`scripts/harness.mjs`, 현재 **<!--reg:gateCount-->65<!--/reg-->개**. **개수도 목록도 여기 손으로 적지 않는다** — `src/app/registry.gen.ts`(자동 생성, `check-registry-gen`이 드리프트 차단)에서 파생하고 개발자 정보→설계 개요도/가이드가 그 목록과 한 줄 설명을 그대로 표시한다. 목록을 눈으로 보려면 `npm run harness` 또는 `src/app/registry.gen.ts`를 열면 된다.
+**하네스 게이트**: SSOT=`scripts/harness.mjs`, 현재 **<!--reg:gateCount-->66<!--/reg-->개**. **개수도 목록도 여기 손으로 적지 않는다** — `src/app/registry.gen.ts`(자동 생성, `check-registry-gen`이 드리프트 차단)에서 파생하고 개발자 정보→설계 개요도/가이드가 그 목록과 한 줄 설명을 그대로 표시한다. 목록을 눈으로 보려면 `npm run harness` 또는 `src/app/registry.gen.ts`를 열면 된다.
 
 > **이 문단에 게이트 이름을 나열하지 마세요.** 예전엔 12개가 나열돼 있었고 실제가 23개가 될
 > 때까지 아무도 못 고쳤다 — 새 AI가 "여기부터 읽는다"고 지정된 바로 그 자리에서, 존재하는
@@ -1256,7 +1330,7 @@ SCAN 범위도 `android-shell/android/app/src`(java)로 넓혔다 — node_modul
 
 **게이트**: `check-sw`(27번째, 정적 — *위험한 짓을 안 하는가*. 외부 호스트 목록은 손으로 적지 않고 `check-csp`의 connect-src에서 파생해 새 의존이 자동으로 따라온다) + `verify-editor-live` 4종(런타임 — *실제로 캐시가 도는가*). 비공허: 가드 제거·R2 호스트 취급·GET 필터 제거·skipWaiting·버전 없는 캐시 이름·등록 누락 **6종 전부 RED**, 워커 캐시 무력화 시 라이브 2종 RED. 만들다 자체검사가 **제 게이트의 구멍**(문자열까지 지워 호스트 검사가 공허)을 잡았고, 자체검사 기준을 살아 있는 파일 대신 **인라인 표본**으로 바꿨다(결함 주입 시 "정상을 위반으로 봄"이라는 엉뚱한 진단이 진짜 위반을 가렸다).
 
-**검증**: harness <!--reg:gateCount-->65<!--/reg-->/27 · 유닛 410 · verify-editor-live 127/127 · build 그린. **미실행**: 실기기 PWA 설치·실제 로밍 — 사용자 확인 몫.
+**검증**: harness <!--reg:gateCount-->66<!--/reg-->/27 · 유닛 410 · verify-editor-live 127/127 · build 그린. **미실행**: 실기기 PWA 설치·실제 로밍 — 사용자 확인 몫.
 
 **Phase 10(2026-07-26)**: **코드 건강검진 — 게이트가 다 초록인데도 남아 있던 넷**(v1.00). **지시(사용자)**: *"내가 만든 앱인데 한 번 간단히 코드 건강검진 전체적으로 해볼래요?"* → 진단 후 *"니 추천대로 진행하자."* **먼저 잰 것**: 하네스 22게이트·유닛 402·라이브 119 전부 초록, `npm audit` 취약점 0, `any` 3건, 빈 `catch` 0건, `innerHTML`은 24건 전부 비우기 용도(XSS 표면 없음), 핵심 모듈 중 테스트 없는 것 2개. **객관 지표는 건강했다** — 그래서 남은 것은 전부 **게이트가 보지 않는 축**이었다.
 
@@ -1275,7 +1349,7 @@ SCAN 범위도 `android-shell/android/app/src`(java)로 넓혔다 — node_modul
 
 **남은 것(다음 사람에게)**: ①**서비스워커가 등록돼 있지 않다** — `envReport`가 지원 여부만 보고할 뿐 `main.ts`에 등록 코드가 없어, PWA 오프라인·자산 캐시가 실제로는 동작하지 않는다(폰트·번들을 매 콜드 로드에 받는 이유). CLAUDE.md 기술 스택엔 Service Worker가 적혀 있어 **문서와 현실이 어긋난 자리**다. ②`ui/photoEditor.ts`(895줄)는 여전히 첫 로드에 있다 — `check-lazy-screens`는 `screens/`·`panels/`만 보므로 대상 밖이다(편집기는 사진 편집 진입이 잦아 판단이 필요). ③테스트 없는 모듈 2개(`services/envReport.ts`·`media/compress.ts`) — 후자는 사진 파이프라인 위라 비타협 원칙 #1 표면이다. ④의존성 메이저 지연(maplibre 4→6, vite 5→8, vitest 2→4, TS 5→7; 취약점은 0).
 
-**검증**: harness <!--reg:gateCount-->65<!--/reg-->/26 · 유닛 410 · verify-editor-live 123/123(뷰어 13종·폰트 조각 4종 포함, 실제 Chromium이 `dist` 서빙) · build 그린. **미실행(정직)**: 실기기 터치·네트워크 동기화(샌드박스가 `*.supabase.co` 차단)·PWA 설치 — 여전히 사용자 실기기 확인 몫.
+**검증**: harness <!--reg:gateCount-->66<!--/reg-->/26 · 유닛 410 · verify-editor-live 123/123(뷰어 13종·폰트 조각 4종 포함, 실제 Chromium이 `dist` 서빙) · build 그린. **미실행(정직)**: 실기기 터치·네트워크 동기화(샌드박스가 `*.supabase.co` 차단)·PWA 설치 — 여전히 사용자 실기기 확인 몫.
 
 **Phase 9l(2026-07-26)**: **재발방지 층 정비 + 휴지통 확장**(v0.91). **지시(사용자)**: *"오늘 고생한 것들 재발방지하게 하기 위해서 게이트를 만드는 건 어때? 스킬문서도 업데이트하고..그리고 **게이트로도 못 잡는 것들은 어떻게 할지 생각해보자.** 그리고 바로 남은 것들도 마무리하자."* **분석이 먼저였다** — 오늘 결함 6건 중 **정적 게이트가 잡은 것은 0건**이고 전부 사용자 실기기 화면에서 나왔다. 사후 분류하니 셋으로 갈렸고 **각각 처방이 다르다**: ①**계약**(M-0020·M-0024 권한 누락) → 정적 게이트로 잡힌다 ②**상태 의존**(M-0019 저장소 혼재·M-0023 옛 방식 잔재) → **코드에 답이 없다.** 지금 데이터 모양에 달렸으므로 정적 게이트는 원리적으로 못 잡는다 → **진단 지표가 곧 그 결함군의 게이트다**(런타임) ③**전달**(M-0021 판정 문장이 엉뚱·M-0022 확인해놓고 화면에 안 알림) → **자료구조는 옳다.** 사용자 문장을 순수 함수로 뽑아야만 검사 가능. **CLAUDE.md §10 신설**로 이 세 부류와 각 층을 명문화하고, **§9에 4단계 "세계를 본다"(실서버 스냅샷)**를 추가했다 — M-0019가 정확히 그 단계의 부재였다. `brief.mjs`가 ④⑤로 이걸 묻는다. **게이트 신설**: `check-report-fields`(**20번째**) — 보고용 구조체의 필드가 화면에서 소비되는지 검사. M-0022가 정확히 이 형태였다(`safeToRemove`를 계산해 반환까지 했는데 화면 문장이 안 읽었다). 타입 검사도 유닛도 못 잡는 자리다 — `noUnusedLocals`는 지역변수만 보고, 유닛은 숫자를 검사했고 숫자는 다 맞았다. **비공허**: 화면이 `unpropagatedPurges`를 안 읽게 주입 → RED. **남은 것 마무리(F5 해소)**: `services/trash.ts` 신설 — 부모가 살아 있는데 혼자 지워진 순간·사진·비용을 휴지통에 표시하고 복원·영구삭제를 제공한다. 오래 미뤄둔 구멍인데 **오늘 실물이 됐다**(진단이 「파일 없는 사진 기록 2건」을 가리키는데 사용자가 손댈 곳이 없었다 — 판정만 하고 행동을 못 주면 관측으로 되돌아간 것이다). **설계**: 부모가 함께 휴지통이면 제외(여행 줄이 이미 다루고, 자식만 복원하면 부모 없는 자식이 생긴다) · 복원의 **도메인 분기와 딸린 것 모으기를 서비스가** 한다(화면이 목록을 만지면 M-0007이 재발한다) · 영구삭제는 여행과 **같은 2단계 확인·같은 사전 조건·같은 read-back**. **게이트가 잡아준 것**: `check-timezone`이 `iso.slice(0,10)`을 즉시 RED로 잡았다(UTC 날짜는 사용자의 날짜가 아니다) · `check-skill-routing`이 새 파일 라우팅 누락을 잡았다. **검증**: 유닛 12건, **비공허 3종**(복원이 딸린 것을 안 데려옴 / 부모가 휴지통인 자식도 표시 / 사전 조건 제거) 전부 RED. harness **20게이트** · 유닛 357 · verify-editor-live 101/101 · build 그린. **남은 것**: 「내 기기들 0대」는 저장·수정을 한 번 하면 채워진다(배선은 확인됨). v0.91.
 
@@ -1401,7 +1475,7 @@ SCAN 범위도 `android-shell/android/app/src`(java)로 넓혔다 — node_modul
 ```
 npm ci
 git config core.hooksPath .githooks   # commit-msg hook 활성
-npm run harness                        # Required 게이트 전체 (현재 <!--reg:gateCount-->65<!--/reg-->개 — 목록은 scripts/harness.mjs, 손편집 나열 금지 M-0001; 이 숫자는 gen-registry가 자동 갱신·check-doc-counts가 대조)
+npm run harness                        # Required 게이트 전체 (현재 <!--reg:gateCount-->66<!--/reg-->개 — 목록은 scripts/harness.mjs, 손편집 나열 금지 M-0001; 이 숫자는 gen-registry가 자동 갱신·check-doc-counts가 대조)
 npm run build                          # base=/Travel-Memories/ 정적 빌드
 npm run dev                            # 홈 화면 확인 (선택)
 ```
@@ -1741,7 +1815,7 @@ npm run dev                            # 홈 화면 확인 (선택)
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(건너뜀 0) · 유닛 1016 · build OK · 문장은 순수 함수라 라이브가 SSOT로 따라옴(`verify-editor-live` 문장 대조 PASS).
+하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(건너뜀 0) · 유닛 1016 · build OK · 문장은 순수 함수라 라이브가 SSOT로 따라옴(`verify-editor-live` 문장 대조 PASS).
 
 ---
 
@@ -1769,7 +1843,7 @@ npm run dev                            # 홈 화면 확인 (선택)
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 1016(photoMetaSniff 5 포함) · build OK
+하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 1016(photoMetaSniff 5 포함) · build OK
 **배포**: PR #149 스쿼시 `5bfbd34` → CI `harness`·`live-render` 그린 → Pages `deploy-pages` **#192 success**(2026-08-01 01:17Z).
 🔴 **「배포 그린」 ≠ 「사이트에서 확인」** — 후자는 사용자 실기기 몫이다(샌드박스가 `*.github.io` 차단).
 
@@ -1833,7 +1907,7 @@ npm run dev                            # 홈 화면 확인 (선택)
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **1011** · live 275/275 + 22/22
+하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **1011** · live 275/275 + 22/22
 
 ### 🔴 다음 사람에게 (가장 중요)
 
@@ -1877,7 +1951,7 @@ npm run dev                            # 홈 화면 확인 (선택)
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **998** · live 270/270 + 22/22
+하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **998** · live 270/270 + 22/22
 
 ✅ **마이그레이션 0024 적용 완료**(2026-08-01, Supabase MCP). `journey.media`에 `gps_lat`·`gps_lng`가 생긴 것을 **스키마 재조회로 되읽어 확인**했다(성공 응답을 믿지 않는다 — 불변식 #5).
 
@@ -1934,7 +2008,7 @@ ZIP  GPSLatitudeRef 'N' · 36/1,36/1,32809680/1000000 → 36.609114, 127.502373
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **989** · live 270/270 + 22/22
+하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **989** · live 270/270 + 22/22
 
 ---
 
@@ -1984,7 +2058,7 @@ M-0054(단정) → M-0056(철회) → M-0057(방어 코드) → **M-0058(파일�
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **981** · live 270/270 + 22/22 · `check-adapter-parity` PASS(정본↔어댑터 2개 글자 단위 일치)
+하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **981** · live 270/270 + 22/22 · `check-adapter-parity` PASS(정본↔어댑터 2개 글자 단위 일치)
 
 ### ✅ 사용자 실기기 확인 (2026-08-01 00:19 · v1.36 배포본) — **이 줄이 완료의 마지막 칸이다**
 
@@ -2030,7 +2104,7 @@ M-0054(단정) → M-0056(철회) → M-0057(방어 코드) → **M-0058(파일�
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **978** · live 270/270 + 22/22 · build OK
+하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **978** · live 270/270 + 22/22 · build OK
 EXIF 유닛 4건 신규 — **진짜 JPEG 바이트**로 GPS IFD를 만들어(0으로 덮인 형태·분모 0·정상·한쪽만 0) 파서가 스스로 거절하게 한다(§4).
 **§4 주입 RED 확인**: 옛 두 줄을 되돌리자 2건 즉시 RED. **§11 ②**: 옛 케이스를 통과시키려 로직을 되돌리지 않고 **뒤집었다.**
 
@@ -2051,7 +2125,7 @@ EXIF 유닛 4건 신규 — **진짜 JPEG 바이트**로 GPS IFD를 만들어(0�
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 969 · `verify-editor-live` **270/270**(+4) · `verify-diagnostics-live` 22/22 · build OK.
+하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 969 · `verify-editor-live` **270/270**(+4) · `verify-diagnostics-live` 22/22 · build OK.
 
 **§13 4항 — 버튼을 실제로 눌렀다.** Playwright `filechooser` 이벤트로 ①대화상자가 실제로 열리는가 ②그 순간 `accept`에 `application/octet-stream`이 섞였는가 ③끝나면 `image/*`로 **되돌아오는가** ④편집 폼에도 같은 버튼이 있는가.
 
@@ -2086,7 +2160,7 @@ EXIF 유닛 4건 신규 — **진짜 JPEG 바이트**로 GPS IFD를 만들어(0�
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **969**(+18) · `verify-editor-live` **266/266**(+9) · `verify-diagnostics-live` 22/22 · build OK.
+하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **969**(+18) · `verify-editor-live` **266/266**(+9) · `verify-diagnostics-live` 22/22 · build OK.
 
 - **§13 4항 — 버튼을 실제로 눌렀다.** Playwright에 결정적 가짜 위치(37.5665/126.978, ±18m)를 넣고 눌러 ①좌표가 실제로 들어가는가 ②정확도가 문장이 되는가 ③숫자 좌표가 보이는가 ④안내 줄이 조용해지는가 ⑤버튼이 잠긴 채 남지 않는가를 쟀다.
 - **실패 경로도 눌렀다.** 처음엔 `clearPermissions()`로 했는데 헤드리스에서 **콜백이 안 와** 16초를 기다리다 빈손으로 지나갔고, 늦게 도착한 결과가 **뒤 블록의 화면을 덮었다.** 재려는 것은 브라우저의 권한 기계가 아니라 **내 코드의 실패 처리**라, `getCurrentPosition` 하나만 갈아 끼우고 판정·문장·버튼 복구는 앱이 스스로 하게 했다(§4). 끝에서 되돌린다(§3-C).
@@ -2126,7 +2200,7 @@ EXIF 유닛 4건 신규 — **진짜 JPEG 바이트**로 GPS IFD를 만들어(0�
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 951 · `verify-editor-live` **257/257**(+3) · `verify-diagnostics-live` 22/22 · build OK.
+하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 951 · `verify-editor-live` **257/257**(+3) · `verify-diagnostics-live` 22/22 · build OK.
 §13 1항: 폴드5 접은 폭(344px)에서 **두 번 열어서 봤다** — 첫 판 7줄(잘림 없으나 화면을 덮음) → 폭 조정 후 **4줄, 잘림 0, 화면 안**.
 
 ### 잔여
@@ -2167,7 +2241,7 @@ EXIF 유닛 4건 신규 — **진짜 JPEG 바이트**로 GPS IFD를 만들어(0�
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 951(+8) · `verify-editor-live` **254/254**(+7) · `verify-diagnostics-live` 22/22 · build OK.
+하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 951(+8) · `verify-editor-live` **254/254**(+7) · `verify-diagnostics-live` 22/22 · build OK.
 
 - §4 주입 2종 RED 확인: ①생성 폼을 다시 침묵시킴 → 4건 RED ②두 원인을 한 문장으로 뭉갬 → 2건 RED.
 - 🔴 **덤으로 검사 자신의 결함 둘을 잡았다**(§11 ③). ①§3-C 되돌리기가 `catch(() => {})`로 **조용히 실패**하고 있었고, 그 실패가 한참 뒤 「바깥 지도 링크」 3건에서 **2회 중 1회 RED**로 나타났다 → 되돌린 뒤 **되읽어 확인**(최대 5회 재시도, 못 비우면 그 자리에서 RED). ②그 되읽기가 처음엔 **공허했다** — 배지는 DOM에서 사라지지 않고 `hidden`으로만 감춰지는데 `!querySelector()`로 물어 **영원히 false**였다. ③칩 검사가 **자기가 심은 순간이 아니라 「화면의 첫 칩」**을 집고 있었다 — 좌표가 든 순간이 하나뿐이던 시절의 화석 전제다(CI에서 3건 RED). 검사가 **자기 픽스처를 소유**하게 고쳤다(M-0052·v1.29와 같은 근본형). 지금은 254/254로 안정.
@@ -2202,7 +2276,7 @@ EXIF 유닛 4건 신규 — **진짜 JPEG 바이트**로 GPS IFD를 만들어(0�
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 943 · `verify-editor-live` **247/247**(+4) · `verify-diagnostics-live` 22/22 · build OK.
+하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 943 · `verify-editor-live` **247/247**(+4) · `verify-diagnostics-live` 22/22 · build OK.
 
 라이브 4건: GPS 없는 사진에 말하는가 · 되돌릴 것 없으면 실행취소를 안 붙이는가 · 좌표만 있는 순간이 칩으로 보이는가 · 동의 없이 좌표만 넣고 그렇게 말하는가.
 
@@ -2254,7 +2328,7 @@ EXIF 유닛 4건 신규 — **진짜 JPEG 바이트**로 GPS IFD를 만들어(0�
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **943**(+4) · `verify-editor-live` **243/243**(+4) · `verify-diagnostics-live` 22/22 · build OK.
+하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **943**(+4) · `verify-editor-live` **243/243**(+4) · `verify-diagnostics-live` 22/22 · build OK.
 래칫: `wireAddPhoto`·`placeFromPhotos`를 뽑아 `renderTripDetail` 571→**560**, `buildMomentEditForm` 84→**83**.
 
 ### 확인이 필요한 항목(실기기)
@@ -2303,7 +2377,7 @@ EXIF 유닛 4건 신규 — **진짜 JPEG 바이트**로 GPS IFD를 만들어(0�
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **939**(+21) · `verify-editor-live` **239/239**(+23) · `verify-diagnostics-live` 22/22 · build OK.
+하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **939**(+21) · `verify-editor-live` **239/239**(+23) · `verify-diagnostics-live` 22/22 · build OK.
 
 - 🔴 **진짜 EXIF GPS 픽스처**(`withExifGps`)를 만들어 앱의 파서가 스스로 읽게 했다 — DOM 주입은 *내 주입*을 재는 공허한 검사다(§4).
 - **§13 1·4항**: 폴드5 접은 폭(344px)으로 두 화면 캡처(사진에서 채워진 폼 / 시간대 두 드롭다운 + 제안 줄). 제안 버튼을 **실제로 눌러** 적용·고지 소멸·안내 문구 변화를 쟀다.
@@ -2389,7 +2463,7 @@ git merge-base --is-ancestor origin/main HEAD || <흡수 절차>
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **918**(신규 `tripClock.test.ts` 29건 + 시간대 계약 케이스 확장) · `verify-editor-live` **216/216**(신규 18건) · `verify-diagnostics-live` 22/22 · build OK.
+하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(**건너뜀 0**) · 유닛 **918**(신규 `tripClock.test.ts` 29건 + 시간대 계약 케이스 확장) · `verify-editor-live` **216/216**(신규 18건) · `verify-diagnostics-live` 22/22 · build OK.
 
 - **§4 비공허**: 자체검사 주입 3종 + 오탐 2종. 그리고 `dayKey`를 옛 `localDate(m.occurredAt)`으로 **실제로 되돌려** 게이트가 그 줄을 가리키는 것을 확인(RED).
 - **§11 ②**: `timeline`·`whenDefault`·`fx` 테스트가 「기기 로컬」 전제를 담고 있었다. 지우지 않고 **나눴다** — 옛 계약(UTC 절단 금지)은 명시 시계로 유지하고, 새 계약(여행 시간대)은 별도 블록으로 잠갔다.
@@ -2425,7 +2499,7 @@ git merge-base --is-ancestor origin/main HEAD || <흡수 절차>
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(건너뜀 0) · 유닛 **882** · `verify-editor-live` **198/198** · build OK.
+하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(건너뜀 0) · 유닛 **882** · `verify-editor-live` **198/198** · build OK.
 **§13 4항 — 칩을 실제로 눌렀다**: 카카오 칩 클릭 → `window.open`이 `map.kakao.com/link/search/<검색어>`로 불린 것을 확인(외부 접속은 샌드박스가 막으므로 **인자까지가 내가 잴 수 있는 층**이다). 넷 다 렌더·가로 넘침 0도 함께.
 **화면도 열어서 봤다** — 칩 넷이 한 줄, 아래 한정 문장.
 
@@ -2498,7 +2572,7 @@ git merge-base --is-ancestor origin/main HEAD || <흡수 절차>
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(건너뜀 0) · 유닛 **745**(+23) · live 165+22 · build OK.
+하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(건너뜀 0) · 유닛 **745**(+23) · live 165+22 · build OK.
 **주입 RED**: 시간대 3종 · 어댑터 2종 · 문서 등록 3종.
 **마이그레이션 0021 적용·되읽기 완료**(배포 순서 계약: 마이그레이션 → 함수(무변경) → 앱).
 
@@ -2535,7 +2609,7 @@ git merge-base --is-ancestor origin/main HEAD || <흡수 절차>
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(건너뜀 0) · 유닛 **715**(+13) · live 165 + **14** · build OK.
+하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(건너뜀 0) · 유닛 **715**(+13) · live 165 + **14** · build OK.
 **주입 RED 3종**: 배너를 옛 「사진」 고정으로 → 3건 · 기기 축 무시 → 2건 · `deep` 무시 → 2건.
 **§13 열어서 봄**: 폴드5 상태를 판정 함수에 먹여 실제 렌더러로 그려 캡처 — **주버튼 0개**(「다시 확인」만), 설명이 다른 기기를 가리킴.
 
@@ -2567,7 +2641,7 @@ git merge-base --is-ancestor origin/main HEAD || <흡수 절차>
 
 **문서 최신화**: `gates-mechanization-dev` §2-J 신설 + §0 파일 지도 + §4 등록부 3행 · `ui-responsive-dev` §4·§5 · `AGENTS.md` · `HANDOFF_CODEX`(작성일·30초 요약·조항 다섯·§6 상태·검증 현황 실측·근본형 ⑦⑧·§11·변경 후 의무).
 
-**검증**: 하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(라이브 2종 포함 — 건너뜀 0) · 유닛 702 · live 165+12 · build OK. **주입 RED**: 미등록 화면 · `scripts/`·`supabase/` 라우트 제거 · 셀프테스트 강제 실패(Required이므로 FAIL, SKIP 아님).
+**검증**: 하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(라이브 2종 포함 — 건너뜀 0) · 유닛 702 · live 165+12 · build OK. **주입 RED**: 미등록 화면 · `scripts/`·`supabase/` 라우트 제거 · 셀프테스트 강제 실패(Required이므로 FAIL, SKIP 아님).
 
 ---
 
@@ -2606,7 +2680,7 @@ git merge-base --is-ancestor origin/main HEAD || <흡수 절차>
 
 ### 검증
 
-하네스 <!--reg:gateCount-->65<!--/reg-->개 전부 PASS(라이브 2종 포함 — 건너뛴 것 없음) · build OK.
+하네스 <!--reg:gateCount-->66<!--/reg-->개 전부 PASS(라이브 2종 포함 — 건너뛴 것 없음) · build OK.
 
 **비공허(§4)** — `verify-diagnostics-live` 주입 3종: ①M-0046 판정 되돌림 → B①·B② RED ②지표 설명을 화면에서 뺌 → B④ RED ③뱃지 글리프 제거 → A③ RED. `check-live-coverage` 주입 3종: ①덮이지 않은 새 화면 ②선언이 없는 화면을 가리킴(유령) ③덮였는데 제외에도 있음 — 전부 RED. **하네스에 등록한 뒤 다시 한 번** 주입해 RED를 확인했다(§11 ①: *"등록부에 한 줄 추가하는 것은 새 게이트를 만드는 것과 같다"*).
 
@@ -2864,7 +2938,7 @@ git merge-base --is-ancestor origin/main HEAD || <흡수 절차>
 
 **정정(측정 후)**: 「같은 초 안에서 순서가 뒤집힌다」고 적었던 것은 **틀렸다.** PostgREST는 항상 `+00:00`을 주므로 자릿수가 맞아 사전순 ≈ 시간순이다. 진짜 피해는 **같은 순간을 다르다고 보는 것**(동률일 때만 도는 규칙이 건너뛰어진다). `coding-mistakes.md`·`changelog.ts`의 그 문장도 함께 고쳤다. 그리고 그것을 검증한다던 유닛이 **주입에도 통과**했다 — 공허했다. 지금 유닛은 주입 시 RED다.
 
-**검증**: 하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS · 유닛 542건 · **주입 RED 8건**(백업 호출 제거 · `occurred_at`·`taken_at` 되돌리기 · `CHECK_COUNT` 드리프트 · `localeCompare` 복귀 · `withCanonicalStamps` 축소 · `compareInstants` 무력화 · 게이트 자체검사) · build OK · live 136/136(1회 흔들림, 아래 참조).
+**검증**: 하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS · 유닛 542건 · **주입 RED 8건**(백업 호출 제거 · `occurred_at`·`taken_at` 되돌리기 · `CHECK_COUNT` 드리프트 · `localeCompare` 복귀 · `withCanonicalStamps` 축소 · `compareInstants` 무력화 · 게이트 자체검사) · build OK · live 136/136(1회 흔들림, 아래 참조).
 
 **남긴 것(정직)**
 - ~~라이브 검사가 흔들리는 것은 무관한 타이밍~~ → **틀렸다. 고쳤다**(M-0037). 실측 4회 중 3회 실패였고, 원인은 타이밍이 아니라 **`.photo-thumb` last()가 방금 넣은 사진이라는 위치 가정**이었다. 그리고 그 가정을 깬 것은 **v1.06에서 내가 바꾼 순간 정렬**이다 — 「무관」이 아니었다. 제목으로 찾도록 고쳐 **8회 연속 136/136**.
@@ -2889,7 +2963,7 @@ git merge-base --is-ancestor origin/main HEAD || <흡수 절차>
 - `tests/unit/syncStatusVerdict.test.ts`(신설, 13건) — **level만이 아니라 문장도 잰다**(§10 ③).
 - `.claude/skills/diagnostics-dev/SKILL.md` §7-E · `docs/records/coding-mistakes.md` M-0035 · `scripts/brief.mjs` 라우팅.
 
-**검증**: 하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS · 유닛 526건 · 옛 로직 주입 **3건 RED** · live 136/136 · build OK.
+**검증**: 하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS · 유닛 526건 · 옛 로직 주입 **3건 RED** · live 136/136 · build OK.
 
 **정직**: 사용자 화면이 `running`이었다는 것은 **역산**이다(그 순간의 phase를 직접 관측하지 못했다). `lastOkAt`이 있으면서 `ok`가 아닌 갈래가 그것뿐이라 다른 가능성이 없다.
 
@@ -2916,7 +2990,7 @@ git merge-base --is-ancestor origin/main HEAD || <흡수 절차>
 - `domain/integrity.ts` — `TIME_INVERSION`을 **순간으로** 재고, 표기 문제는 `BAD_TIME_FORMAT`(신설)으로 분리. 점검 10 → 11가지. `check-fn-size` 래칫이 증가를 막아 `timeChecks()`로 추출.
 - `scripts/check-instant-normalization.mjs`(신설) — **타입이 못 잡는 구멍**만 본다: 새 rowmap이 반환형을 안 쓰는 경우 · 백업 복원 · LWW 회귀. 자체검사 4건.
 
-**검증**: 하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS · 유닛 513건(instantFormat 28건 신설) · 주입 RED 3건(rowmap 타입 · merge · integrity) · live 136/136 · build OK.
+**검증**: 하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS · 유닛 513건(instantFormat 28건 신설) · 주입 RED 3건(rowmap 타입 · merge · integrity) · live 136/136 · build OK.
 
 **정직**: 사용자 기기에서 정리가 실제로 도는 것은 **다음 동기화 이후** 확인된다(샌드박스는 `*.supabase.co` 차단). 지표 `BAD_TIME_FORMAT`이 0으로 떨어지는지가 그 확인 경로다.
 
@@ -2939,7 +3013,7 @@ git merge-base --is-ancestor origin/main HEAD || <흡수 절차>
 - `sync.ts` — `revivePushOps()`: `pushUnpurges`가 되돌리기에 성공한 id의 `permanent_failed`/`retryable_failed` 전파 op을 `local_only`로 되살린다. `pushUnpurges`가 다른 push보다 먼저 도므로 **같은 동기화 안에서** 바로 올라간다.
 - `tests/unit/restoreAtomicity.test.ts`(신설) — *"의사를 못 남기면 **행도 남지 않는다**"*. v1.03 배치 주입 시 **2건 RED**.
 
-**검증**: 하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(로컬 + Node 20) · 유닛 PASS(원자성 3건 신설 + 되살리기 3건) · 주입 RED 확인 · live 130/130 · build OK.
+**검증**: 하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(로컬 + Node 20) · 유닛 PASS(원자성 3건 신설 + 되살리기 3건) · 주입 RED 확인 · live 130/130 · build OK.
 
 ---
 
@@ -2959,7 +3033,7 @@ git merge-base --is-ancestor origin/main HEAD || <흡수 절차>
 - `classifyOrphanFiles(orphans, ledger, restorePending)` — 되살아나는 중인 파일을 `restoring`으로 갈라 **정리 대상에서 뺀다.** 그 10개는 잔재가 아니라 복원된 사진의 마지막 바이트였고, 화면은 그걸 치우라고 권하고 있었다.
 - 리팩터(길이 래칫이 강제): `storeStateProbe` 430→351줄, `storeActions`/`storeCleanupActions`/`blockedByLedgerMetric` 분리. `storeState`의 로컬 4종 열거를 `allLocalRows()` 한 곳으로 모음.
 
-**검증**: 하네스 <!--reg:gateCount-->65<!--/reg-->개 PASS(로컬 Node + **CI가 쓰는 Node 20**) · 유닛 PASS(`restoreUnpurge` 12건 신설 + 문장 검사 6건) · **주입 검증**으로 가드 제거·되읽기 신뢰·보호 해제 각각 RED 확인 · `verify-editor-live` 130/130 · `npm run build` OK.
+**검증**: 하네스 <!--reg:gateCount-->66<!--/reg-->개 PASS(로컬 Node + **CI가 쓰는 Node 20**) · 유닛 PASS(`restoreUnpurge` 12건 신설 + 문장 검사 6건) · **주입 검증**으로 가드 제거·되읽기 신뢰·보호 해제 각각 RED 확인 · `verify-editor-live` 130/130 · `npm run build` OK.
 
 **정직한 경계**: 복원 자체의 실기기 재현은 **사용자 몫**(샌드박스는 `*.supabase.co` 차단). 사용자는 배포 후 백업 파일로 **다시 복원**하면 되고, R2에 남아 있는 사진 파일 10개는 행이 돌아오면 유효한 사진으로 되살아난다.
 
