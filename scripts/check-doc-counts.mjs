@@ -32,9 +32,9 @@ export function appVersionPlacementProblems(entries) {
   const good = findMarkers('<!--reg:gateCount-->11<!--/reg-->', reg);
   const bad = findMarkers('<!--reg:gateCount-->99<!--/reg-->', reg);
   const unknown = findMarkers('<!--reg:nope-->1<!--/reg-->', reg);
-  if (!(good[0]?.ok === true)) throw new Error('SELF-TEST 실패: 맞는 값을 통과시키지 못함.');
-  if (!(bad[0]?.ok === false)) throw new Error('SELF-TEST 실패: 틀린 값을 잡지 못함(게이트 공허).');
-  if (!(unknown[0]?.ok === false)) throw new Error('SELF-TEST 실패: 알 수 없는 KEY를 잡지 못함.');
+  if (!(good[0]?.ok === true)) { console.error(`check-doc-counts: 자체검사 실패 — 게이트를 믿을 수 없다(§4): SELF-TEST 실패: 맞는 값을 통과시키지 못함.`); process.exit(2); }
+  if (!(bad[0]?.ok === false)) { console.error(`check-doc-counts: 자체검사 실패 — 게이트를 믿을 수 없다(§4): SELF-TEST 실패: 틀린 값을 잡지 못함(게이트 공허).`); process.exit(2); }
+  if (!(unknown[0]?.ok === false)) { console.error(`check-doc-counts: 자체검사 실패 — 게이트를 믿을 수 없다(§4): SELF-TEST 실패: 알 수 없는 KEY를 잡지 못함.`); process.exit(2); }
 
   const placed = appVersionPlacementProblems([
     { rel: 'docs/HANDOFF.md', text: '**현재 단계** v<!--reg:appVersion-->1.58<!--/reg-->' },
@@ -42,8 +42,8 @@ export function appVersionPlacementProblems(entries) {
   const historical = appVersionPlacementProblems([
     { rel: 'docs/HANDOFF.md', text: '과거 abc1234 v<!--reg:appVersion-->1.58<!--/reg--> 배포' },
   ]);
-  if (placed.length !== 0) throw new Error('SELF-TEST 실패: 현재 단계 버전 마커를 통과시키지 못함.');
-  if (historical.length === 0) throw new Error('SELF-TEST 실패: 과거 기록의 현재 버전 마커를 잡지 못함.');
+  if (placed.length !== 0) { console.error(`check-doc-counts: 자체검사 실패 — 게이트를 믿을 수 없다(§4): SELF-TEST 실패: 현재 단계 버전 마커를 통과시키지 못함.`); process.exit(2); }
+  if (historical.length === 0) { console.error(`check-doc-counts: 자체검사 실패 — 게이트를 믿을 수 없다(§4): SELF-TEST 실패: 과거 기록의 현재 버전 마커를 잡지 못함.`); process.exit(2); }
 })();
 
 const reg = collect();

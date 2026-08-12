@@ -58,26 +58,32 @@ export function handoffSummary(text) {
 
 // ── 비공허 자체검사: 알려진 실패를 주입해 잡히는지 먼저 증명한다(§4) ──
 (() => {
+  // 🔴 `stripMarkers`가 대조군에 없었다(2026-08-12 실측 — 망가뜨려도 안 잡혔다).
+  //    마커 안의 값은 **생성물**이라 손편집이 아니다. 안 지우면 정상을 위반으로 잡는다.
+  if (stripMarkers('앞 <!--reg:gateCount-->23<!--/reg--> 뒤') !== '앞  뒤')
+    { console.error(`check-hand-counts: 자체검사 실패 — 게이트를 믿을 수 없다(§4): stripMarkers가 마커를 안 지운다.`); process.exit(2); }
+  if (stripMarkers('마커 없는 산문') !== '마커 없는 산문')
+    { console.error(`check-hand-counts: 자체검사 실패 — 게이트를 믿을 수 없다(§4): stripMarkers가 멀쩡한 글을 건드린다(오탐).`); process.exit(2); }
   if (findHandCounts('harness 12게이트로 통과').length !== 1)
-    throw new Error('SELF-TEST 실패: "N게이트"를 못 잡음(게이트 공허).');
+    { console.error(`check-hand-counts: 자체검사 실패 — 게이트를 믿을 수 없다(§4): SELF-TEST 실패: "N게이트"를 못 잡음(게이트 공허).`); process.exit(2); }
   if (findHandCounts('전체 게이트(현재 12)').length !== 1)
-    throw new Error('SELF-TEST 실패: "게이트(현재 N)"을 못 잡음.');
+    { console.error(`check-hand-counts: 자체검사 실패 — 게이트를 믿을 수 없다(§4): SELF-TEST 실패: "게이트(현재 N)"을 못 잡음.`); process.exit(2); }
   if (findHandCounts('게이트 20개 통과').length !== 1)
-    throw new Error('SELF-TEST 실패: "게이트 N개"를 못 잡음.');
+    { console.error(`check-hand-counts: 자체검사 실패 — 게이트를 믿을 수 없다(§4): SELF-TEST 실패: "게이트 N개"를 못 잡음.`); process.exit(2); }
   if (findHandCounts('게이트 <!--reg:gateCount-->23<!--/reg-->개').length !== 0)
-    throw new Error('SELF-TEST 실패: 마커로 심은 값을 위반으로 오탐한다.');
+    { console.error(`check-hand-counts: 자체검사 실패 — 게이트를 믿을 수 없다(§4): SELF-TEST 실패: 마커로 심은 값을 위반으로 오탐한다.`); process.exit(2); }
   if (findHandCounts('게이트는 비공허해야 한다').length !== 0)
-    throw new Error('SELF-TEST 실패: 숫자 없는 산문을 오탐한다.');
+    { console.error(`check-hand-counts: 자체검사 실패 — 게이트를 믿을 수 없다(§4): SELF-TEST 실패: 숫자 없는 산문을 오탐한다.`); process.exit(2); }
   if (findHandCounts('`CLAUDE.md`(§4 게이트는 비공허하게 · §6 결함군 승격)').length !== 0)
-    throw new Error('SELF-TEST 실패: 절 번호 참조(§4 게이트)를 개수로 오탐한다.');
+    { console.error(`check-hand-counts: 자체검사 실패 — 게이트를 믿을 수 없다(§4): SELF-TEST 실패: 절 번호 참조(§4 게이트)를 개수로 오탐한다.`); process.exit(2); }
   if (findHandCounts(`| 실제(10·28)와 어긋남 6게이트 | ${HIST_OPT_OUT}`).length !== 0)
-    throw new Error('SELF-TEST 실패: 줄 단위 옵트아웃이 안 먹는다.');
+    { console.error(`check-hand-counts: 자체검사 실패 — 게이트를 믿을 수 없다(§4): SELF-TEST 실패: 줄 단위 옵트아웃이 안 먹는다.`); process.exit(2); }
   if (findHandCounts(`옛날엔 6게이트였다\n지금은 12게이트다 ${HIST_OPT_OUT}`).length !== 1)
-    throw new Error('SELF-TEST 실패: 옵트아웃이 다른 줄까지 통과시킨다.');
+    { console.error(`check-hand-counts: 자체검사 실패 — 게이트를 믿을 수 없다(§4): SELF-TEST 실패: 옵트아웃이 다른 줄까지 통과시킨다.`); process.exit(2); }
   if (handoffSummary('## 🔰 인계 요약\n지금 이렇다\n**Phase 9(옛날)**: 9게이트') === null)
-    throw new Error('SELF-TEST 실패: 요약 블록을 못 찾음.');
+    { console.error(`check-hand-counts: 자체검사 실패 — 게이트를 믿을 수 없다(§4): SELF-TEST 실패: 요약 블록을 못 찾음.`); process.exit(2); }
   if (findHandCounts(handoffSummary('## 🔰 인계 요약\n지금\n**Phase 9**: 9게이트')).length !== 0)
-    throw new Error('SELF-TEST 실패: Phase 기록(역사)을 검사 대상에 넣는다.');
+    { console.error(`check-hand-counts: 자체검사 실패 — 게이트를 믿을 수 없다(§4): SELF-TEST 실패: Phase 기록(역사)을 검사 대상에 넣는다.`); process.exit(2); }
 })();
 
 /** 검사 대상: 지금 상태를 지시하는 문서들. */

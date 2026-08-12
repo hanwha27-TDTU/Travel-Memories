@@ -8,6 +8,18 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0170 · **63개 전부 대조군이 있었다 — 대신 「알리는 방식」이 문제였다** (2026-08-12 · M-0152 · v2.25)
+
+- **branch**: `claude/t-019-fact-verification-4jlqq4`(머지 뒤 `origin/main`에서 다시 세움)
+- 🔴 **네 판 연속으로 내 검출기가 틀렸다**: 「대조군 없음」이 **51 → 41 → 12 → 0**. 마지막에 밝혀진 사실은 **63개 전부 갖고 있다**는 것이다. §4는 처음부터 지켜지고 있었고, 안 지켜진 것은 **내 검출기**였다.
+- **네 모양이 있었다**: `--selftest` 플래그 · `function selfTest()` + 호출 · 이름 없는 블록 + `exit 2` · **IIFE + `throw new Error('SELF-TEST …')`**. 마지막 것을 이번에 알았다.
+- 🔴 **대신 열어 보다가 진짜 결함이 나왔다 — 19개가 `throw`로 죽는다.** 던지면 스택과 함께 `exit 1`이 되고 하네스는 **「위반을 찾았다」**로 적는다. 자체검사 실패는 위반이 아니라 **「이 게이트를 믿을 수 없다」**이므로 `exit 2`가 맞다(§18-G). 오늘 `check-fn-size`에서 고친 것과 **같은 결함이 19곳에 있었다**(§7).
+- **세 번째 축을 세웠다**: `CLEAN_EXIT_BASELINE = 40`, 한 방향 래칫. 3개를 판정 형태로 바꿨다. **19개를 한 번에 바꾸지 않는다.**
+- 🔴 **`check-hand-counts`의 대조군에 구멍이 있었다**: `stripMarkers`를 망가뜨려도 안 잡혔다 — 사례가 없었기 때문이다. 양성·음성 2사례를 채워 이제 잡힌다. **「대조군이 있다」와 「이 함수가 덮인다」는 다른 말이다.**
+- 🔴 **기준선을 세 번 추측했다가 세 번 틀렸다**(24→22 · 40→37 · 44→40). 매번 실측으로 바로잡았지만, *"세어서 넣는다"*를 이미 적어 두고 반복한 것이다.
+- **실행 검사**: `gates` exit 0(65개) · 주입 3방향(세 축) 전부 RED → GREEN.
+- **다음 작업**: `throw`로 죽는 19개를 **작은 묶음으로** 판정 형태로. 목록은 게이트 판정문이 매번 출력한다.
+
 ## HANDOFF-0169 · **41개 중 39개는 이미 있었다 — 오탐을 잡고 3개를 붙였다** (2026-08-12 · M-0151 · v2.24)
 
 - **branch**: `claude/t-019-fact-verification-4jlqq4`(머지 뒤 `origin/main`에서 다시 세움 — 커밋 전 확인함)
@@ -1289,7 +1301,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.24<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->224<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.25<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->225<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->30<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

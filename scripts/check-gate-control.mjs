@@ -45,8 +45,18 @@ const HARNESS = 'scripts/harness.mjs';
  *  · `RUNNABLE`    — 그 대조군을 **밖에서 돌려 볼 수 있는가**(`--selftest` 플래그).
  *                    이게 있어야 이 게이트가 「살아 있는지」까지 확인할 수 있다.
  */
-export const HAS_CONTROL_BASELINE = 51;
+export const HAS_CONTROL_BASELINE = 63;
 export const RUNNABLE_BASELINE = 15;
+/**
+ * 🔴 세 번째 축(2026-08-12 · M-0152) — **대조군이 실패를 「판정」으로 알리는가.**
+ *
+ * 63개 전부 대조군을 갖고 있다. 남은 문제는 **알리는 방식**이다: 23개가 `throw`로 죽어
+ * 스택과 함께 `exit 1`이 되고, 하네스는 그것을 「위반을 찾았다」로 적는다. 자체검사 실패는
+ * 위반이 아니라 **「이 게이트를 믿을 수 없다」**이므로 `exit 2`가 맞다(§18-G).
+ *
+ * 한 방향 래칫이다. 23개를 한 번에 바꾸지 않는다 — 급하게 손대면 이번에 피한 §11 ②를 밟는다.
+ */
+export const CLEAN_EXIT_BASELINE = 40;
 
 /** 하네스에 등록된 게이트 중 `node scripts/*.mjs`로 도는 것의 스크립트 경로를 뽑는다. */
 export function gateScripts(harnessSrc) {
@@ -103,7 +113,23 @@ function hasSelfTestFunction(code) {
  * 코드에 있는가」를 본다.
  */
 function hasInlineSelfCheck(code) {
-  return /(셀프테스트|자체검사)/.test(code) && /process\.exit\(\s*2\s*\)/.test(code);
+  return declaresSelfCheckExit(code) || throwsOnSelfCheck(code);
+}
+
+/** 자체검사 실패를 **판정으로** 알린다 — 사유를 적고 `exit 2`(전제 미충족)로 나간다. */
+export function declaresSelfCheckExit(code) {
+  return /(셀프테스트|자체검사|SELF-TEST)/.test(code) && /process\.exit\(\s*2\s*\)/.test(code);
+}
+
+/**
+ * 자체검사 실패를 **던져서** 알린다 — `throw new Error('SELF-TEST 실패: …')`.
+ *
+ * 🔴 대조군은 **있지만 알리는 방식이 §18-G에 어긋난다**: 던지면 스택과 함께 `exit 1`이 되고,
+ *    하네스는 그것을 **「위반을 찾았다」**로 적는다. 그런데 자체검사 실패는 위반이 아니라
+ *    **「이 게이트를 믿을 수 없다」**이다. 그래서 이 형태는 세되 **따로** 센다.
+ */
+export function throwsOnSelfCheck(code) {
+  return /throw\s+new\s+Error\(\s*['"`]SELF-TEST/.test(code);
 }
 
 function selfTest() {
@@ -191,12 +217,16 @@ if (gates.length === 0) {
 
 const withControl = [];
 const runnable = [];
+const cleanExit = [];
+const dies = [];
 const without = [];
 for (const g of gates) {
-  const src = readFileSync(g.script, 'utf8');
-  if (hasControl(src)) withControl.push(g);
+  const code = stripComments(readFileSync(g.script, 'utf8'));
+  if (hasControl(code)) withControl.push(g);
   else without.push(g);
-  if (declaresSelftest(src)) runnable.push(g);
+  if (declaresSelftest(code)) runnable.push(g);
+  if (declaresSelfCheckExit(code)) cleanExit.push(g);
+  else if (throwsOnSelfCheck(code)) dies.push(g);
 }
 
 // B) 있다고 한 대조군이 **실제로 도는가.** 산문을 믿지 않는다 — 돌려 본다(§18-A: 결론을 직접 묻는다).
@@ -222,6 +252,9 @@ if (withControl.length < HAS_CONTROL_BASELINE) {
 if (runnable.length < RUNNABLE_BASELINE) {
   fell.push(`독립 실행 가능 ${runnable.length}개 < 기준선 ${RUNNABLE_BASELINE}`);
 }
+if (cleanExit.length < CLEAN_EXIT_BASELINE) {
+  fell.push(`실패를 판정으로 알리는 게이트 ${cleanExit.length}개 < 기준선 ${CLEAN_EXIT_BASELINE}`);
+}
 if (fell.length) {
   console.error('check-gate-control: 대조군이 **줄었습니다**.');
   for (const f of fell) console.error(`  ✗ ${f}`);
@@ -231,7 +264,7 @@ if (fell.length) {
 
 console.log(
   `check-gate-control: 게이트 ${gates.length}개 중 **대조군 보유 ${withControl.length}개**(기준선 ${HAS_CONTROL_BASELINE}) · ` +
-    `그중 **독립 실행 가능 ${runnable.length}개**(기준선 ${RUNNABLE_BASELINE}) — 돌려 본 것은 전부 통과.`,
+    `그중 **독립 실행 가능 ${runnable.length}개**(기준선 ${RUNNABLE_BASELINE}) · **실패를 판정으로 알리는 것 ${cleanExit.length}개**(기준선 ${CLEAN_EXIT_BASELINE}) — 돌려 본 것은 전부 통과.`,
 );
 console.log(
   `    ↳ 정직한 한계: **대조군의 유무와 생존**만 봅니다 — 그 사례가 진짜 위험을 재는지는 못 봅니다(§11 ②).`,
@@ -240,4 +273,13 @@ console.log(
   `    ↳ 🔴 **돌려 본 것은 ${runnable.length}개뿐입니다.** 나머지 ${withControl.length - runnable.length}개는 ` +
     `대조군이 있다고 **읽었을 뿐** 살아 있는지 재지 못했습니다 — 플래그를 달면 그때 재집니다.`,
 );
-console.log(`    ↳ 아직 대조군이 없는 게이트 ${without.length}개: ${without.map((g) => g.name).join(', ')}`);
+console.log(
+  `    ↳ 🔴 자체검사 실패를 **던져서 죽는** 게이트 ${dies.length}개 — 스택과 함께 exit 1이 되어 ` +
+    `하네스가 「위반을 찾았다」로 적습니다. 자체검사 실패는 위반이 아니라 「이 게이트를 믿을 수 없다」입니다(§18-G).` +
+    (dies.length ? `\n       ${dies.map((g) => g.name).join(', ')}` : ''),
+);
+console.log(
+  without.length
+    ? `    ↳ 아직 대조군이 없는 게이트 ${without.length}개: ${without.map((g) => g.name).join(', ')}`
+    : `    ↳ 대조군이 없는 게이트는 **없습니다** — 63개 전부 갖고 있습니다.`,
+);

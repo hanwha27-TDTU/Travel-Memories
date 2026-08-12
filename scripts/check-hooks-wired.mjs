@@ -82,14 +82,14 @@ export function findMissing(hooks, required = REQUIRED) {
     matcher: r.matcherIncludes,
     hooks: [{ type: 'command', command: `node ${r.script}` }],
   })) } };
-  if (findMissing(collectHooks(good)).length !== 0) throw new Error('SELF-TEST 실패: 정상 설정을 결함으로 판정(오탐).');
+  if (findMissing(collectHooks(good)).length !== 0) { console.error(`check-hooks-wired: 자체검사 실패 — 게이트를 믿을 수 없다(§4): SELF-TEST 실패: 정상 설정을 결함으로 판정(오탐).`); process.exit(2); }
   if (findMissing(collectHooks({ hooks: {} })).length !== REQUIRED.length) {
-    throw new Error('SELF-TEST 실패: 빈 hooks를 통과시킨다(게이트 공허) — T-003이 정확히 이 상태였다.');
+    { console.error(`check-hooks-wired: 자체검사 실패 — 게이트를 믿을 수 없다(§4): SELF-TEST 실패: 빈 hooks를 통과시킨다(게이트 공허) — T-003이 정확히 이 상태였다.`); process.exit(2); }
   }
   // 스크립트만 바꿔치기해도 잡아야 한다(이름이 있는 것과 불리는 것은 다르다 · §2-F)
   const swapped = JSON.parse(JSON.stringify(good));
   swapped.hooks.PreToolUse[0].hooks[0].command = 'node scripts/does-not-exist.mjs';
-  if (findMissing(collectHooks(swapped)).length === 0) throw new Error('SELF-TEST 실패: 다른 스크립트를 통과시킨다.');
+  if (findMissing(collectHooks(swapped)).length === 0) { console.error(`check-hooks-wired: 자체검사 실패 — 게이트를 믿을 수 없다(§4): SELF-TEST 실패: 다른 스크립트를 통과시킨다.`); process.exit(2); }
 })();
 
 if (!existsSync(SETTINGS)) {
