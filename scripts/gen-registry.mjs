@@ -5,6 +5,16 @@
 // 사용: node scripts/gen-registry.mjs  (파일 갱신) / --check (표준출력만, 게이트용)
 
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
+// 🔴 검출 로직을 **다시 구현하지 않는다**(§2 — 손편집 중복 자체가 결함). 게이트와 생성기가
+//    같은 함수를 쓰므로, 판정이 갈라질 수 없다. `check-gate-control`은 import에서 검사를
+//    돌지 않도록 `isMain` 가드를 갖고 있다.
+import {
+  gateScripts,
+  stripComments,
+  hasControl,
+  declaresSelftest,
+  declaresSelfCheckExit,
+} from './check-gate-control.mjs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -75,9 +85,28 @@ export function collect() {
     .map((f) => f.replace(/\.md$/, ''))
     .sort();
 
+  // 게이트의 **대조군 현황**(§4). 앱의 「개발자 정보」가 이 값을 그대로 비춘다 —
+  // 🔴 앱은 게이트가 **실제로 돌았는지 볼 수 없다.** 여기 있는 것은 저장소에 적힌 계약이고,
+  //    화면도 그렇게 말해야 한다(§8 — 앱이 판정하는 척하면 그 초록이 거짓이 된다).
+  const gateControl = gateScripts(harness)
+    .filter((g) => existsSync(join(ROOT, g.script)))
+    .map((g) => {
+      const code = stripComments(readFileSync(join(ROOT, g.script), 'utf8'));
+      return {
+        name: g.name,
+        control: hasControl(code),
+        runnable: declaresSelftest(code),
+        cleanExit: declaresSelfCheckExit(code),
+      };
+    });
+
   return {
     gates,
     gateCount: gates.length,
+    gateControl,
+    gateControlCount: gateControl.filter((g) => g.control).length,
+    gateRunnableCount: gateControl.filter((g) => g.runnable).length,
+    gateCleanExitCount: gateControl.filter((g) => g.cleanExit).length,
     appVersion,
     // 🔴 **이름이 아니라 행동으로 판정한다**(gates 헌장 §2-I). 예전엔 `.md` 확장자만 세서
     // `README.md`가 에이전트 1개로 잡혔고, 가이드 화면이 **28개**라고 말했다(실제 27개).
@@ -104,6 +133,9 @@ export function collect() {
 export function render(reg) {
   const gateLines = reg.gates.map((g) => `  '${g}',`).join('\n');
   const agentLines = reg.agents.map((a) => `  '${a}',`).join('\n');
+  const controlLines = reg.gateControl
+    .map((g) => `    { name: '${g.name}', control: ${g.control}, runnable: ${g.runnable}, cleanExit: ${g.cleanExit} },`)
+    .join('\n');
   return `// GENERATED — 손으로 편집하지 마세요. 재생성: node scripts/gen-registry.mjs
 // SSOT: scripts/harness.mjs · .claude/{agents,skills}/ · src/ui/screens/ · supabase/migrations/ · src/app/{changelog,researchLog}.ts
 // check-registry-gen 게이트가 이 파일이 SSOT와 일치하는지(커밋본==재생성본) 검사합니다.
@@ -114,6 +146,20 @@ export const REGISTRY = {
 ${gateLines}
   ] as const,
   gateCount: ${reg.gateCount},
+  /**
+   * 게이트의 **대조군 현황**(§4). 세 축 — 대조군 보유 · 밖에서 돌려 볼 수 있음 ·
+   * 실패를 판정(exit 2)으로 알림.
+   *
+   * 🔴 **이것은 「검사가 통과했다」가 아니다.** 앱은 게이트가 실제로 돌았는지 **볼 수 없다**
+   *    (CI는 앱 밖이다 · diagGroups의 ERRORS-GATE-HEALTH). 여기 있는 값은 **저장소에 적힌
+   *    계약**이고, 화면도 반드시 그렇게 말해야 한다 — 앱이 판정하는 척하면 그 초록이 거짓이 된다(§8).
+   */
+  gateControl: [
+${controlLines}
+  ] as const,
+  gateControlCount: ${reg.gateControlCount},
+  gateRunnableCount: ${reg.gateRunnableCount},
+  gateCleanExitCount: ${reg.gateCleanExitCount},
   /** 최신 앱 버전(정본: src/app/changelog.ts의 첫 항목). 첫 로드 화면은 이걸 읽는다. */
   appVersion: '${reg.appVersion}',
   /** 에이전트 정의 이름(정본: .claude/agents/ — frontmatter가 있는 파일만). */

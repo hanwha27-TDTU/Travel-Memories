@@ -8,6 +8,19 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0171 · **「개발자 정보」 진입점과 게이트 현황표** (2026-08-12 · v2.26 · 사용자 제안)
+
+- **branch**: `claude/t-019-fact-verification-4jlqq4` · **신규**: `src/domain/gateControlView.ts` · `tests/unit/gateControlView.test.ts` · **변경**: `gen-registry.mjs` · `check-gate-control.mjs`(isMain 가드) · `aboutApp.ts` · `dataManager.ts` · `brief.mjs` · `module-design-docs-lib.mjs` · `check-registry-gen.mjs`
+- **사용자 제안**: *"데이터관리 옆에 개발자 정보 버튼을, 그 안에 게이트 현황표를 기계적으로"*. 재보니 **개발자 정보 화면은 이미 있었고**(`aboutApp.ts`) **제목 옆 버전 배지**로만 열렸다 — 있는 줄 모르는 진입점이었다.
+- 🔴 **홈 칩 줄에 7번째 칩을 더하지 않았다**: 그 줄은 이미 6개라 좁은 화면에서 줄바꿈되고, 이 저장소는 그 자리에서 이미 데였다(계정 줄이 헤더를 한 줄 더 먹었다). 자주 쓰지 않는 것이므로 **데이터 관리 안의 카드**가 맞는 자리다.
+- **기계적 생성**: `gen-registry`가 세 축을 계산해 `registry.gen.ts`에 심는다. 🔴 **검출 로직을 다시 구현하지 않았다** — `check-gate-control`에서 import 한다(§2 · 손편집 중복 금지). 그래서 `isMain` 가드를 달아 import에서 검사가 안 돌게 했다. `check-registry-gen`이 「커밋본 == 재생성본」을 이미 강제하므로 드리프트는 RED.
+- 🔴 **화면이 「검사 통과」로 읽히면 안 된다.** `diagGroups`의 `ERRORS-GATE-HEALTH`가 *"앱이 판정하는 척하면 그 초록이 거짓이 된다"*고 이미 등록해 뒀다. 그래서 **판정 렌더러를 쓰지 않고**(✓/! 글리프가 붙으면 「지금 정상」으로 읽힌다), 첫 줄이 *"저장소에 적힌 계약 · 실제로 돌았는지는 앱이 모름"*이라고 말한다. 유닛이 그 문장에 「통과·정상·안전」이 못 들어가게 잠근다.
+- **§13 — 열어서 보고 눌러 봤다.** 실제 Chromium으로 데이터 관리 → 개발자 정보 카드를 **눌러서** 확인했다(가로 넘침 0px).
+- 🔴 **보고서 결함 두 개를 고쳤다**: ①**48개 이름이 화면을 덮었다** — 캡 6개 + 「외 N개」로 접었다(§8 침묵이 정상 · §5 3항 자른 사실은 말한다). ②유닛이 **0/0을 「모두 갖췄다」로 반올림한 것**을 잡았다 — 대상 0은 만족이 아니라 못 읽은 것이다.
+- 🔴 **`check-registry-gen`의 셀프테스트가 옛 전제를 못박고 있었다**: 가짜 레지스트리에 새 필드가 없어 `render`가 터졌다. §11 ②의 정확한 형태이고, **§18-G의 빈 세계가 잡았다**(로컬은 초록이었다). 케이스를 넓혔다.
+- **함수 크기 래칫이 두 번 밀었다**: 새 절 때문에 `openAboutApp`이 커지자 그 절과 **원래 있던 규범 체계 절**을 top-level로 뽑았고, 결과가 **168 → 154줄**로 줄어 래칫을 내렸다.
+- **실행 검사**: `tsc` 0 · vitest **1,645건** · `gates` 0(69개) · 라이브 열람·클릭 확인.
+
 ## HANDOFF-0170 · **63개 전부 대조군이 있었다 — 대신 「알리는 방식」이 문제였다** (2026-08-12 · M-0152 · v2.25)
 
 - **branch**: `claude/t-019-fact-verification-4jlqq4`(머지 뒤 `origin/main`에서 다시 세움)
@@ -1301,7 +1314,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.25<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->225<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.26<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->226<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->30<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

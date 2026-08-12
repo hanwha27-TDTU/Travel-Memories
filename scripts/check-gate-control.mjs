@@ -29,6 +29,13 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * 이 파일을 **직접 실행했는가.** `gen-registry.mjs`가 검출 함수를 import 해서 쓰므로,
+ * import만으로 검사가 돌면 안 된다 — 판정 로직은 **한 곳에만** 있어야 한다(§2 · 손편집 중복 금지).
+ */
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 
 const HARNESS = 'scripts/harness.mjs';
 
@@ -197,89 +204,92 @@ function selfTest() {
 }
 
 selfTest();
-if (process.argv.includes('--selftest')) {
+if (isMain && process.argv.includes('--selftest')) {
   console.log('check-gate-control: 셀프테스트 통과 (잡아야 할 것 6 · 잡으면 안 되는 것 9)');
   process.exit(0);
 }
 
-if (!existsSync(HARNESS)) {
-  console.error(`check-gate-control: ${HARNESS}가 없습니다 — 잴 대상을 확보하지 못했습니다.`);
-  process.exit(2);
-}
-
-const gates = gateScripts(readFileSync(HARNESS, 'utf8')).filter((g) => existsSync(g.script));
-
-// 🔴 대상 0에서 공허하게 통과하지 않는다 — 목록 확보를 **먼저 판정**한다(§4).
-if (gates.length === 0) {
-  console.error('check-gate-control: 게이트를 하나도 못 찾았습니다 — 재지 못했습니다.');
-  process.exit(2);
-}
-
-const withControl = [];
-const runnable = [];
-const cleanExit = [];
-const dies = [];
-const without = [];
-for (const g of gates) {
-  const code = stripComments(readFileSync(g.script, 'utf8'));
-  if (hasControl(code)) withControl.push(g);
-  else without.push(g);
-  if (declaresSelftest(code)) runnable.push(g);
-  if (declaresSelfCheckExit(code)) cleanExit.push(g);
-  else if (throwsOnSelfCheck(code)) dies.push(g);
-}
-
-// B) 있다고 한 대조군이 **실제로 도는가.** 산문을 믿지 않는다 — 돌려 본다(§18-A: 결론을 직접 묻는다).
-const broken = [];
-for (const g of runnable) {
-  try {
-    execFileSync('node', [g.script, '--selftest'], { stdio: 'pipe' });
-  } catch (e) {
-    broken.push(`${g.name} (exit ${e.status ?? '?'})`);
+if (isMain) {
+  if (!existsSync(HARNESS)) {
+    console.error(`check-gate-control: ${HARNESS}가 없습니다 — 잴 대상을 확보하지 못했습니다.`);
+    process.exit(2);
   }
-}
-if (broken.length) {
-  console.error('check-gate-control: 대조군이 있다고 했는데 **통과하지 못합니다** — 검사하는 것도 결함을 갖는다(§11).');
-  for (const b of broken) console.error(`  ✗ ${b}`);
-  process.exit(2); // 판정이 아니라 전제가 무너진 것이다
-}
 
-// A) 래칫 — 두 축 모두 한 방향.
-const fell = [];
-if (withControl.length < HAS_CONTROL_BASELINE) {
-  fell.push(`대조군 보유 ${withControl.length}개 < 기준선 ${HAS_CONTROL_BASELINE}`);
-}
-if (runnable.length < RUNNABLE_BASELINE) {
-  fell.push(`독립 실행 가능 ${runnable.length}개 < 기준선 ${RUNNABLE_BASELINE}`);
-}
-if (cleanExit.length < CLEAN_EXIT_BASELINE) {
-  fell.push(`실패를 판정으로 알리는 게이트 ${cleanExit.length}개 < 기준선 ${CLEAN_EXIT_BASELINE}`);
-}
-if (fell.length) {
-  console.error('check-gate-control: 대조군이 **줄었습니다**.');
-  for (const f of fell) console.error(`  ✗ ${f}`);
-  console.error('  → 게이트에서 셀프테스트를 빼지 마세요. 대조군 없는 게이트는 공허할 수 있습니다(§4).');
-  process.exit(1);
-}
+  const gates = gateScripts(readFileSync(HARNESS, 'utf8')).filter((g) => existsSync(g.script));
 
-console.log(
-  `check-gate-control: 게이트 ${gates.length}개 중 **대조군 보유 ${withControl.length}개**(기준선 ${HAS_CONTROL_BASELINE}) · ` +
-    `그중 **독립 실행 가능 ${runnable.length}개**(기준선 ${RUNNABLE_BASELINE}) · **실패를 판정으로 알리는 것 ${cleanExit.length}개**(기준선 ${CLEAN_EXIT_BASELINE}) — 돌려 본 것은 전부 통과.`,
-);
-console.log(
-  `    ↳ 정직한 한계: **대조군의 유무와 생존**만 봅니다 — 그 사례가 진짜 위험을 재는지는 못 봅니다(§11 ②).`,
-);
-console.log(
-  `    ↳ 🔴 **돌려 본 것은 ${runnable.length}개뿐입니다.** 나머지 ${withControl.length - runnable.length}개는 ` +
-    `대조군이 있다고 **읽었을 뿐** 살아 있는지 재지 못했습니다 — 플래그를 달면 그때 재집니다.`,
-);
-console.log(
-  `    ↳ 🔴 자체검사 실패를 **던져서 죽는** 게이트 ${dies.length}개 — 스택과 함께 exit 1이 되어 ` +
-    `하네스가 「위반을 찾았다」로 적습니다. 자체검사 실패는 위반이 아니라 「이 게이트를 믿을 수 없다」입니다(§18-G).` +
-    (dies.length ? `\n       ${dies.map((g) => g.name).join(', ')}` : ''),
-);
-console.log(
-  without.length
-    ? `    ↳ 아직 대조군이 없는 게이트 ${without.length}개: ${without.map((g) => g.name).join(', ')}`
-    : `    ↳ 대조군이 없는 게이트는 **없습니다** — 63개 전부 갖고 있습니다.`,
-);
+  // 🔴 대상 0에서 공허하게 통과하지 않는다 — 목록 확보를 **먼저 판정**한다(§4).
+  if (gates.length === 0) {
+    console.error('check-gate-control: 게이트를 하나도 못 찾았습니다 — 재지 못했습니다.');
+    process.exit(2);
+  }
+
+  const withControl = [];
+  const runnable = [];
+  const cleanExit = [];
+  const dies = [];
+  const without = [];
+  for (const g of gates) {
+    const code = stripComments(readFileSync(g.script, 'utf8'));
+    if (hasControl(code)) withControl.push(g);
+    else without.push(g);
+    if (declaresSelftest(code)) runnable.push(g);
+    if (declaresSelfCheckExit(code)) cleanExit.push(g);
+    else if (throwsOnSelfCheck(code)) dies.push(g);
+  }
+
+  // B) 있다고 한 대조군이 **실제로 도는가.** 산문을 믿지 않는다 — 돌려 본다(§18-A: 결론을 직접 묻는다).
+  const broken = [];
+  for (const g of runnable) {
+    try {
+      execFileSync('node', [g.script, '--selftest'], { stdio: 'pipe' });
+    } catch (e) {
+      broken.push(`${g.name} (exit ${e.status ?? '?'})`);
+    }
+  }
+  if (broken.length) {
+    console.error('check-gate-control: 대조군이 있다고 했는데 **통과하지 못합니다** — 검사하는 것도 결함을 갖는다(§11).');
+    for (const b of broken) console.error(`  ✗ ${b}`);
+    process.exit(2); // 판정이 아니라 전제가 무너진 것이다
+  }
+
+  // A) 래칫 — 두 축 모두 한 방향.
+  const fell = [];
+  if (withControl.length < HAS_CONTROL_BASELINE) {
+    fell.push(`대조군 보유 ${withControl.length}개 < 기준선 ${HAS_CONTROL_BASELINE}`);
+  }
+  if (runnable.length < RUNNABLE_BASELINE) {
+    fell.push(`독립 실행 가능 ${runnable.length}개 < 기준선 ${RUNNABLE_BASELINE}`);
+  }
+  if (cleanExit.length < CLEAN_EXIT_BASELINE) {
+    fell.push(`실패를 판정으로 알리는 게이트 ${cleanExit.length}개 < 기준선 ${CLEAN_EXIT_BASELINE}`);
+  }
+  if (fell.length) {
+    console.error('check-gate-control: 대조군이 **줄었습니다**.');
+    for (const f of fell) console.error(`  ✗ ${f}`);
+    console.error('  → 게이트에서 셀프테스트를 빼지 마세요. 대조군 없는 게이트는 공허할 수 있습니다(§4).');
+    process.exit(1);
+  }
+
+  console.log(
+    `check-gate-control: 게이트 ${gates.length}개 중 **대조군 보유 ${withControl.length}개**(기준선 ${HAS_CONTROL_BASELINE}) · ` +
+      `그중 **독립 실행 가능 ${runnable.length}개**(기준선 ${RUNNABLE_BASELINE}) · **실패를 판정으로 알리는 것 ${cleanExit.length}개**(기준선 ${CLEAN_EXIT_BASELINE}) — 돌려 본 것은 전부 통과.`,
+  );
+  console.log(
+    `    ↳ 정직한 한계: **대조군의 유무와 생존**만 봅니다 — 그 사례가 진짜 위험을 재는지는 못 봅니다(§11 ②).`,
+  );
+  console.log(
+    `    ↳ 🔴 **돌려 본 것은 ${runnable.length}개뿐입니다.** 나머지 ${withControl.length - runnable.length}개는 ` +
+      `대조군이 있다고 **읽었을 뿐** 살아 있는지 재지 못했습니다 — 플래그를 달면 그때 재집니다.`,
+  );
+  console.log(
+    `    ↳ 🔴 자체검사 실패를 **던져서 죽는** 게이트 ${dies.length}개 — 스택과 함께 exit 1이 되어 ` +
+      `하네스가 「위반을 찾았다」로 적습니다. 자체검사 실패는 위반이 아니라 「이 게이트를 믿을 수 없다」입니다(§18-G).` +
+      (dies.length ? `\n       ${dies.map((g) => g.name).join(', ')}` : ''),
+  );
+  console.log(
+    without.length
+      ? `    ↳ 아직 대조군이 없는 게이트 ${without.length}개: ${without.map((g) => g.name).join(', ')}`
+      : `    ↳ 대조군이 없는 게이트는 **없습니다** — 63개 전부 갖고 있습니다.`,
+  );
+
+}

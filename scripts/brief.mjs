@@ -129,6 +129,9 @@ export const SKILL_ROUTES = [
   // 꾹 눌러 끌기 배선 — 화면 상호작용이라 UI 헌장이 정본이다.
   { match: /^src\/ui\/dragReorder/, skill: 'ui-responsive-dev' },
   { match: /^src\/ui\/panels\/(verdict|diagnostics)/, skill: 'diagnostics-dev' },
+  // 게이트 대조군 현황을 화면 문장으로 옮기는 순수 함수. 🔴 이 화면이 「검사 통과」로
+  // 읽히면 안 된다는 규율(§8 — 앱이 판정하는 척하면 그 초록이 거짓)이 곧 진단의 규율이다.
+  { match: /^src\/domain\/gateControlView\.ts$/, skill: 'diagnostics-dev' },
   { match: /^src\/services\/(diagnostics|envReport|storeState)/, skill: 'diagnostics-dev' },
   // 삭제 표식과 새 UUID의 대조는 판정과 동기화 스냅샷이 함께 성립해야 한다.
   { match: /^src\/services\/placeZombieAudit/, skill: 'diagnostics-dev' },

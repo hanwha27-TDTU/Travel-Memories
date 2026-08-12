@@ -201,7 +201,7 @@ export function moduleIdOf(input) {
   if (/^src\/(?:services\/audio|ui\/audioNote|domain\/audio\/.*)\.ts$/.test(p)) return 'audio-notes';
   if (/^src\/services\/(?:backup|backupCrypto|backupMeta|backupRoundTrip|zip)\.ts$/.test(p)) return 'backup-restore';
   if (/^src\/(?:services\/(?:trash|trashState|purge)|domain\/trashVerdict)\.ts$/.test(p)) return 'trash-purge';
-  if (/^src\/(?:services\/(?:diagnostics|envReport|fileReality|roundTrip|serverContract|sessionState|syncReleaseDiagnostics|placeZombieAudit)|domain\/(?:diagGroups|diagnosticReport|fileRealityVerdict|integrity|placeProviderVerdict|placeZombieVerdict|roundTripVerdict|serverContractVerdict|sessionVerdict|syncReleaseVerdict|syncStatusVerdict|syncTombstoneVerdict)|ui\/(?:panels\/.*|screens\/(?:diagnosticsHub|mechChecks)))\.ts$/.test(p)) return 'diagnostics';
+  if (/^src\/(?:services\/(?:diagnostics|envReport|fileReality|roundTrip|serverContract|sessionState|syncReleaseDiagnostics|placeZombieAudit)|domain\/(?:diagGroups|diagnosticReport|fileRealityVerdict|integrity|gateControlView|placeProviderVerdict|placeZombieVerdict|roundTripVerdict|serverContractVerdict|sessionVerdict|syncReleaseVerdict|syncStatusVerdict|syncTombstoneVerdict)|ui\/(?:panels\/.*|screens\/(?:diagnosticsHub|mechChecks)))\.ts$/.test(p)) return 'diagnostics';
   if (/^src\/(?:services\/(?:places|geocode|here|externalMapConsent)|domain\/place\/.*|ui\/(?:externalMapRow|screens\/(?:mapView|placeRegistry)))\.ts$/.test(p)) return 'map-place';
   if (/^src\/(?:services\/(?:expenses|fx)|domain\/expense\/.*)\.ts$/.test(p)) return 'expense-fx';
   if (/^src\/(?:services\/(?:auth|consent)|services\/supabase\/client|domain\/authGate)\.ts$/.test(p)) return 'auth-security';
