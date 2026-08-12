@@ -40,6 +40,51 @@ export const BACKUP_VERSION = 2;
  */
 export const MAX_BACKUP_IMPORT_BYTES = 1024 ** 3; // 1 GiB
 
+/**
+ * JSON 백업 한 덩이가 **문자열이 될 수 있는** 최대 바이트 수 (T-021 · M-0147).
+ *
+ * 🔴 이 숫자는 취향이 아니라 **실측**이다. V8의 문자열 최대 길이는 `2^29 - 24`이고,
+ * 그 한 글자를 넘기면 `TextDecoder().decode()`가 **던지지 않고 빈 문자열을 돌려준다**:
+ *
+ *   536,870,888 바이트 → textLen 536870888   (정상)
+ *   536,870,889 바이트 → textLen **0**       (조용한 실패)
+ *
+ * 그 다음 줄에서 `JSON.parse('')`가 터지므로, 앱은 **멀쩡한 백업을 「형식 아님」이라고**
+ * 말한다. 사용자가 그 말을 믿고 백업을 지우면 그게 기억 유실이다(비타협 원칙 #1).
+ *
+ * **바이트로 재는 것이 안전한 이유**: UTF-8 디코드는 문자 수를 늘리지 않는다(비ASCII는
+ * 여러 바이트가 한 글자가 된다). 그래서 `byteLength ≤ 이 값`이면 문자열 길이도 반드시
+ * 그 이하다 — 넉넉히 잡은 어림수가 아니라 **정확히 그 경계**다.
+ *
+ * ZIP 백업은 이 한계에 걸리지 않는다 — 사진·영상이 **별도 파일**로 들어가 `trip.json`은
+ * 메타데이터뿐이기 때문이다. 그래서 큰 자료의 다음 행동은 「ZIP으로 내보내기」다.
+ */
+export const MAX_BACKUP_JSON_TEXT_BYTES = 2 ** 29 - 24; // 536,870,888 — V8 문자열 상한(실측)
+
+/**
+ * JSON 백업 바이트를 문자열로 만든다. **조용한 실패를 조용히 두지 않는다.**
+ *
+ * 상한 검사만으로 끝내지 않고 **되읽어 확인한다**(§2 read-back) — 상한이 미래에 바뀌거나
+ * 다른 엔진에서 다른 자리에 절벽이 있어도, 「바이트는 있는데 글자가 0」이면 그건 우리가
+ * 못 읽은 것이지 파일이 깨진 것이 아니다. 그 둘을 같은 문장으로 말하지 않는다(§8).
+ */
+export function decodeBackupJsonBytes(bytes: Uint8Array): string {
+  if (bytes.byteLength > MAX_BACKUP_JSON_TEXT_BYTES) {
+    throw new Error(
+      '이 백업 파일이 너무 커서 열 수 없어요. 파일이 깨진 게 아니라 한 번에 읽을 수 있는 크기를 넘었어요. ' +
+        'ZIP 백업으로 내보낸 파일을 쓰면 같은 자료를 복원할 수 있어요.',
+    );
+  }
+  const text = new TextDecoder().decode(bytes);
+  if (bytes.byteLength > 0 && text.length === 0) {
+    throw new Error(
+      '이 백업 파일을 읽는 데 실패했어요(내용은 있는데 글자로 바꾸지 못했어요). ' +
+        '파일이 깨졌다는 뜻은 아니에요 — ZIP 백업 파일로 다시 시도해 주세요.',
+    );
+  }
+  return text;
+}
+
 function assertSupportedBackupVersion(value: unknown): asserts value is number {
   if (!Number.isInteger(value) || (value as number) < 1) {
     throw new Error('백업 버전 정보가 올바르지 않습니다.');
@@ -848,5 +893,7 @@ export async function importBackupAuto(
   }
   const view = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
   if (looksLikeZip(bytes.subarray(0, 4))) return importBackupZip(view);
-  return importBackup(new TextDecoder().decode(bytes));
+  // 🔴 JSON 경로만 **전체 파일을 한 문자열로** 만든다(사진·영상이 base64로 본문에 박혀 있다).
+  //    ZIP 경로는 미디어가 별도 파일이라 이 절벽에 닿지 않으므로 여기 한 곳만 지킨다(§7 — 제외 이유).
+  return importBackup(decodeBackupJsonBytes(bytes));
 }

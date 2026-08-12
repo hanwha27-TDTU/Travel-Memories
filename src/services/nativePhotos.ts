@@ -51,6 +51,17 @@ function bridge(): OriginalPhotosBridge | null {
 const lastPick = new Map<string, { original: boolean; reason: string }>();
 
 /**
+ * 네이티브가 바이트를 못 준 장들 (T-021). **비어 있는 것이 정상**이고, 남아 있으면
+ * 그만큼 사진이 안 들어온 것이다 — 개수가 0이라고 말하지 말고 이유를 보여주기 위한 자리다.
+ */
+const skipped: { name: string; reason: string }[] = [];
+
+/** 이번 선택에서 바이트를 못 받은 장들. 화면이 「왜 안 들어왔는지」를 말할 때 읽는다. */
+export function skippedPicks(): readonly { name: string; reason: string }[] {
+  return skipped;
+}
+
+/**
  * 이 파일이 네이티브 문을 거쳤다면 그때의 사실을, 아니면 null.
  * null인데 shellState()가 'shell'이면 — 셸인데 시스템 선택기 경로로 들어온 것이다.
  */
@@ -79,11 +90,20 @@ export function b64ToFile(name: string, b64: string): File {
 export async function pickIntoInput(input: HTMLInputElement): Promise<boolean> {
   const b = bridge();
   if (!b) return false;
+  skipped.length = 0; // 이번 선택의 사실만 담는다 — 지난 선택의 사유가 남으면 거짓이 된다
   const { photos } = await b.pick();
   if (photos.length > 0) {
     const dt = new DataTransfer();
     for (const f of input.files ? Array.from(input.files) : []) dt.items.add(f);
     for (const p of photos) {
+      // 🔴 네이티브가 **바이트를 못 준 장**은 건너뛴다(T-021). 크기 상한·OOM에 걸리면
+      //    플러그인이 `data: ''`와 사유를 준다. 이걸 그대로 통과시키면 0바이트 사진이
+      //    파이프라인에 들어가 「사진이 있는데 열리지 않는」 상태가 된다 — 조용한 실패를
+      //    새로 만드는 셈이다(§8). 사유는 남겨 관측 창이 사실을 말하게 한다.
+      if (!p.data) {
+        skipped.push({ name: p.name, reason: p.reason ?? '(사유 미보고)' });
+        continue;
+      }
       const file = b64ToFile(p.name, p.data);
       // File의 실제 이름으로 기록한다(빈 이름 폴백 뒤) — 관측 창이 이 이름으로 되찾는다.
       // 옛 APK의 플러그인은 reason을 안 보낸다 → undefined를 "모름"으로 뭉개지 않고 적는다.
