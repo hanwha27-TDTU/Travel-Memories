@@ -23,6 +23,12 @@ const OUT = join(ROOT, 'src/app/registry.gen.ts');
     migrationCount: 1,
     changelogCount: 1,
     researchCount: 1,
+    // 🔴 새 필드를 더하면 여기도 함께 넓힌다 — 안 그러면 **셀프테스트가 옛 전제를 못박아**
+    //    render가 터진다(§11 ②). 2026-08-12에 실제로 그랬고, §18-G의 빈 세계가 잡았다.
+    gateControl: [{ name: 'x', control: true, runnable: true, cleanExit: true }],
+    gateControlCount: 1,
+    gateRunnableCount: 1,
+    gateCleanExitCount: 1,
   };
   const a = render({ ...base, gates: ['x'], gateCount: 1 });
   const b = render({ ...base, gates: ['y'], gateCount: 2 });

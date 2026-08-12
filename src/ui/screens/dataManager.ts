@@ -6,6 +6,8 @@ import { el, setNote } from '../dom';
 import type { LocalTrip } from '../../offline/db';
 import { openDiagnosticsHub } from './diagnosticsHub';
 import { openGuide } from './guide';
+// 지연 로드로 연다 — 개발자 정보는 첫 화면에 필요 없다(check-lazy-screens 계약).
+import { openAboutApp } from '../lazyScreens';
 import {
   listTrashedChildren,
   listTrashedChildrenFromServer,
@@ -824,6 +826,11 @@ function cards(
     { icon: 'location', needs: null, label: '위치관리대장', hint: '등록한 장소를 찾고 좌표·주소 고치기', open: (h) => h.detail('위치관리대장', placeRegistryPanel(onChanged, (id, target) => { h.close(); goToTrip(id, target); })) },
     { icon: 'trash', needs: 'purge', label: '휴지통', hint: '삭제한 여행 복원·영구삭제', open: (h) => h.detail('휴지통', trashPanel(onChanged, h.close)) },
     { icon: 'guide', needs: null, label: '가이드', hint: '연결·설정과 개발·설계 안내', open: (h) => { h.close(); openGuide(); } },
+    // 🔴 예전에는 **제목 옆 버전 배지를 눌러야만** 열렸다 — 있는 줄도 모르는 진입점이었다.
+    //    홈 칩 줄에 7번째 칩을 더하지 않은 이유: 그 줄은 이미 6개라 좁은 화면에서 줄바꿈되고,
+    //    이 저장소는 그 자리에서 이미 한 번 데였다(계정 줄이 헤더를 한 줄 더 먹었다).
+    //    개발자 정보는 자주 쓰는 것이 아니므로 여기가 맞는 자리다.
+    { icon: 'guide', needs: null, label: '개발자 정보', hint: '버전·이력·검사 장치 현황', open: (h) => { h.close(); void openAboutApp(); } },
   ];
 }
 

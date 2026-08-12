@@ -8,6 +8,12 @@ import { CHANGELOG, DEVELOPER, APP_VERSION, LAST_MODIFIED, FIRST_DEV_DATE } from
 import { openResearchNote } from './researchNote';
 import { openDesignOverview } from './designOverview';
 import { openMechChecks } from './mechChecks';
+import { REGISTRY } from '../../app/registry.gen';
+import {
+  GATE_CONTROL_DISCLAIMER,
+  gateControlHeadline,
+  summarizeGateControl,
+} from '../../domain/gateControlView';
 
 /** 문서 규범 체계(법령 체계) — 기존 문서 지도를 규범 위계로 재구성. 새 사실을 만들지 않는다. */
 interface NormTier {
@@ -23,6 +29,58 @@ const NORM_TIERS: NormTier[] = [
   { icon: '🧭', rank: '시행지침', role: '배포 계약·검증 계획·에이전트 운영', docs: ['DEPLOYMENT', 'TEST_PLAN', 'AGENT_REGISTRY'] },
   { icon: '🗂', rank: '판례 · 기록', role: '결정 근거·교훈·인계·변경 이력', docs: ['DECISIONS', 'LESSONS', 'HANDOFF', 'CHANGELOG(이 화면의 SSOT)'] },
 ];
+
+/**
+ * 게이트 대조군 현황 절 — top-level로 뽑았다(함수 크기 래칫 · §7 구조적 강제).
+ *
+ * 🔴 **판정 렌더러를 쓰지 않는다.** ✓/! 글리프가 붙으면 「지금 정상」으로 읽히는데,
+ *    앱은 게이트가 실제로 돌았는지 볼 수 없다(§8 · diagGroups의 ERRORS-GATE-HEALTH가
+ *    *"앱이 이걸 판정하는 척하면 그 초록이 거짓이 된다"*고 이미 등록해 뒀다).
+ *    이건 **계약을 비추는 표**이지 상태 진단이 아니므로, 첫 줄이 그 사실부터 말한다.
+ */
+function buildGateControlSection(bodyEl: HTMLElement): void {
+  bodyEl.appendChild(el('h3', 'about-section-h', '🛡️ 검사 장치의 확인 절차'));
+  const axes = summarizeGateControl([...REGISTRY.gateControl]);
+  bodyEl.appendChild(el('p', 'about-gc-head', gateControlHeadline(axes)));
+  bodyEl.appendChild(el('p', 'guide-note', GATE_CONTROL_DISCLAIMER));
+  const list = el('div', 'about-tiers');
+  for (const a of axes) {
+    const row = el('div', 'about-tier');
+    const head = el('div', 'about-tier-head');
+    head.append(el('b', 'about-tier-rank', `${a.have} / ${a.total}`), el('span', 'about-tier-ic', a.label));
+    row.append(head, el('span', 'about-tier-role muted small', a.meaning));
+    // 침묵이 정상(§8) — 다 갖춘 축은 이름을 나열하지 않는다. 남아 있는 것이 곧 할 일이다.
+    if (a.missing.length) {
+      const chips = el('div', 'about-tier-docs');
+      for (const n of a.missing) chips.appendChild(el('span', 'about-doc-chip', n));
+      // 🔴 **자른 사실을 반드시 말한다**(§5 3항). 조용히 자르면 여섯 개가 전부인 줄 안다.
+      if (a.missingMore > 0) chips.appendChild(el('span', 'about-doc-chip muted', `외 ${a.missingMore}개`));
+      row.appendChild(chips);
+    }
+    list.appendChild(row);
+  }
+  bodyEl.appendChild(list);
+}
+
+/** 문서 규범 체계 절 — top-level(함수 크기 래칫 · §7 구조적 강제). */
+function buildNormTiersSection(bodyEl: HTMLElement): void {
+  bodyEl.appendChild(el('h3', 'about-section-h', '📐 문서 규범 체계 (거버넌스)'));
+  bodyEl.appendChild(
+    el('p', 'guide-note', '이 앱은 문서를 규범 위계로 관리합니다. 충돌하면 상위 규범이 이깁니다. 저장소 문서가 최종 정보원입니다.'),
+  );
+  const tiers = el('div', 'about-tiers');
+  for (const t of NORM_TIERS) {
+    const row = el('div', 'about-tier');
+    const head = el('div', 'about-tier-head');
+    head.append(el('span', 'about-tier-ic', t.icon), el('b', 'about-tier-rank', t.rank));
+    const role = el('span', 'about-tier-role muted small', t.role);
+    const docs = el('div', 'about-tier-docs');
+    for (const d of t.docs) docs.appendChild(el('span', 'about-doc-chip', d));
+    row.append(head, role, docs);
+    tiers.appendChild(row);
+  }
+  bodyEl.appendChild(tiers);
+}
 
 /** '개발자 정보' 모달을 연다. 현재 화면은 유지하고 위에 오버레이로 뜬다. */
 export function openAboutApp(): void {
@@ -113,23 +171,9 @@ export function openAboutApp(): void {
   bp.append(bpBtn, mcBtn);
   bodyEl.appendChild(bp);
 
-  // ── 문서 규범 체계(법령 체계) ──
-  bodyEl.appendChild(el('h3', 'about-section-h', '📐 문서 규범 체계 (거버넌스)'));
-  bodyEl.appendChild(
-    el('p', 'guide-note', '이 앱은 문서를 규범 위계로 관리합니다. 충돌하면 상위 규범이 이깁니다. 저장소 문서가 최종 정보원입니다.'),
-  );
-  const tiers = el('div', 'about-tiers');
-  for (const t of NORM_TIERS) {
-    const row = el('div', 'about-tier');
-    const head = el('div', 'about-tier-head');
-    head.append(el('span', 'about-tier-ic', t.icon), el('b', 'about-tier-rank', t.rank));
-    const role = el('span', 'about-tier-role muted small', t.role);
-    const docs = el('div', 'about-tier-docs');
-    for (const d of t.docs) docs.appendChild(el('span', 'about-doc-chip', d));
-    row.append(head, role, docs);
-    tiers.appendChild(row);
-  }
-  bodyEl.appendChild(tiers);
+  buildGateControlSection(bodyEl);
+
+  buildNormTiersSection(bodyEl);
 
   // ── 업데이트 이력 ──
   const histH = el('div', 'about-hist-head');
