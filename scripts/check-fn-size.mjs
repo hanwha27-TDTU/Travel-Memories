@@ -92,6 +92,30 @@ export function topLevelFunctions(source, fileName = 'source.ts') {
   return out;
 }
 
+// ── 비공허 자체검사(§4) ─────────────────────────────────────────────────────
+// 이 게이트는 **래칫**이라 숫자가 곧 계약이다. 세는 법이 틀리면 부채가 조용히 늘어난다.
+// 그래서 대조군은 「무엇을 최상위 함수로 세는가」의 경계를 못박는다.
+{
+  const one = topLevelFunctions('function a() {\n  return 1;\n}\n');
+  const nested = topLevelFunctions('function a() {\n  function b() {\n    return 1;\n  }\n  return b;\n}\n');
+  const arrow = topLevelFunctions('export const a = () => {\n  return 1;\n};\n');
+  const cases = [
+    // 🔴 `one[0]`을 그냥 쓰면 판정 함수가 망가졌을 때 **죽는다.** 죽음은 위반이 아니다(§18-G) —
+    //    대조군은 깨져도 「무엇이 틀렸는지」를 말하고 exit 2로 나가야 한다.
+    ['최상위 함수를 센다', () => one.length === 1 && one[0]?.name === 'a'],
+    ['줄 수를 센다(선언줄부터 닫는 줄까지)', () => one[0]?.lines === 3],
+    ['🔴 안쪽 함수는 따로 세지 않는다 — 쪼개라는 압력이 중복되면 안 된다', () => nested.length === 1],
+    ['화살표 함수도 최상위면 센다(형태가 아니라 자리로 판단)', () => arrow.length === 1],
+    ['함수가 없으면 빈 목록(오탐 금지)', () => topLevelFunctions('const x = 1;\n').length === 0],
+  ];
+  const broken = cases.filter(([, fn]) => !fn());
+  if (broken.length) {
+    console.error(`check-fn-size: 셀프테스트 실패 — 게이트가 공허하다(§4): ${broken.map((c) => c[0]).join(', ')}`);
+    process.exit(2);
+  }
+}
+
+
 // ── 비공허 자체검사(§4) ──
 (() => {
   const src = [
