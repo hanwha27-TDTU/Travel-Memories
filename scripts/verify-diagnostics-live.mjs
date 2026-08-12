@@ -31,6 +31,7 @@
 // 종료코드: 0=통과 · 1=위반 · 2=전제 미충족(SKIP — harness가 가른다, §2-G)
 
 import { createServer } from 'node:http';
+import { launchLiveBrowser } from './live-browser-lib.mjs';
 import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -337,18 +338,10 @@ try {
 const appServer = await serveDir(DIST, BASE, 4184);
 const fixServer = await serveDir(join(TMP, 'out'), '/', 4185);
 
-let browser;
-try {
-  browser = await chromium.launch();
-} catch (e) {
-  console.error(
-    `verify-diagnostics-live: 브라우저를 띄우지 못했습니다 — ${String(e).split('\n')[0]}\n` +
-      '  → 이 실행은 라이브 층을 재지 않았습니다(통과가 아닙니다).',
-  );
-  appServer.close(); fixServer.close();
-  await rm(TMP, { recursive: true, force: true });
-  process.exit(2);
-}
+const browser = await launchLiveBrowser(chromium, {
+  gate: 'verify-diagnostics-live',
+  cleanup: async () => { appServer.close(); fixServer.close(); await rm(TMP, { recursive: true, force: true }); },
+});
 
 const errors = [];
 const page = await browser.newPage({ viewport: { width: 375, height: 812 } });

@@ -160,12 +160,57 @@ public class OriginalPhotosPlugin extends Plugin {
         reason = "promote-failed:" + e.getClass().getSimpleName();
       }
     }
+    JSObject promoted = readBytes(uri, picked, original, reason);
+    if (promoted != null) return promoted;
+    // 승격된 URI가 읽기를 거부하면(권한 조합 문제) 원래 URI로 한 번 더 — 사진을 잃지 않는다.
+    return readBytes(picked, picked, false, "read-original-failed");
+  }
+
+  /**
+   * 이 기기가 한 장에 쓸 수 있는 최대 바이트 (T-021).
+   *
+   * 🔴 **상수를 손으로 고르지 않는다 — 기기에게 묻는다.** 한 장을 읽는 동안 같은 사진이
+   * 메모리에 세 번 산다: 누적 버퍼 → `toByteArray()` 복사 → Base64 문자열(약 1.33배).
+   * 합치면 원본의 **약 3.3배**이고, 그 위에 웹뷰로 건너갈 사본이 또 붙는다. 기기 힙은
+   * 모델마다 다르므로(192MB~512MB+) 고정 숫자는 어떤 기기에선 헐렁하고 어떤 기기에선 위험하다.
+   * `maxMemory()`의 1/4을 상한으로 잡으면 3.3배 최고점이 힙의 대부분을 먹지 않는다.
+   *
+   * **정직한 경계**: 이 값은 OOM을 막는 **설계 한도**이지 실측된 기기별 임계값이 아니다.
+   * 실제 저사양 기기 확인은 사용자 실기기 몫이다.
+   */
+  private long maxPhotoBytes() {
+    return Math.max(8L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 4);
+  }
+
+  /**
+   * URI 하나를 읽어 Base64로 돌려준다. **두 벌로 손으로 적혀 있던 것을 한 곳으로 모았다**(§7):
+   * 같은 규율이 두 곳에 있으면 갈라지고, 실제로 크기 경계가 **어느 쪽에도** 없었다.
+   *
+   * 🔴 **너무 크면 조용히 죽지 않고 이유를 말한다.** 예전에는 상한이 없어 큰 사진 하나가
+   * 앱을 통째로 끝낼 수 있었고, 사용자에게는 「그냥 꺼짐」으로 보였다. 이제 그 사진만
+   * 건너뛰고 `reason`에 크기를 적어 화면이 사실을 말할 수 있게 한다(§8 — 모르는 것을
+   * 정상으로 반올림하지 않는다).
+   */
+  private JSObject readBytes(Uri uri, Uri picked, boolean original, String reason) {
+    final long limit = maxPhotoBytes();
     try (InputStream in = getContext().getContentResolver().openInputStream(uri)) {
       if (in == null) return null;
       ByteArrayOutputStream buf = new ByteArrayOutputStream();
       byte[] chunk = new byte[64 * 1024];
       int n;
-      while ((n = in.read(chunk)) > 0) buf.write(chunk, 0, n);
+      long total = 0;
+      while ((n = in.read(chunk)) > 0) {
+        total += n;
+        if (total > limit) {
+          JSObject tooBig = new JSObject();
+          tooBig.put("name", displayName(picked));
+          tooBig.put("data", "");
+          tooBig.put("original", false);
+          tooBig.put("reason", "too-large:" + total + ">" + limit);
+          return tooBig;
+        }
+        buf.write(chunk, 0, n);
+      }
       JSObject one = new JSObject();
       one.put("name", displayName(picked));
       one.put("data", Base64.encodeToString(buf.toByteArray(), Base64.NO_WRAP));
@@ -173,23 +218,16 @@ public class OriginalPhotosPlugin extends Plugin {
       one.put("original", original);
       one.put("reason", reason);
       return one;
+    } catch (OutOfMemoryError oom) {
+      // 상한 안이어도 기기가 이미 빠듯할 수 있다. 앱을 끝내지 말고 이 장만 포기한다.
+      JSObject failed = new JSObject();
+      failed.put("name", displayName(picked));
+      failed.put("data", "");
+      failed.put("original", false);
+      failed.put("reason", "out-of-memory");
+      return failed;
     } catch (Exception e) {
-      // 승격된 URI가 읽기를 거부하면(권한 조합 문제) 원래 URI로 한 번 더 — 사진을 잃지 않는다.
-      try (InputStream in2 = getContext().getContentResolver().openInputStream(picked)) {
-        if (in2 == null) return null;
-        ByteArrayOutputStream buf = new ByteArrayOutputStream();
-        byte[] chunk = new byte[64 * 1024];
-        int n;
-        while ((n = in2.read(chunk)) > 0) buf.write(chunk, 0, n);
-        JSObject one = new JSObject();
-        one.put("name", displayName(picked));
-        one.put("data", Base64.encodeToString(buf.toByteArray(), Base64.NO_WRAP));
-        one.put("original", false);
-        one.put("reason", "read-original-failed:" + e.getClass().getSimpleName());
-        return one;
-      } catch (Exception e2) {
-        return null;
-      }
+      return null;
     }
   }
 

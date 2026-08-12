@@ -8,6 +8,27 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0157 · v2.19 · **T-021 — 큰 백업의 조용한 디코드 실패와 Android 사진 메모리 경계** (2026-08-12 · 릴리스 후보)
+
+- **후보를 재보니 더 무거운 것이 나왔다.** T-021은 「1 GiB까지 받는 백업이 OOM을 낼 수 있다」였는데, 실측해 보니 OOM보다 먼저 오는 것이 있었다 — `TextDecoder().decode()`가 V8 문자열 상한(`2^29-24`)을 **한 바이트** 넘기면 던지지 않고 **빈 문자열**을 준다(536,870,888 정상 / 536,870,889 → 글자 0). 그 다음 줄 `JSON.parse('')`가 터져 앱이 **멀쩡한 백업을 「JSON 형식 아님」**이라 말했다. 그 문장이 시키는 다음 행동은 「버려라」이므로 **기억 유실 경로**였다(M-0147 · §10 ③).
+- **수정(웹)**: `MAX_BACKUP_JSON_TEXT_BYTES`(실측 경계)와 `decodeBackupJsonBytes()`. 상한 초과는 **크기 때문임을 말하고 ZIP 백업이라는 다음 행동**을 준다. 바이트로 재는 것이 안전한 근거도 코드에 적었다 — UTF-8 디코드는 글자 수를 늘리지 않으므로 `byteLength ≤ 상한`이면 문자열 길이도 반드시 그 이하다(어림수가 아니라 정확한 경계). 🔴 상한만 믿지 않고 **되읽는다** — 「바이트는 있는데 글자 0」이면 파일 탓을 하지 않는다(§8).
+- **수정(Android)**: `OriginalPhotosPlugin`의 읽기 경로가 **두 벌 손으로** 적혀 있었고 **어느 쪽에도 크기 경계가 없었다**(§7 — 중복은 갈라지기 전에 이미 둘 다 비어 있었다). `readBytes()` 하나로 합치고 상한을 `Runtime.getRuntime().maxMemory()/4`로 뒀다 — 한 장이 누적 버퍼 → `toByteArray()` → Base64로 **약 3.3배**를 쓰기 때문이다. 🔴 **상수를 손으로 고르지 않고 기기에게 물었다.** 초과·`OutOfMemoryError`는 앱을 끝내지 않고 **그 장만 건너뛰며 사유를 남긴다.**
+- 🔴 **새 조용한 실패를 만들 뻔한 자리를 함께 막았다.** 네이티브가 `data: ''`를 주면 웹의 `b64ToFile`이 **0바이트 사진**을 만들어 파이프라인에 넣는다 — 「사진은 있는데 열리지 않는」 상태다. 빈 장은 넣지 않고 `skippedPicks()`에 사유를 남긴다.
+- **검증**: 신규 유닛 7건 PASS · 두 방어를 각각 무력화한 주입에서 **3건 RED**, 원복 GREEN · `tsc` PASS · build PASS · **전체 하네스 통과(건너뛴 것 없음)**. 512MiB를 실제로 만들지 않고 **그 거동**만 디코더에 심어 문장을 쟀다 — 재는 대상은 크기가 아니라 화면에 나가는 말이다.
+- **정직한 한계**: Android 변경은 이 환경에 SDK가 없어 **로컬 컴파일을 못 했다** — CI의 `assembleDebug`가 판정자다. 그리고 `maxMemory()/4`는 OOM을 막는 **설계 한도**이지 실측된 기기별 임계값이 아니다. 저사양 실기기 확인은 사용자 경계다.
+- **영향 표면**: `android-shell/**`이 바뀌었으므로 Pages와 `apk-latest` **둘 다** 배포된다.
+
+## HANDOFF-0156 · v2.18 · **배포 완료 · M-0145 · 헌법 §21(강행 배포)** (2026-08-12 · 릴리스 완료)
+
+- **배포 완료**: PR #257 → squash 머지 `919dfd3` → **Deploy to GitHub Pages run 288 · success**. Required CI는 후보 `accb555`에서 `harness`·`live-render`·`fast-gates` **셋 다 success**. **검증 1회 + 재개방 1회**(§18-H).
+- 🔴 **재개방 1회의 이유는 내가 만든 게이트였다(M-0145).** CI run 576의 `harness` job이 `verify-authgate-live`에서 죽었다 — CI는 Chromium을 `live-render` job에만 설치하는데, 새 게이트는 `playwright` 패키지 import 성공을 브라우저 존재의 근거로 쓰고 `chromium.launch()`를 그대로 불렀다. 예외가 터지면 종료코드 1이고, 이 저장소 계약에서 1은 **「위반을 찾았다」**다 — 게이트는 판정한 것이 아니라 **죽었는데 화면엔 위반이라고 적혔다**(§18-G가 경고하는 바로 그 형태). 형제 `verify-diagnostics-live`는 이미 `try/catch` → `exit 2`(SKIP)로 옳게 처리하고 있었고 **새로 만든 것만 규율 밖에서 태어났다**(§7 · M-0033과 동형).
+- **그리고 그 조항을 정독한 세션에서 났다.** `GATE_WORLD`에 `browser`라고 **적어 놓고도** 그 세계를 벗겨서 돌려 보지 않았다 — §18-G의 *"선언은 산문이므로 믿지 않는다"*가 그 자리다. `check-env-assumption`이 벗길 수 있는 세계는 `baseRef`·`dist` 둘뿐이고 `browser`는 그 조항이 이미 「정직한 한계」로 적어 둔 사각지대다. **한계를 적어 둔 것과 그 한계에 빠지지 않는 것은 다른 일이다.**
+- **부수 수확 — 로컬 빨간불 2건의 정체가 밝혀졌다.** `verify-editor-live`의 사진·영상 저장 검사가 이 샌드박스에서 실패했지만(바이트는 정확, 파일 이름만 `download`), ①변경 표면에 파일 저장 코드가 없고 ②격리 실험에서 Chromium은 `download` 속성을 정상 처리하며 ③파일명 생성 함수도 정상이고 ④**`origin/main`(v2.17)을 별도 작업트리에 세워 돌리자 같은 2건이 같은 값으로 실패**했다. 그리고 **CI에서는 초록**이었다(run 576·577 모두 `live-render` success). **샌드박스 Chromium 특성이며 앱 결함이 아니다** — 쫓을 것이 없어 후속 과제로 올리지 않는다.
+- **헌법 §21 신설**(사용자 지시): 머지 단계(후보를 `release:arm`으로 얼리고 Required CI에 물은 뒤)에 들어가면 **빨간 검사가 있어도 머지·배포한다.** 예외는 ①사용자 기억의 유실·손상 ②§0 절대 위반 둘뿐이고, 화면 문구·미관·검사 인프라·환경 특유 실패는 예외가 아니다. 근거는 ADR-0064.
+- 🔴 **§21이 바꾸지 않는 것**: 배포 그린 확인, 정직한 보고, 강행 항목의 백로그 등록. **강행은 검사 면제가 아니라 판단의 이전**이므로 완료 보고에 「하네스 N/M으로 배포함」을 적고 빨간 항목을 같은 판에서 다음 판 우선 과제로 올린다. 안 올리면 강행이 아니라 은폐다(§16).
+- **이번 판에 §21은 적용되지 않았다** — M-0145를 고치자 Required CI가 전부 초록이 되어 **강행 없이** 배포했다. 일어나지 않은 강행을 일어난 것처럼 적지 않는다(§4 정직한 귀속).
+- **정직한 한계**: 이 샌드박스는 `*.github.io`를 막아(§15) 운영 `version.json`의 v2.18 read-back을 **하지 못했다**. 「배포 워크플로 성공을 확인함」과 「사이트에서 확인함」은 다른 말이다. 그리고 잠긴 데이터 관리 화면의 **실기기 렌더**는 사용자 확인 경계다.
+
 ## HANDOFF-0155 · **T-020 라이브 층 — 잠긴 화면을 실제 브라우저로 보고 눌러서 닫음** (2026-08-12 · 새 게이트)
 
 - HANDOFF-0154가 남긴 유일한 구멍을 메웠다. 잠금은 `isConfigured()===true`에서만 도는데 그 값은 **빌드 시 박히고**, `dist`와 `verify-editor-live` 픽스처는 둘 다 클라우드 미설정이라 **그 갈래에 원리적으로 닿지 못했다.**
@@ -1103,7 +1124,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.18<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->218<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.19<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->219<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->30<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
