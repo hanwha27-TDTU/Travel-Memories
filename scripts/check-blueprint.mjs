@@ -111,6 +111,10 @@ for (const f of [BP, DB, SYNC]) {
 }
 
 selfTest();
+if (process.argv.includes('--selftest')) {
+  console.log('check-blueprint: 셀프테스트 통과');
+  process.exit(0);
+}
 
 const bpSrc = readFileSync(BP, 'utf8');
 const sources = parseSources(bpSrc);

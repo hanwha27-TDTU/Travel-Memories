@@ -79,6 +79,10 @@ function scanFile(path) {
 }
 
 selfTest();
+if (process.argv.includes('--selftest')) {
+  console.log('check-secret-leak: 셀프테스트 통과');
+  process.exit(0);
+}
 
 const targets = [...trackedFiles(), ...distFiles()]
   .filter((p) => !SKIP_PREFIX.some((s) => p.startsWith(s)))
