@@ -69,6 +69,8 @@ import {
   pendingUnpurgeIds,
 } from '../../services/purge';
 import { supabase, isConfigured } from '../../services/supabase/client';
+import { ensureProviders } from '../../services/geocode';
+import { placeProviderView } from '../../domain/placeProviderVerdict';
 import { auditPlaceZombies } from '../../services/placeZombieAudit';
 import { backupFilename, exportBackupZip } from '../../services/backup';
 import { backupSaveMessage, saveBackupBlob } from '../../services/fileSave';
@@ -696,6 +698,9 @@ const ESSENTIAL = new Set(['IndexedDB', 'Crypto.subtle']);
 
 export async function environmentProbe(): Promise<Verdict> {
   const env = await collectEnv(APP_VERSION);
+  // 🔴 진단은 **직접 물어본다.** 캐시만 읽으면 이 화면을 먼저 연 사용자에게는 늘
+  //    「아직 안 물어봄」이 뜨는데, 그건 판정이 아니라 회피다(§8).
+  const place = placeProviderView(await ensureProviders(supabase()));
   const missing = Object.entries(env.features)
     .filter(([, ok]) => !ok)
     .map(([k]) => k);
@@ -724,6 +729,16 @@ export async function environmentProbe(): Promise<Verdict> {
       ...(env.device.online
         ? {}
         : { meaning: '지금은 오프라인이에요. 기록은 이 기기에 안전히 저장되고, 연결되면 자동으로 올라갑니다 — 정상 동작입니다.' }),
+    },
+    {
+      label: '장소 검색 도우미',
+      actual: place.actual,
+      expected: place.expected,
+      // 유니온을 그대로 펼친다 — 판정과 그 종류가 **한 값에서** 온다(§17 ② 모순 불가).
+      ...(place.level === 'unknown'
+        ? { level: 'unknown' as const, unknownKind: place.unknownKind }
+        : { level: 'ok' as const }),
+      ...(place.meaning ? { meaning: place.meaning } : {}),
     },
   ];
 

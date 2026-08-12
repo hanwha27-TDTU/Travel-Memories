@@ -245,8 +245,28 @@ export function availableProviders(env: (k: string) => string | undefined): stri
   return out;
 }
 
+/**
+ * 🔴 이 함수는 **다른 출처**(앱은 `*.github.io`, 함수는 `*.supabase.co`)에서 불린다.
+ *    그러면 브라우저가 본 요청 앞에 **사전요청(OPTIONS)**을 먼저 보내는데, 그 요청에는
+ *    본문이 없어 아래 `req.json()`이 던지고 **400**이 나갔다. 본 요청은 나가지도 못했다.
+ *
+ * **실측(2026-08-12 · M-0148)**: 운영 로그의 `geocode` 호출이 전부 `OPTIONS | 400`이었다.
+ * 형제인 `media-sign`은 처음부터 이 둘을 갖고 있었다 — **형제 하나만 조용히 빠져 있었다**(§7).
+ * 앱은 그 실패를 `catch { return [] }`로 삼켜 「제공자가 없다」로 접었기 때문에,
+ * 화면에는 아무 말도 나오지 않았고 검색은 늘 Nominatim으로 내려갔다.
+ */
+const CORS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, content-type, apikey, x-client-info',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Max-Age': '600',
+};
+
 const json = (body: unknown, status = 200): Response =>
-  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS, 'Content-Type': 'application/json' },
+  });
 
 /**
  * 요청자의 JWT를 **직접** 확인한다(플랫폼 설정에 기대지 않는다 — media-sign과 같은 규율).
@@ -400,6 +420,9 @@ async function searchVworld(key: string, q: string): Promise<NormalizedRow[]> {
 }
 
 DENO?.serve(async (req: Request): Promise<Response> => {
+  // 🔴 사전요청을 **본문을 읽기 전에** 답한다. 아래 `req.json()`은 본문 없는 요청에서 던진다.
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
@@ -429,7 +452,14 @@ DENO?.serve(async (req: Request): Promise<Response> => {
     if (!decision.ok) {
       return new Response(
         JSON.stringify({ error: 'rate_limited', retryAfterSec: decision.retryAfterSec }),
-        { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': String(decision.retryAfterSec) } },
+        {
+          status: 429,
+          headers: {
+            ...CORS,
+            'Content-Type': 'application/json',
+            'Retry-After': String(decision.retryAfterSec),
+          },
+        },
       );
     }
     const want = str(body['provider']);

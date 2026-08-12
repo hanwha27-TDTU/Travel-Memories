@@ -308,29 +308,63 @@ export function parseProxyRows(json: unknown, fallbackProvider: ProviderId): Pla
  * 매 검색마다 `capabilities`를 되물으면 검색 한 번에 왕복이 둘이 된다. 이 값은 서버 시크릿
  * 구성이라 세션 중에 바뀌지 않는다 — 바뀌었다면 새로고침이 정상적인 반영 경로다.
  */
-let cachedProviders: ProviderId[] | null = null;
-export async function ensureProviders(client: ProxyClient | null): Promise<ProviderId[]> {
-  if (cachedProviders) return cachedProviders;
-  cachedProviders = await proxyProviders(client);
-  return cachedProviders;
+let cachedProbe: ProviderProbe | null = null;
+export async function ensureProviders(client: ProxyClient | null): Promise<ProviderProbe> {
+  if (cachedProbe) return cachedProbe;
+  cachedProbe = await proxyProviders(client);
+  return cachedProbe;
 }
 
 /** 검사용 — 캐시를 비운다. 제품 코드에서 부르지 않는다. */
 export function resetProviderCache(): void {
-  cachedProviders = null;
+  cachedProbe = null;
 }
 
-/** 프록시에 붙어 있는 국내 제공자 목록. 프록시가 없거나 실패하면 **빈 배열**(조용히 Nominatim만). */
-export async function proxyProviders(client: ProxyClient | null): Promise<ProviderId[]> {
-  if (!client) return [];
+/**
+ * 🔴 **「물어봤더니 없다」와 「못 물어봤다」는 다른 사실이다**(§8 · T-025 · M-0148).
+ *
+ * 예전에는 둘 다 `[]`였다. 그래서 `geocode`가 **CORS 때문에 브라우저에서 아예 안 불리는**
+ * 상태가 오래 조용했다 — 앱은 「국내 제공자가 없나 보다」로 접고 Nominatim으로 내려갔고,
+ * 화면에는 아무 말도 나오지 않았다. 로그를 읽고서야 알았다.
+ *
+ * 두 상태를 **타입으로** 가른다. 세 번째 상태를 만들려면 `asked`를 붙일 수밖에 없으므로
+ * 다음 사람이 또 `[]`로 접을 수 없다(§7 2층 — 구조가 규율을 지킨다).
+ */
+export type ProbeFailure =
+  /** 클라우드 자체가 설정되지 않았다(로그아웃·미설정). 물어볼 서버가 없다 — 결함이 아니다. */
+  | 'no-client'
+  /** 물어봤는데 오류가 왔다. 배포·네트워크·CORS 어느 쪽인지는 여기서 모른다. */
+  | 'error'
+  /** 답은 왔는데 모양이 계약과 다르다. 서버가 낡았거나 우리 계약이 틀렸다. */
+  | 'bad-shape';
+
+export type ProviderProbe =
+  /** 물어봤고 답을 받았다. **빈 배열도 답이다** — 「키가 안 붙었다」는 정상 상태다. */
+  | { asked: true; providers: ProviderId[] }
+  /** 못 물어봤다. 이 상태를 「없다」로 반올림하지 않는다. */
+  | { asked: false; why: ProbeFailure };
+
+/** 검색 경로가 쓰는 목록. 못 물어본 상태는 빈 목록으로 취급한다 — **검색은 조용히 계속된다.** */
+export function providersOf(probe: ProviderProbe): readonly ProviderId[] {
+  return probe.asked ? probe.providers : [];
+}
+
+/**
+ * 프록시에 붙어 있는 국내 제공자 목록.
+ *
+ * 🔴 실패해도 **검색 화면은 조용하다** — Nominatim이 답하므로 사용자에게 알릴 일이 아니다.
+ *    그러나 **진단은 조용하면 안 된다.** 그래서 사유를 잃지 않고 돌려준다(§8).
+ */
+export async function proxyProviders(client: ProxyClient | null): Promise<ProviderProbe> {
+  if (!client) return { asked: false, why: 'no-client' };
   try {
     const r = await client.functions.invoke(PROXY_FN, { body: { op: 'capabilities' } });
-    if (r.error) return [];
+    if (r.error) return { asked: false, why: 'error' };
     const list = (r.data as { providers?: unknown })?.providers;
-    if (!Array.isArray(list)) return [];
-    return list.filter((p): p is ProviderId => p === 'kakao' || p === 'vworld');
+    if (!Array.isArray(list)) return { asked: false, why: 'bad-shape' };
+    return { asked: true, providers: list.filter((p): p is ProviderId => p === 'kakao' || p === 'vworld') };
   } catch {
-    return [];
+    return { asked: false, why: 'error' };
   }
 }
 

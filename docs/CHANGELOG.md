@@ -25,6 +25,14 @@ shape_reason: 판별 이력은 시간순 서사이며 항목의 완전성이 아
 > 릴리스마다 갱신되지 않는 **선택적 기록**이라, 항목이 없다는 것은 「배포 안 됨」이 아니라
 > **「여기 안 적음」**이다.
 
+### geocode CORS 결함과 「모른다」의 침묵 (M-0148 · T-025, 2026-08-12) · v2.21
+- **운영 로그 실측**: `geocode` 호출이 전부 `OPTIONS | 400`이었다. 앱(`*.github.io`)과 함수(`*.supabase.co`)가 다른 출처라 브라우저가 사전요청을 먼저 보내는데, 그 요청에는 본문이 없고 핸들러 첫 줄이 `await req.json()`이었다. **`OPTIONS` 분기도 CORS 헤더도 파일에 없었다** — 형제 `media-sign`은 처음부터 둘 다 갖고 있었다(§7 최빈형).
+- 고침 + **운영 배포**(version 2 → 3). 행동 되읽기로 확인: `OPTIONS 200` → **`POST 200`**(그 POST 줄은 로그 전체에서 처음 나타났다).
+- `check-edge-cors` 신설(게이트 61 → 62) — 다음 Edge Function이 자동으로 따라온다. 🔴 첫 판이 **내 주석 속 `req.json()`**과 **이름 붙인 핸들러**(`DENO.serve(handler)`)에 오탐을 냈다. 주석 제거 + 파일 전체 순서 판정으로 고치고 둘을 음성 사례로 박았다(§11 ③).
+- 🔴 **T-025 — 왜 몇 달간 조용했나**: `proxyProviders`가 `catch { return [] }`·`r.error → []`라 **「못 물어봤다」와 「제공자 없음」이 같은 값**이었다(§8). 이제 `ProviderProbe` 유니온으로 가른다 — 세 번째 상태를 만들려면 `asked`를 적을 수밖에 없어 다음 사람이 또 `[]`로 접을 수 없다(§7 2층).
+- 판정 문장은 순수 함수 `placeProviderView`로 뽑아 「환경·기능 지원」 도구의 지표로 낸다. **못 물어본 것은 `unknown`**이고 종류까지 가른다(오류=`transient` · 모양 불일치=`structural`). 유닛 7건 + 라이브 4건, 두 층 모두 옛 동작 주입으로 RED 확인.
+- **안 한 것**: 국내 제공자 시크릿 등록은 사용자 결정 사항(T-026). 지금은 Nominatim만 쓰며 **그건 문서화된 기본 동작**이다.
+
 ### Edge Function 자원 상한과 잠금·redaction 경계 마무리 (T-022·T-023·T-024, 2026-08-12) · v2.20
 - `geocode`에 **질의 길이 100자 + 사용자별 300회/분**을 넣고 운영 배포했다(version 1→2 · `verify_jwt: false` 유지). 판정은 순수 함수 `allowRequest(prev, now, max, windowMs)`가 하고, 초과는 429 + `Retry-After`. 사람이 손으로 닿을 수 없는 자리를 골랐다 — 근거는 ADR-0065.
 - `media-sign`은 **안 하기로 결정**했다(ADR-0065). 위협이 「이미 초대받은 계정」을 요구하고, 그 파일의 논리 소스 SHA-256이 `schemas/sync-release-contract.json`에 묶여 있어 주석 한 줄도 §18-F 배포 창을 강제한다. 사유는 `supabase-security-dev` 헌장에 적어 brief가 먼저 읽히게 했다.
