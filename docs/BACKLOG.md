@@ -26,8 +26,18 @@ registry_prefix: BKL
 
 | ID | 과제 | 상태 | 무엇이 필요한가 | 추가일 | 근거 |
 |---|---|---|---|---|---|
+| T-024 | 🔎 중단된 보안감사의 조건부 후보 검증 — 세션 잔존·진단 redaction·SQL/감사 에이전트 guardrail | 대기 | 로그아웃·토큰 만료·계정 전환 뒤 이미 열린 상세 화면이 닫히는지 라이브로 검증하고, quoted JSON secret·비HTTP callback URL redaction, 파괴적 `UPDATE`와 `sql-safe-ok` 우회, 읽기전용 감사 에이전트의 Bash 경계를 각각 재현한다. anti-framing은 ADR-0048/T-008의 기존 사용자 결정을 새 근거 없이 다시 열지 않는다. 확인된 결함만 별도 수정·주입 RED→GREEN으로 닫고 미확인은 `unknown`으로 남긴다. | 2026-08-12 | 중단된 Codex Security Deep Scan 후보 6·8·12·13·14·15. discovery 후보일 뿐 중앙 validation·attack-path·정식 report 미완료 |
+| T-023 | 🤖 Android·CI·배포 보안 경계 재검증 | 대기 | APK workflow의 branch-controlled code+`contents: write`, 수동 Pages의 non-main ref, debug APK/WebView debugging, host 전체 `allowNavigation`, `allowBackup=true`를 실제 GitHub Environment·APK·실기기 경계까지 검증한다. 고정 debug 키는 ADR-0039의 의도적 사이드로드 결정이므로 곧바로 비밀 유출로 판정하거나 키를 교체하지 말고, 현재 배포·업데이트 위협 모델에서 별도 release signing이 필요한지 사용자 선택안과 이행 비용을 제시한다. | 2026-08-12 | 중단된 Codex Security Deep Scan 후보 9·10·11·16·17·18. 코드 구성은 관측했으나 환경 보호규칙·APK 실물 공격경로 중앙 검증 미완료 |
+| T-022 | 🧯 인증된 Edge Function 자원 남용 상한 | 대기 | `media-sign`의 PUT URL 발급에 사용자별 크기·개수·형식·속도 한도와 실패 판정을, `geocode`에 query 길이·사용자별 rate limit·upstream fan-out 상한을 설계한다. 초대 계정·탈취 세션을 공격자로 두고 정상 업로드·검색을 막지 않는 대조군, 서버 비용/쿼터 read-back과 우회 주입을 갖춘다. | 2026-08-12 | 중단된 Codex Security Deep Scan 후보 20·21. 인증·초대제는 확인됐으나 앱 수준 quota 부재 후보의 운영 제공자 완화·실제 영향 검증 미완료 |
+| T-021 | 🧠 대용량 백업·원본사진 메모리 고갈 경계 | 대기 | 거의 1GiB까지 받는 백업의 main-thread ZIP scan/copy/CRC와 Android 원본사진의 전체 `ByteArrayOutputStream`→`byte[]`→Base64 중복을 기기 안전 상한·스트리밍/분할·명시적 실패로 바꿀지 측정한다. 작은 정상 자료, 경계 크기, 초과 입력, 중도 실패에서 데이터·임시 바이트 불변과 사용자 판정문을 검증한다. | 2026-08-12 | 중단된 Codex Security Deep Scan 후보 7·19. 코드상 무상한 전체 버퍼링은 확인됐으나 기기별 OOM/정지 재현과 적정 상한 미측정 |
+| T-020 | 🔐 로그아웃 상태 데이터 관리 권한 경계 확정 | 대기 | 로그아웃 상태에서 데이터 관리 진입과 로컬 export·restore·영구삭제가 가능한 현재 경로를 실제 cloud-configured build에서 검증한다. 비상 복구용 export를 허용할지, restore/purge는 재인증할지 사용자 결정과 위협 모델을 먼저 세우고, 허용·거부·로컬전용 build 대칭을 라이브/유닛으로 잠근다. | 2026-08-12 | 중단된 Codex Security Deep Scan 후보 3·4·5. M-0102는 여행 목록·폼·상세만 가렸으며 데이터 관리 전체의 로그인 경계는 별도 중앙 검증 미완료 |
+| T-019 | 👤 계정 전환 시 로컬 Dexie·sync queue 소유 경계 검증 및 격리 | 대기 | 같은 기기에서 A 로그인→로컬 변경/미전송 큐→로그아웃→B 로그인 순서를 재현해 B가 A의 행을 보거나 B의 `user_id`로 업로드·재표기·삭제하지 못함을 증명한다. M-0102의 signed-out 화면 잠금은 보존하되, 전역 `journey-archive`와 owner 없는 주요 로컬 행·queue가 계정 전환에서 안전한지 확인하고 owner namespace/계정별 DB/전환 격리 중 데이터 보존 가능한 설계를 택한다. | 2026-08-12 | 중단된 Codex Security Deep Scan 후보 1·2. `db.ts` 전역 DB와 sync 시점 사용자 매핑 코드 근거는 강하지만 중앙 validation·실제 2계정 공격 재현 미완료 |
 
-열린 과제 없음.
+> **T-019~T-024의 출처와 한계**: 2026-08-12 Codex Security Deep Scan이 장경로 도구 실패와 사용자 중단으로
+> 정식 완료되지 않았고, 회수된 discovery 후보 21개를 빠뜨리지 않도록 여섯 실행 단위로 묶었다.
+> 이것들은 **확정 취약점 목록이 아니다.** Claude는 각 과제에서 기존 ADR·실수 원장·코드·운영 환경을 먼저
+> 대조하고, 확인된 사실·미검증·기각을 가른다. 감사는 전역 `bg-codex-autorouter`의 **30분 상한**에 따라
+> 한 구간씩 제안·승인·중간보고하며 다음 구간을 자동 시작하지 않는다.
 
 > 🔴 **T-010·T-011·T-012·T-013은 사용자 지시 하나에서 나온 형제들이다**(2026-08-05:
 > *"니가 못보는 건 당연히 모두 넣어야 해..빼면 안 됨"*). T-010·T-011은 v1.81, T-013은 v1.90,
