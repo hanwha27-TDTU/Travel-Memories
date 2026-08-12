@@ -248,19 +248,74 @@ export function availableProviders(env: (k: string) => string | undefined): stri
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-/** 요청자의 JWT를 **직접** 확인한다(플랫폼 설정에 기대지 않는다 — media-sign과 같은 규율). */
-async function verifyUser(req: Request): Promise<boolean> {
+/**
+ * 요청자의 JWT를 **직접** 확인한다(플랫폼 설정에 기대지 않는다 — media-sign과 같은 규율).
+ *
+ * 🔴 예전에는 `boolean`을 돌려줬다. 이제 **사용자 id**를 돌려준다 — 속도 한도를 걸려면
+ *    「누가」가 필요한데, 이 호출이 이미 사용자 본문을 받아오므로 **왕복을 더 늘리지 않는다.**
+ *    실패·불명은 `null`이고, 그건 여전히 거부다(모름을 통과로 반올림하지 않는다 · §8).
+ */
+async function verifyUser(req: Request): Promise<string | null> {
   const auth = req.headers.get('Authorization') ?? '';
   const url = envGet('SUPABASE_URL');
   const anon = envGet('SUPABASE_ANON_KEY');
-  if (!auth.startsWith('Bearer ') || !url || !anon) return false;
+  if (!auth.startsWith('Bearer ') || !url || !anon) return null;
   try {
     const r = await fetch(`${url}/auth/v1/user`, { headers: { Authorization: auth, apikey: anon } });
-    return r.ok;
+    if (!r.ok) return null;
+    const u = (await r.json()) as { id?: unknown };
+    return typeof u.id === 'string' && u.id.length > 0 ? u.id : null;
   } catch {
-    return false;
+    return null;
   }
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// 자원 남용 상한 (T-022)
+//
+// 🔴 **인증과 초대제는 「누가」를 막지, 「얼마나」를 막지 않는다.** 허용목록 안의 계정
+// 하나(또는 탈취된 세션)가 이 함수를 반복 호출하면 우리 지도 API 키의 쿼터와 비용이 그대로
+// 나간다. 그리고 카카오 경로는 한 요청이 상류로 **두 번** 나간다(keyword + address).
+//
+// 🔴 **이 한도가 무엇을 보증하고 무엇을 못 보증하는지 먼저 적는다**(§8 — 모르는 것을 정상으로
+// 반올림하지 않는다). 카운터는 **이 인스턴스의 메모리**에 있다. Edge는 인스턴스가 여러 개일
+// 수 있고 재시작하면 사라지므로, 이것은 **전역 쿼터가 아니라 인스턴스 단위 최선노력**이다.
+// 한 클라이언트가 한 인스턴스를 두드리는 흔한 남용은 막고, 분산된 남용은 못 막는다.
+// 전역 보증은 DB 카운터가 필요하고 그건 migration+배포 창이 함께 와야 한다(§18-F).
+
+/** 질의 길이 상한. 실제 주소·상호는 이보다 훨씬 짧다 — 넘는 것은 검색이 아니라 부하다. */
+export const MAX_QUERY_LEN = 100;
+/** 한 사용자에게 허용하는 창의 길이와 횟수. 사람이 손으로 검색하는 속도를 넉넉히 덮는다. */
+export const RATE_WINDOW_MS = 60_000;
+export const RATE_MAX_PER_WINDOW = 30;
+
+export interface RateState {
+  windowStart: number;
+  count: number;
+}
+
+/**
+ * 순수 판정 — 이 요청을 받아도 되는가. 상태를 **돌려주고** 저장은 호출부가 한다.
+ * 순수하니 유닛이 시계를 직접 먹여 경계를 잰다(§10 ③ — 재려면 순수해야 한다).
+ */
+export function allowRequest(
+  prev: RateState | undefined,
+  now: number,
+  max = RATE_MAX_PER_WINDOW,
+  windowMs = RATE_WINDOW_MS,
+): { ok: boolean; next: RateState; retryAfterSec: number } {
+  if (!prev || now - prev.windowStart >= windowMs) {
+    return { ok: true, next: { windowStart: now, count: 1 }, retryAfterSec: 0 };
+  }
+  if (prev.count >= max) {
+    const retryAfterSec = Math.max(1, Math.ceil((prev.windowStart + windowMs - now) / 1000));
+    return { ok: false, next: prev, retryAfterSec };
+  }
+  return { ok: true, next: { windowStart: prev.windowStart, count: prev.count + 1 }, retryAfterSec: 0 };
+}
+
+/** 이 인스턴스의 카운터. 위 주석대로 **전역 보증이 아니다.** */
+const rateState = new Map<string, RateState>();
 
 /**
  * 🔐 초대제 확인 — media-sign과 **같은 규율**. 인증만으로는 부족하다.
@@ -336,7 +391,8 @@ DENO?.serve(async (req: Request): Promise<Response> => {
   const op = str(body['op']);
 
   // capabilities는 **인증 뒤**에 답한다. 어떤 제공자를 붙였는지는 우리 구성 정보다.
-  if (!(await verifyUser(req))) return json({ error: 'unauthorized' }, 401);
+  const userId = await verifyUser(req);
+  if (!userId) return json({ error: 'unauthorized' }, 401);
   // 🔐 초대제 — 인증 다음 줄. RLS가 테이블에 거는 journey.is_allowed()를 이 경로에도 건다(§7).
   if (!(await isInvited(req))) return json({ error: 'forbidden' }, 403);
 
@@ -347,6 +403,17 @@ DENO?.serve(async (req: Request): Promise<Response> => {
   if (op === 'search') {
     const q = str(body['q']);
     if (!q) return json({ error: 'bad_query' }, 400);
+    // 🔴 길이부터 본다 — 상류로 나가기 전에 거절해야 상류 쿼터가 안 나간다.
+    if (q.length > MAX_QUERY_LEN) return json({ error: 'query_too_long', max: MAX_QUERY_LEN }, 400);
+    // 🔴 속도 한도는 **상류 호출 직전**에 건다. 인증·초대제는 「누가」를 막지 「얼마나」를 막지 않는다.
+    const decision = allowRequest(rateState.get(userId), Date.now());
+    rateState.set(userId, decision.next);
+    if (!decision.ok) {
+      return new Response(
+        JSON.stringify({ error: 'rate_limited', retryAfterSec: decision.retryAfterSec }),
+        { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': String(decision.retryAfterSec) } },
+      );
+    }
     const want = str(body['provider']);
     const kakaoKey = envGet('KAKAO_REST_KEY');
     const vworldKey = envGet('VWORLD_KEY');
