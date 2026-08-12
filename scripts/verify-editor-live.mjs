@@ -11,6 +11,7 @@
 //   실제가 어긋나면 게이트는 못 잡는다(정직한 한계). 화면을 더 열면 여기도 늘려라.
 // (Playwright는 devDependency가 아니므로 전역 설치본을 폴백으로 찾는다.)
 import { createServer } from 'node:http';
+import { launchLiveBrowser } from './live-browser-lib.mjs';
 import { readFile } from 'node:fs/promises';
 import { readdirSync, statSync } from 'node:fs';
 import { join, extname, dirname, resolve } from 'node:path';
@@ -152,17 +153,7 @@ async function stopObservingViewerObjectUrls(targetPage) {
 // 브라우저를 **띄우지 못하는 것**은 앱의 결함이 아니라 전제 미충족이다(브라우저 바이너리
 // 없음·판 불일치·샌드박스 제약). harness가 SKIP과 FAIL을 가르므로 여기서 그 신호를 정확히
 // 준다 — 크래시로 죽으면 harness는 이걸 "위반을 찾음(FAIL)"으로 읽고, 그건 **오탐**이다(§2-B ③).
-let browser;
-try {
-  browser = await chromium.launch();
-} catch (e) {
-  console.error(
-    `verify-editor-live: 브라우저를 띄우지 못했습니다 — ${String(e).split('\n')[0]}\n` +
-      '  → 이 실행은 라이브 층을 재지 않았습니다(통과가 아닙니다). `npx playwright install chromium` 후 재실행.',
-  );
-  server.close();
-  process.exit(2);
-}
+const browser = await launchLiveBrowser(chromium, { gate: 'verify-editor-live', cleanup: () => server.close() });
 // Windows 전용 파일 드롭 경로를 CI(Linux)에서도 실제 렌더로 재기 위해
 // 이 페이지의 UA를 명시적으로 Windows로 고정한다. 재는 대상은 OS가 아니라 앱 배선이다.
 const page = await browser.newPage({
