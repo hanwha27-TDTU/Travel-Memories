@@ -22,6 +22,13 @@ const DESTRUCTIVE = [
   { name: 'RLS 비활성화', re: /\bdisable\s+row\s+level\s+security\b/gi },
   { name: 'REVOKE', re: /\brevoke\b/gi },
   { name: 'ALTER TABLE … DROP COLUMN', re: /\balter\s+table\b[\s\S]{0,200}?\bdrop\s+column\b/gi },
+  // 🔴 **WHERE 없는 UPDATE**(T-024 · 2026-08-12). 이 목록에 `UPDATE`가 없어서, 사용자의 모든
+  //    여행 제목을 한 줄로 비우거나 `deleted_at`을 전부 찍는 문장이 **그대로 통과**했다.
+  //    `DELETE FROM`은 막으면서 「내용만 지우는 UPDATE」를 통과시키는 것은 대칭이 아니다(§7) —
+  //    사용자에게는 둘 다 「기억이 사라졌다」로 보인다.
+  //
+  //    WHERE가 **있는** UPDATE는 막지 않는다. 그건 이 저장소의 일상 작업이고, 전부 막으면
+  //    사람이 `sql-safe-ok`를 습관적으로 붙이게 되어 그 표식이 죽는다(오탐도 결함 · §11 ③).
 ];
 
 /** SQL 주석을 걷어낸 본문(주석 안의 낱말을 파괴 동사로 오탐하지 않게 — 오탐도 결함). */
@@ -55,7 +62,32 @@ export function findDestructiveSql(sql) {
   for (const d of DESTRUCTIVE) {
     if (new RegExp(d.re.source, d.re.flags).test(body)) hits.push(d.name);
   }
+  if (hasWhereLessUpdate(body)) hits.push('WHERE 없는 UPDATE');
   return hits;
+}
+
+/**
+ * WHERE 없는 `UPDATE`를 **문장 단위로** 찾는다 (T-024 · 2026-08-12).
+ *
+ * **정규식 하나로 풀지 않는다.** 전방탐색을 겹친 한 줄 정규식으로도 되지만, 문장을 `;`로
+ * 갈라 각각 「update로 시작하고 where가 없다」만 보면 **읽는 사람이 무엇을 막는지 한눈에**
+ * 알고, 다음 사람이 고칠 때 겁내지 않는다. 방어 코드가 읽히지 않으면 결국 꺼진다.
+ *
+ * 🔴 곁가지로 남긴다: 이 훅을 `node scripts/hook-sql-safe.mjs --selftest`로 부르면 **멈춘다.**
+ * 훅 프로토콜상 stdin에서 JSON을 기다리기 때문이지 검사가 느린 게 아니다. 셀프테스트는
+ * `check-hooks-wired`처럼 **모듈을 import해 `selfTest()`를 직접** 부른다.
+ *
+ * WHERE가 **있는** UPDATE는 막지 않는다 — 일상 작업이고, 전부 막으면 사람이
+ * `sql-safe-ok`를 습관으로 붙여 그 표식이 죽는다(오탐도 결함 · §11 ③).
+ */
+export function hasWhereLessUpdate(body) {
+  for (const stmt of String(body).split(';')) {
+    const t = stmt.trim();
+    if (!/^update\b/i.test(t)) continue;
+    if (!/\bset\b/i.test(t)) continue;
+    if (!/\bwhere\b/i.test(t)) return true;
+  }
+  return false;
 }
 
 // ── 셀프테스트: 알려진 실패를 주입해 잡히는지 + 정상이 통과하는지 양쪽 확인(§2-B) ──
@@ -80,6 +112,13 @@ export function selfTest() {
   pass('delete from journey.tmp; -- sql-safe-ok: 사용자 승인된 정리, 백업·read-back 완료', '이유 있는 예외');
   // 이유 없는 예외는 통과시키면 안 된다
   must('delete from journey.tmp; -- sql-safe-ok:', '이유 없는 override');
+  // 🔴 T-024 — WHERE 없는 UPDATE는 DELETE와 같은 무게로 막는다. 사용자에게는 둘 다 유실이다.
+  must('update journey.trips set title = %s;', 'WHERE 없는 UPDATE');
+  must('UPDATE journey.media SET deleted_at = now();', 'WHERE 없는 UPDATE');
+  // 🔴 그리고 **오탐하지 않는다** — WHERE 있는 UPDATE는 일상 작업이다. 전부 막으면
+  //    사람이 override를 습관으로 붙이고, 그 순간 이 훅은 죽는다(§11 ③).
+  pass('update journey.trips set title = %s where id = %s;', 'WHERE 있는 UPDATE는 통과');
+  pass('UPDATE journey.media SET deleted_at = now() WHERE trip_id = %s;', 'WHERE 있는 대량 수정도 통과');
   // BEGIN으로 시작해도 COMMIT이 있으면 사전검증이 아니다
   must('begin; delete from journey.trips; commit;', 'COMMIT이 있는 트랜잭션');
 }

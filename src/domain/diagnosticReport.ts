@@ -3,7 +3,11 @@
 
 const JWT = /\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b/g;
 const BEARER = /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi;
-const SECRET_PAIR = /\b(authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)\s*[:=]\s*[^\s,;]+/gi;
+// 열쇠말과 `:`/`=` 사이, 그리고 값 앞뒤에 따옴표가 끼어도 같은 값이다. JSON을 그대로 붙여
+// 넣으면 `"api_key": "..."` 형태가 되는데, 따옴표를 허용하지 않으면 그 값만 조용히 새 나간다
+// (2026-08-12 실측). 값 끝에서 닫는 따옴표·괄호를 제외해 다음 항목까지 삼키지 않게 한다.
+const SECRET_PAIR =
+  /\b(authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)["']?\s*[:=]\s*["']?[^\s,;"'}\])]+/gi;
 const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const URL = /https?:\/\/[^\s)\]}>'"]+/gi;
 
