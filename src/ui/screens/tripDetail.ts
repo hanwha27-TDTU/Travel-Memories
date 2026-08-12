@@ -58,7 +58,7 @@ import { isWindowsPlatform, partitionDroppedPhotos, photoDropIntent } from '../.
 // 보조 화면은 반드시 lazyScreens를 거친다(정적 import 금지 — check-lazy-screens).
 import { openMapView, openMapPicker, openDiagnosticsHub } from '../lazyScreens';
 import type { MapPoint } from './mapView';
-import { ensureProviders, reverseGeocode, searchPlaces, type PlaceResult } from '../../services/geocode';
+import { ensureProviders, providersOf, reverseGeocode, searchPlaces, type PlaceResult } from '../../services/geocode';
 import { providerLabel } from '../../domain/place/provider';
 import { coordInputLabel, parseCoordinateInput, swapCoord, isRealCoord, type ParsedCoord } from '../../domain/place/coordInput';
 import { listPlaces, savePlace } from '../../services/places';
@@ -249,7 +249,9 @@ async function runPlaceSearch(q: string, ctx: PlaceSearchContext): Promise<void>
   const { results } = ctx;
   try {
     const client = supabase();
-    const available = await ensureProviders(client);
+    // 🔴 못 물어봤어도 검색은 계속된다(Nominatim이 답한다). 그 사실을 **말하는 일은
+    //    진단 도구의 몫**이고, 이 화면은 조용한 것이 맞다(§8 · T-025).
+    const available = providersOf(await ensureProviders(client));
     // **담아 둔 장소를 먼저 본다.** 네트워크보다 빠르고, 오프라인에서도 답이 나온다.
     // 🔴 **상한을 두지 않는다**(사용자 요청 2026-08-05: *"한글자라도 동일하면 그 글자가 포함된
     //    장소들은 다 나오게"*). 예전엔 `.slice(0, 5)`로 잘랐는데, 그러면 여섯 번째 장소는

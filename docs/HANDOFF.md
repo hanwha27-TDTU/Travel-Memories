@@ -8,6 +8,20 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0165 · **T-025 「모른다」를 「없다」로 접지 않는다 · 헌법 §19 범위 확대** (2026-08-12 · v2.21)
+
+- **branch**: `claude/t-019-fact-verification-4jlqq4` · **변경**: `src/services/geocode.ts` · `src/domain/placeProviderVerdict.ts`(신규) · `src/ui/panels/diagnostics.ts` · `src/ui/screens/tripDetail.ts` · `tests/unit/placeProviderVerdict.test.ts`(신규) · `scripts/verify-diagnostics-live.mjs` · `scripts/module-design-docs-lib.mjs` · 헌법·문서
+- **왜 이것이 M-0148보다 중요한가**: CORS는 증상이고, **그 결함이 오래 조용했던 이유가 이 침묵**이다. `proxyProviders`가 `catch { return [] }`·`r.error → []`라 「못 물어봤다」와 「제공자 없음」이 같은 값이었다. 앱은 늘 후자로 읽고 Nominatim으로 내려갔다.
+- **고침(§7 2층 — 구조가 규율을 지킨다)**: `ProviderProbe` 유니온(`{asked:true, providers}` | `{asked:false, why}`). 세 번째 상태를 만들려면 `asked`를 적을 수밖에 없어 **다음 사람이 또 `[]`로 접을 수 없다.** 검색 경로는 `providersOf()` 한 곳에서 빈 목록으로 접는다 — **검색 화면은 조용한 것이 맞다.**
+- **판정 문장은 순수 함수로**(§10 ③): `placeProviderView(probe)` → 「환경·기능 지원」 도구의 지표. 못 물어본 것은 `unknown`이고 **종류까지 가른다**(오류=`transient` 재시도로 풀릴 수 있음 · 모양 불일치=`structural`). `unknownKind`에 기본값을 두지 않으려고 뷰 타입도 유니온으로 뒀다(M-0060).
+- 🔴 **원인을 못박지 않는다**(§8 · M-0056): 오류 하나로는 배포·네트워크·CORS·권한 중 무엇인지 못 가린다. 화면은 관측까지만 말하고, **검색은 세계 지도로 계속된다**는 사실을 함께 적는다(§12 — 고장으로 읽히지 않게). 유닛과 라이브가 단정형(`CORS`·`차단했`·`때문입니다`)을 함께 막는다.
+- **두 층 모두 주입으로 RED 확인(§4)**: 옛 동작(둘을 같은 문장·같은 등급으로 접기)을 되살리니 유닛 exit 1, 라이브 `B⑪`·`B⑫` FAIL. 복원 후 유닛 1,637건 통과 · 라이브 74건 PASS.
+- **§13 — 화면을 열어서 봤다**: 앱에서 이 상태를 만들려면 Edge를 고장 내야 하므로 판정 함수에 직접 먹여 **실제 렌더러로 그렸다**(B층 주입 패널 2개). 「없음」은 조용히 접히고 「못 물어봄」은 `확인 불가`로 뜬다.
+- **헌법 §19 범위 확대**(오늘 두 번 어긴 자리): 대상에 **도구 진행 줄·PR 제목·PR 본문**을 명시하고, 예외를 「커밋 메시지 전체」에서 **「커밋 접두사와 기술 식별자」**로 좁혔다. 🔴 게이트는 두지 않는다 — 「한국어인가」를 기계가 재려면 문자 종류로 셀 수밖에 없는데 정당한 제목에 코드 심볼이 늘 섞여 **오탐이 규칙보다 많아진다**(§11 ③). 그 사유를 조항에 적었다.
+- **실행 검사**: `tsc` exit 0 · vitest **115파일 1,637건** · `gates` exit 0(62개) · `verify-diagnostics-live` 74/74.
+- **잔여 위험**: 진단이 이제 `capabilities`를 **직접 부른다** — 「환경·기능 지원」을 열 때마다 요청 1건이 는다. 속도 한도가 300회/분이라 사람이 닿을 수 없고, 진단이 재지 않고 판정하는 것보다는 낫다고 판단했다(§8).
+- **다음 작업**: T-026(국내 제공자 시크릿 — 사용자 결정).
+
 ## HANDOFF-0164 · **`geocode`는 브라우저가 부를 수 없었다 — CORS 결함과 새 게이트** (2026-08-12 · M-0148)
 
 - **branch**: `claude/t-019-fact-verification-4jlqq4`(머지된 PR #259 뒤 `origin/main`에서 다시 세움) · **커밋**: `a06549e`
@@ -1218,7 +1232,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.20<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->220<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.21<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->221<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->30<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

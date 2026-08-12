@@ -123,6 +123,7 @@ import '../../src/ui/styles/tokens.css';
 import '../../src/ui/styles/app.css';
 import { renderTool, levelFromMetrics } from '../../src/ui/panels/verdict';
 import { fileAuditMetrics, storeHeadline, stuckMeaning } from '../../src/ui/panels/diagnostics';
+import { placeProviderView } from '../../src/domain/placeProviderVerdict';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const audit = { files: 0, rows: 1, orphans: [], missing: [A], foreign: 0, truncated: false };
@@ -296,9 +297,43 @@ panel('hascopy', new Set([A]), [UNKNOWN]);     // 사본 있음 → 다시 올�
 // 🔴 M-0048: 사본이 없지만 **다른 기기가 있다.** 폴드5에서 실제로 나온 상태이고,
 // 그때 화면은 [지운 소리 기록 정리]를 주버튼으로 권했다 — 따랐으면 태블릿의 사본까지 잃었다.
 panel('otherdev', new Set(), null, 1);
+/**
+ * 🔴 「못 물어봤다」가 실제 화면에서 「없다」와 다르게 그려지는가 (T-025 · M-0148).
+ * 앱에서 이 상태를 만들려면 Edge를 고장 내야 하므로 판정 함수에 직접 먹인다.
+ */
+function placeProviderPanel(id, probe) {
+  const v = placeProviderView(probe);
+  const metric = {
+    label: '장소 검색 도우미',
+    actual: v.actual,
+    expected: v.expected,
+    ...(v.level === 'unknown' ? { level: 'unknown', unknownKind: v.unknownKind } : { level: 'ok' }),
+    ...(v.meaning ? { meaning: v.meaning } : {}),
+  };
+  const host = document.createElement('section');
+  host.setAttribute('data-panel', id);
+  host.appendChild(
+    renderTool({
+      title: '장소 도우미 ' + id,
+      lead: '주입 판정',
+      probe: async () => ({
+        level: levelFromMetrics([metric]),
+        headline: v.level === 'ok' ? '물어봤어요' : '물어보지 못했어요',
+        metrics: [metric],
+        actions: [],
+        evidence: [],
+        context: [],
+      }),
+    }),
+  );
+  document.body.appendChild(host);
+}
+
 actionPanel();
 fileActionPanel();
 stuckPanel();
+placeProviderPanel('place-none', { asked: true, providers: [] });
+placeProviderPanel('place-unasked', { asked: false, why: 'error' });
 headlinePanel('hl-sound', [{ noun: '사진', n: 0 }, { noun: '소리', n: 1 }]);
 headlinePanel('hl-both', [{ noun: '사진', n: 1 }, { noun: '소리', n: 2 }]);
 `;
@@ -497,8 +532,34 @@ const b = await page.evaluate(() => {
     hasCopyQuiet: quiet('hascopy'),
     // 지표 설명(meaning)이 실제로 DOM에 나오는가 — 자료구조에만 있고 화면에 없으면 M-0022다.
     whyCount: panel('hascopy').querySelectorAll('.vd-metric-why').length,
+    // T-025 — 「물어봤더니 없다」와 「못 물어봤다」가 화면에서 갈리는가.
+    placeNoneText: txt('place-none'),
+    placeUnaskedText: txt('place-unasked'),
+    placeNoneQuiet: quiet('place-none'),
   };
 });
+
+// T-025 · M-0148 — 「없다」와 「못 물어봤다」가 **같은 화면 문장**이 되면 이 결함이 또 조용해진다.
+check(
+  'B⑪ 🔴 못 물어본 상태가 「없음」과 다른 문장으로 그려진다 (T-025)',
+  b.placeUnaskedText !== b.placeNoneText && /물어보지 못했|답을 못 받았/.test(b.placeUnaskedText),
+  b.placeUnaskedText.slice(0, 120).replace(/\n/g, ' '),
+);
+check(
+  'B⑫ 🔴 못 물어봤어도 **검색은 계속된다**는 사실이 화면에 있다 (§12 — 고장으로 읽히지 않게)',
+  b.placeUnaskedText.includes('세계 지도'),
+  b.placeUnaskedText.slice(0, 160).replace(/\n/g, ' '),
+);
+check(
+  'B⑬ 🔴 원인을 못박지 않는다 — 관측까지만 (§8 · M-0056)',
+  !/CORS|차단했|막았|때문입니다/.test(b.placeUnaskedText),
+  b.placeUnaskedText.slice(0, 160).replace(/\n/g, ' '),
+);
+check(
+  'B⑭ 물어봤더니 없는 것은 **정상이라 조용하다**(§8 침묵이 정상)',
+  /정상|접힘|모두 정상|1개/.test(b.placeNoneQuiet) || !b.placeNoneText.includes('물어보지 못했'),
+  `quiet=${b.placeNoneQuiet} · text=${b.placeNoneText.slice(0, 80).replace(/\n/g, ' ')}`,
+);
 
 check(
   'B① 🔴 사본이 있으면 「자료가 없다」고 말하지 않는다 (M-0046 회귀)',
