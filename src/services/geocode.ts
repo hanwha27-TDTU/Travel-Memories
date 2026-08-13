@@ -362,7 +362,10 @@ export async function proxyProviders(client: ProxyClient | null): Promise<Provid
     if (r.error) return { asked: false, why: 'error' };
     const list = (r.data as { providers?: unknown })?.providers;
     if (!Array.isArray(list)) return { asked: false, why: 'bad-shape' };
-    return { asked: true, providers: list.filter((p): p is ProviderId => p === 'kakao' || p === 'vworld') };
+    return {
+      asked: true,
+      providers: list.filter((p): p is ProviderId => p === 'kakao' || p === 'juso' || p === 'vworld'),
+    };
   } catch {
     return { asked: false, why: 'error' };
   }

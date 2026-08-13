@@ -360,6 +360,13 @@ const CONNECT_GROUP: GuideGroup = {
             '우즈베키스탄·카자흐스탄·키르기스스탄: TomTom',
             '그 밖의 나라 또는 지역 확인 실패: 기존 OpenStreetMap',
           ]),
+          h('지금 승인된 도로명주소 검색 연결 — 아주 쉽게'),
+          steps([
+            ['승인 건 확인하기', 'API 인증키 관리에서 이름이 「도로명주소 검색 API」이고 상태가 「승인」인지 확인합니다. 지도제공·좌표제공 키와는 서로 다른 열쇠입니다.'],
+            ['Supabase 비밀 보관함 열기', '아래 「Supabase 비밀키 넣는 곳」 버튼을 누르고 Add new secret을 누릅니다.'],
+            ['이름과 값 넣기', 'Name에는 JUSO_ROAD_KEY를 정확히 적고, Value에는 도로명주소 검색 API 승인키를 붙여넣습니다. Save를 누릅니다. VITE_JUSO_MAP_KEY라고 적으면 안 됩니다.'],
+            ['끝 확인하기', '목록에 JUSO_ROAD_KEY라는 이름만 보이면 끝입니다. 키 값은 채팅이나 스크린샷으로 확인하지 않습니다. 앱은 카카오 검색 뒤 정부 공식 도로명주소를 찾고, 좌표는 승인 전까지 기존 카카오 REST 검색으로 안전하게 붙입니다.'],
+          ]),
           h('정부지도 승인 뒤 할 일 — 아주 쉽게'),
           steps([
             ['맞는 승인 건 확인하기', 'API 인증키 관리에서 이름이 꼭 「지도제공 검색 API」이고 상태가 「승인」인지 봅니다. 도로명주소 검색 키는 지도 키가 아닙니다.'],
@@ -389,9 +396,17 @@ const CONNECT_GROUP: GuideGroup = {
             '현재 위치는 처음 보이는 지도 중심만 맞춥니다. 지도를 직접 누르기 전에는 위치로 저장하지 않습니다.',
             'TomTom이나 Kakao를 못 불러오면 기존 지도로 자동으로 돌아갑니다.',
           ]),
-          note('더 자세한 최종 순서표: docs/DEPLOYMENT.md의 「카카오맵 설정」·「정부지도 예비 설정」·「TomTom 지도 설정」'),
+          note('더 자세한 최종 순서표: docs/DEPLOYMENT.md의 「카카오맵 설정」·「정부 도로명주소 검색 설정」·「정부지도 예비 설정」·「TomTom 지도 설정」'),
         ]);
         const links = el('div', 'guide-pb-row');
+        const jusoRoad = el('a', 'guide-open-dashboard', '도로명주소 API 신청·관리 열기') as HTMLAnchorElement;
+        jusoRoad.href = 'https://business.juso.go.kr/jsm/jsmApiList';
+        jusoRoad.target = '_blank';
+        jusoRoad.rel = 'noopener noreferrer';
+        const supabaseSecrets = el('a', 'guide-open-dashboard', 'Supabase 비밀키 넣는 곳') as HTMLAnchorElement;
+        supabaseSecrets.href = 'https://supabase.com/dashboard/project/ihxiywffzmvrwmqvatzt/functions/secrets';
+        supabaseSecrets.target = '_blank';
+        supabaseSecrets.rel = 'noopener noreferrer';
         const juso = el('a', 'guide-open-dashboard', '정부지도 API 신청·관리 열기') as HTMLAnchorElement;
         juso.href = 'https://business.juso.go.kr/jst/jstMapApiSearch';
         juso.target = '_blank';
@@ -412,7 +427,7 @@ const CONNECT_GROUP: GuideGroup = {
         kakao.href = 'https://developers.kakao.com/console/app';
         kakao.target = '_blank';
         kakao.rel = 'noopener noreferrer';
-        links.append(juso, tomtom, tomtomKeys, tomtomSafety, kakao);
+        links.append(jusoRoad, supabaseSecrets, juso, tomtom, tomtomKeys, tomtomSafety, kakao);
         body.appendChild(links);
         return body;
       },

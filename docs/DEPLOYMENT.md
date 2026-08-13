@@ -156,6 +156,31 @@ MapLibre/OpenStreetMap 지도를 사용한다. 지역 지도 로딩이 실패해
 이름만 위 철자와 같으면 된다. 도메인은 `https://hanwha27-tdtu.github.io/Travel-Memories/`가
 아니라 origin인 `https://hanwha27-tdtu.github.io`까지만 등록한다.
 
+### 정부 도로명주소 검색 설정 — 지금 승인된 키 연결하기
+
+이 키는 **한국 주소 글자를 더 정확하게 찾는 서버용 열쇠**다. 지도를 그리는 키도, 좌표를 직접
+주는 키도 아니다. 브라우저나 GitHub Variable에 넣지 않고 Supabase Edge Function Secrets에만
+보관한다.
+
+먼저 열 곳:
+
+- [도로명주소 API 신청·관리](https://business.juso.go.kr/jsm/jsmApiList)
+- [이 프로젝트의 Supabase Edge Function Secrets](https://supabase.com/dashboard/project/ihxiywffzmvrwmqvatzt/functions/secrets)
+- [Supabase Edge Function 시크릿 공식 설명](https://supabase.com/docs/guides/functions/secrets)
+
+1. 도로명주소 사이트의 API 인증키 관리에서 **「도로명주소 검색 API」가 「승인」인지** 본다.
+2. 승인키를 복사한다. 채팅·문서·스크린샷에는 붙이지 않는다.
+3. Supabase 링크를 열고 **Add new secret**을 누른다.
+4. **Name**에는 `JUSO_ROAD_KEY`, **Value**에는 복사한 승인키를 넣고 **Save**를 누른다.
+5. 목록에 `JUSO_ROAD_KEY`라는 **이름**이 보이면 저장은 끝이다. `VITE_JUSO_MAP_KEY`나 GitHub
+   Variable로 만들면 안 된다.
+
+실제 검색 순서는 `Kakao → 행정안전부 도로명주소 → VWorld(설정된 경우) → OpenStreetMap`이다.
+정부 도로명주소 응답에는 위도·경도가 없으므로, 좌표제공 API 승인 전에는 정부가 돌려준 정확한
+도로명주소를 기존 `KAKAO_REST_KEY`에 한 번 더 물어 WGS84 좌표를 붙인다. 좌표를 확인하지 못하면
+그 결과를 억지로 만들지 않고 다음 제공자로 넘어간다. 좌표제공 API가 승인되면 이 좁은 좌표 확인
+단계만 정부 API로 교체할 수 있다.
+
 ### 정부지도 예비 설정 — 카카오맵을 못 불러올 때만
 
 정부지도는 한국 여행 지도에서만 **두 번째 안전망**으로 사용한다. 순서는 `Kakao → 정부지도 →
@@ -179,7 +204,7 @@ Kakao 또는 기존 지도만 사용한다.
 
 앱은 저장된 WGS84 위도·경도를 정부지도 규격인 GRS80/EPSG:5179로 기기 안에서 변환한다.
 따라서 **지도 표시만을 위해 좌표제공 검색 API 승인을 기다릴 필요는 없다.** 도로명주소 검색 API는
-향후 한국 주소 품질 개선용 서버 어댑터로 별도 연결하며, 브라우저 지도 변수에 넣지 않는다.
+위 절차대로 한국 주소 품질 개선용 서버 어댑터에 연결하며, 브라우저 지도 변수에 넣지 않는다.
 
 ### TomTom 지도 설정 — 사진 속 화면부터 그대로 따라 하기
 

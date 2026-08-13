@@ -4514,14 +4514,17 @@ check(
     'Domain whitelist', 'Off', 'On', 'ID를 복사하면 안 됩니다', 'VITE_TOMTOM_API_KEY',
     '주소 입력칸', '휴지통 모양', 'Edit key',
     '지도제공 검색 API', '도로명주소 검색 키는 지도 키가 아닙니다', 'VITE_JUSO_MAP_KEY',
+    '도로명주소 검색 API', 'JUSO_ROAD_KEY', 'Supabase 비밀키 넣는 곳',
     'Supabase에는 TomTom 키를 넣지 않습니다', 'TomTom 변수 등록 완료',
   ].every((word) => mapGuide.text.includes(word)),
   mapGuide.text,
 );
 check(
   '지도 설정 가이드: 공식 정부지도·Kakao·TomTom 링크를 새 창·noreferrer로 연다',
-  mapGuide.links.length === 5
+  mapGuide.links.length === 7
     && mapGuide.links.every((link) => link.target === '_blank' && /noreferrer/.test(link.rel))
+    && mapGuide.links.some((link) => link.href === 'https://business.juso.go.kr/jsm/jsmApiList')
+    && mapGuide.links.some((link) => link.href.includes('/project/ihxiywffzmvrwmqvatzt/functions/secrets'))
     && mapGuide.links.some((link) => link.href === 'https://business.juso.go.kr/jst/jstMapApiSearch')
     && mapGuide.links.filter((link) => link.href.startsWith('https://developer.tomtom.com/')).length === 3,
   JSON.stringify(mapGuide.links),

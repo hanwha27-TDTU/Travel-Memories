@@ -24,8 +24,9 @@
 // 제공자마다 다른 응답을 **하나의 모양으로 옮기는 것**까지다.
 //
 // 배포: Supabase 대시보드 › Edge Functions › Deploy a new function › Via Editor,
-//       함수 이름 `geocode`. 시크릿은 **둘 중 하나만 있어도 된다**:
+//       함수 이름 `geocode`. 시크릿은 필요한 제공자 것만 둔다:
 //         · `KAKAO_REST_KEY`  — 카카오 개발자센터 REST API 키
+//         · `JUSO_ROAD_KEY`   — 행정안전부 도로명주소 **검색 API** 승인키
 //         · `VWORLD_KEY`      — 국토교통부 VWorld 인증키
 //       하나도 없으면 `capabilities`가 `providers: []`를 돌려주고, 앱은 조용히
 //       Nominatim만 쓴다(설정 안 해도 앱은 정상 동작 — 이것이 기본값이다).
@@ -46,7 +47,7 @@ const DENO = (globalThis as unknown as {
 const envGet = (k: string): string | undefined => DENO?.env.get(k);
 
 /** 함수 판(version) — 앱이 「서버 함수가 낡았다」를 스스로 말할 수 있게(M-0031 규율). */
-export const FN_VERSION = 1;
+export const FN_VERSION = 2;
 
 /** 이 함수가 처리하는 op. `check-edge-fn-ops`가 구현과 이 목록의 어긋남을 양방향으로 잡는다. */
 export const FN_OPS = ['search', 'capabilities'] as const;
@@ -73,6 +74,21 @@ export interface NormalizedRow {
     district: string | null;
     postcode: string | null;
   };
+}
+
+/** 정부 도로명주소 검색 결과. 이 단계에는 좌표가 없으므로 지도 결과와 아직 다른 타입이다. */
+export interface JusoAddressCandidate {
+  roadAddr: string;
+  roadAddrPart1: string;
+  jibunAddr: string | null;
+  zipNo: string | null;
+  admCd: string | null;
+  rnMgtSn: string | null;
+  bdMgtSn: string | null;
+  bdNm: string | null;
+  siNm: string | null;
+  sggNm: string | null;
+  emdNm: string | null;
 }
 
 const num = (v: unknown): number | null => {
@@ -193,6 +209,73 @@ export function normalizeKakaoAddress(json: unknown): NormalizedRow[] {
 }
 
 /**
+ * 행정안전부 도로명주소 검색 응답 → 주소 후보.
+ *
+ * 🔴 이 API는 위도·경도를 주지 않는다. 그래서 여기서 `NormalizedRow`를 지어내지 않고
+ * 주소 전용 타입으로 멈춘다. 좌표는 아래 `normalizeJusoAddress`가 **실제로 받은 값**과만 합친다.
+ */
+export function parseJusoAddresses(json: unknown): JusoAddressCandidate[] {
+  const results = (json as { results?: unknown })?.results;
+  if (!results || typeof results !== 'object') return [];
+  const common = (results as { common?: unknown }).common;
+  if (!common || typeof common !== 'object' || str((common as Record<string, unknown>)['errorCode']) !== '0') {
+    return [];
+  }
+  const rows = (results as { juso?: unknown }).juso;
+  if (!Array.isArray(rows)) return [];
+  const out: JusoAddressCandidate[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as Record<string, unknown>;
+    const roadAddr = str(r['roadAddr']);
+    if (!roadAddr) continue;
+    out.push({
+      roadAddr,
+      roadAddrPart1: str(r['roadAddrPart1']) ?? roadAddr,
+      jibunAddr: str(r['jibunAddr']),
+      zipNo: str(r['zipNo']),
+      admCd: str(r['admCd']),
+      // 공식 문서와 일부 응답 예시에 rnMgtSn/rdMgtSn 표기가 함께 있어 둘 다 읽는다.
+      rnMgtSn: str(r['rnMgtSn']) ?? str(r['rdMgtSn']),
+      bdMgtSn: str(r['bdMgtSn']),
+      bdNm: str(r['bdNm']),
+      siNm: str(r['siNm']),
+      sggNm: str(r['sggNm']),
+      emdNm: str(r['emdNm']),
+    });
+  }
+  return out.slice(0, LIMIT);
+}
+
+/** 정부의 공식 주소와 별도 제공자가 준 WGS84 좌표를 합친다. 좌표가 없으면 결과도 없다. */
+export function normalizeJusoAddress(
+  candidate: JusoAddressCandidate,
+  coord: { lat: number; lng: number } | null,
+): NormalizedRow | null {
+  if (!coord || !Number.isFinite(coord.lat) || !Number.isFinite(coord.lng)) return null;
+  const name = candidate.bdNm ?? candidate.roadAddr;
+  return {
+    provider: 'juso',
+    name,
+    displayName: name === candidate.roadAddr ? candidate.roadAddr : `${name}, ${candidate.roadAddr}`,
+    lat: coord.lat,
+    lng: coord.lng,
+    placeRank: 30,
+    bbox: null,
+    kind: 'official-road-address',
+    providerId: candidate.bdMgtSn ? `juso/${candidate.bdMgtSn}` : null,
+    address: {
+      countryCode: 'kr',
+      country: '대한민국',
+      region: candidate.siNm,
+      city: candidate.sggNm,
+      district: candidate.emdNm,
+      postcode: candidate.zipNo,
+    },
+  };
+}
+
+/**
  * VWorld 검색 응답 → 표준 행.
  *
  * VWorld는 `type=place`(POI)와 `type=address`(주소)를 나눠 부르며, 응답 모양은 같다
@@ -240,7 +323,10 @@ export function normalizeVworld(json: unknown, asked: 'place' | 'address'): Norm
 /** 설정된 시크릿으로부터 **지금 실제로 쓸 수 있는** 제공자 목록. 없으면 빈 배열. */
 export function availableProviders(env: (k: string) => string | undefined): string[] {
   const out: string[] = [];
-  if (env('KAKAO_REST_KEY')) out.push('kakao');
+  const kakao = env('KAKAO_REST_KEY');
+  if (kakao) out.push('kakao');
+  // 도로명주소 API 자체에는 좌표가 없다. 카카오 좌표 변환까지 가능한 때만 지도 검색 제공자로 밝힌다.
+  if (env('JUSO_ROAD_KEY') && kakao) out.push('juso');
   if (env('VWORLD_KEY')) out.push('vworld');
   return out;
 }
@@ -317,8 +403,8 @@ export const MAX_QUERY_LEN = 100;
  * 것이 이 앱의 우선순위다(사용자 지시: *"사용하는데 불편이 있으면 절대 안 되니까"*).
  *
  * **실측 근거**: Edge를 타는 경로는 **버튼을 눌러야 나가는 장소 검색** 하나뿐이고, 그 버튼은
- * 요청 중 비활성이다. 검색 1회가 제공자 폴백으로 Edge를 최대 2번 부르므로 300회/분은
- * **검색 150회/분** = 0.4초에 한 번을 1분 내내다 — 사람은 도달할 수 없다. 반면 폭주 루프는
+ * 요청 중 비활성이다. 검색 1회가 제공자 폴백으로 Edge를 최대 3번 부르므로 300회/분은
+ * **검색 100회/분** = 0.6초에 한 번을 1분 내내다 — 사람은 도달할 수 없다. 반면 폭주 루프는
  * 초당 수십~수백 회라 즉시 걸린다.
  *
  * **가장 많이 부르는 경로는 애초에 여기 안 온다**: 위치관리대장의 「주소 일괄 채우기」는
@@ -399,6 +485,48 @@ async function searchKakao(key: string, q: string): Promise<NormalizedRow[]> {
   return [...normalizeKakaoKeyword(kw), ...normalizeKakaoAddress(addr)];
 }
 
+/** 카카오 주소 응답에서 좌표 하나만 읽는다. 정부 주소를 공식 표기 그대로 유지하기 위한 보조자다. */
+export function kakaoCoordinate(json: unknown): { lat: number; lng: number } | null {
+  const docs = (json as { documents?: unknown })?.documents;
+  if (!Array.isArray(docs) || !docs.length || !docs[0] || typeof docs[0] !== 'object') return null;
+  const first = docs[0] as Record<string, unknown>;
+  const lat = num(first['y']);
+  const lng = num(first['x']);
+  return lat === null || lng === null ? null : { lat, lng };
+}
+
+async function searchJuso(jusoKey: string, kakaoKey: string, q: string): Promise<NormalizedRow[]> {
+  const params = new URLSearchParams({
+    confmKey: jusoKey,
+    currentPage: '1',
+    countPerPage: String(LIMIT),
+    keyword: q,
+    resultType: 'json',
+  });
+  // POST 본문에 승인키를 둔다. 검색어·키가 URL이나 앱 로그에 남을 이유가 없다.
+  const response = await fetch('https://business.juso.go.kr/addrlink/addrLinkApi.do', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+    body: params.toString(),
+  }).catch(() => null);
+  if (!response || !response.ok) return [];
+  const candidates = parseJusoAddresses(await response.json().catch(() => null));
+  if (!candidates.length) return [];
+
+  // 현재 승인된 정부 API에는 좌표가 없다. 공식 도로명주소만 카카오에 다시 물어 WGS84 좌표를 붙인다.
+  // 정부 좌표 API가 승인되면 이 좁은 resolver만 교체하고 주소 파싱·앱 계약은 그대로 둔다.
+  const headers = { Authorization: `KakaoAK ${kakaoKey}` };
+  const rows = await Promise.all(
+    candidates.map(async (candidate) => {
+      const url = `https://dapi.kakao.com/v2/local/search/address.json?size=1&query=${encodeURIComponent(candidate.roadAddrPart1)}`;
+      const resolved = await fetch(url, { headers }).catch(() => null);
+      const coord = resolved && resolved.ok ? kakaoCoordinate(await resolved.json().catch(() => null)) : null;
+      return normalizeJusoAddress(candidate, coord);
+    }),
+  );
+  return rows.filter((row): row is NormalizedRow => row !== null).slice(0, LIMIT);
+}
+
 async function searchVworld(key: string, q: string): Promise<NormalizedRow[]> {
   const call = async (type: 'place' | 'address'): Promise<NormalizedRow[]> => {
     const p = new URLSearchParams({
@@ -464,11 +592,16 @@ DENO?.serve(async (req: Request): Promise<Response> => {
     }
     const want = str(body['provider']);
     const kakaoKey = envGet('KAKAO_REST_KEY');
+    const jusoKey = envGet('JUSO_ROAD_KEY');
     const vworldKey = envGet('VWORLD_KEY');
     try {
       if (want === 'kakao' || (!want && kakaoKey)) {
         if (!kakaoKey) return json({ error: 'provider_unavailable' }, 503);
         return json({ provider: 'kakao', rows: await searchKakao(kakaoKey, q) });
+      }
+      if (want === 'juso' || (!want && jusoKey && kakaoKey)) {
+        if (!jusoKey || !kakaoKey) return json({ error: 'provider_unavailable' }, 503);
+        return json({ provider: 'juso', rows: await searchJuso(jusoKey, kakaoKey, q) });
       }
       if (want === 'vworld' || (!want && vworldKey)) {
         if (!vworldKey) return json({ error: 'provider_unavailable' }, 503);
