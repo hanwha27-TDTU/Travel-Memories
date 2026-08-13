@@ -39,7 +39,7 @@ GitHub Pages는 서버 없이 정적 파일만 제공한다. Bugeon Journey는 �
   기다리는 비용이 더 큰 경우만 단독 긴급 릴리스한다(헌법 §15).
 - **완료 = 병합이 아니라 배포 그린 확인**(AGENTS.md). Actions가 배포 성공을 보고한 뒤에만 완료 처리.
 - `check-secret-leak`가 빌드 아티팩트를 스캔해 시크릿 유출 없음을 확인한 뒤 배포.
-- 클라이언트 설정(`VITE_SUPABASE_URL`·`VITE_SUPABASE_PUBLISHABLE_KEY`·`VITE_MAP_STYLE_URL`)은
+- 클라이언트 설정(`VITE_SUPABASE_URL`·`VITE_SUPABASE_PUBLISHABLE_KEY`·`VITE_MAP_STYLE_URL`·`VITE_KAKAO_JAVASCRIPT_KEY`)은
   **Repository Variables**로 주입한다(`deploy-pages.yml`의 `env:`, `vars.*` 참조).
   publishable 키는 설계상 공개 값이라 Secrets가 아니라 Variables가 맞다(마스킹 불필요·감사 용이).
   진짜 비밀(secret/service_role/DB 비밀번호)은 Secrets에도 넣지 않는다 — 클라이언트 빌드에 쓸 일이 없어야 정상.
@@ -76,6 +76,52 @@ Pages 순서 앞에 다음 의존 간선이 생긴다.
 1. **Settings → Pages → Build and deployment → Source = "GitHub Actions"** 로 설정한다. 이 설정 없이는 `deploy-pages.yml`이 실패한다.
 2. (Supabase 프로비저닝 후) **Settings → Secrets and variables → Actions → Variables**에 `VITE_SUPABASE_URL`·`VITE_SUPABASE_PUBLISHABLE_KEY` 등록. 그 전까지는 로컬 전용 모드로 배포된다.
 3. `deploy-pages.yml`은 **`main` push에만 발동**한다 — 작업 브랜치가 main에 병합되기 전에는 어떤 배포도 일어나지 않으며, "배포 그린"은 병합 후에만 확인할 수 있다. 이 워크플로는 배포 산출물 build·시크릿 검사·업로드만 하고 전체 하네스는 Ready PR에서 이미 끝낸다.
+
+### 카카오맵 설정 — 처음 하는 사람도 따라 하는 순서
+
+앱은 **한국 좌표만 카카오맵**, 한국 밖 좌표와 지역을 아직 모르는 새 위치 선택은 기존
+MapLibre/OpenStreetMap 지도를 사용한다. 카카오 로딩이 실패해도 기존 지도로 자동 복귀한다.
+얀덱스 지도는 사용하지 않는다(ADR-0069).
+
+먼저 열 곳:
+
+- [Kakao Developers 내 애플리케이션](https://developers.kakao.com/console/app)
+- [Kakao Maps API 사용 설정 설명](https://developers.kakao.com/docs/latest/ko/kakaomap/common)
+- [GitHub Actions 변수 설명](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-variables)
+- [Supabase Edge Function 시크릿 설명](https://supabase.com/docs/guides/functions/secrets)
+
+1. **카카오 사이트 주소를 등록한다.** Kakao Developers에서 이 앱 → **제품 설정 → 카카오맵**을
+   `ON`으로 켠다. 이어 **앱 → 플랫폼 키 → JavaScript 키 → JavaScript SDK 도메인**에 아래
+   세 주소를 한 줄씩 등록한다. 주소 끝의 `/Travel-Memories/` 같은 길은 붙이지 않는다.
+
+   ```text
+   https://hanwha27-tdtu.github.io
+   http://localhost:5173
+   http://127.0.0.1:5173
+   ```
+
+   카카오 로그인을 설정하는 일이 아니므로 **카카오 로그인 리다이렉트 URI는 비워 둔다.**
+
+2. **화면 지도를 위한 JavaScript 키를 GitHub에 넣는다.** 저장소의 **Settings → Secrets and
+   variables → Actions → Variables → New repository variable**에서 이름은 정확히
+   `VITE_KAKAO_JAVASCRIPT_KEY`, 값은 Kakao Developers의 **JavaScript 키**로 저장한다.
+   `REST API 키`를 이 칸에 넣으면 지도가 뜨지 않는다. JavaScript 키는 브라우저에 전달되는
+   공개 식별자이므로 도메인 등록이 실제 보호선이다.
+
+3. **한국 장소 검색을 위한 REST 키를 Supabase에 넣는다.** Supabase 프로젝트 → **Edge
+   Functions → Secrets → Add new secret**에서 이름은 정확히 `KAKAO_REST_KEY`, 값은 Kakao
+   Developers의 **REST API 키**로 저장한다. REST 키는 비밀이므로 GitHub Variable이나
+   `.env` 파일, 채팅, 스크린샷에 값을 붙이지 않는다. Supabase 문서 기준으로 저장 직후 함수에서
+   사용할 수 있으며 시크릿만 바꿨다면 함수 재배포는 필요 없다.
+
+4. **확인한다.** GitHub에는 변수 **이름** `VITE_KAKAO_JAVASCRIPT_KEY`, Supabase에는 시크릿
+   **이름** `KAKAO_REST_KEY`가 보여야 한다. 다음 배포 뒤 서울처럼 한국 좌표가 든 여행 지도를
+   열어 카카오 지도가 나오는지 보고, 해외 좌표는 기존 지도가 나오는지 확인한다. 키 값을 화면에
+   다시 공개해서 확인하지 않는다.
+
+자주 틀리는 곳: `Default JS Key`라는 **키 이름**은 바꿀 필요가 없다. GitHub에 만드는 변수의
+이름만 위 철자와 같으면 된다. 도메인은 `https://hanwha27-tdtu.github.io/Travel-Memories/`가
+아니라 origin인 `https://hanwha27-tdtu.github.io`까지만 등록한다.
 
 ## 보안 헤더 · 롤백 (S-05 결정)
 

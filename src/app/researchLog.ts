@@ -1096,4 +1096,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '사용자 기능 변경뿐 아니라 companion_names 스키마, 생성물 원장, Windows hook 판정, 전역 공유 스킬 해시가 한 릴리스 경계에 함께 있으므로 공급자 우선 DB 이전과 전체 게이트를 거친 단일 배포가 필요하다고 판단했다.',
     decision: '운영 DB는 사전 트랜잭션 적용·롤백 후 마이그레이션하고 행 수·함수 권한을 되읽는다. v2.33으로 버전을 올려 전체 생성·검증을 실행하고, 보호 브랜치 PR의 필수 CI가 같은 최종 SHA에서 통과한 뒤 squash merge한다. Pages version.json과 Android APK workflow·artifact를 각각 되읽어 배포를 닫는다.',
   },
+  {
+    seq: 137,
+    date: '2026-08-13',
+    topic: '한국 좌표만 카카오맵으로 표시하고 나머지는 기존 지도를 유지한다',
+    human: '중앙아시아·러시아용 Yandex 제안을 취소하고 한국 지도만 카카오맵, 나머지는 현재 지도로 확정했으며 초등학생도 따라 할 설정 가이드를 요청했다.',
+    ai: '지도 제공자를 사용자 위치가 아니라 기록 좌표로 판정해야 같은 여행이 기기 위치에 따라 달라지지 않는다. Kakao JavaScript SDK와 서버 REST 검색 키는 서로 다른 보안 경계이고, 외부 SDK 실패가 여행의 장소 목록까지 막아서는 안 된다.',
+    decision: '모든 표시 지점이 한국 좌표일 때만 Kakao를 선택하고 해외·혼합·미설정은 MapLibre를 유지한다. Kakao 로딩 실패 시 MapLibre로 자동 복귀하며 둘 다 실패해도 목록은 남긴다. JavaScript 키는 GitHub Variable, REST 키는 Supabase secret에 두고 CSP·CI·배포 배선을 갱신한다. 공식 링크와 정확한 입력 이름을 DEPLOYMENT에 쉬운 단계로 남기고 운영 배포 전에는 완료로 말하지 않는다.',
+  },
 ];

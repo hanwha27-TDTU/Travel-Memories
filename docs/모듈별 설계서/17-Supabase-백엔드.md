@@ -12,14 +12,15 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 서버 스키마, migration, RLS/grant와 독립 배포 Edge Function을 소유한다.
 
 - 모듈 ID: `supabase-backend`
-- 관측 파일: 42개 · 논리 줄: 4192 · 최상위 선언: 74개(외부 공개 47개)
-- 코드 내용 SHA-256: `48d65daa9f512719f87d8ea31fc87af8edcf913b27f254d616f5e622b92e4ef7`
+- 관측 파일: 43개 · 논리 줄: 4193 · 최상위 선언: 74개(외부 공개 47개)
+- 코드 내용 SHA-256: `c0387c6a55115f353446a54decd403d41ad15b2fbdd4dd5f622cf49b3a34348b`
 - 생성기 스키마: 1
 
 ## 2. 진입점과 모듈 간 흐름
 
 ### 관측된 진입점
 
+- `supabase/.temp/linked-project.json`
 - `supabase/functions/geocode/index.ts`
 - `supabase/functions/media-sign/index.ts`
 - `supabase/migrations/0001_journey_schema_trips.sql`
@@ -75,6 +76,7 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 
 | 파일 | 줄 | export/선언 | 저장소 내부 의존 | 코드에서 관측한 I/O·생명주기 신호 |
 |---|---:|---:|---|---|
+| `supabase/.temp/linked-project.json` | 1 | 0/0 | — | — |
 | `supabase/functions/geocode/index.ts` | 486 | 14/26 | — | network fetch |
 | `supabase/functions/media-sign/index.ts` | 761 | 33/48 | — | network fetch; integrity/crypto; deletion lifecycle |
 | `supabase/migrations/0001_journey_schema_trips.sql` | 78 | 0/0 | — | SQL table: trips; SQL function: set_updated_at; deletion lifecycle |

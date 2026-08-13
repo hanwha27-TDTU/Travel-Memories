@@ -1,15 +1,16 @@
-// ui/screens/mapView.ts — 여행 지도 모달. 위치가 있는 순간을 MapLibre로 보여준다.
+// ui/screens/mapView.ts — 여행 지도 모달. 한국은 Kakao, 그 밖은 MapLibre로 보여준다.
 // 규율(map-experience-designer):
 //  - 지도는 장식이 아니라 공간적 기억 복원 도구. 마커를 열면 좌표가 아니라 사진·기록.
 //  - 팝업에 사용자 텍스트를 문자열로 보간하지 않는다 — DOM 노드(textContent)로 안전하게(§XSS).
 //  - 오프라인 우선: 타일을 못 받거나 WebGL이 없으면 지도 대신 '장소 목록'으로 기억에 닿는다.
 //  - 사진이 주인공: 팝업/목록에서 썸네일이 먼저.
-// MapLibre는 동적 import로 코드 분할(지도를 열 때만 로드).
+// 지도 SDK는 서비스 어댑터에서 필요할 때만 로드한다.
 
 import { el } from '../dom';
 import { toFeatureCollection, type LocatedPoint } from '../../domain/place/geojson';
-import { zoomForSpan } from '../../domain/place/precision';
 import type { PlaceLike } from '../../domain/place/externalMap';
+import { displayProviderFallbackOrder, displayProviderForPicker, displayProviderForPoints } from '../../domain/place/mapProvider';
+import { renderJourneyMap, renderPickerMap, type MapRendererHandle } from '../../services/mapRenderer';
 import { externalMapRow } from '../externalMapRow';
 
 /**
@@ -48,52 +49,6 @@ export interface MapPoint extends LocatedPoint {
  */
 function externalMapButton(place: PlaceLike): HTMLElement | null {
   return externalMapRow(place, { lead: '다른 지도에서 열기' });
-}
-
-// 기본 지도 스타일(키 불필요, 귀속표시). VITE_MAP_STYLE_URL로 교체 가능(ADR A-006).
-const OSM_STYLE = {
-  version: 8 as const,
-  sources: {
-    osm: {
-      type: 'raster' as const,
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: '© OpenStreetMap contributors',
-    },
-  },
-  layers: [{ id: 'osm', type: 'raster' as const, source: 'osm' }],
-};
-
-/**
- * 지점이 하나뿐일 때의 확대수준. **규칙의 출처는 `precision.ts` 한 곳**이다 —
- * 여기서 숫자를 손으로 적으면 목록 행 클릭(`flyTo`)과 또 갈라진다(§7 2층: 구조로 막는다).
- */
-const SINGLE_POINT_ZOOM = zoomForSpan(null);
-
-/**
- * 마커를 놓고 **화면을 지점들에 맞춘다.**
- *
- * 🔴 지점이 **하나**일 때 zoom을 안 건드리면 초기값이 그대로 남는다(2026-07-30 실기기 신고).
- * 예전엔 이 자리가 `setCenter`뿐이라 핀 하나가 zoom 10 — 김포~남양주가 다 보이는 화면 —
- * 위에 떠 있었고, 사용자는 그걸 「좌표가 부정확하다」고 읽었다. **좌표는 맞았다.**
- * 형제(목록 행 클릭)는 `flyTo({zoom:14})`로 제대로 하고 있었다 — 같은 규율이 두 곳에 손으로
- * 구현돼 한쪽만 빠진 §7 비대칭이다. 이제 확대수준의 출처는 `SINGLE_POINT_ZOOM` 하나다.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function placeMarkersAndFrame(maplibregl: any, map: any, points: MapPoint[], objectUrls: string[]): void {
-  const bounds = new maplibregl.LngLatBounds();
-  for (const p of points) {
-    const popup = new maplibregl.Popup({ offset: 24, closeButton: true }).setDOMContent(pointNode(p, objectUrls));
-    new maplibregl.Marker({ color: markerColor() }).setLngLat([p.lng, p.lat]).setPopup(popup).addTo(map);
-    bounds.extend([p.lng, p.lat]);
-  }
-  if (points.length === 1) {
-    map.setCenter([points[0]!.lng, points[0]!.lat]);
-    map.setZoom(SINGLE_POINT_ZOOM);
-  } else {
-    map.fitBounds(bounds, { padding: 48, maxZoom: 14, duration: 0 });
-  }
 }
 
 function downloadBlob(blob: Blob, filename: string): void {
@@ -154,6 +109,51 @@ function emptyState(focusPlace?: PlaceLike): HTMLElement {
   return empty;
 }
 
+interface JourneyMapMountOptions {
+  points: MapPoint[];
+  mapEl: HTMLElement;
+  objectUrls: string[];
+  signal: AbortSignal;
+  onReady(map: MapRendererHandle): void;
+  onFailed(): void;
+}
+
+/** 제공자 선택·폴백은 화면 생명주기와 분리해 두 제공자가 같은 종료 계약을 지나게 한다. */
+async function mountJourneyMap(options: JourneyMapMountOptions): Promise<void> {
+  const kakaoKey = ((import.meta.env.VITE_KAKAO_JAVASCRIPT_KEY as string | undefined) ?? '').trim();
+  const mapStyleUrl = ((import.meta.env.VITE_MAP_STYLE_URL as string | undefined) ?? '').trim() || undefined;
+  const preferred = displayProviderForPoints(options.points, kakaoKey.length > 0);
+  for (const provider of displayProviderFallbackOrder(preferred)) {
+    if (options.signal.aborted) return;
+    try {
+      options.mapEl.replaceChildren();
+      const map = await renderJourneyMap({
+        provider,
+        container: options.mapEl,
+        points: options.points,
+        kakaoKey,
+        mapStyleUrl,
+        markerColor: markerColor(),
+        popupNode: (point) => pointNode(point as MapPoint, options.objectUrls),
+        signal: options.signal,
+      });
+      if (options.signal.aborted) {
+        map.destroy();
+        return;
+      }
+      options.mapEl.dataset.mapProvider = provider;
+      options.mapEl.classList.add('is-ready');
+      options.onReady(map);
+      return;
+    } catch (error) {
+      if (options.signal.aborted) return;
+      options.mapEl.replaceChildren();
+      console.warn(`${provider} 지도 표시 실패, 다음 제공자를 시도합니다.`, error);
+    }
+  }
+  options.onFailed();
+}
+
 /**
  * 지도 모달을 연다. 위치가 있는 순간(points)을 지도/목록으로 보여준다.
  *
@@ -195,11 +195,12 @@ export function openMapView(tripTitle: string, points: MapPoint[], focusPlace?: 
   modal.appendChild(body);
   overlay.appendChild(modal);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let map: any = null;
+  let map: MapRendererHandle | null = null;
+  const renderAbort = new AbortController();
   const close = (): void => {
+    renderAbort.abort();
     try {
-      map?.remove();
+      map?.destroy();
     } catch {
       /* 이미 정리됨 */
     }
@@ -236,12 +237,10 @@ export function openMapView(tripTitle: string, points: MapPoint[], focusPlace?: 
     row.type = 'button';
     row.appendChild(pointNode(p, objectUrls));
     row.addEventListener('click', () => {
-      if (map) {
-        try {
-          map.flyTo({ center: [p.lng, p.lat], zoom: SINGLE_POINT_ZOOM });
-        } catch {
-          /* 지도 없으면 무시 */
-        }
+      try {
+        map?.focus(p.lng, p.lat);
+      } catch {
+        /* 지도 없으면 목록만 유지 */
       }
     });
     list.appendChild(row);
@@ -260,39 +259,25 @@ export function openMapView(tripTitle: string, points: MapPoint[], focusPlace?: 
       body.insertBefore(note, list);
     }
   };
-  const degradeTimer = setTimeout(degradeToList, 4500); // load가 안 뜨면 강등
+  const degradeTimer = setTimeout(degradeToList, 17_000); // Kakao 8초 + MapLibre 8초 폴백 뒤 강등
 
-  // MapLibre 시도 → 실패(WebGL 없음·타일 차단)면 목록만 남긴다(오프라인 우선).
-  void (async () => {
-    try {
-      const maplibregl = (await import('maplibre-gl')).default;
-      await import('maplibre-gl/dist/maplibre-gl.css');
-      const styleUrl = import.meta.env.VITE_MAP_STYLE_URL as string | undefined;
-      map = new maplibregl.Map({
-        container: mapEl,
-        style: styleUrl && styleUrl.length > 0 ? styleUrl : (OSM_STYLE as unknown as string),
-        center: [points[0]!.lng, points[0]!.lat],
-        // 초기값도 최종값과 맞춰 둔다 — 다르면 타일이 두 번 로드되고 화면이 한 번 튄다.
-        zoom: points.length === 1 ? SINGLE_POINT_ZOOM : 10,
-        attributionControl: { compact: true },
-      });
-      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-
-      map.on('load', () => {
-        mapLoaded = true;
-        clearTimeout(degradeTimer);
-        placeMarkersAndFrame(maplibregl, map, points, objectUrls);
-        mapEl.classList.add('is-ready');
-      });
-      map.on('error', () => {
-        /* 타일/스타일 로드 실패는 조용히 — 목록으로 접근 가능(오프라인 우선) */
-      });
-    } catch {
-      // 라이브러리 로드·WebGL 초기화 실패: 지도 캔버스를 감추고 목록만 쓴다.
+  // 한국 좌표는 Kakao → 실패하면 MapLibre. 그 밖은 처음부터 MapLibre다.
+  void mountJourneyMap({
+    points,
+    mapEl,
+    objectUrls,
+    signal: renderAbort.signal,
+    onReady: (readyMap) => {
+      map = readyMap;
+      mapLoaded = true;
+      clearTimeout(degradeTimer);
+    },
+    onFailed: () => {
+      map = null;
       clearTimeout(degradeTimer);
       degradeToList();
-    }
-  })();
+    },
+  });
 }
 
 /**
@@ -329,13 +314,14 @@ export function openMapPicker(initial: { lat: number; lng: number } | null): Pro
     modal.append(header, body);
     overlay.appendChild(modal);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let map: any = null;
+    let map: MapRendererHandle | null = null;
+    const renderAbort = new AbortController();
     const finish = (result: { lat: number; lng: number } | null): void => {
       if (settled) return;
       settled = true;
+      renderAbort.abort();
       try {
-        map?.remove();
+        map?.destroy();
       } catch {
         /* 이미 정리됨 */
       }
@@ -357,41 +343,42 @@ export function openMapPicker(initial: { lat: number; lng: number } | null): Pro
     confirmBtn.focus();
 
     void (async () => {
-      try {
-        const maplibregl = (await import('maplibre-gl')).default;
-        await import('maplibre-gl/dist/maplibre-gl.css');
-        const styleUrl = import.meta.env.VITE_MAP_STYLE_URL as string | undefined;
-        const center: [number, number] = picked ? [picked.lng, picked.lat] : [127.8, 36.5];
-        map = new maplibregl.Map({
-          container: mapEl,
-          style: styleUrl && styleUrl.length > 0 ? styleUrl : (OSM_STYLE as unknown as string),
-          center,
-          zoom: picked ? SINGLE_POINT_ZOOM : 6,
-          attributionControl: { compact: true },
-        });
-        map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-        let marker: any = null; // eslint-disable-line @typescript-eslint/no-explicit-any
-        const place = (lng: number, lat: number): void => {
-          picked = { lat, lng };
-          confirmBtn.disabled = false;
-          if (marker) marker.setLngLat([lng, lat]);
-          else {
-            marker = new maplibregl.Marker({ color: markerColor(), draggable: true }).setLngLat([lng, lat]).addTo(map);
-            marker.on('dragend', () => {
-              const p = marker.getLngLat();
-              picked = { lat: p.lat, lng: p.lng };
-            });
+      const kakaoKey = ((import.meta.env.VITE_KAKAO_JAVASCRIPT_KEY as string | undefined) ?? '').trim();
+      const mapStyleUrl = ((import.meta.env.VITE_MAP_STYLE_URL as string | undefined) ?? '').trim() || undefined;
+      const preferred = displayProviderForPicker(picked, kakaoKey.length > 0);
+      for (const provider of displayProviderFallbackOrder(preferred)) {
+        if (renderAbort.signal.aborted) return;
+        try {
+          mapEl.replaceChildren();
+          map = await renderPickerMap({
+            provider,
+            container: mapEl,
+            initial: picked,
+            kakaoKey,
+            mapStyleUrl,
+            markerColor: markerColor(),
+            onPick: (coord) => {
+              picked = coord;
+              confirmBtn.disabled = false;
+            },
+            signal: renderAbort.signal,
+          });
+          if (renderAbort.signal.aborted) {
+            map.destroy();
+            return;
           }
-        };
-        map.on('load', () => {
-          if (picked) place(picked.lng, picked.lat);
+          mapEl.dataset.mapProvider = provider;
           mapEl.classList.add('is-ready');
-        });
-        map.on('click', (e: { lngLat: { lng: number; lat: number } }) => place(e.lngLat.lng, e.lngLat.lat));
-      } catch {
-        mapEl.classList.add('is-failed');
-        hint.textContent = '이 기기에서는 지도 선택을 쓸 수 없어요. 장소 이름 검색을 이용해 주세요.';
+          return;
+        } catch (error) {
+          if (renderAbort.signal.aborted) return;
+          map = null;
+          mapEl.replaceChildren();
+          console.warn(`${provider} 지도 선택 실패, 다음 제공자를 시도합니다.`, error);
+        }
       }
+      mapEl.classList.add('is-failed');
+      hint.textContent = '이 기기에서는 지도 선택을 쓸 수 없어요. 장소 이름 검색을 이용해 주세요.';
     })();
   });
 }
