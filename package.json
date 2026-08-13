@@ -16,6 +16,7 @@
     "brief": "node scripts/brief.mjs",
     "compare:geocoders": "node scripts/compare-geocoders.mjs",
     "check:secrets": "node scripts/check-secret-leak.mjs",
+    "check:tooling": "node scripts/check-tooling-registry.mjs",
     "gates": "node scripts/harness.mjs --fast",
     "release:arm": "node scripts/release-lock.mjs arm",
     "release:reopen": "node scripts/release-lock.mjs reopen",

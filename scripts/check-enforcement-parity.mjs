@@ -33,6 +33,7 @@
 // 종료코드: 0 통과 · 1 위반 · 2 전제 미충족.
 
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 
 const GITHOOKS = '.githooks';
@@ -73,7 +74,17 @@ export const HOOK_REGISTRY = {
 
 /** `.githooks/`에서 실행 가능한 훅 목록. */
 export function executableGitHooks(dir, statFn, listFn) {
-  return listFn(dir).filter((f) => (statFn(join(dir, f)).mode & 0o111) !== 0);
+  const files = listFn(dir);
+  return files.filter((f) => {
+    if ((statFn(join(dir, f)).mode & 0o111) !== 0) return true;
+    if (process.platform !== 'win32') return false;
+    try {
+      const mode = execFileSync('git', ['ls-files', '-s', '--', join(dir, f)], { encoding: 'utf8' });
+      return /^100755\s/.test(mode);
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** `prepare`가 `core.hooksPath`를 `.githooks`로 배선하는가. */

@@ -112,6 +112,7 @@ export const GATE_DESC: Record<string, string> = {
     '게이트에 대조군(셀프테스트)이 있고 그것이 실제로 통과하는가 — §4를 처음으로 기계화한 래칫',
   'check-enforcement-parity':
     'Claude와 코덱스가 같은 강제를 받는가 — 공통 층(git 훅) 자동 배선과 Claude 전용 훅의 대체 명시',
+  'check-tooling-registry': '필수 검사도구 원장 항목이 구조적으로 유효하고 일관되게 분류되는지',
   'unit-tests': '순수 로직 유닛(비공허 확인)',
   'verify-editor-live':
     '실제 브라우저가 앱을 열어 화면·편집기·서비스워커·폰트를 확인(정적 검사가 원리적으로 못 보는 층)',
@@ -207,6 +208,7 @@ export const GATE_AXIS: Record<string, string> = {
   'check-edge-cors': '함수 수가 아니라, **형제 전부**가 사전요청에 답하고 순서가 맞는지 — 하나만 빠지면 그 함수는 못 불린다',
   'check-gate-control': '게이트 수가 아니라, **대조군을 가진 게이트가 줄지 않는지**와 그 대조군이 실제로 도는지 — 래칫은 한 방향이다',
   'check-enforcement-parity': '훅 수가 아니라, **공통 층이 자동 배선되고** 한쪽만 묶는 훅이 이유와 함께 등록됐는지',
+  'check-tooling-registry': '도구 개수가 아니라 필수 도구와 선택 도구의 실행 판정이 원장 기대값과 일치하는지',
   'check-gate-promise': '게이트 수가 아니라, **모든 게이트가 개수 아닌 축을 선언**했고 부채가 늘지 않는지 — 래칫은 한 방향이다',
   'check-doc-tree':
     '문서 수가 아니라, 형제를 나란히 세워 **빈칸이 모양으로 드러나는지** — 미선언은 통과가 아니고, 이관 부채는 매번 이름째 출력된다',
@@ -313,7 +315,8 @@ export const GATE_WORLD: Record<string, string> = {
   'check-ui-color-token': '',
   'check-edge-cors': '',
   'check-gate-control': '',
-  'check-enforcement-parity': '',
+  'check-enforcement-parity': 'baseRef',
+  'check-tooling-registry': 'runtimeEnv',
   'check-env-assumption': '',
   'check-live-sleep': '',
   'unit-tests': '',
@@ -395,6 +398,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-edge-cors': 'static',
   'check-gate-control': 'static',
   'check-enforcement-parity': 'static',
+  'check-tooling-registry': 'static',
   'unit-tests': 'unit',
   'verify-editor-live': 'live',
   'verify-diagnostics-live': 'live',
