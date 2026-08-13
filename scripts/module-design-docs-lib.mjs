@@ -155,9 +155,12 @@ function walk(dir) {
   return out;
 }
 
-function isSourceInput(path) {
+export function isSourceInput(path) {
   const p = slash(relative(ROOT, path));
   if (p.startsWith('src/')) return INCLUDED_EXTENSIONS.has(extname(p));
+  // Supabase CLI가 기기마다 만드는 연결/버전 메타데이터다. 실행 소스가 아니며
+  // CI에는 존재하지 않으므로 설계 문서 입력에 포함하면 재생성이 비결정적이 된다.
+  if (p.startsWith('supabase/.temp/')) return false;
   if (p.startsWith('supabase/')) return ['.ts', '.sql', '.json'].includes(extname(p));
   if (p.startsWith('scripts/')) return ['.mjs', '.js', '.py'].includes(extname(p));
   if (p.startsWith('.github/workflows/')) return ['.yml', '.yaml'].includes(extname(p));
@@ -202,7 +205,7 @@ export function moduleIdOf(input) {
   if (/^src\/services\/(?:backup|backupCrypto|backupMeta|backupRoundTrip|zip)\.ts$/.test(p)) return 'backup-restore';
   if (/^src\/(?:services\/(?:trash|trashState|purge)|domain\/trashVerdict)\.ts$/.test(p)) return 'trash-purge';
   if (/^src\/(?:services\/(?:diagnostics|envReport|fileReality|roundTrip|serverContract|sessionState|syncReleaseDiagnostics|placeZombieAudit)|domain\/(?:diagGroups|diagnosticReport|fileRealityVerdict|integrity|gateControlView|placeProviderVerdict|placeZombieVerdict|roundTripVerdict|serverContractVerdict|sessionVerdict|syncReleaseVerdict|syncStatusVerdict|syncTombstoneVerdict)|ui\/(?:panels\/.*|screens\/(?:diagnosticsHub|mechChecks)))\.ts$/.test(p)) return 'diagnostics';
-  if (/^src\/(?:services\/(?:places|geocode|here|externalMapConsent)|domain\/place\/.*|ui\/(?:externalMapRow|screens\/(?:mapView|placeRegistry)))\.ts$/.test(p)) return 'map-place';
+  if (/^src\/(?:services\/(?:places|geocode|here|externalMapConsent|mapRenderer)|domain\/place\/.*|ui\/(?:externalMapRow|screens\/(?:mapView|placeRegistry)))\.ts$/.test(p)) return 'map-place';
   if (/^src\/(?:services\/(?:expenses|fx)|domain\/expense\/.*)\.ts$/.test(p)) return 'expense-fx';
   if (/^src\/(?:services\/(?:auth|consent)|services\/supabase\/client|domain\/authGate)\.ts$/.test(p)) return 'auth-security';
   if (/^src\/services\/(?:capacitorShell|fileSave|shellUpdate|appUpdate|nativePhotos)\.ts$/.test(p)) return 'platform-runtime';

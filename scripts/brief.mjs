@@ -81,6 +81,8 @@ export const SKILL_ROUTES = [
   // 여기서 나오는 좌표는 사용자의 기억이 찍힐 자리이고, 정확도 판정·실패 문장·
   // 「자동으로 넣지 않는다」는 결정이 전부 domain/place/here.ts와 한 몸이다.
   { match: /^src\/services\/here/, skill: 'map-place-dev' },
+  // 지도 SDK 어댑터도 좌표 경계·오프라인 폴백 계약을 직접 구현한다.
+  { match: /^src\/services\/mapRenderer/, skill: 'map-place-dev' },
   { match: /^src\/ui\/(photoEditor|photoViewer|editor)/, skill: 'photo-editor-dev' },
   { match: /^src\/ui\/mediaSave/, skill: 'ui-responsive-dev' },
   { match: /^src\/ui\/mediaSave/, skill: 'photo-storage-dev' },

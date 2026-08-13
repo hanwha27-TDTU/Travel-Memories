@@ -5,7 +5,7 @@
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { collectModuleDesigns, expectedDocuments, moduleIdOf, MODULE_CATALOG, OUTPUT_DIR, renderModuleDoc } from './module-design-docs-lib.mjs';
+import { collectModuleDesigns, expectedDocuments, isSourceInput, moduleIdOf, MODULE_CATALOG, OUTPUT_DIR, renderModuleDoc, ROOT } from './module-design-docs-lib.mjs';
 import { runSelfTest } from './gate-selftest-lib.mjs';
 
 export function findDrift(expected, actual) {
@@ -56,6 +56,9 @@ runSelfTest('check-module-design-docs', () => {
     if (moduleIdOf(path) !== expectedOwner) throw new Error(`SELF-TEST 실패: ${path}의 소유 모듈이 ${expectedOwner}가 아니다.`);
   }
   if (moduleIdOf('src/unclassified-new-sibling.ts') !== null) throw new Error('SELF-TEST 실패: 미분류 새 형제를 조용히 기존 모듈에 넣었다.');
+  if (!isSourceInput(join(ROOT, 'supabase', 'functions', 'geocode', 'config.json'))) throw new Error('SELF-TEST 실패: 실제 Supabase JSON 소스를 제외했다.');
+  if (!isSourceInput(join(ROOT, 'supabase', 'migrations', '0001_init.sql'))) throw new Error('SELF-TEST 실패: 실제 Supabase SQL 소스를 제외했다.');
+  if (isSourceInput(join(ROOT, 'supabase', '.temp', 'linked-project.json'))) throw new Error('SELF-TEST 실패: Supabase CLI 임시 메타데이터를 소스로 포함했다.');
 });
 
 const collected = collectModuleDesigns();

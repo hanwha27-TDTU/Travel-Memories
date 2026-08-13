@@ -1096,4 +1096,20 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '사용자 기능 변경뿐 아니라 companion_names 스키마, 생성물 원장, Windows hook 판정, 전역 공유 스킬 해시가 한 릴리스 경계에 함께 있으므로 공급자 우선 DB 이전과 전체 게이트를 거친 단일 배포가 필요하다고 판단했다.',
     decision: '운영 DB는 사전 트랜잭션 적용·롤백 후 마이그레이션하고 행 수·함수 권한을 되읽는다. v2.33으로 버전을 올려 전체 생성·검증을 실행하고, 보호 브랜치 PR의 필수 CI가 같은 최종 SHA에서 통과한 뒤 squash merge한다. Pages version.json과 Android APK workflow·artifact를 각각 되읽어 배포를 닫는다.',
   },
+  {
+    seq: 137,
+    date: '2026-08-13',
+    topic: '한국 좌표만 카카오맵으로 표시하고 나머지는 기존 지도를 유지한다',
+    human: '중앙아시아·러시아용 Yandex 제안을 취소하고 한국 지도만 카카오맵, 나머지는 현재 지도로 확정했으며 초등학생도 따라 할 설정 가이드를 요청했다.',
+    ai: '지도 제공자를 사용자 위치가 아니라 기록 좌표로 판정해야 같은 여행이 기기 위치에 따라 달라지지 않는다. Kakao JavaScript SDK와 서버 REST 검색 키는 서로 다른 보안 경계이고, 외부 SDK 실패가 여행의 장소 목록까지 막아서는 안 된다.',
+    decision: '모든 표시 지점이 한국 좌표일 때만 Kakao를 선택하고 해외·혼합·미설정은 MapLibre를 유지한다. Kakao 로딩 실패 시 MapLibre로 자동 복귀하며 둘 다 실패해도 목록은 남긴다. JavaScript 키는 GitHub Variable, REST 키는 Supabase secret에 두고 CSP·CI·배포 배선을 갱신한다. 공식 링크와 정확한 입력 이름을 DEPLOYMENT에 쉬운 단계로 남기고 운영 배포 전에는 완료로 말하지 않는다.',
+  },
+  {
+    seq: 138,
+    date: '2026-08-13',
+    topic: '카카오 지도와 설정 가이드를 v2.34로 함께 배포한다',
+    human: '설정 가이드를 생성하고 현재 카카오 지도 변경을 모두 배포까지 진행하라고 요청했다.',
+    ai: '변경된 실행 표면은 GitHub Pages이며 Android 셸·DB migration·Edge Function 소스는 바뀌지 않았다. 따라서 앱 버전과 사용자 변경내역을 확정하고 전체 Required CI를 거쳐 Pages만 배포·되읽는 것이 정확한 영향 범위다.',
+    decision: 'v2.34에 한국 Kakao 지도, 해외 MapLibre 유지, 실패 자동 복귀와 초보자 설정 가이드를 묶는다. 정확한 후보 커밋을 얼리고 전체 하네스·라이브가 같은 SHA에서 끝난 뒤 squash merge하며, Pages workflow success와 운영 version.json 2.34를 되읽고 릴리스 잠금을 닫는다.',
+  },
 ];

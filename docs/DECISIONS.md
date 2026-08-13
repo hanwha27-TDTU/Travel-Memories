@@ -9,6 +9,14 @@ shape_reason: ADR은 결정에 이른 경위가 값이다. 항목으로 자르�
 
 ---
 
+## ADR-0069 · 한국 좌표만 Kakao Maps, 그 밖은 기존 MapLibre를 유지하고 Yandex는 넣지 않는다 `[user-decided]` (Codex)
+
+- **결정**: 사용자가 범위를 직접 확정했다. 저장된 모든 지점이 한국 좌표이면 Kakao Maps JavaScript SDK로 표시하고, 한국 밖 좌표·한국/해외가 섞인 지도·지역을 아직 모르는 새 위치 선택은 기존 MapLibre/OpenStreetMap을 쓴다. Yandex Maps와 VWorld는 이번 범위에서 제외한다.
+- **실패 경계**: JavaScript 키가 없거나 Kakao SDK·타일이 실패하면 같은 화면에서 MapLibre를 자동으로 시도한다. 두 지도 모두 실패해도 장소 목록과 GeoJSON 내보내기는 남는다.
+- **키 경계**: 화면 표시에는 GitHub Repository Variable `VITE_KAKAO_JAVASCRIPT_KEY`(브라우저 공개 식별자), 서버 장소 검색에는 Supabase Edge Function secret `KAKAO_REST_KEY`(비밀)를 쓴다. 둘을 바꾸어 넣지 않는다.
+- **한국 판정**: 제공자 선택은 `domain/place/mapProvider.ts` 한 곳에서 좌표로 판정한다. 혼합 여행 전체를 Kakao로 보내지 않아 제공자 경계를 조용히 넘지 않는다.
+- **완료 경계**: 변수·시크릿 이름은 값 노출 없이 확인했지만, 운영 Pages 배포와 실제 Kakao 렌더·검색 응답은 아직 확인 전이다. 따라서 T-026은 사용자 막힘만 풀고 `대기`로 옮기며 배포 전 완료라고 하지 않는다.
+
 ## ADR-0068 · Android 백업 복원은 32MiB를 넘지 않고, 메모리 값은 상한을 낮추는 데만 쓴다 `[AI-autonomous]` (Codex)
 
 - production 복원 코드로 파생 사진 50·200·500장을 재니 평문 sampled RSS 증가는 약 2.02~2.04배, 암호화 process max RSS 증가는 약 4.00~5.02배였다. 입력 전체 `ArrayBuffer.slice()`와 엔트리별 `slice()`는 제거했다.

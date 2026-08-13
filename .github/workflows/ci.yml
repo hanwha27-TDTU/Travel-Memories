@@ -76,6 +76,8 @@ jobs:
         run: npm audit --audit-level=high
       - name: Build
         run: npm run build
+        env:
+          VITE_KAKAO_JAVASCRIPT_KEY: ${{ vars.VITE_KAKAO_JAVASCRIPT_KEY }}
       # 사용자 결정 2026-08-04: 릴리스 후보 앱을 먼저 재빌드하고 그 산출물 기준으로 하네스.
       - name: Harness (Required gates)
         run: npm run harness
@@ -123,5 +125,7 @@ jobs:
       # 재면 검사가 공허해지므로**(M-0037) 스크립트가 스스로 신선도를 확인하고 멈춘다.
       - name: Build
         run: npm run build
+        env:
+          VITE_KAKAO_JAVASCRIPT_KEY: ${{ vars.VITE_KAKAO_JAVASCRIPT_KEY }}
       - name: Live render gates
         run: npm run live

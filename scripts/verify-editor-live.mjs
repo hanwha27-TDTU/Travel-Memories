@@ -195,6 +195,7 @@ const PNG_1X1 = Buffer.from(
  * 자료구조가 아니라 *앱이 실제로 한 일*을 재는 자리다(§10 ③).
  */
 const tileZooms = [];
+let kakaoSdkRequests = 0;
 /**
  * Node 쪽 조건이 참이 될 때까지 기다린다 — **못 채워도 던지지 않는다.**
  *
@@ -244,6 +245,46 @@ await page.route('**://tile.openstreetmap.org/**', (route) => {
   const m = /\/(\d+)\/\d+\/\d+\.png/.exec(route.request().url());
   if (m) tileZooms.push(Number(m[1]));
   return route.fulfill({ status: 200, contentType: 'image/png', body: PNG_1X1 });
+});
+// 한국 지도 경로는 Kakao SDK를 **결정적 가짜 구현**으로 실행한다. 외부망·쿼터를 쓰지 않되
+// 앱이 SDK를 요청하고, Kakao 제공자를 고르고, 단일 지점 확대수준을 설정하는 배선은 실제 DOM에서 잰다.
+await page.route('https://dapi.kakao.com/v2/maps/sdk.js**', (route) => {
+  kakaoSdkRequests += 1;
+  return route.fulfill({
+    status: 200,
+    contentType: 'text/javascript',
+    body: `(() => {
+      const listeners = new WeakMap();
+      const bucket = (target) => { let b = listeners.get(target); if (!b) { b = {}; listeners.set(target, b); } return b; };
+      const emit = (target, name, value) => queueMicrotask(() => { for (const fn of bucket(target)[name] || []) fn(value); });
+      class LatLng { constructor(lat, lng) { this.lat = lat; this.lng = lng; } getLat() { return this.lat; } getLng() { return this.lng; } }
+      class LatLngBounds { constructor() { this.points = []; } extend(p) { this.points.push(p); } }
+      class Map {
+        constructor(container, options) {
+          this.container = container; this.center = options.center; this.setLevel(options.level);
+          const surface = document.createElement('div'); surface.dataset.kakaoFixture = 'map'; surface.style.height = '100%'; container.appendChild(surface);
+          emit(this, 'tilesloaded');
+        }
+        setCenter(p) { this.center = p; }
+        setLevel(level) { this.level = level; this.container.dataset.kakaoLevel = String(level); }
+        setBounds() { emit(this, 'tilesloaded'); }
+      }
+      class Marker {
+        constructor(options) { this.map = options.map; this.position = options.position; }
+        setMap(map) { this.map = map; }
+        setPosition(p) { this.position = p; }
+        getPosition() { return this.position; }
+      }
+      class CustomOverlay { constructor(options) { this.options = options; this.map = null; } setMap(map) { this.map = map; } }
+      window.kakao = { maps: {
+        load: (done) => done(), LatLng, LatLngBounds, Map, Marker, CustomOverlay,
+        event: {
+          addListener(target, name, fn) { const b = bucket(target); (b[name] ||= []).push(fn); },
+          removeListener(target, name, fn) { const b = bucket(target); b[name] = (b[name] || []).filter((x) => x !== fn); },
+        },
+      }};
+    })();`,
+  });
 });
 // 앱 시작 직후 기존 좌표 배지를 보강하는 역지오코딩도 외부망에 새지 않게 기본 응답을 둔다.
 // 뒤의 역지오코딩 검사는 더 나중에 등록한 구체 fixture가 우선한다. 그 fixture를 해제한 뒤에는
@@ -2728,17 +2769,20 @@ check('좌표가 있으면 「이름으로 찾음」 단서를 달지 않는다'
 // 🔴 **자지 않고 기다린다**(T-014). 예전엔 `waitForTimeout(1200)`이었는데, 느린 순간에
 // 타일이 1.2초 안에 안 나가면 「타일 0건」이 찍혔다 — 그 0은 「안 나갔다」가 아니라
 // **「아직 안 봤다」**였다. 못 채워도 던지지 않는다: 진짜 0이면 아래 판정이 그 사실을 말한다(§4).
-await waitUntil(() => tileZooms.length > 0, 15000);
-const zoomSeen = { max: tileZooms.length ? Math.max(...tileZooms) : -1, n: tileZooms.length };
+await waitUntil(async () => (await page.locator('.map-canvas').getAttribute('data-map-provider')) !== null, 15000);
+const mapProviderSeen = await page.locator('.map-canvas').evaluate((node) => ({
+  provider: node.dataset.mapProvider ?? '',
+  kakaoLevel: Number(node.dataset.kakaoLevel ?? '-1'),
+}));
 check(
-  '지도: 타일을 실제로 요청했다(0건이면 아래 판정이 공허하다 — §4)',
-  zoomSeen.n > 0,
-  `타일 ${zoomSeen.n}건 · z=${[...new Set(tileZooms)].sort((a, b) => a - b).join(',')}`,
+  '지도: 한국 좌표가 Kakao SDK를 실제로 요청하고 Kakao 제공자로 준비된다',
+  kakaoSdkRequests > 0 && mapProviderSeen.provider === 'kakao',
+  `SDK ${kakaoSdkRequests}건 · provider=${mapProviderSeen.provider || '(없음)'}`,
 );
 check(
-  '🔴 지도: 지점이 하나면 그 지점까지 확대한다(옛 결함은 z=10에 머물렀다)',
-  zoomSeen.max >= 15,
-  `요청된 최대 z=${zoomSeen.max} (기대: ≥15 · 옛 결함값: 10)`,
+  '🔴 지도: Kakao에서도 지점이 하나면 그 지점까지 확대한다',
+  mapProviderSeen.kakaoLevel === 5,
+  `Kakao level=${mapProviderSeen.kakaoLevel} (기대: 5)`,
 );
 // 지도는 **닫지 않는다** — 바로 아래 바깥지도 버튼 검사가 이 오버레이 안의 버튼을 누른다.
 // (처음에 여기서 닫았다가 그 4건을 통째로 죽였다. 검사끼리도 형제다 — 하나가 상태를 치우면
