@@ -4375,12 +4375,18 @@ const mapGuide = await page.evaluate(() => ({
 }));
 check(
   '지도 설정 가이드: Kakao·TomTom·기존 지도와 정확한 GitHub 변수 이름을 쉬운 순서로 말한다',
-  ['한국', '우즈베키스탄', 'TomTom', 'OpenStreetMap', 'VITE_TOMTOM_API_KEY'].every((word) => mapGuide.text.includes(word)),
+  [
+    '한국', '우즈베키스탄', 'TomTom', 'OpenStreetMap', 'My First API key',
+    'Domain whitelist', 'Off', 'On', 'ID를 복사하면 안 됩니다', 'VITE_TOMTOM_API_KEY',
+    'Supabase에는 TomTom 키를 넣지 않습니다', 'TomTom 변수 등록 완료',
+  ].every((word) => mapGuide.text.includes(word)),
   mapGuide.text,
 );
 check(
   '지도 설정 가이드: 공식 Kakao·TomTom 링크를 새 창·noreferrer로 연다',
-  mapGuide.links.length === 2 && mapGuide.links.every((link) => link.target === '_blank' && /noreferrer/.test(link.rel)),
+  mapGuide.links.length === 4
+    && mapGuide.links.every((link) => link.target === '_blank' && /noreferrer/.test(link.rel))
+    && mapGuide.links.filter((link) => link.href.startsWith('https://developer.tomtom.com/')).length === 3,
   JSON.stringify(mapGuide.links),
 );
 
