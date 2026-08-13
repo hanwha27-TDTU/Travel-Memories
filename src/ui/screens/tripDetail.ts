@@ -2064,7 +2064,11 @@ function momentHasPlace(m: { placeName: string; placeLat?: number | null; placeL
   return Boolean(m.placeName) || isRealCoord(m.placeLat, m.placeLng);
 }
 
-function placeChip(m: { id: string; placeName: string; placeLat?: number | null; placeLng?: number | null }): HTMLElement {
+function placeChip(
+  m: { id: string; placeName: string; placeLat?: number | null; placeLng?: number | null },
+  countryCode: string | null,
+): HTMLElement {
+  // 이 countryCode를 빼면 여행 전체 지도는 TomTom인데 같은 UZ 장소 칩만 OSM으로 갈라진다.
   const lat = m.placeLat ?? null;
   const lng = m.placeLng ?? null;
   // 이름이 없으면 **좌표를 보여준다.** 「이름 없는 장소」라고 쓰면 그건 앱의 사정이지
@@ -2083,7 +2087,7 @@ function placeChip(m: { id: string; placeName: string; placeLat?: number | null;
       lat !== null && lng !== null
         // 장소 칩에서 여는 지도는 **한 장소를 가리키는 것**이지 순간의 시각을 말하는 자리가
         // 아니다 — `whenText: ''`가 그 사실이고, 팝업은 시각 줄을 아예 그리지 않는다.
-        ? [{ momentId: m.id, lat, lng, title: label, occurredAt: '', placeName: label, whenText: '' }]
+        ? [{ momentId: m.id, lat, lng, title: label, occurredAt: '', placeName: label, countryCode, whenText: '' }]
         : [];
     void openMapView(label, pts, place);
   });
@@ -2103,6 +2107,10 @@ function placeChip(m: { id: string; placeName: string; placeLat?: number | null;
     chip.appendChild(copy);
   }
   return chip;
+}
+
+function placeCountryCodeById(places: readonly LocalPlace[]): ReadonlyMap<string, string | null> {
+  return new Map(places.map((place) => [place.id, place.countryCode ?? null]));
 }
 
 /**
@@ -2604,7 +2612,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       const expByMoment = groupByMoment(expenses);
       const videoByMoment = groupByMoment(videos);
       locatedPoints = toMapPoints(moments, byMoment, clock, places);
-      renderTimeline(moments, byMoment, expByMoment, audioByMoment, videoByMoment);
+      renderTimeline(moments, byMoment, expByMoment, audioByMoment, videoByMoment, placeCountryCodeById(places));
       targetController.reveal(timeline, byMoment, refresh, clock, trip!.title);
       const groups = groupMomentsByDay(moments, clock, trip!.startDate || undefined);
       statRow.innerHTML = '';
@@ -2659,7 +2667,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       byMoment: Map<string, LocalMedia[]>,
       expByMoment: Map<string, LocalExpense[]>,
       audioByMoment: Map<string, LocalAudio[]>,
-      videoByMoment: Map<string, LocalVideo[]>,
+      videoByMoment: Map<string, LocalVideo[]>, placeCountryById: ReadonlyMap<string, string | null>,
     ): void {
       resetUrls();
       timeline.innerHTML = ''; timelinePhotoDrop.mount();
@@ -2693,7 +2701,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
             byMoment.get(m.id) ?? [],
             expByMoment.get(m.id) ?? [],
             audioByMoment.get(m.id) ?? [],
-            videoByMoment.get(m.id) ?? [],
+            videoByMoment.get(m.id) ?? [], placeCountryById,
           ));
         }
         timeline.appendChild(items);
@@ -2705,7 +2713,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       mediaList: LocalMedia[],
       expenseList: LocalExpense[],
       audioList: LocalAudio[],
-      videoList: LocalVideo[],
+      videoList: LocalVideo[], placeCountryById: ReadonlyMap<string, string | null>,
     ): HTMLElement {
       const item = el('div', 'tl-item');
       item.appendChild(el('span', 'tl-node'));
@@ -2813,7 +2821,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       if (m.note) card.appendChild(el('p', 'moment-note', m.note));
       if (hasPlace || m.companionNames || expenseList.length || audioList.length) {
         const chips = el('div', 'chips');
-        if (hasPlace) chips.appendChild(placeChip(m)); // 좌표만 있어도 그린다 — placeChip 주석 참조
+        if (hasPlace) chips.appendChild(placeChip(m, m.placeId ? placeCountryById.get(m.placeId) ?? null : null));
         if (m.companionNames) chips.appendChild(el('span', 'chip companions', `👥 ${m.companionNames}`));
         appendAudioChips(chips, audioList, refresh);
         // 환율 상세(탭하면 펼쳐짐) — 툴팁(title)은 모바일에서 안 보이므로 실제 패널로 보여준다.

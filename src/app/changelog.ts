@@ -31,6 +31,16 @@ export const DEVELOPER = {
 /** 최신이 맨 앞. 각 항목 = 실제 병합된 릴리스. */
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: '2.38',
+    date: '2026-08-14',
+    title: '**우즈베키스탄 장소 칩도 TomTom 지도로 열려요**',
+    notes: [
+      '순간 카드의 장소 버튼을 눌렀을 때 연결된 장소의 나라 정보가 지도까지 전달됩니다.',
+      '우즈베키스탄·카자흐스탄·키르기스스탄 장소는 TomTom 키가 설정되어 있으면 TomTom 지도로 열립니다.',
+      'TomTom을 불러오지 못하면 지금까지 쓰던 OpenStreetMap으로 자동 복귀하는 안전장치는 그대로입니다.',
+    ],
+  },
+  {
     version: '2.37',
     date: '2026-08-13',
     title: '**사진 펴기 조절과 앱 설치가 더 쉬워졌어요**',
