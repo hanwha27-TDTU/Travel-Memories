@@ -104,3 +104,83 @@ export function proveCheckCounts() {
   if (!lines[1].startsWith('  ✗')) throw new Error('SELF-TEST 실패: 실패를 실패로 안 적는다(화면이 거짓말한다).');
   if (!lines[1].includes('상세')) throw new Error('SELF-TEST 실패: 실패 사유를 안 적는다 — 왜 빨간불인지 알 수 없다.');
 }
+
+// ── 컨테이너 수준 가로 넘침 (2026-08-13 · 외부 프롬프트 모음에서 흡수) ────────────
+//
+// 🔴 왜 문서 지표로는 안 되나: 조상 중에 `overflow-x: auto|scroll`이 있으면 **그 조상이
+//    넘침을 삼킨다.** 그러면 `documentElement.scrollWidth - clientWidth`는 **영원히 0**이고,
+//    그 0은 「안 넘친다」가 아니라 **「내 지표가 그 축을 안 본다」**이다.
+//    이 저장소는 넘침을 거의 전부 문서 지표로 재고 있었다(10곳 실측).
+//
+// 🔴 왜 이 앱에 걸리나: 부모에 `flex-wrap`이 있어도 **자식 묶음에 없으면 그 자식은 통째로
+//    안 접힌다.** 실측: `display:flex` 181곳 중 `flex-wrap`은 47곳. 그리고 홈 칩 줄은
+//    이미 6개이고 인계서가 *"7번째를 더하지 않았다 — 이 저장소는 그 자리에서 이미 데였다"*
+//    고 적고 있다. **컨트롤을 하나 더할 때가 임계다.**
+//
+// 🔴 지금은 위반이 0이다(320·375 실측). 그러므로 이것은 **결함 발견기가 아니라 회귀
+//    차단기**다 — 그 사실을 호출부가 판정문에 적어야 한다(§8: 안 나온 것과 없는 것은 다르다).
+
+/** 의도된 가로 스크롤은 이 표식으로 뺀다 — 표식 없는 넘침은 전부 위반이다. */
+export const XSCROLL_OPT_OUT = 'data-allow-xscroll';
+
+/**
+ * 열려 있는 화면의 **모든 요소**를 훑어 가로로 넘치는 컨테이너를 찾는다.
+ *
+ * 손으로 고른 선택자 목록을 쓰지 않는다 — 그런 목록은 **자라지 않아서**, 새 화면이 생기면
+ * 조용히 범위 밖이 된다(이 저장소가 반복해서 당한 형태).
+ *
+ * @param page playwright 페이지
+ * @param tolerance 반올림 여유(기본 2px)
+ * @returns `{ sel, over, overflowX }[]` — 빈 배열이면 위반 없음
+ */
+export function scanOverflowContainers(page, tolerance = 2) {
+  return page.evaluate(
+    ([optOut, tol]) => {
+      const out = [];
+      for (const el of document.querySelectorAll('*')) {
+        if (el.closest(`[${optOut}]`)) continue; // 의도된 가로 스크롤
+        if (el.clientWidth === 0) continue; // 안 보이는 것은 재지 않는다(0은 통과가 아니다)
+        const over = el.scrollWidth - el.clientWidth;
+        if (over <= tol) continue;
+        const name =
+          el.tagName.toLowerCase() +
+          (typeof el.className === 'string' && el.className.trim()
+            ? '.' + el.className.trim().split(/\s+/).slice(0, 3).join('.')
+            : '');
+        out.push({ sel: name, over, overflowX: getComputedStyle(el).overflowX });
+      }
+      return out;
+    },
+    [XSCROLL_OPT_OUT, tolerance],
+  );
+}
+
+/**
+ * 대조군(§4) — 스캐너가 **실제로 넘침을 잡는지** 진짜 DOM에 심어서 증명한다.
+ *
+ * 🔴 순수 함수를 시험하는 것으로는 부족하다. 이 검사의 위험은 판정식이 아니라
+ *    **측정이 실제 화면에서 도는가**이고, 그건 심어 봐야만 안다.
+ *    심은 것은 반드시 되돌린다 — 대조군이 본 검사를 오염시키면 안 된다.
+ */
+export async function proveOverflowScanner(page) {
+  const before = await scanOverflowContainers(page);
+  await page.evaluate(() => {
+    const box = document.createElement('div');
+    box.id = '__overflow_probe__';
+    box.style.cssText = 'width:50px;overflow:hidden;';
+    const wide = document.createElement('div');
+    wide.style.cssText = 'width:9999px;height:1px;';
+    box.appendChild(wide);
+    document.body.appendChild(box);
+  });
+  const during = await scanOverflowContainers(page);
+  await page.evaluate(() => document.getElementById('__overflow_probe__')?.remove());
+  const after = await scanOverflowContainers(page);
+
+  if (during.length <= before.length) {
+    throw new Error('SELF-TEST 실패: 넘치는 상자를 심었는데 스캐너가 못 잡았다 — 이 축은 공허하다.');
+  }
+  if (after.length !== before.length) {
+    throw new Error('SELF-TEST 실패: 대조군이 심은 것을 못 치웠다 — 본 검사가 오염된다.');
+  }
+}

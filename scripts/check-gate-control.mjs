@@ -24,10 +24,11 @@
 //    그러므로 이 게이트가 보증하는 것은 「대조군이 좋다」가 아니라
 //    **「대조군 없는 게이트가 조용히 늘어나는 것의 차단」**이다.
 //
-// 가정하는 세계(§18-G): 없음 — 작업트리의 파일만 읽고 node로 스크립트를 돌린다.
+// 가정하는 세계(§18-G): 없음 — 작업트리의 파일(하네스·워크플로·package.json)만 읽고 node로 스크립트를 돌린다.
 // 종료코드: 0 통과 · 1 위반 · 2 전제 미충족(모집단 0 · 셀프테스트 실패).
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -52,7 +53,7 @@ const HARNESS = 'scripts/harness.mjs';
  *  · `RUNNABLE`    — 그 대조군을 **밖에서 돌려 볼 수 있는가**(`--selftest` 플래그).
  *                    이게 있어야 이 게이트가 「살아 있는지」까지 확인할 수 있다.
  */
-export const HAS_CONTROL_BASELINE = 68;
+export const HAS_CONTROL_BASELINE = 69;
 export const RUNNABLE_BASELINE = 16;
 /**
  * 🔴 세 번째 축(2026-08-12 · M-0152) — **대조군이 실패를 「판정」으로 알리는가.**
@@ -69,17 +70,17 @@ export const RUNNABLE_BASELINE = 16;
  *    **기준선판**이다. 내린 것이 아니라 **처음부터 없던 3을 걷어낸 뒤 실제로 올렸다**:
  *    37(참값) → 판정 모양만 틀렸던 3개 전환 → 40 → 공용 헬퍼로 11개 전환 → 51
  *    → 남은 IIFE 블록 14개 전환(T-027) → 63 → **새 게이트 `check-date-freshness`가
- *    처음부터 옳은 모양으로 태어나 64 → 🔴 **모집단 자체가 틀렸음을 발견해(M-0155) 라이브 게이트 4개를 데려오고 대조군을 붙여 68 = 진짜 전부**.
+ *    처음부터 옳은 모양으로 태어나 64 → 🔴 **모집단 자체가 두 번 틀렸음을 발견해(M-0155) 라이브 게이트 4개와 하네스 밖에서 도는 1개를 데려오고 대조군을 붙여 69 = 진짜 전부**.
  *
  * 🔴 그 마지막 +1이 §7 2층의 증거다. 새 형제는 규칙을 **몰라도** 따라왔다 — 공용 헬퍼를
  *    쓰는 것이 유일한 길이었기 때문이다. 조항이었다면 읽어야 했을 것이다.
  *
- * 🔴 이제 이 축은 **꽉 찼다**(68/68). 그러므로 이 래칫의 뜻이 바뀐다 — 「늘려 가는 목표」가
+ * 🔴 이제 이 축은 **꽉 찼다**(69/69). 그러므로 이 래칫의 뜻이 바뀐다 — 「늘려 가는 목표」가
  *    아니라 **「되돌아감의 차단」**이다. 새 게이트가 던지는 채로 들어오면 즉시 RED다.
  *    그게 §7 2층이 하는 일이다: 다음 형제가 규칙을 몰라도 따라오게 만든다.
  * 🔴 이 숫자는 **세어서** 넣는다. 어림하지 마라 — 이 저장소는 그것으로 세 번 틀렸다(M-0152).
  */
-export const CLEAN_EXIT_BASELINE = 68;
+export const CLEAN_EXIT_BASELINE = 69;
 
 /**
  * 하네스에 등록된 게이트 중 `node scripts/*.mjs`로 도는 것의 스크립트 경로를 뽑는다.
@@ -103,6 +104,37 @@ export function gateScripts(harnessSrc) {
     if (s) out.push({ name: name[1], script: s[1] });
   }
   return out;
+}
+
+/**
+ * 🔴 **하네스가 게이트의 전부가 아니다**(2026-08-13 · 사용자 질문 *"숨겨진 게이트가 더 있으면?"*).
+ *
+ * 실측하니 `verify-sync-release-live`는 **하네스에 없고** `ci.yml`·`deploy-pages.yml`이
+ * `npm run verify:sync-release-live`로 **직접** 부른다. 고아가 아니라 **다른 길로 도는 게이트**다.
+ * 그래서 하네스만 세면 그 게이트는 영원히 대조군 감사 밖에 있고, 판정문은 그 사실을
+ * 모른 채 「전부」라고 말한다 — 이 게이트가 이미 네 번 저지른 형태다.
+ *
+ * 그러므로 모집단은 **하네스 ∪ 워크플로**다. 워크플로에서 `node scripts/x.mjs`와
+ * `npm run <script>` 둘 다 찾고, 후자는 `package.json`으로 실제 스크립트를 되짚는다
+ * (이름이 아니라 **실행되는 것**을 센다 — §18-A의 「대리 지표 금지」와 같은 자세).
+ */
+export function workflowScripts(workflowSrcs, pkgScripts) {
+  const out = new Map();
+  for (const src of workflowSrcs) {
+    for (const m of src.matchAll(/node\s+(scripts\/[\w.-]+\.mjs)/g)) out.set(m[1], m[1]);
+    for (const m of src.matchAll(/npm\s+run\s+([\w:-]+)/g)) {
+      const cmd = pkgScripts?.[m[1]];
+      const s = cmd && /node\s+(scripts\/[\w.-]+\.mjs)/.exec(cmd);
+      if (s) out.set(s[1], s[1]);
+    }
+  }
+  // 🔴 **판정하는 것만 센다.** 워크플로는 `gen-version-file` 같은 **생성기**도 부르는데
+  //    그건 게이트가 아니라 산출물을 만드는 도구다. 대조군을 요구하면 오탐이고,
+  //    오탐 많은 게이트는 사람이 무시해서 죽는다(§11 ③).
+  //    가르는 기준은 이 저장소가 이미 일관되게 쓰는 이름 규약이다 — `check-`/`verify-`는 판정, `gen-`은 생성.
+  return [...out.values()]
+    .filter((script) => /^scripts\/(check|verify)-/.test(script))
+    .map((script) => ({ name: script.replace(/^scripts\/|\.mjs$/g, ''), script }));
 }
 
 /**
@@ -255,6 +287,26 @@ function selfTest() {
       () => gateScripts(`{ a: 1, b: 2, name: 'g', cmd: 'node scripts/g.mjs' },`)[0]?.name === 'g',
     ],
     ['name만 있고 cmd가 없으면 세지 않는다(오탐 금지)', () => gateScripts(`{ name: 'x' },`).length === 0],
+    // ── 모집단: 하네스 ∪ 워크플로 (2026-08-13 · 사용자 질문 「숨은 게이트가 더 있나」) ──
+    [
+      '🔴 워크플로가 `npm run`으로 부르는 게이트도 센다 — 하네스 밖에서 도는 것이 실제로 있었다',
+      () =>
+        workflowScripts(['        run: npm run verify:sync-release-live'], {
+          'verify:sync-release-live': 'node scripts/verify-sync-release-live.mjs',
+        }).length === 1,
+    ],
+    [
+      '워크플로가 직접 node로 부르는 것도 센다',
+      () => workflowScripts(['run: node scripts/check-x.mjs'], {})[0]?.name === 'check-x',
+    ],
+    [
+      '🔴 **생성기는 게이트가 아니다** — 대조군을 요구하면 오탐이다(§11 ③)',
+      () => workflowScripts(['run: node scripts/gen-version-file.mjs'], {}).length === 0,
+    ],
+    [
+      '이름만 있고 실제 스크립트가 없는 npm run은 세지 않는다',
+      () => workflowScripts(['run: npm run build'], { build: 'vite build' }).length === 0,
+    ],
     [
       '🔴 **템플릿 문자열 안**의 대조군은 대조군이 아니다 — 실행되지 않는다(M-0155)',
       () => !hasControl('const FIXTURE = `\nrunSelfTest("g", () => selfTest());\n`;'),
@@ -369,7 +421,17 @@ if (isMain) {
     process.exit(2);
   }
 
-  const gates = gateScripts(readFileSync(HARNESS, 'utf8')).filter((g) => existsSync(g.script));
+  // 🔴 모집단 = 하네스 ∪ 워크플로. 하나만 세면 다른 길로 도는 게이트를 영원히 못 본다.
+  const wfDir = '.github/workflows';
+  const wfSrcs = existsSync(wfDir)
+    ? readdirSync(wfDir).filter((f) => f.endsWith('.yml')).map((f) => readFileSync(join(wfDir, f), 'utf8'))
+    : [];
+  const pkgScripts = existsSync('package.json') ? JSON.parse(readFileSync('package.json', 'utf8')).scripts : {};
+  const seen = new Map();
+  for (const g of [...gateScripts(readFileSync(HARNESS, 'utf8')), ...workflowScripts(wfSrcs, pkgScripts)]) {
+    if (existsSync(g.script) && !seen.has(g.script)) seen.set(g.script, g);
+  }
+  const gates = [...seen.values()];
 
   // 🔴 대상 0에서 공허하게 통과하지 않는다 — 목록 확보를 **먼저 판정**한다(§4).
   if (gates.length === 0) {

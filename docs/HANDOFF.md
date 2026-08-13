@@ -8,6 +8,21 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0174 · **외부 프롬프트 흡수 · 모집단이 두 번 틀렸다** (2026-08-13 · v2.28 · M-0155)
+
+- **branch**: `claude/continue-previous-session-4kl87t` · **변경**: `check-gate-control.mjs`(모집단·템플릿) · `live-browser-lib.mjs`(기록기·넘침 스캐너) · 라이브 게이트 4개 · `check-timezone` · 헌법 §18-I 확장 · `gates-mechanization-dev` §2-J · 원장 · 생성물
+- **사용자 지시**: 외부 프롬프트 모음(150여 개)에서 *"배울 만한 것만 골라 흡수하자"*.
+- 🔴 **통째로 흡수하지 않았다.** 전수 대조하니 대부분은 이미 있었고(주입 증명 §4 · 모집단 회계 §18-G · 대리 지표 §18-A · 정직한 완료 · 눌러 봐야 확인 §13), **§2가 손편집 중복을 금한다.** 헌법은 매 세션 컨텍스트에 통째로 심기므로 늘리는 것이 곧 강해지는 것도 아니다 — 이 저장소가 당한 사고는 *"조항이 없어서"*가 아니라 **"있는데 좁게 읽어서"**였다(M-0154가 어제 그것이었다). 그래서 **비어 있는 셋만**, 그리고 **헌장에** 넣었다(헌법은 C 하나뿐).
+- 🔴 **대조하다 우리 결함을 찾았다 — 모집단이 두 번 틀렸다(M-0155).** 판정문이 *"게이트 64개 중 대조군 보유 64개 — 전부"*라고 했는데 실제는 **69개**였다. ①정규식이 `{` 바로 뒤 `name:`을 요구해 `{ slow: true, name: … }` 넷을 놓쳤다(하필 **실제 브라우저를 여는 셋**이고 셋 다 대조군이 없었다) ②**하네스가 게이트의 전부라고 가정**했는데 `verify-sync-release-live`는 `ci.yml`·`deploy-pages.yml`이 직접 부른다.
+- **M-0151~0153의 네 번째·다섯 번째 재발이다.** 형태가 매번 같다 — *아는 한 가지 모양을 「그 개념 전부」로 착각.* 다섯 번 다 **「전부」라는 낱말이 거짓**이었다.
+- 🔴 **고치는 중에 여섯 번째를 내가 만들었고, 그게 검출기의 구멍을 드러냈다.** 자동 삽입이 `const FIXTURE = \`…\`` **안으로** 들어갔다 — 그 문자열은 픽스처 앱의 소스라 게이트에서는 한 줄도 실행되지 않는데, **검출기는 텍스트로만 봐서 진짜 대조군으로 셌을 것이다**(빌드가 깨져서 알았다). 근본형은 이미 알던 것 — 주석 처리된 호출을 살아 있다고 센 첫 판. **실행되지 않는 자리의 코드는 코드가 아니다.**
+- 🔴 **그 처방도 한 번 과했다**: 템플릿을 통째로 지웠더니 멀쩡한 게이트 **16개**가 죽었다(이 저장소는 오류 메시지를 백틱으로 쓴다 — 대조군의 증거가 사라진다). 여러 줄 픽스처 대입만 좁게 지우도록 되돌렸다.
+- **흡수 셋**: ①**컨테이너 수준 가로 넘침** — 조상의 `overflow-x`가 넘침을 삼켜 문서 지표는 영원히 0이다(우리는 10곳에서 그렇게 재고 있었다). 전 요소 스캔 + `data-allow-xscroll` 면제 + 320/375. 🔴 **지금 위반은 0이라 결함 발견기가 아니라 회귀 차단기**이고 판정문이 그렇게 말한다. ②**상한 단언에 하한 짝짓기** — 실측하니 **이미 대체로 서 있었다**(전제 검사 35·6·7건). 없는 일을 만들지 않고 규칙만 헌장에 적었다. ③**자동 갱신 값 옆의 수동 필드**(헌법 §18-I 확장) — 날짜는 한 사례였고 근본형은 그것이다. 🔴 **이 일반형에는 아직 기계 층이 없다**고 조항이 스스로 밝힌다.
+- 🔴 **게이트 외부 모듈화는 안 한다**(사용자 제안). 숫자가 흔들린 원인이 **위치가 아니라 검출기**였고, 외부로 옮겼어도 다섯 번 다 똑같이 틀렸다. 게다가 §18-F의 「따로 배포되는 두 표면」이 되어 릴리스 계약·해시·운영 read-back이 통째로 더 필요해진다. **법은 이미 외부화돼 있다**(`HARNESS_RELEASE_LAW.md`·`vendor/codex-shared-skills`) — 법은 밖, 구현은 안. 진짜 아픔이던 「정본 목록 없음」은 모집단 통합으로 고쳤다.
+- **실행 검사**: `tsc` 0 · `gates` 65/65 · `verify-authgate-live` **14/14** · `verify-diagnostics-live` **76/76** · 기준선 64→**69**.
+- **주입 증명(§4)**: 기록기가 실패를 안 세게 → `exit 2` 판정 · 모집단 정규식 되돌림 → 라이브 4개 소멸 RED · 픽스처 안 가짜 대조군 → 안 세짐 RED · 넘침 스캐너는 **매 실행마다** 넘치는 상자를 심어 검출력을 먼저 증명한다.
+- **다음 작업**: T-029(날짜 판정을 도착 시각 기준으로) · T-028 · T-026.
+
 ## HANDOFF-0173 · **T-027 완료 · 날짜 게이트 신설 · M-0154** (2026-08-13 · v2.27 릴리스)
 
 - **branch**: `claude/continue-previous-session-4kl87t` · **신규**: `scripts/check-date-freshness.mjs` · **변경**: 게이트 12개(블록 14개) · `check-gate-control.mjs` · `harness.mjs` · `gates.ts` · 헌법 §18-I · 생성물 4종 · 원장 · 백로그
@@ -1357,7 +1372,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.27<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->227<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.28<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->228<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->30<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
