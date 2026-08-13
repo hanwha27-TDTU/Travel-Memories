@@ -268,6 +268,10 @@
   },
   "regenerationLedger": [
     {
+      "writer": "scripts/gen-all.mjs",
+      "excludedReason": "스스로는 아무 파일도 쓰지 않는 실행 순서 표다 — 실제 쓰기는 CHAIN에 든 생성기들이 하고 그 각각이 이 원장에 자기 check를 갖는다. 🔴 이 이유는 gen-all이 직접 쓰기를 하지 않는 동안만 참이다(M-0060 — 이유가 참인 사정권은 나중에 좁아진다). 직접 쓰는 순간 여기에 check를 달아야 한다."
+    },
+    {
       "writer": "scripts/gen-adapters.mjs",
       "check": "node scripts/check-adapter-parity.mjs"
     },

@@ -21,6 +21,7 @@
     "release:reopen": "node scripts/release-lock.mjs reopen",
     "release:close": "node scripts/release-lock.mjs close",
     "release:status": "node scripts/release-lock.mjs status",
+    "gen": "node scripts/gen-all.mjs",
     "gen:adapters": "node scripts/gen-adapters.mjs",
     "gen:harness-law": "node scripts/gen-harness-law.mjs",
     "gen:module-designs": "node scripts/gen-module-design-docs.mjs",

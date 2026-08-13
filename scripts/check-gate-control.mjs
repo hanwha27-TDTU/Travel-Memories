@@ -53,7 +53,7 @@ const HARNESS = 'scripts/harness.mjs';
  *  · `RUNNABLE`    — 그 대조군을 **밖에서 돌려 볼 수 있는가**(`--selftest` 플래그).
  *                    이게 있어야 이 게이트가 「살아 있는지」까지 확인할 수 있다.
  */
-export const HAS_CONTROL_BASELINE = 70;
+export const HAS_CONTROL_BASELINE = 71;
 export const RUNNABLE_BASELINE = 17;
 /**
  * 🔴 세 번째 축(2026-08-12 · M-0152) — **대조군이 실패를 「판정」으로 알리는가.**
@@ -80,7 +80,7 @@ export const RUNNABLE_BASELINE = 17;
  *    그게 §7 2층이 하는 일이다: 다음 형제가 규칙을 몰라도 따라오게 만든다.
  * 🔴 이 숫자는 **세어서** 넣는다. 어림하지 마라 — 이 저장소는 그것으로 세 번 틀렸다(M-0152).
  */
-export const CLEAN_EXIT_BASELINE = 70;
+export const CLEAN_EXIT_BASELINE = 71;
 
 /**
  * 하네스에 등록된 게이트 중 `node scripts/*.mjs`로 도는 것의 스크립트 경로를 뽑는다.

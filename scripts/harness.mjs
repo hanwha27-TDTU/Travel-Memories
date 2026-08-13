@@ -188,6 +188,7 @@ const gates = [
   { name: 'check-doc-counts', cmd: 'node scripts/check-doc-counts.mjs' },
   { name: 'check-date-freshness', cmd: 'node scripts/check-date-freshness.mjs' },
   { name: 'check-version-ssot', cmd: 'node scripts/check-version-ssot.mjs' },
+  { name: 'check-screen-lifecycle', cmd: 'node scripts/check-screen-lifecycle.mjs' },
   { slow: true, name: 'check-timezone', cmd: 'node scripts/check-timezone.mjs' },
   { name: 'check-instant-normalization', cmd: 'node scripts/check-instant-normalization.mjs' },
   { name: 'check-exif-strip-on-share', cmd: 'node scripts/check-exif-strip-on-share.mjs' },
