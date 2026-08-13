@@ -4378,6 +4378,7 @@ check(
   [
     '한국', '우즈베키스탄', 'TomTom', 'OpenStreetMap', 'My First API key',
     'Domain whitelist', 'Off', 'On', 'ID를 복사하면 안 됩니다', 'VITE_TOMTOM_API_KEY',
+    '주소 입력칸', '휴지통 모양', 'Edit key',
     'Supabase에는 TomTom 키를 넣지 않습니다', 'TomTom 변수 등록 완료',
   ].every((word) => mapGuide.text.includes(word)),
   mapGuide.text,

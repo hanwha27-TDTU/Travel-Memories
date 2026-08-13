@@ -31,6 +31,16 @@ export const DEVELOPER = {
 /** 최신이 맨 앞. 각 항목 = 실제 병합된 릴리스. */
 export const CHANGELOG: ChangeEntry[] = [
   {
+    version: '2.36',
+    date: '2026-08-13',
+    title: '**TomTom 설정 가이드가 지금 보이는 화면과 똑같아졌어요**',
+    notes: [
+      'TomTom 도메인 세 개를 쉼표로 한 번에 적는 대신, 주소 하나를 적고 +를 누르는 현재 MyTomTom 화면 순서로 바로잡았습니다.',
+      '마지막 주소 옆에 +가 남아 있으면 아직 추가되지 않은 상태이고, 세 주소가 모두 휴지통 모양이면 저장할 준비가 끝났다고 알려줍니다.',
+      '저장 버튼의 실제 이름인 Edit key와, 저장 뒤 Domain whitelist: On을 확인하는 방법을 함께 적었습니다.',
+    ],
+  },
+  {
     version: '2.35',
     date: '2026-08-13',
     title: '**현재 있는 나라에 맞춰 한국은 카카오맵, 중앙아시아는 TomTom이 먼저 열려요**',

@@ -8,6 +8,12 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0186 · **TomTom 도메인 보호 실증·현재 UI 가이드 교정** (2026-08-13 · v2.36 릴리스 후보)
+
+- 사용자가 MyTomTom에서 `hanwha27-tdtu.github.io`, `localhost`, `127.0.0.1`을 각각 추가하고 `Domain whitelisting`을 저장했다. 키 값은 출력하지 않은 채 같은 타일 요청을 대조해 허용 GitHub Pages origin은 PNG 28,527바이트·HTTP 200, 허용하지 않은 `example.com`은 HTTP 403임을 확인했다.
+- v2.35 가이드는 공식 문서의 쉼표 구분 설명을 따랐지만 현재 MyTomTom 편집 화면은 주소를 하나씩 입력하고 `+`로 목록에 넣는 UI였다. 실제 화면에서 세 번째 주소 옆 `+`가 아직 미추가 상태이고, 추가된 행은 휴지통 버튼으로 바뀌며, 마지막 저장 버튼 이름은 `Edit key`임을 확인했다.
+- 앱 가이드·배포 문서·라이브 판정을 현재 UI 순서로 교정했다. 과거 HANDOFF-0185의 쉼표 형식은 당시 안내 기록이며 현재 절차의 권위는 이 항목과 `docs/DEPLOYMENT.md`다.
+
 ## HANDOFF-0185 · **v2.35 TomTom 운영 키 등록·초보자 가이드 확정** (2026-08-13 · 릴리스 후보)
 
 - 사용자가 MyTomTom의 기존 `My First API key`에서 실제 Key와 고객센터용 ID를 구분해 GitHub Repository Variable `VITE_TOMTOM_API_KEY`로 등록했다. 키 값은 채팅·문서·로그에 노출하지 않았다. 사용자 화면에서 `Map Display API` 포함과 GitHub 변수 이름 존재를 확인했다.
@@ -1562,7 +1568,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.35<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->235<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->139<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.36<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->236<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->139<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->32<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
