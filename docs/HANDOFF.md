@@ -14,7 +14,7 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 - Windows 설치본 `Bugeon Journey_2.37.0_x64-setup.exe`는 4,654,177바이트이고 공개된 SHA-256 파일과 직접 계산값 `7795e48a0cbc25ea8dbcb452265f1001b6c4e3a73cc1f23cfed96b37c1e49674`가 일치했다. Android v2.37 APK 배포 run `31732828090`도 성공했다.
 - PR 없이 남아 있던 T-029 구현을 회수했다. 얼린 릴리스의 날짜를 실행 시작일이 아니라 실측 배포 꼬리 13분 뒤 UTC 도착일과 대조하고, 자정 직전에는 다음 날 날짜를 안내·허용한다. 앱 기능·DB·Storage·버전은 바꾸지 않는다.
 - Dependabot의 `glib 0.18.5` 보안 업데이트 불가를 숨기지 않고 T-037로 등록했다. 현재 Tauri의 Linux GTK 전이 경로이며 Windows 산출물에는 연결되지 않지만, 호환 업그레이드가 생기면 lock/tree와 Windows 설치본을 다시 검증한다.
-- 이 종료 PR에서 생성 문서·게이트·빌드·하네스·라이브를 다시 실행하고, Required CI·병합·Pages read-back까지 확인한다. 정확한 PR·merge·run 번호는 GitHub 실행 기록을 권위로 삼는다.
+- 회수 변경은 PR #279로 squash 병합되어 `main` 커밋 `efff645ea865a8149f4bf442976278b906785749`가 됐다. Ready PR CI run `31737173437`의 fast-gates·harness·live-render가 모두 성공했고, Pages run `31737400892`도 성공했다. 운영 `version.json`을 다시 읽어 HTTP 200과 `2.37`을 확인했다.
 - 다음 착수 우선순위: T-037의 호환 업그레이드 가능 여부를 짧게 판정한 뒤, 사용자가 우즈베키스탄 실기기를 쓸 수 있을 때 T-036의 실제 TomTom 타일·팬·핀치를 확인한다.
 
 ## HANDOFF-0189 · **원근 펴기 네 점선을 직접 끄는 조작** (2026-08-13 · v2.37 후보)
