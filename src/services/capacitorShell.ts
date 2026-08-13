@@ -64,6 +64,8 @@ export function iconSwitcher(): IconSwitcher | null {
 
 /** Android에 큰 앱 파일을 청크로 쓰고, 닫은 뒤 다시 읽어 검증하는 셸 문. wire 이름은 구형 APK 호환 때문에 유지한다. */
 export interface BackupFileWriter {
+  /** Android app-process heap ceiling. Older APKs do not expose this method. */
+  memoryBudget?(): Promise<{ maxMemory: number }>;
   begin(options: {
     filename: string;
     mime: string;
@@ -86,6 +88,18 @@ export interface BackupFileWriter {
 
 export function backupFileWriter(): BackupFileWriter | null {
   return shellPlugin<BackupFileWriter>('BackupFiles');
+}
+
+/** Read the native Android process budget; an absent/old bridge stays unknown. */
+export async function androidRuntimeMaxMemory(): Promise<number | undefined> {
+  const read = backupFileWriter()?.memoryBudget;
+  if (typeof read !== 'function') return undefined;
+  try {
+    const value = (await read()).maxMemory;
+    return Number.isFinite(value) && value > 0 ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

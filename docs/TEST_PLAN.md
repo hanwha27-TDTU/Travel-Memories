@@ -66,7 +66,7 @@ JPEG/PNG/WebP/HEIC 각 1장 · EXIF 없음 · GPS 없음 · 세로방향 · 50MB
 | 라이브 렌더 | `scripts/verify-editor-live.mjs` · `verify-diagnostics-live.mjs` (Playwright) | 실제 브라우저의 화면·문장·버튼 |
 | 보안 | `supabase/tests/*.sql` + `check-migration-grants` · `check-secret-leak` | RLS 침투 · 권한 · 시크릿 |
 | 픽스처 | 각 검사 파일 안(인라인) · 라이브는 주입 픽스처 | — |
-| 성능·대량·저메모리 | **없음** | 실기기 몫이다(자동층에 없다는 것을 여기 적어 둔다 — §10) |
+| 성능·대량·저메모리 | Node production-code-path ZIP 메모리 계측 | 평문·암호화 50/200/500장 증폭과 하네스 자체 복사 여부를 재며, Android WebView 종료점은 실기기 몫이다(§10) |
 
 ## TPL-4 완료의 정의
 

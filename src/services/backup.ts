@@ -45,17 +45,26 @@ const ANDROID_IMPORT_HEAP_FRACTION = 8;
 /**
  * Android WebView에서 파일을 읽기 **전** 적용할 기기별 ZIP/JSON 복원 상한 (T-030).
  *
- * production ZIP 경로를 재보니 whole-file 복사를 제거한 뒤에도 File ArrayBuffer, 엔트리 view,
- * Blob/IndexedDB snapshot이 겹쳐 입력의 약 3배가 살아 있었다. V8이 공개하는 renderer heap
- * 한도의 1/8만 입력에 주면 그 관측 증폭 뒤에도 절반 넘는 여유가 남는다. 값을 못 읽는 옛
- * WebView는 안전하다고 추측하지 않고 32MiB로 닫는다. 일반 브라우저는 기존 1GiB 계약을 유지한다.
+ * production ZIP 경로의 불필요한 whole-file 복사를 제거한 뒤 Node 진단에서 peak ArrayBuffer는
+ * 입력의 약 2배였다. Android WebView와 실제 IndexedDB structured clone의 peak는 별도이므로
+ * renderer/native 한도 중 작은 값의 1/8만 입력에 허용한다. 값을 못 읽는 옛 WebView는 안전하다고
+ * 추측하지 않고 32MiB로 닫는다. 일반 브라우저는 기존 1GiB 계약을 유지한다.
  */
-export function backupImportLimitBytes(androidShell: boolean, jsHeapSizeLimit?: number): number {
+export function backupImportLimitBytes(
+  androidShell: boolean,
+  jsHeapSizeLimit?: number,
+  androidMaxMemory?: number,
+): number {
   if (!androidShell) return MAX_BACKUP_IMPORT_BYTES;
-  if (!Number.isFinite(jsHeapSizeLimit) || (jsHeapSizeLimit as number) <= 0) {
+  const budgets = [jsHeapSizeLimit, androidMaxMemory]
+    .filter((value): value is number => Number.isFinite(value) && (value as number) > 0);
+  if (budgets.length === 0) {
     return UNKNOWN_ANDROID_BACKUP_IMPORT_BYTES;
   }
-  return Math.min(MAX_BACKUP_IMPORT_BYTES, Math.floor((jsHeapSizeLimit as number) / ANDROID_IMPORT_HEAP_FRACTION));
+  return Math.min(
+    UNKNOWN_ANDROID_BACKUP_IMPORT_BYTES,
+    Math.floor(Math.min(...budgets) / ANDROID_IMPORT_HEAP_FRACTION),
+  );
 }
 
 /**
@@ -189,10 +198,19 @@ export function assertBackupImportSize(bytes: number, maxBytes = MAX_BACKUP_IMPO
   if (!Number.isFinite(bytes) || bytes < 0 || bytes > maxBytes) {
     const mb = Math.floor(maxBytes / 1024 ** 2);
     throw new Error(
-      `이 기기에서 한 번에 안전하게 읽도록 정한 ${mb.toLocaleString()}MB를 넘었어요. ` +
-      '파일이 깨진 게 아니에요 — 여행을 나눠 ZIP으로 백업한 뒤 하나씩 복원해 주세요.',
+      `이 Android 앱에서 메모리 위험을 줄이려고 한 번에 읽는 크기를 ${mb.toLocaleString()}MB로 제한했어요. ` +
+      '파일이 깨진 게 아니에요. PC나 메모리 여유가 큰 브라우저에서 이 백업을 복원해 주세요.',
     );
   }
+}
+
+/** The single selected-file read gate: size rejection must happen before allocation. */
+export async function readBackupFileWithinLimit(
+  file: Pick<File, 'size' | 'arrayBuffer'>,
+  maxBytes: number,
+): Promise<ArrayBuffer> {
+  assertBackupImportSize(file.size, maxBytes);
+  return file.arrayBuffer();
 }
 
 /** 백업에 담기는 로컬 전 테이블(사용자 데이터). 두 형식이 이 한 곳에서만 읽는다. */

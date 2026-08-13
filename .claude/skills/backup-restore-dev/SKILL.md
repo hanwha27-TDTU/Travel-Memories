@@ -147,6 +147,13 @@ description: 백업·복원 개발 프롬프트 — services/backup.ts·backupCr
 
 > ⚠️ **정정(2026-07-27)**: 위 진술은 **사진 규모 한정**이다. `zipStore`가 모든 엔트리를 모은 뒤
 > `new Uint8Array(total)` **단일 버퍼로 다시 복사**하므로(`zip.ts`) 피크 메모리는 **총량의 약 2배**다.
+
+### 복원 메모리 경계 (v2.32 · T-030)
+
+- 평문과 암호화는 따로 잰다. 암호화는 ciphertext와 plaintext가 겹쳐 평문보다 높을 수 있다.
+- ZIP reader 엔트리는 입력 `ArrayBuffer`의 `subarray` view를 유지하고 payload 전체 `slice()`를 금지한다. 유닛에서 `entry.data.buffer === input`을 잠근다.
+- Android는 선택 File의 `arrayBuffer()` **전** 최대 32MiB로 닫는다. renderer heap과 네이티브 `Runtime.maxMemory()`는 WebView 종료점의 증명이 아니므로 상한을 올리는 데 쓰지 않고 더 낮추는 데만 쓴다.
+- Node 계측은 production 코드 경로 진단이지 Android 실기기 PASS가 아니다. PSS·renderer death·IndexedDB byte/hash read-back을 별도로 기록한다.
 > 장당 순차 `arrayBuffer`는 *읽기*만 순차일 뿐 최종 조립은 전량이다.
 >
 > 그리고 이 라이터는 **ZIP64를 지원하지 않는다**: 크기·오프셋이 `uint32`(4 GiB), 엔트리 수가

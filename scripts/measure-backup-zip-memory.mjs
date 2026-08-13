@@ -58,7 +58,11 @@ async function loadBackupModule() {
     server: { middlewareMode: true },
   });
   try {
-    return { vite, backup: await vite.ssrLoadModule('/src/services/backup.ts') };
+    return {
+      vite,
+      backup: await vite.ssrLoadModule('/src/services/backup.ts'),
+      crypto: await vite.ssrLoadModule('/src/services/backupCrypto.ts'),
+    };
   } catch (error) {
     await vite.close();
     throw error;
@@ -102,18 +106,20 @@ function fixtureRows(count) {
   return { trips: [trip], moments: [moment], media, expenses: [], audio: [], videos: [], places: [] };
 }
 
-async function generate(count, output) {
-  const { vite, backup } = await loadBackupModule();
+async function generate(count, output, encrypted) {
+  const { vite, backup, crypto } = await loadBackupModule();
   try {
     const blob = await backup.serializeZip(fixtureRows(count), false);
-    await writeFile(output, new Uint8Array(await blob.arrayBuffer()));
-    process.stdout.write(`${JSON.stringify({ state: 'generated', count, zipMiB: mib(blob.size) })}\n`);
+    let bytes = new Uint8Array(await blob.arrayBuffer());
+    if (encrypted) bytes = await crypto.encryptBytes(bytes, 'memory-test');
+    await writeFile(output, bytes);
+    process.stdout.write(`${JSON.stringify({ state: 'generated', profile: encrypted ? 'encrypted' : 'plain', count, zipMiB: mib(bytes.byteLength) })}\n`);
   } finally {
     await vite.close();
   }
 }
 
-async function measure(count, inputPath) {
+async function measure(count, inputPath, encrypted) {
   await import('fake-indexeddb/auto');
   const { vite, backup } = await loadBackupModule();
   try {
@@ -121,24 +127,29 @@ async function measure(count, inputPath) {
     const stages = [snapshot('clean')];
 
     let diskBytes = await readFile(inputPath);
-    const input = diskBytes.byteOffset === 0 && diskBytes.byteLength === diskBytes.buffer.byteLength
-      ? diskBytes.buffer
-      : diskBytes.buffer.slice(diskBytes.byteOffset, diskBytes.byteOffset + diskBytes.byteLength);
+    if (diskBytes.byteOffset !== 0 || diskBytes.byteLength !== diskBytes.buffer.byteLength) {
+      throw new Error('측정 하네스가 입력 전체 복사를 요구했습니다. 결과를 사용하지 않습니다.');
+    }
+    const input = diskBytes.buffer;
     diskBytes = null;
     forceGc();
     stages.push(snapshot('file-array-buffer'));
 
     // importBackupAuto는 ZIP 파싱을 첫 await 전에 동기로 끝낸다. Promise를 받은 직후가
     // 원본 ArrayBuffer + view 복사 + 엔트리 복사 + 재구성 Blob이 함께 살아 있는 지점이다.
-    const pending = backup.importBackupAuto(input);
+    const pending = backup.importBackupAuto(input, encrypted ? 'memory-test' : undefined);
     stages.push(snapshot('zip-deserialized'));
     const result = await pending;
     stages.push(snapshot('dexie-merged'));
 
     process.stdout.write(`${JSON.stringify({
       state: 'measured',
+      profile: encrypted ? 'encrypted' : 'plain',
       count,
       zipMiB: mib(input.byteLength),
+      harnessInputCopied: false,
+      sampledRssAmplification: Math.round(((Math.max(...stages.map((stage) => stage.rssMiB)) - stages[0].rssMiB) / mib(input.byteLength)) * 100) / 100,
+      maxRssAmplification: Math.round(((Math.max(...stages.map((stage) => stage.maxRssMiB)) - stages[0].maxRssMiB) / mib(input.byteLength)) * 100) / 100,
       stages,
       result,
     })}\n`);
@@ -165,12 +176,14 @@ function runChild(args) {
 }
 
 async function main() {
-  const [mode, value, file] = process.argv.slice(2);
-  if (mode === '--generate') return generate(Number(value), file);
-  if (mode === '--measure') return measure(Number(value), file);
+  const [mode, value, file, profile] = process.argv.slice(2);
+  if (mode === '--generate') return generate(Number(value), file, profile === 'encrypted');
+  if (mode === '--measure') return measure(Number(value), file, profile === 'encrypted');
 
-  const counts = process.argv.slice(2).length > 0
-    ? process.argv.slice(2).map(Number)
+  const encrypted = process.argv.includes('--encrypted');
+  const countArgs = process.argv.slice(2).filter((arg) => arg !== '--encrypted');
+  const counts = countArgs.length > 0
+    ? countArgs.map(Number)
     : DEFAULT_COUNTS;
   if (counts.some((count) => !Number.isInteger(count) || count <= 0)) {
     throw new Error('사진 개수는 양의 정수여야 합니다.');
@@ -181,8 +194,9 @@ async function main() {
   try {
     for (const count of counts) {
       const path = join(dir, `${count}.zip`);
-      const generated = await runChild(['--generate', String(count), path]);
-      const measured = await runChild(['--measure', String(count), path]);
+      const profile = encrypted ? 'encrypted' : 'plain';
+      const generated = await runChild(['--generate', String(count), path, profile]);
+      const measured = await runChild(['--measure', String(count), path, profile]);
       results.push(...generated, ...measured);
       process.stdout.write(`${JSON.stringify(results.at(-1), null, 2)}\n`);
       await rm(path, { force: true });

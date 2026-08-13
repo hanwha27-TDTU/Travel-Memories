@@ -37,6 +37,15 @@ describe('zip store', () => {
     expect(dec.decode(map.get('manifest.json')!)).toBe('{"app":"bugeon-journey"}');
   });
 
+  it('해제한 엔트리는 입력 ArrayBuffer의 view이며 payload 전체를 다시 복사하지 않는다', async () => {
+    const input = await zipStore([
+      { name: 'a.bin', data: new Uint8Array([1, 2, 3]) },
+      { name: 'b.bin', data: new Uint8Array([4, 5, 6]) },
+    ]).arrayBuffer();
+    const back = unzip(input);
+    expect(back.every((entry) => entry.data.buffer === input)).toBe(true);
+  });
+
   it('큰 이름·다수 엔트리에서도 오프셋 정합(중앙 디렉터리 순회)', async () => {
     const entries: ZipEntry[] = Array.from({ length: 50 }, (_, i) => ({
       name: `여행_${i}/photos/${i}.webp`,

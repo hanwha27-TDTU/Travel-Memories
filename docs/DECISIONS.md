@@ -9,6 +9,12 @@ shape_reason: ADR은 결정에 이른 경위가 값이다. 항목으로 자르�
 
 ---
 
+## ADR-0068 · Android 백업 복원은 32MiB를 넘지 않고, 메모리 값은 상한을 낮추는 데만 쓴다 `[AI-autonomous]` (Codex)
+
+- production 복원 코드로 파생 사진 50·200·500장을 재니 평문 sampled RSS 증가는 약 2.02~2.04배, 암호화 process max RSS 증가는 약 4.00~5.02배였다. 입력 전체 `ArrayBuffer.slice()`와 엔트리별 `slice()`는 제거했다.
+- Android는 `file.arrayBuffer()` 전에 최대 32MiB로 닫는다. renderer heap과 네이티브 `Runtime.maxMemory()`는 상한을 올리지 않고, 더 작은 값의 1/8이 32MiB보다 작을 때만 낮춘다. 둘 다 WebView renderer 종료점의 증명이 아니기 때문이다.
+- 초과 시 앱에 없는 분할 백업을 권하지 않고 PC나 메모리 여유가 큰 브라우저 복원을 안내한다. 저사양 WebView PSS·renderer death·IndexedDB 해시 read-back 전에는 상한을 올리지 않는다.
+
 ## ADR-0067 · T-024는 셋 중 둘만 고친다 — 여행 상세의 세션 잔존 재검사는 하지 않는다 `[AI-proposed→user-approved]` (Claude)
 
 - **맥락**: T-024 후보 셋(진단 redaction 구멍 · 이미 열린 화면의 세션 잔존 · 읽기전용 감사 에이전트의 `Bash`)을 각각 실측했다. 사용자 지시는 *"진행여부 검토하고 진행이 필요하면 진행하고"*였고, 이 세션 내내 걸린 제약은 *"사용하는데 불편이 있으면 절대 안 되니까"*다.
