@@ -14,6 +14,7 @@ export interface MomentRow {
   title: string;
   note: string;
   emotion: string;
+  companion_names?: string | null;
   place_name: string;
   place_lat: number | null;
   place_lng: number | null;
@@ -41,6 +42,7 @@ export function toMomentRow(m: LocalMoment, userId: string, device?: string): Mo
     title: m.title,
     note: m.note,
     emotion: m.emotion,
+    companion_names: m.companionNames ?? '',
     place_name: m.placeName,
     place_lat: m.placeLat ?? null,
     place_lng: m.placeLng ?? null,
@@ -68,6 +70,7 @@ export function fromMomentRow(r: MomentRow): WithInstants<LocalMoment> {
     title: r.title,
     note: r.note,
     emotion: r.emotion,
+    companionNames: r.companion_names ?? '',
     placeName: r.place_name,
     placeLat: r.place_lat,
     placeLng: r.place_lng,

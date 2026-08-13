@@ -1072,4 +1072,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '기존 production 경로는 File 입력 뒤 전체 ArrayBuffer 복사와 엔트리별 payload 복사를 추가로 만들었다. Node에서 평문과 암호화를 분리해 재니 불필요한 복사를 제거한 뒤에도 평문 sampled RSS는 약 2배, 암호화의 프로세스 최고 RSS는 약 4~5배 증가했다. renderer heap과 Android Runtime.maxMemory는 WebView renderer 종료점과 같은 값이 아니므로 안전 보증으로 쓸 수 없었다.',
     decision: 'ZIP 엔트리를 원본 입력 view로 유지하고 자동감지 전체 복사를 제거한다. 측정 하네스 자체 복사는 실패로 닫고 표식으로 남긴다. Android 복원은 File.arrayBuffer 전에 최대 32MiB에서 거절하며 renderer/native 값은 상한을 올리지 않고 더 낮추는 데만 쓴다. 초과 시 파일 손상이 아님과 PC 또는 메모리 여유가 큰 브라우저라는 실행 가능한 다음 행동을 말한다. Android WebView 실기기 PSS와 원본·영상-heavy 표본은 미검증 경계로 남긴다.',
   },
+  {
+    seq: 134,
+    date: '2026-08-13',
+    topic: '순간 편집의 첫 터치를 직접 처리하고 동행인·좌표 행정구역을 같은 장소 흐름에 묶는다',
+    human: '순간 카드의 편집 버튼이 첫 입력에는 빠져나가는 듯하고 두 번째 입력에야 열리는 문제, 장소 아래에 함께 한 사람을 기록하는 입력, 좌표 숫자와 국가·도시 표시 및 좌표만 복사하는 동작을 요청했다.',
+    ai: '터치 뒤 합성 click이 이어지는 모바일 입력 경계와 순간의 오프라인·Supabase 왕복 계약을 함께 확인했다. 동행인은 아직 독립 인물 원장이 없는 범위이므로 순간 소유의 companionNames로 두되 rowmap·canonical snapshot·이전 행 호환까지 한 묶음으로 반영해야 했다.',
+    decision: 'touch·pen의 pointerup에서 편집을 즉시 열고 뒤따르는 합성 click 한 번만 억제한다. 장소 편집 배지는 실제 좌표와 저장된 국가·도시를 표시하고 복사 버튼은 좌표 문자열만 쓴다. companion_names 마이그레이션과 정확집합 RPC 기반 함수를 갱신했으며 Bugeon_API35의 Chrome과 localhost 디버그 APK WebView에서 단일 touch, 필드 순서, 저장, 표시를 직접 검증했다.',
+  },
 ];

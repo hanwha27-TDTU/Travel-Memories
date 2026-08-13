@@ -8,6 +8,16 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0180 · **순간 편집 첫 터치·동행인·좌표 행정구역 표시를 한 흐름으로 닫음** (2026-08-13 · 릴리스 전)
+
+- 순간 카드 편집 버튼은 touch/pen `pointerup`에서 즉시 열고, 뒤따르는 합성 `click` 한 번만 무시한다. 마우스·키보드 click 경로는 그대로 유지한다.
+- 장소 아래에 순간 소유의 `companionNames` 입력을 추가했다. 독립 인물 원장이 아니라 자유 입력이며 Dexie, sync rowmap, canonical snapshot, 이전 행 기본값까지 왕복한다. DB 변경은 `20260813113101_add_moment_companion_names.sql`이다.
+- 장소 선택 배지는 `위도, 경도 · 국가 · 도시`를 표시하고 `좌표 복사`는 숫자 두 개만 클립보드에 기록한다. 연결된 장소 원장의 country/city를 오프라인에서 우선 사용한다.
+- `Bugeon_API35`(1080×2400, 420dpi)에서 Android Chrome과 localhost 허용 디버그 APK WebView를 직접 실행했다. 실제 `pointerType=touch` 한 번으로 편집창 열림, 동행인 필드의 장소 아래 배치·저장, `37.52665, 126.96356 · 대한민국 · 서울`, 좌표만 복사를 확인했다. 검증용 cleartext/localhost 설정은 즉시 원복했다.
+- 검증: 기능 유닛 21건 PASS, `npm run build` PASS, APK `assembleDebug` PASS, 설치·런처 `app.bugeon.journey/.IconPassport`·WebView 실행 PASS. `npm run gates`는 저장소 게이트 전부 PASS이며 프로젝트 밖 `release-harness-governance` 전역 설치본 해시 불일치 1건만 기존대로 남는다.
+
+---
+
 ## HANDOFF-0179 · **T-030 — ZIP 메모리를 재고 Android는 읽기 전에 닫았다** (2026-08-13 · v2.32)
 
 - production 코드 경로로 파생 사진 50·200·500장을 별도 프로세스에서 실행했다. 평문 sampled RSS 증폭은 약 2.02~2.04배, 암호화 process max RSS 증폭은 4.00~5.02배였다. 하네스 자체 입력 복사는 실패로 닫고 `harnessInputCopied:false`를 기록한다.
@@ -1518,9 +1528,9 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.32<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->232<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->133<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.32<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->232<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->134<!--/reg-->개).
 
-> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->31<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
+> **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->32<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
 
 ### 🕐 직전 세션에서 무슨 일이 있었나 (2026-07-30 · 새 AI는 이것부터)

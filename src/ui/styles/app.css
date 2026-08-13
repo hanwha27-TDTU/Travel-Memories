@@ -652,6 +652,7 @@
   background: var(--bg-2); color: var(--ink-soft);
 }
 .chip.gps { background: color-mix(in srgb, var(--sem-sky) 15%, transparent); color: var(--sem-sky-ink); }
+.chip.companions { background: color-mix(in srgb, var(--sem-pink) 13%, transparent); color: var(--sem-pink-ink); }
 /* 누를 수 있는 칩(장소 → 지도). **모양은 형제 칩과 똑같이 두고** 버튼 기본 장식만 지운다 —
    칩 줄에서 어떤 것은 span이고 어떤 것은 button이라는 사실이 화면에 드러나면 안 된다(§7). */
 button.chip { border: 0; font-family: inherit; }
@@ -950,7 +951,12 @@ select.zone-input { text-overflow: ellipsis; }
   border-radius: var(--radius-small); padding: 6px 10px; line-height: 1.4;
 }
 .place-picked[hidden] { display: none; }
-.place-picked-text { flex: 1 1 auto; min-width: 0; }
+.place-picked-text { flex: 1 1 auto; min-width: 0; word-break: keep-all; }
+.place-picked-copy {
+  flex: 0 0 auto; min-height: var(--touch-target-min); padding: 0 var(--space-2);
+  border: 0; background: transparent; color: var(--sem-teal-ink); font: inherit;
+  text-decoration: underline; cursor: pointer; white-space: nowrap;
+}
 /* 「점이 아니다」를 말하는 줄. 배지 안에 넣으면 길어져 안 읽힌다 — 아래 줄로 뺀다. */
 .place-picked-hint { margin: 4px 2px 0; line-height: 1.45; color: var(--sem-pink-ink); }
 
@@ -1102,7 +1108,7 @@ select.zone-input { text-overflow: ellipsis; }
   display: grid; place-items: center;
   border: 1px solid var(--line); border-radius: var(--radius-pill);
   background: var(--surface); color: var(--ink-soft);
-  font-size: 0.9rem; line-height: 1; cursor: pointer;
+  font-size: 0.9rem; line-height: 1; cursor: pointer; touch-action: manipulation;
 }
 .icon-btn:hover { color: var(--ink); border-color: var(--ink-soft); }
 .moment-note {

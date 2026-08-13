@@ -17,6 +17,7 @@ export interface CreateMomentInput {
   tripId: string;
   title: string;
   emotion?: string;
+  companionNames?: string;
   placeName?: string;
   placeLat?: number | null;
   placeLng?: number | null;
@@ -60,6 +61,7 @@ export async function createMomentLocalFirst(input: CreateMomentInput): Promise<
     title,
     note: input.note?.trim() ?? '',
     emotion: input.emotion ?? '',
+    companionNames: input.companionNames?.trim() ?? '',
     placeName,
     placeLat,
     placeLng,
@@ -103,6 +105,7 @@ export async function createMomentLocalFirst(input: CreateMomentInput): Promise<
 export interface UpdateMomentPatch {
   title?: string;
   emotion?: string;
+  companionNames?: string;
   placeName?: string;
   placeLat?: number | null;
   placeLng?: number | null;
@@ -147,6 +150,7 @@ export async function updateMomentLocalFirst(id: string, patch: UpdateMomentPatc
     ...cur,
     ...(patch.title !== undefined ? { title: patch.title.trim() } : {}),
     ...(patch.emotion !== undefined ? { emotion: patch.emotion } : {}),
+    ...(patch.companionNames !== undefined ? { companionNames: patch.companionNames.trim() } : {}),
     ...(patch.placeName !== undefined ? { placeName: patch.placeName.trim() } : {}),
     ...(patch.placeLat !== undefined ? { placeLat: patch.placeLat } : {}),
     ...(patch.placeLng !== undefined ? { placeLng: patch.placeLng } : {}),

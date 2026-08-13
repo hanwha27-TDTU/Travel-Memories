@@ -89,6 +89,8 @@ export interface LocalMoment extends SyncMeta {
   note: string; // 추가 메모(선택)
   emotion: string; // 감정 이모지(선택)
   placeName: string; // 장소명(선택)
+  /** 이 순간을 함께한 사람 이름(쉼표로 나눌 수 있는 자유 입력). 옛 행에는 없을 수 있다. */
+  companionNames?: string;
   placeLat?: number | null; // 장소 좌표(지오코딩 선택) — 있으면 지도에 표시
   placeLng?: number | null;
   /**
