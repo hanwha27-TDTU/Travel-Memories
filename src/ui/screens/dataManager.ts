@@ -19,9 +19,9 @@ import {
   type TrashPurgeEntry,
   type TrashedChild,
 } from '../../services/trash';
-import { assertBackupImportSize, backupFilename, exportBackup, exportBackupZip, importBackupAuto, type BackupStats } from '../../services/backup';
+import { backupFilename, backupImportLimitBytes, exportBackup, exportBackupZip, importBackupAuto, readBackupFileWithinLimit, type BackupStats } from '../../services/backup';
 import { backupSaveMessage, saveBackupBlob, saveBackupBlobToChosenFolder } from '../../services/fileSave';
-import { backupFileWriter } from '../../services/capacitorShell';
+import { androidRuntimeMaxMemory, backupFileWriter, rendererHeapSizeLimit, shellState } from '../../services/capacitorShell';
 import { recordBackupNow, getLastBackupAt, backupFreshness } from '../../services/backupMeta';
 import {
   listDeletedTrips, listDeletedTripsFromServer, restoreTripFromTrash, purgeTripPermanently, prepareTripForAction,
@@ -326,8 +326,14 @@ function restorePanel(onChanged: () => void): HTMLElement {
     status.textContent = '복원 중…';
     void (async () => {
       try {
-        assertBackupImportSize(file.size);
-        const buf = await file.arrayBuffer();
+        const androidMaxMemory = await androidRuntimeMaxMemory();
+        const limit = backupImportLimitBytes(
+          shellState() !== 'browser',
+          rendererHeapSizeLimit(),
+          androidMaxMemory,
+        );
+        // 🔴 반드시 `file.arrayBuffer()` **전**에 막는다. 읽고 나서 거절하면 이미 OOM 위험을 밟았다.
+        const buf = await readBackupFileWithinLimit(file, limit);
         const r = await importBackupAuto(buf, passInput.value.trim() || undefined);
         if (r.needsPassphrase) {
           status.textContent = '암호화된 백업이에요. 위에 암호를 입력하고 파일을 다시 선택하세요.';

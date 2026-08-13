@@ -41,6 +41,13 @@ public class BackupFilesPlugin extends Plugin {
   private boolean beginPending;
 
   @PluginMethod
+  public void memoryBudget(PluginCall call) {
+    JSObject result = new JSObject();
+    result.put("maxMemory", Runtime.getRuntime().maxMemory());
+    call.resolve(result);
+  }
+
+  @PluginMethod
   public synchronized void begin(PluginCall call) {
     if (beginPending || activeToken != null) {
       call.reject("다른 파일을 저장하는 중입니다.");

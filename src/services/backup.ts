@@ -39,6 +39,33 @@ export const BACKUP_VERSION = 2;
  * before allocating or touching IndexedDB.
  */
 export const MAX_BACKUP_IMPORT_BYTES = 1024 ** 3; // 1 GiB
+export const UNKNOWN_ANDROID_BACKUP_IMPORT_BYTES = 32 * 1024 ** 2; // renderer 한계를 못 읽는 옛 WebView의 fail-closed 값
+const ANDROID_IMPORT_HEAP_FRACTION = 8;
+
+/**
+ * Android WebView에서 파일을 읽기 **전** 적용할 기기별 ZIP/JSON 복원 상한 (T-030).
+ *
+ * production ZIP 경로의 불필요한 whole-file 복사를 제거한 뒤 Node 진단에서 peak ArrayBuffer는
+ * 입력의 약 2배였다. Android WebView와 실제 IndexedDB structured clone의 peak는 별도이므로
+ * renderer/native 한도 중 작은 값의 1/8만 입력에 허용한다. 값을 못 읽는 옛 WebView는 안전하다고
+ * 추측하지 않고 32MiB로 닫는다. 일반 브라우저는 기존 1GiB 계약을 유지한다.
+ */
+export function backupImportLimitBytes(
+  androidShell: boolean,
+  jsHeapSizeLimit?: number,
+  androidMaxMemory?: number,
+): number {
+  if (!androidShell) return MAX_BACKUP_IMPORT_BYTES;
+  const budgets = [jsHeapSizeLimit, androidMaxMemory]
+    .filter((value): value is number => Number.isFinite(value) && (value as number) > 0);
+  if (budgets.length === 0) {
+    return UNKNOWN_ANDROID_BACKUP_IMPORT_BYTES;
+  }
+  return Math.min(
+    UNKNOWN_ANDROID_BACKUP_IMPORT_BYTES,
+    Math.floor(Math.min(...budgets) / ANDROID_IMPORT_HEAP_FRACTION),
+  );
+}
 
 /**
  * JSON 백업 한 덩이가 **문자열이 될 수 있는** 최대 바이트 수 (T-021 · M-0147).
@@ -167,10 +194,23 @@ function assertRows(rows: CollectedRows): void {
   }
 }
 
-export function assertBackupImportSize(bytes: number): void {
-  if (!Number.isFinite(bytes) || bytes < 0 || bytes > MAX_BACKUP_IMPORT_BYTES) {
-    throw new Error('백업 파일이 너무 큽니다. 복원은 1GB 이하 파일만 지원합니다.');
+export function assertBackupImportSize(bytes: number, maxBytes = MAX_BACKUP_IMPORT_BYTES): void {
+  if (!Number.isFinite(bytes) || bytes < 0 || bytes > maxBytes) {
+    const mb = Math.floor(maxBytes / 1024 ** 2);
+    throw new Error(
+      `이 Android 앱에서 메모리 위험을 줄이려고 한 번에 읽는 크기를 ${mb.toLocaleString()}MB로 제한했어요. ` +
+      '파일이 깨진 게 아니에요. PC나 메모리 여유가 큰 브라우저에서 이 백업을 복원해 주세요.',
+    );
   }
+}
+
+/** The single selected-file read gate: size rejection must happen before allocation. */
+export async function readBackupFileWithinLimit(
+  file: Pick<File, 'size' | 'arrayBuffer'>,
+  maxBytes: number,
+): Promise<ArrayBuffer> {
+  assertBackupImportSize(file.size, maxBytes);
+  return file.arrayBuffer();
 }
 
 /** 백업에 담기는 로컬 전 테이블(사용자 데이터). 두 형식이 이 한 곳에서만 읽는다. */
@@ -891,7 +931,12 @@ export async function importBackupAuto(
     assertBackupImportSize(plain.byteLength);
     bytes = plain;
   }
-  const view = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  // `file.arrayBuffer()`와 WebCrypto 복호 결과는 보통 이미 정확한 ArrayBuffer다. 예전에는
+  // 자동감지를 위해 ZIP 전체를 무조건 `slice()`해 같은 크기 버퍼를 하나 더 만들었다.
+  // exact view면 그대로 넘기고, 일부 view인 예외만 복사한다(T-030).
+  const view = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+    ? bytes.buffer as ArrayBuffer
+    : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
   if (looksLikeZip(bytes.subarray(0, 4))) return importBackupZip(view);
   // 🔴 JSON 경로만 **전체 파일을 한 문자열로** 만든다(사진·영상이 base64로 본문에 박혀 있다).
   //    ZIP 경로는 미디어가 별도 파일이라 이 절벽에 닿지 않으므로 여기 한 곳만 지킨다(§7 — 제외 이유).

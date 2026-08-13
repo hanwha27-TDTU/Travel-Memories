@@ -16,7 +16,8 @@ import { db, type JourneyDB, type LocalMoment, type LocalTrip, type LocalVideo }
 import { APP_VERSION } from '../app/changelog';
 import { localDate } from '../domain/time';
 import {
-  assertBackupImportSize,
+  backupImportLimitBytes,
+  readBackupFileWithinLimit,
   backupFilename,
   BACKUP_VERSION,
   deserializeZip,
@@ -25,6 +26,7 @@ import {
   type BackupStats,
   type CollectedRows,
 } from './backup';
+import { androidRuntimeMaxMemory, rendererHeapSizeLimit, shellState } from './capacitorShell';
 
 export const BACKUP_ROUND_TRIP_TITLE_PREFIX = '🧪 복원 왕복 시험 · 자동 롤백';
 export const BACKUP_ROUND_TRIP_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
@@ -279,8 +281,11 @@ export async function runBackupFileRoundTrip(file: File): Promise<BackupRoundTri
   let importStarted = false;
 
   try {
-    assertBackupImportSize(file.size);
-    const buf = await file.arrayBuffer();
+    const androidMaxMemory = await androidRuntimeMaxMemory();
+    const buf = await readBackupFileWithinLimit(
+      file,
+      backupImportLimitBytes(shellState() !== 'browser', rendererHeapSizeLimit(), androidMaxMemory),
+    );
     const digest = await sha256Hex(buf);
     if (digest !== pending.digest) throw new Error('방금 만든 왕복 시험 파일과 바이트가 다릅니다. 올바른 파일을 다시 골라 주세요.');
 

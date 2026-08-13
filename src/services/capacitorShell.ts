@@ -40,6 +40,13 @@ export function shellState(): ShellState {
   return cap.Plugins?.OriginalPhotos ? 'shell' : 'shell-no-plugin';
 }
 
+/** Chromium/WebView가 공개하는 renderer JS heap 한도. 없으면 추측하지 않고 undefined. */
+export function rendererHeapSizeLimit(): number | undefined {
+  if (typeof performance === 'undefined') return undefined;
+  const value = (performance as Performance & { memory?: { jsHeapSizeLimit?: number } }).memory?.jsHeapSizeLimit;
+  return Number.isFinite(value) && (value as number) > 0 ? value : undefined;
+}
+
 /**
  * 🎨 런처 아이콘 전환기 (ADR-0038) — **셸에만 있다.**
  * 웹/PWA에서는 `null`(설치 시 아이콘이 고정되므로 원리적으로 불가). 화면은 이 값이 null이면
@@ -57,6 +64,8 @@ export function iconSwitcher(): IconSwitcher | null {
 
 /** Android에 큰 앱 파일을 청크로 쓰고, 닫은 뒤 다시 읽어 검증하는 셸 문. wire 이름은 구형 APK 호환 때문에 유지한다. */
 export interface BackupFileWriter {
+  /** Android app-process heap ceiling. Older APKs do not expose this method. */
+  memoryBudget?(): Promise<{ maxMemory: number }>;
   begin(options: {
     filename: string;
     mime: string;
@@ -79,6 +88,18 @@ export interface BackupFileWriter {
 
 export function backupFileWriter(): BackupFileWriter | null {
   return shellPlugin<BackupFileWriter>('BackupFiles');
+}
+
+/** Read the native Android process budget; an absent/old bridge stays unknown. */
+export async function androidRuntimeMaxMemory(): Promise<number | undefined> {
+  const read = backupFileWriter()?.memoryBudget;
+  if (typeof read !== 'function') return undefined;
+  try {
+    const value = (await read()).maxMemory;
+    return Number.isFinite(value) && value > 0 ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

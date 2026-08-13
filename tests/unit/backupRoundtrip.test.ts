@@ -8,7 +8,10 @@ import {
   serializeZip,
   deserializeZip,
   assertBackupImportSize,
+  backupImportLimitBytes,
+  readBackupFileWithinLimit,
   MAX_BACKUP_IMPORT_BYTES,
+  UNKNOWN_ANDROID_BACKUP_IMPORT_BYTES,
   type CollectedRows,
 } from '../../src/services/backup';
 import { encryptBytes, decryptBytes, isEncryptedEnvelope } from '../../src/services/backupCrypto';
@@ -238,7 +241,26 @@ describe('백업 복원 왕복 드릴(순수)', () => {
 
   it('메모리 상한을 넘는 파일은 arrayBuffer 읽기 전에 거절할 수 있다', () => {
     expect(() => assertBackupImportSize(MAX_BACKUP_IMPORT_BYTES)).not.toThrow();
-    expect(() => assertBackupImportSize(MAX_BACKUP_IMPORT_BYTES + 1)).toThrow(/1GB 이하/);
+    expect(() => assertBackupImportSize(MAX_BACKUP_IMPORT_BYTES + 1)).toThrow(/파일이 깨진 게 아니에요/);
+    expect(backupImportLimitBytes(false, 256 * 1024 ** 2)).toBe(MAX_BACKUP_IMPORT_BYTES);
+    expect(backupImportLimitBytes(true)).toBe(UNKNOWN_ANDROID_BACKUP_IMPORT_BYTES);
+    expect(backupImportLimitBytes(true, 512 * 1024 ** 2)).toBe(32 * 1024 ** 2);
+    expect(backupImportLimitBytes(true, undefined, 256 * 1024 ** 2)).toBe(32 * 1024 ** 2);
+    expect(backupImportLimitBytes(true, 512 * 1024 ** 2, 256 * 1024 ** 2)).toBe(32 * 1024 ** 2);
+    expect(backupImportLimitBytes(true, 512 * 1024 ** 2, 0)).toBe(32 * 1024 ** 2);
+    expect(backupImportLimitBytes(true, 128 * 1024 ** 2, 256 * 1024 ** 2)).toBe(16 * 1024 ** 2);
+    expect(() => assertBackupImportSize(32 * 1024 ** 2 + 1, backupImportLimitBytes(true, 512 * 1024 ** 2)))
+      .toThrow(/32MB/);
+  });
+
+  it('초과 파일은 arrayBuffer를 한 번도 할당하지 않고 거절한다', async () => {
+    let reads = 0;
+    const file = {
+      size: 33 * 1024 ** 2,
+      arrayBuffer: async () => { reads += 1; return new ArrayBuffer(0); },
+    };
+    await expect(readBackupFileWithinLimit(file, 32 * 1024 ** 2)).rejects.toThrow(/32MB/);
+    expect(reads).toBe(0);
   });
 });
 

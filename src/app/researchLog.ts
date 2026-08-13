@@ -1064,4 +1064,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '공유 스킬 거버넌스는 서로 독립적인 두 앱 이상에서 관측된 불변식만 전역 정본으로 승격하도록 정한다. 이번 결함군은 아직 이 앱에서만 실증됐으므로 전역 정본을 바꾸면 앱별 파일명과 구현을 공통 규율로 오인시킬 수 있었다. 대신 프로젝트 게이트 스킬에 일반화된 writer/check·소유권·fail-closed 규율을 먼저 고정하는 것이 맞다.',
     decision: 'gates-mechanization-dev에 코드 기반 복구 문서의 소유권 등록부, 미분류 실행 파일 차단, 내용 해시, 누락·변조·화석 대조군, regenerationLedger 연결과 정적 한계를 추가한다. 전역 공유 정본은 두 번째 독립 앱의 같은 근본형이 확인될 때 승격 심사한다. 현재 생성 설계서와 스킬 변경은 사용자 대면 changelog v2.17 하나로 묶고, 정확 커밋의 전체 CI와 Pages version.json read-back 뒤에만 완료한다.',
   },
+  {
+    seq: 133,
+    date: '2026-08-13',
+    topic: '대용량 ZIP 복원 메모리를 평문과 암호화로 재고 Android는 allocation 전에 보수적으로 닫는다',
+    human: '외부 리뷰가 제기한 큰 ZIP의 WebView 메모리 위험을 추측으로 닫지 말고 사진 50·200·500장으로 측정한 뒤 이어서 마무리하도록 요청했다.',
+    ai: '기존 production 경로는 File 입력 뒤 전체 ArrayBuffer 복사와 엔트리별 payload 복사를 추가로 만들었다. Node에서 평문과 암호화를 분리해 재니 불필요한 복사를 제거한 뒤에도 평문 sampled RSS는 약 2배, 암호화의 프로세스 최고 RSS는 약 4~5배 증가했다. renderer heap과 Android Runtime.maxMemory는 WebView renderer 종료점과 같은 값이 아니므로 안전 보증으로 쓸 수 없었다.',
+    decision: 'ZIP 엔트리를 원본 입력 view로 유지하고 자동감지 전체 복사를 제거한다. 측정 하네스 자체 복사는 실패로 닫고 표식으로 남긴다. Android 복원은 File.arrayBuffer 전에 최대 32MiB에서 거절하며 renderer/native 값은 상한을 올리지 않고 더 낮추는 데만 쓴다. 초과 시 파일 손상이 아님과 PC 또는 메모리 여유가 큰 브라우저라는 실행 가능한 다음 행동을 말한다. Android WebView 실기기 PSS와 원본·영상-heavy 표본은 미검증 경계로 남긴다.',
+  },
 ];
