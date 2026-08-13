@@ -9,6 +9,15 @@ shape_reason: ADR은 결정에 이른 경위가 값이다. 항목으로 자르�
 
 ---
 
+## ADR-0071 · Windows는 공통 코어를 로컬 번들로 싣는 Tauri 2 표면으로 만든다 `[AI-proposed→user-approved]` (Codex)
+
+- **결정**: 다른 앱의 Windows 착수서는 개념만 참고한다. Bugeon Journey의 Vite·TypeScript 코어, Dexie 원자 커밋, Supabase canonical sync, 지도 공급자 판정을 정본으로 두고 Tauri 2는 Windows 실행·설치 경계만 소유한다.
+- **웹·Android와의 관계**: 웹은 기존 `dist/`·GitHub Pages, Android는 기존 원격 Pages·Capacitor 계약을 유지한다. Windows만 상대 base로 만든 로컬 `windows-dist/`를 번들한다. 원격 Pages를 Tauri 운영 창에 직접 넣지 않는다.
+- **저장소 경계**: identifier `app.bugeon.journey`, main window `main`, production origin `https://tauri.localhost`를 첫 판부터 고정한다. Chrome·Edge의 IndexedDB 파일을 복사하지 않고 Supabase 최종본 동기화 또는 공식 백업·복원으로 이동한다.
+- **권한 경계**: Phase 1 capability는 `core:default` 하나뿐이다. broad filesystem·shell/process·임의 HTTP native proxy는 필요가 실제로 증명된 기능 단위로만 추가한다.
+- **지도·인증 경계**: 한국 Kakao, UZ·KZ·KG TomTom, 나머지 MapLibre라는 기존 판정은 유지한다. Windows 오리진의 지도 콘솔 등록과 시스템 브라우저 OAuth·strict callback·single instance는 실제 왕복 검증 전에는 지원 완료로 쓰지 않는다.
+- **검증**: `check-windows-shell`이 로컬 payload·HTTPS 오리진·main 창·최소 capability·NSIS를 함께 묶고, 고의로 HTTPS와 권한을 깨뜨린 대조군이 RED가 되는지 확인한다.
+
 ## ADR-0070 · 새 위치 지도는 현재 위치로 제공자를 고르고 중앙아시아 3국은 TomTom을 쓴다 `[AI-proposed→user-approved]` (Codex)
 
 - **결정**: 사용자가 지도 버튼을 누른 명시적 시점에만 현재 위치를 한 번 읽는다. 한국은 Kakao Maps, 우즈베키스탄·카자흐스탄·키르기스스탄은 TomTom Orbis Raster v2, 그 밖과 판별 실패는 기존 MapLibre/OpenStreetMap을 쓴다. Yandex는 넣지 않는다.

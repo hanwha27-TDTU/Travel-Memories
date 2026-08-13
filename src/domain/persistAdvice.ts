@@ -17,6 +17,8 @@
 
 /** 앱이 지금 어느 문으로 실행 중인가 — 「설치됨」의 세 갈래는 사용자가 할 일이 서로 다르다. */
 export type PersistSurface =
+  /** Windows Tauri 앱 — 로컬 설치 앱이며 브라우저 설치 메뉴가 없다. */
+  | 'desktop-shell'
   /** 안드로이드 APK(Capacitor 셸) — 이미 설치된 앱이다. 브라우저 메뉴가 없다. */
   | 'shell'
   /** 홈 화면에 추가된 PWA(standalone) — 설치는 했는데 크롬이 아직 안 준 상태. */
@@ -49,6 +51,8 @@ function refusalReason(ctx: PersistContext): string {
     return '이 브라우저에는 저장소 보호를 요청하는 기능이 없어요.';
   }
   switch (ctx.surface) {
+    case 'desktop-shell':
+      return '이 기기에서는 Windows 앱으로 설치해 쓰고 있어요 — 이 요청은 브라우저 저장소 기능이라 적용 여부를 아직 재보지 못했습니다.';
     case 'shell':
       // 🔴 APK에게 「홈 화면에 추가」를 말하면 사용자는 없는 메뉴를 찾아 헤맨다.
       // 이 표면에서 우리가 **관측한 사실**은 「설치된 앱으로 실행 중」뿐이므로 거기까지만 적는다.
@@ -69,6 +73,8 @@ function refusalReason(ctx: PersistContext): string {
  */
 export function surfaceLabel(surface: PersistSurface): string {
   switch (surface) {
+    case 'desktop-shell':
+      return '설치된 데스크톱 앱';
     case 'shell':
       return '설치된 앱(APK)';
     case 'installed-pwa':
@@ -87,7 +93,7 @@ export function surfaceLabel(surface: PersistSurface): string {
  * 준다. 재는 방법이 생기면 이 함수부터 고친다.
  */
 export function persistIsMeaningful(surface: PersistSurface): boolean {
-  return surface !== 'shell';
+  return surface !== 'shell' && surface !== 'desktop-shell';
 }
 
 /**

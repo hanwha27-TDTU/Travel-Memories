@@ -1,0 +1,4 @@
+interface:
+  display_name: "Windows Tauri 개발"
+  short_description: "Bugeon Journey의 Tauri 2 Windows 셸을 안전하게 설계·구현·검증합니다."
+  default_prompt: "Bugeon Journey의 공통 웹 코어를 유지하며 Tauri 2 Windows 셸을 최소 권한으로 구현하고 실제 설치 빌드까지 검증하세요."

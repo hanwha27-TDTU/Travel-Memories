@@ -8,24 +8,13 @@
 // 셸 설계의 절반이다(ADR-0036).
 
 import type { PersistSurface } from '../domain/persistAdvice';
+import { capacitorBridge, nativePlatform } from './nativePlatform';
 
 export type ShellState = 'browser' | 'shell' | 'shell-no-plugin';
 
-interface CapacitorGlobal {
-  isNativePlatform?: () => boolean;
-  Plugins?: Record<string, unknown>;
-}
-
-function capacitor(): CapacitorGlobal | null {
-  if (typeof window === 'undefined') return null; // 유닛(Node)·SSR — 셸일 리 없다
-  const cap = (window as Window & { Capacitor?: CapacitorGlobal }).Capacitor;
-  if (!cap?.isNativePlatform?.()) return null;
-  return cap;
-}
-
 /** 셸 안에서만 플러그인을 돌려준다. 크롬에서는 언제나 null. */
 export function shellPlugin<T>(name: string): T | null {
-  return (capacitor()?.Plugins?.[name] as T | undefined) ?? null;
+  return (capacitorBridge()?.Plugins?.[name] as T | undefined) ?? null;
 }
 
 /**
@@ -35,7 +24,7 @@ export function shellPlugin<T>(name: string): T | null {
  * 그 문이 없으면 「옛 APK」(shell-no-plugin)로 적는다 — 재설치가 답인 상태다.
  */
 export function shellState(): ShellState {
-  const cap = capacitor();
+  const cap = capacitorBridge();
   if (!cap) return 'browser';
   return cap.Plugins?.OriginalPhotos ? 'shell' : 'shell-no-plugin';
 }
@@ -113,6 +102,7 @@ export async function androidRuntimeMaxMemory(): Promise<number | undefined> {
  * 쓰므로 둘 다 본다 — 한쪽만 보면 아이폰 사용자에게 「설치 안 됨」으로 보인다.
  */
 export function persistSurface(): PersistSurface {
+  if (nativePlatform() === 'windows') return 'desktop-shell';
   if (shellState() !== 'browser') return 'shell';
   if (typeof window === 'undefined') return 'browser-tab'; // 유닛(Node) — 탭으로 읽는다
   const standalone =

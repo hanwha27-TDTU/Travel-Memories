@@ -8,6 +8,9 @@
     "prepare": "git config core.hooksPath .githooks || true",
     "dev": "vite",
     "build": "tsc --noEmit && vite build && node scripts/gen-version-file.mjs",
+    "windows:web": "tsc --noEmit && vite build --base ./ --outDir windows-dist",
+    "windows:dev": "tauri dev",
+    "windows:build": "tauri build --bundles nsis",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -36,11 +39,13 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
+    "@tauri-apps/api": "2.11.1",
     "dexie": "^4.0.8",
     "maplibre-gl": "^4.5.0",
     "mediabunny": "1.53.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "2.11.4",
     "fake-indexeddb": "^6.2.5",
     "playwright": "1.56.1",
     "typescript": "^5.5.4",

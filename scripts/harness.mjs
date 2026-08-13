@@ -200,6 +200,7 @@ const gates = [
   // 「항상 최신 APK」 계약 — 워크플로(apk-latest 릴리스 --clobber) ↔ 앱 상수 ↔ 가이드 화면이
   // 같은 고정 주소를 말하는가. 하나가 조용히 갈라지면 다운로드 버튼이 낡은 앱·죽은 링크가 된다.
   { name: 'check-apk-release-link', cmd: 'node scripts/check-apk-release-link.mjs' },
+  { name: 'check-windows-shell', cmd: 'node scripts/check-windows-shell.mjs' },
   // 「접속하면 스스로 최신」 계약 — 빌드가 version.json을 심고, 앱이 시작·복귀 때 묻고,
   // SW가 그 신호를 만지지 않는가. 사슬이 끊기면 열려 있는 앱에 새 배포가 영영 안 닿는다(M-0070).
   { name: 'check-update-signal', cmd: 'node scripts/check-update-signal.mjs' },

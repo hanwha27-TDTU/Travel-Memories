@@ -1,0 +1,16 @@
+[package]
+name = "bugeon-journey"
+version = "2.36.0"
+description = "Bugeon Journey Windows desktop shell"
+authors = ["Kim Bugeon"]
+edition = "2021"
+
+[lib]
+name = "bugeon_journey_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.5", features = [] }
