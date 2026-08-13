@@ -7,7 +7,7 @@ shape: prose-debt
 
 > 🔴 **이 문서는 「목표 데이터 모델」이다 — 실제 배포 스키마는 `supabase/migrations/*.sql`이 정본**
 > (2026-08-01 감사 · D-09·D-17). 권위 순서상 코드/마이그레이션이 이긴다. 목표와 실제의 차이:
-> - **구현된 사용자 테이블(운영·저장소 migration 0030까지의 릴리스 후보)**: `trips · moments · media · expenses ·
+> - **구현된 사용자 테이블(운영·저장소 migration 0031까지의 릴리스 후보)**: `trips · moments · media · expenses ·
 >   audio(0019) · places(0022) · videos(0030) · purged_ids(0012) · allowed_users`. 0026은 `base_version` OCC,
 >   0027은 `sync_meta`와 여섯 표의 `base_canonical_version`, 0028은 FK 커버링 인덱스,
 >   0029는 `media.sort_order`(한 순간 안에서 사용자가 정한 사진 자리 — NULL은 「아직 안 정함」)를 추가한다.

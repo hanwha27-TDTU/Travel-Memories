@@ -447,7 +447,11 @@ export class JourneyDB extends Dexie {
     this.version(9).stores({
       syncState: 'id, userId, updatedAt',
     });
-    // v10: 영상 경량본. 포스터는 같은 행의 파생 캐시이고 원격에는 영상 객체 하나만 둔다.
+    // v10: 영상 경량본. 🔴 **포스터도 원격에 별도 R2 객체로 간다**(2026-08-13 정정).
+    //      예전 이 줄은 "포스터는 로컬 파생 캐시이고 원격에는 영상 객체 하나만"이라고 적혀
+    //      있었는데, 실제 구현은 `videoPosterStoragePath()`로 별도 키를 만들어 올리고
+    //      **두 바이트가 모두 되읽혀야** op을 완료한다(sync.ts). 계약을 실제에 맞춘다 —
+    //      틀린 채로 두면 나중 정리가 포스터 객체를 **고아로 오판해 지운다**(§17 문서↔코드).
     this.version(10).stores({
       localVideos: 'id, momentId, tripId, updatedAt',
     });

@@ -835,7 +835,37 @@ function renderHomeAuth(authArea: HTMLElement, user: SessionUser | null, status:
   authArea.appendChild(inBtn);
 }
 
-export function renderHome(mount: HTMLElement, navigate: Navigate): void {
+/**
+ * 로그인 상태를 홈에 반영하는 **한 가지 경로**.
+ *
+ * 🔴 왜 뽑았나: 구독(`onAuthChange`)과 첫 확인(`currentUser`)이 같은 세 단계 — 판정 →
+ *    로그인 영역 다시 그리기 → 목록 갱신 — 을 **각자 적고 있었다.** 한쪽만 고치면 갈라지고,
+ *    갈라진 쪽은 조용해진다(§7 · M-0060). 이제 순서가 한 곳에만 있다.
+ */
+async function applyHomeAuth(
+  raw: SessionUser | null,
+  authArea: HTMLElement,
+  status: HTMLElement,
+  refresh: () => Promise<void>,
+): Promise<SessionUser | null> {
+  const user = await gateAccess(raw, status);
+  renderHomeAuth(authArea, user, status);
+  await refresh();
+  return user;
+}
+
+/**
+ * 홈을 그리고 **정리 함수를 돌려준다**(2026-08-13 · 외부 리뷰 지적).
+ *
+ * 🔴 왜 반환값이 생겼나: 예전엔 구독 해지가 `renderHome()`이 **다시 불릴 때만** 돌았다.
+ *    그래서 홈 → 여행 상세로 넘어가면 홈의 인증·동기화·대조 구독이 **살아남아** 떼어낸 DOM을
+ *    계속 참조하고 이벤트에 반응했다. 화면이 자기 생명주기를 스스로 말하지 않은 것이다.
+ *    이제 라우터가 이 반환값을 들고 있다가 **다음 화면을 그리기 전에** 부른다(`main.ts`).
+ *
+ * 🔴 타입이 강제한다: 반환형이 `() => void`라 새 화면도 **정리 함수를 내놓을 수밖에 없다** —
+ *    다음 형제가 이 규율을 몰라도 따라온다(§7 2층).
+ */
+export function renderHome(mount: HTMLElement, navigate: Navigate): () => void {
   clearHomeSubscriptions();
   mount.innerHTML = '';
 
@@ -966,20 +996,18 @@ export function renderHome(mount: HTMLElement, navigate: Navigate): void {
   // 인증 상태 구독: 로그인 화면만 갱신한다. 첫 서버 확인은 installAutoSync가 한 번만 맡는다.
   unsubscribeAuth = onAuthChange((u) => {
     void (async () => {
-      user = await gateAccess(u, status);
-      renderHomeAuth(authArea, user, status);
-      await refresh();
+      user = await applyHomeAuth(u, authArea, status, refresh);
     })();
   });
 
   // 초기값: 현재 세션 확인(구독이 늦게 올 수 있으므로 즉시 1회).
   void (async () => {
-    user = await gateAccess(await currentUser(), status);
-    renderHomeAuth(authArea, user, status);
-    await refresh();
+    user = await applyHomeAuth(await currentUser(), authArea, status, refresh);
     // installAutoSync owns the one initial cloud check. Starting one here would make the
     // new-device pull run twice; its completion refreshes this list through wireBadgeWatch.
     if (user) await refreshParity();
     renderSyncNote(status, lastPending, user);
   })();
+
+  return clearHomeSubscriptions;
 }

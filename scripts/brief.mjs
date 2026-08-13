@@ -257,6 +257,9 @@ export const SKILL_ROUTES = [
   { match: /^\.github\/workflows\//, skill: 'gates-mechanization-dev' },
   { match: /^src\/app\/(registry|blueprint|gates|hashchain)/, skill: 'gates-mechanization-dev' },
   { match: /^src\/app\/router/, skill: 'ui-responsive-dev' },
+  // 화면 생명주기(세대 확인·정리 함수)는 라우터의 형제다 — 「어느 화면이 지금 살아 있는가」를
+  // 정하므로 같은 UI 헌장을 읽는다(2026-08-13 · 외부 리뷰 #2·#3).
+  { match: /^src\/app\/screenSession/, skill: 'ui-responsive-dev' },
   { match: /^src\/domain\/moment\//, skill: 'sync-offline-dev' },
   { match: /^src\/services\/storage/, skill: 'diagnostics-dev' },
 ];

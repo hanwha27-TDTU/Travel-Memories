@@ -12,8 +12,8 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 서버 스키마, migration, RLS/grant와 독립 배포 Edge Function을 소유한다.
 
 - 모듈 ID: `supabase-backend`
-- 관측 파일: 40개 · 논리 줄: 3960 · 최상위 선언: 74개(외부 공개 47개)
-- 코드 내용 SHA-256: `347119de21bb59ec8504a2d4aa72da7aaade7e682253e5f2f4f58b81052259d5`
+- 관측 파일: 41개 · 논리 줄: 3983 · 최상위 선언: 74개(외부 공개 47개)
+- 코드 내용 SHA-256: `912eae66d7ee8d630eca40c322211e9728913b6d6772970ab164ff1882d56e87`
 - 생성기 스키마: 1
 
 ## 2. 진입점과 모듈 간 흐름
@@ -52,6 +52,7 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 - `supabase/migrations/0028_journey_fk_covering_indexes.sql`
 - `supabase/migrations/0029_media_sort_order.sql`
 - `supabase/migrations/0030_journey_videos.sql`
+- `supabase/migrations/0031_videos_comment_fix.sql`
 - `supabase/tests/canonical_sync_meta.sql`
 - `supabase/tests/rls_attack_media_expenses.sql`
 - `supabase/tests/rls_attack_moments.sql`
@@ -104,7 +105,8 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 | `supabase/migrations/0027_canonical_sync_meta.sql` | 342 | 0/0 | — | SQL table: audio, expenses, media, moments, places, sync_meta, trips; SQL function: ensure_sync_meta, guard_canonical_sync_write, publish_canonical_snapshot; deletion lifecycle |
 | `supabase/migrations/0028_journey_fk_covering_indexes.sql` | 35 | 0/0 | — | deletion lifecycle |
 | `supabase/migrations/0029_media_sort_order.sql` | 40 | 0/0 | — | Dexie: localMedia; SQL table: media |
-| `supabase/migrations/0030_journey_videos.sql` | 138 | 0/0 | — | SQL table: videos; SQL function: publish_canonical_snapshot; deletion lifecycle |
+| `supabase/migrations/0030_journey_videos.sql` | 141 | 0/0 | — | SQL table: videos; SQL function: publish_canonical_snapshot; deletion lifecycle |
+| `supabase/migrations/0031_videos_comment_fix.sql` | 20 | 0/0 | — | — |
 | `supabase/tests/canonical_sync_meta.sql` | 188 | 0/0 | — | deletion lifecycle |
 | `supabase/tests/rls_attack_media_expenses.sql` | 53 | 0/0 | — | deletion lifecycle |
 | `supabase/tests/rls_attack_moments.sql` | 56 | 0/0 | — | — |
@@ -211,7 +213,7 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 - `supabase/tests/canonical_sync_meta.sql` — 188줄
 - `supabase/migrations/0018_rls_initplan_and_fn_hygiene.sql` — 169줄
 - `supabase/tests/stale_sync_write_guard.sql` — 158줄
-- `supabase/migrations/0030_journey_videos.sql` — 138줄
+- `supabase/migrations/0030_journey_videos.sql` — 141줄
 - `supabase/migrations/0019_journey_audio.sql` — 125줄
 - `supabase/migrations/0026_reject_stale_sync_writes.sql` — 109줄
 
