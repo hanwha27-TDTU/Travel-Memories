@@ -1128,4 +1128,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '웹 OAuth를 WebView 안에서 재사용하면 로그인 세션이 브라우저에 남고 앱으로 돌아오지 않을 수 있다. 반대로 임의 URL 열기나 넓은 딥링크 권한은 설치형 앱의 공격면을 키운다. 공통 인증 코어는 유지하되 Windows에서만 정확한 Supabase authorize 주소를 시스템 브라우저로 열고, 정확한 scheme·host·path·code만 세션 교환으로 넘기는 경계가 필요했다.',
     decision: 'Tauri deep-link·single-instance·scoped opener를 추가하고 `app.bugeon.journey://auth-callback`만 허용한다. Android intent-filter도 같은 host로 좁힌다. 설치본의 레지스트리 프로토콜과 실행 중 단일 PID는 실제로 되읽었고, typecheck·유닛 1,675건·Rust·NSIS·편집 라이브 417/417를 통과했다. 실제 Google 계정 선택부터 Supabase 세션 생성까지는 사용자 설정 뒤 별도 실동작 증거가 생길 때까지 미확인으로 둔다.',
   },
+  {
+    seq: 141,
+    date: '2026-08-13',
+    topic: '원근 펴기의 모서리뿐 아니라 네 점선 전체를 직접 잡는 표적으로 만든다',
+    human: '사진 편집 화면에서 파란색으로 표시한 위·아래·왼쪽·오른쪽 점선 부분을 잡아 조절할 수 있게 해 달라고 요청했다.',
+    ai: '가느다란 점선을 그대로 터치 표적으로 쓰면 손가락으로 잡기 어렵고, 각 변의 두 점을 화면 코드에서 따로 계산하면 경계 클램프가 갈라질 수 있다. 보이는 선은 유지하되 넓은 투명 표적을 겹치고 두 끝점 이동은 순수 기하 함수 하나가 맡는 것이 적합했다.',
+    decision: '변을 끌면 인접한 두 모서리를 같은 벡터로 평행 이동하고 다른 두 점은 유지한다. 두 끝점 중 하나라도 사진 밖으로 나갈 이동은 함께 제한한다. 네 SVG 점선에 24px 투명 터치 stroke를 두고 실제 Chromium CDP 손가락 입력으로 양 끝 동시 이동을 확인했다. 원본·저장 형식·bake 경로는 그대로 둔다.',
+  },
 ];

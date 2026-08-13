@@ -5,6 +5,7 @@ import {
   quadOutputDims,
   rotateQuad90,
   flipQuadH,
+  moveQuadEdge,
   isIdentity,
   freshEdit,
   type Quad,
@@ -119,6 +120,26 @@ describe('quad 변환·상태', () => {
     expect(quadOutputDims(FULL, 200, 100)).toEqual({ w: 200, h: 100 });
     const half: Quad = [{ x: 0, y: 0 }, { x: 0.5, y: 0 }, { x: 0.5, y: 1 }, { x: 0, y: 1 }];
     expect(quadOutputDims(half, 200, 100)).toEqual({ w: 100, h: 100 });
+  });
+
+  it('점선 위쪽을 끌면 위의 두 점만 같은 거리로 움직인다', () => {
+    const moved = moveQuadEdge(q, 0, 0.05, 0.2);
+    expect(moved[0]!.x).toBeCloseTo(0.15, 9);
+    expect(moved[0]!.y).toBeCloseTo(0.4, 9);
+    expect(moved[1]!.x).toBeCloseTo(0.95, 9);
+    expect(moved[1]!.y).toBeCloseTo(0.3, 9);
+    expect(moved[2]).toEqual(q[2]);
+    expect(moved[3]).toEqual(q[3]);
+  });
+
+  it('점선을 사진 밖으로 끌어도 두 끝점과 선분 모양이 함께 경계에 멈춘다', () => {
+    const moved = moveQuadEdge(q, 3, -1, 1);
+    expect(moved[3]!.x).toBeCloseTo(0.1, 9);
+    expect(moved[3]!.y).toBeCloseTo(1, 9);
+    expect(moved[0]!.x).toBeCloseTo(0, 9);
+    expect(moved[0]!.y).toBeCloseTo(0.4, 9);
+    expect(moved[1]).toEqual(q[1]);
+    expect(moved[2]).toEqual(q[2]);
   });
 
   it('isIdentity: quad가 있으면 무편집이 아니다', () => {
