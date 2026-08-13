@@ -52,7 +52,7 @@ const HARNESS = 'scripts/harness.mjs';
  *  · `RUNNABLE`    — 그 대조군을 **밖에서 돌려 볼 수 있는가**(`--selftest` 플래그).
  *                    이게 있어야 이 게이트가 「살아 있는지」까지 확인할 수 있다.
  */
-export const HAS_CONTROL_BASELINE = 64;
+export const HAS_CONTROL_BASELINE = 68;
 export const RUNNABLE_BASELINE = 16;
 /**
  * 🔴 세 번째 축(2026-08-12 · M-0152) — **대조군이 실패를 「판정」으로 알리는가.**
@@ -69,25 +69,38 @@ export const RUNNABLE_BASELINE = 16;
  *    **기준선판**이다. 내린 것이 아니라 **처음부터 없던 3을 걷어낸 뒤 실제로 올렸다**:
  *    37(참값) → 판정 모양만 틀렸던 3개 전환 → 40 → 공용 헬퍼로 11개 전환 → 51
  *    → 남은 IIFE 블록 14개 전환(T-027) → 63 → **새 게이트 `check-date-freshness`가
- *    처음부터 옳은 모양으로 태어나 64 = 전부**.
+ *    처음부터 옳은 모양으로 태어나 64 → 🔴 **모집단 자체가 틀렸음을 발견해(M-0155) 라이브 게이트 4개를 데려오고 대조군을 붙여 68 = 진짜 전부**.
  *
  * 🔴 그 마지막 +1이 §7 2층의 증거다. 새 형제는 규칙을 **몰라도** 따라왔다 — 공용 헬퍼를
  *    쓰는 것이 유일한 길이었기 때문이다. 조항이었다면 읽어야 했을 것이다.
  *
- * 🔴 이제 이 축은 **꽉 찼다**(64/64). 그러므로 이 래칫의 뜻이 바뀐다 — 「늘려 가는 목표」가
+ * 🔴 이제 이 축은 **꽉 찼다**(68/68). 그러므로 이 래칫의 뜻이 바뀐다 — 「늘려 가는 목표」가
  *    아니라 **「되돌아감의 차단」**이다. 새 게이트가 던지는 채로 들어오면 즉시 RED다.
  *    그게 §7 2층이 하는 일이다: 다음 형제가 규칙을 몰라도 따라오게 만든다.
  * 🔴 이 숫자는 **세어서** 넣는다. 어림하지 마라 — 이 저장소는 그것으로 세 번 틀렸다(M-0152).
  */
-export const CLEAN_EXIT_BASELINE = 64;
+export const CLEAN_EXIT_BASELINE = 68;
 
-/** 하네스에 등록된 게이트 중 `node scripts/*.mjs`로 도는 것의 스크립트 경로를 뽑는다. */
+/**
+ * 하네스에 등록된 게이트 중 `node scripts/*.mjs`로 도는 것의 스크립트 경로를 뽑는다.
+ *
+ * 🔴 **`name`이 첫 필드라고 가정하지 않는다**(2026-08-13 · M-0155). 예전 정규식은
+ *    `{` 바로 뒤의 `name:`만 봤다. 그런데 라이브 게이트 셋은 `{ slow: true, name: … }`로
+ *    시작해서 **모집단에서 통째로 빠져 있었다** — 실제 브라우저를 여는 유일한 게이트들이고,
+ *    셋 다 대조군이 없었다. 판정문은 그 사실을 모른 채 「전부」라고 말했고 v2.27로 배포됐다.
+ *
+ *    같은 형태의 **네 번째**다(M-0151·M-0152·M-0153): *내가 아는 한 가지 모양을 그 개념
+ *    전부로 착각한다.* 그래서 이번엔 **필드 순서를 보지 않는다** — 객체 안 어디에 있든 찾는다.
+ */
 export function gateScripts(harnessSrc) {
   const out = [];
-  for (const m of harnessSrc.matchAll(/\{\s*name:\s*'([^']+)'\s*,\s*cmd:\s*'([^']+)'/g)) {
-    const [, name, cmd] = m;
-    const s = /node\s+(scripts\/[\w.-]+\.mjs)/.exec(cmd);
-    if (s) out.push({ name, script: s[1] });
+  for (const m of harnessSrc.matchAll(/\{[^{}]*\}/g)) {
+    const entry = m[0];
+    const name = /\bname:\s*'([^']+)'/.exec(entry);
+    const cmd = /\bcmd:\s*'([^']+)'/.exec(entry);
+    if (!name || !cmd) continue;
+    const s = /node\s+(scripts\/[\w.-]+\.mjs)/.exec(cmd[1]);
+    if (s) out.push({ name: name[1], script: s[1] });
   }
   return out;
 }
@@ -98,7 +111,32 @@ export function gateScripts(harnessSrc) {
  * 그대로 반복한 것이다(§7 — 한 곳에서 옳은 것은 형제 전부에서 옳다).
  */
 export function stripComments(src) {
-  return src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  return stripTemplates(src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1'));
+}
+
+/**
+ * 백틱 템플릿 문자열을 지운다.
+ *
+ * 🔴 **실제로 여기서 뚫렸다**(2026-08-13 · M-0155). 라이브 게이트에 대조군을 자동으로 넣다가
+ *    삽입이 `const FIXTURE = \`…\`` **안으로** 들어갔다. 그 문자열은 픽스처 앱의 소스가 되므로
+ *    **게이트에서는 한 줄도 실행되지 않는다.** 그런데 이 검출기는 텍스트로만 봐서
+ *    **가짜 대조군을 진짜로 셌다.**
+ *
+ *    근본형은 이미 알던 것이다 — 주석 처리된 호출을 살아 있다고 센 첫 판(§7의 반복).
+ *    *실행되지 않는 자리에 적힌 코드는 코드가 아니다.* 주석이 그랬고, 문자열도 그렇다.
+ *
+ * 🔴 **좁게 지운다 — 처음엔 넓게 지웠다가 멀쩡한 게이트 16개를 죽였다**(같은 날 실측).
+ *    이 저장소는 **오류 메시지를 백틱으로** 쓴다(`` console.error(`… 자체검사 실패 …`) ``).
+ *    템플릿을 통째로 지우면 대조군의 **증거 자체**가 사라져 `verdict`가 `unknown`이 된다.
+ *    그래서 지우는 것은 **여러 줄 픽스처 대입**(`const X = \`` 로 시작해 줄이 넘어가는 것)뿐이다 —
+ *    그게 실제로 뚫린 모양이고, 한 줄짜리 메시지 템플릿은 건드리지 않는다.
+ *
+ * **정직한 한계**: 정규식이라 중첩·escape된 백틱을 완벽히 가르지 못한다. 보증하는 것은
+ * 「픽스처 템플릿에 적힌 가짜 대조군의 차단」이지 「모든 죽은 코드의 검출」이 아니다.
+ */
+export function stripTemplates(src) {
+  // `= \`` 로 줄이 끝나는 대입만 — 그 뒤 첫 백틱까지가 픽스처다.
+  return src.replace(/=\s*`\n[\s\S]*?\n\s*`/g, '= ` `');
 }
 
 /** 이 스크립트가 `--selftest`를 **인자로 받아 처리**하는가(주석에 적힌 말이 아니라 코드). */
@@ -206,6 +244,29 @@ function selfTest() {
     ['node로 도는 게이트만 뽑는다', () => gateScripts(harness).length === 2],
     ['인자가 붙어도 스크립트를 찾는다', () => gateScripts(harness)[1].script === 'scripts/check-b.mjs'],
     ['npx로 도는 것은 대상이 아니다(오탐 금지)', () => !gateScripts(harness).some((g) => g.name === 'unit-tests')],
+    [
+      '🔴 `name`이 첫 필드가 아니어도 찾는다 — 라이브 게이트 셋이 이 모양으로 모집단에서 빠져 있었다(M-0155)',
+      () =>
+        gateScripts(`{ slow: true, name: 'verify-x-live', cmd: 'node scripts/verify-x-live.mjs', optional: true },`)
+          .length === 1,
+    ],
+    [
+      '필드가 여럿 앞에 붙어도 찾는다',
+      () => gateScripts(`{ a: 1, b: 2, name: 'g', cmd: 'node scripts/g.mjs' },`)[0]?.name === 'g',
+    ],
+    ['name만 있고 cmd가 없으면 세지 않는다(오탐 금지)', () => gateScripts(`{ name: 'x' },`).length === 0],
+    [
+      '🔴 **템플릿 문자열 안**의 대조군은 대조군이 아니다 — 실행되지 않는다(M-0155)',
+      () => !hasControl('const FIXTURE = `\nrunSelfTest("g", () => selfTest());\n`;'),
+    ],
+    [
+      '🔴 템플릿 안의 exit 2도 세지 않는다 — 픽스처는 게이트가 아니다',
+      () => !hasControl('const F = `\nconsole.error("자체검사 실패"); process.exit(2);\n`;'),
+    ],
+    [
+      '템플릿 **밖**의 대조군은 그대로 센다(오탐 금지 — 템플릿이 있어도 죽이지 않는다)',
+      () => hasControl('const F = `픽스처`;\nrunSelfTest("g", () => selfTest());'),
+    ],
     [
       '실제로 --selftest를 처리하면 참',
       () => declaresSelftest(`if (process.argv.includes('--selftest')) { process.exit(0); }`),

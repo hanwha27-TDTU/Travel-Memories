@@ -53,3 +53,54 @@ export async function launchLiveBrowser(chromium, { gate, cleanup, launchOptions
     process.exit(2);
   }
 }
+
+// ── 판정 기록기와 그 대조군 (2026-08-13 · M-0155) ─────────────────────────────
+//
+// 🔴 왜 여기 있나: 라이브 게이트 셋은 **대조군이 아예 없었다.** 그런데 모집단을 세는
+//    정규식이 `{ slow: true, name: … }` 모양을 놓쳐 **세어지지도 않아서**, 판정문은
+//    그 사실을 모른 채 「전부 갖췄다」고 말했다(v2.27로 배포됨).
+//
+// 🔴 무엇을 대조군으로 삼아야 하는가: 라이브 게이트에서 **가장 조용한 고장은 기록기가
+//    실패를 안 세는 것**이다. 그러면 무슨 일이 있어도 초록이 나온다 — 실제로 이 저장소의
+//    `verify-diagnostics-live` 첫 판이 **허브를 못 열었는데 PASS를 찍었다.**
+//    그러므로 대조군은 「기록기가 실패를 실제로 센다」를 증명해야 한다.
+//
+// 🔴 왜 게이트마다 손으로 쓰지 않나: 같은 판정을 세 번 쓰면 갈라진다(M-0060).
+//    구현은 여기 하나뿐이고, 대조군도 **그 진짜 구현을 돌려서** 증명한다 —
+//    복사본을 시험하면 진짜가 깨져도 초록이다.
+
+/**
+ * 라이브 게이트의 판정 기록기를 만든다.
+ *
+ * @param {(line: string) => void} [sink] 출력 함수(기본 `console.log`)
+ * @returns 라벨·통과여부·상세를 받는 `check` 함수. `check.stats()`로 집계를 읽는다.
+ */
+export function makeCheck(sink = console.log) {
+  let failed = 0;
+  let checked = 0;
+  const check = (label, ok, detail = '') => {
+    checked++;
+    if (!ok) failed++;
+    sink(`${ok ? '  ✓' : '  ✗'} ${label}${detail ? ` — ${detail}` : ''}`);
+  };
+  check.stats = () => ({ failed, checked });
+  return check;
+}
+
+/**
+ * 위 기록기가 **실제로 실패를 세는지** 증명한다 — 라이브 게이트의 대조군(§4).
+ *
+ * 실패하면 던진다. 호출부는 `runSelfTest`로 감싸서 사유를 적고 `exit 2`로 나간다(§18-G).
+ */
+export function proveCheckCounts() {
+  const lines = [];
+  const check = makeCheck((l) => lines.push(l));
+  check('통과 사례', true);
+  check('실패 사례', false, '상세');
+  const { failed, checked } = check.stats();
+  if (checked !== 2) throw new Error(`SELF-TEST 실패: 판정 횟수를 못 셈(${checked} ≠ 2).`);
+  if (failed !== 1) throw new Error(`SELF-TEST 실패: **실패를 못 셈**(${failed} ≠ 1) — 이 게이트는 무슨 일이 있어도 초록을 낸다.`);
+  if (!lines[0].startsWith('  ✓')) throw new Error('SELF-TEST 실패: 통과를 통과로 안 적는다.');
+  if (!lines[1].startsWith('  ✗')) throw new Error('SELF-TEST 실패: 실패를 실패로 안 적는다(화면이 거짓말한다).');
+  if (!lines[1].includes('상세')) throw new Error('SELF-TEST 실패: 실패 사유를 안 적는다 — 왜 빨간불인지 알 수 없다.');
+}

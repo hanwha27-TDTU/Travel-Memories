@@ -25,6 +25,12 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runSelfTest } from './gate-selftest-lib.mjs';
+import { proveCheckCounts } from './live-browser-lib.mjs';
+
+// 대조군(§4): 판정 기록기가 **실패를 실제로 세는가.** 안 세면 이 게이트는 무슨 일이 있어도 초록이다.
+// 🔴 이 줄은 **템플릿 문자열 밖**이어야 한다 — 안에 넣으면 실행되지 않는 가짜 대조군이 된다(M-0155).
+runSelfTest('verify-authgate-live', () => proveCheckCounts());
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 /** 임시 산출물. 점으로 시작해 어느 게이트의 스캔에도 걸리지 않는다(진단 라이브와 같은 규율). */

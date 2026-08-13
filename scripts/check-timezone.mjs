@@ -16,6 +16,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'src');
@@ -96,7 +97,7 @@ export function findSliceViolations(text, label) {
 }
 
 // ── (A-self) 비공허 자체검사: 알려진 위반을 반드시 잡아야 한다 ──
-(() => {
+runSelfTest('check-timezone', () => {
   const bad = findSliceViolations('const d = m.occurredAt.slice(0, 10);', 'fake.ts');
   if (bad.length !== 1) throw new Error('SELF-TEST 실패: ISO 절단 패턴을 못 잡음(게이트 공허).');
   const ok = findSliceViolations('const s = hex.slice(0, 10); // not-a-date', 'fake.ts');
@@ -113,7 +114,7 @@ export function findSliceViolations(text, label) {
   if (devFine.length !== 0) throw new Error('SELF-TEST 실패: 기기 조작 시각(오늘)까지 위반으로 잡음(오탐).');
   const devProse = findDeviceClockViolations('// 옛 코드는 localTime(m.occurredAt)이었다(설명 주석)', 'fake.ts');
   if (devProse.length !== 0) throw new Error('SELF-TEST 실패: 주석까지 위반으로 잡음(오탐).');
-})();
+});
 
 // ── (A)(C) 정적 검사 ──
 const violations = [];

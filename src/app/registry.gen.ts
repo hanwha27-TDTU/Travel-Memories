@@ -137,6 +137,7 @@ export const REGISTRY = {
     { name: 'check-hand-counts', control: true, runnable: false, cleanExit: true },
     { name: 'check-doc-counts', control: true, runnable: false, cleanExit: true },
     { name: 'check-date-freshness', control: true, runnable: true, cleanExit: true },
+    { name: 'check-timezone', control: true, runnable: false, cleanExit: true },
     { name: 'check-instant-normalization', control: true, runnable: false, cleanExit: true },
     { name: 'check-exif-strip-on-share', control: true, runnable: false, cleanExit: true },
     { name: 'check-exif-order', control: true, runnable: false, cleanExit: true },
@@ -150,10 +151,13 @@ export const REGISTRY = {
     { name: 'check-gate-control', control: true, runnable: true, cleanExit: true },
     { name: 'check-enforcement-parity', control: true, runnable: true, cleanExit: true },
     { name: 'check-ui-color-token', control: true, runnable: false, cleanExit: true },
+    { name: 'verify-editor-live', control: true, runnable: false, cleanExit: true },
+    { name: 'verify-diagnostics-live', control: true, runnable: false, cleanExit: true },
+    { name: 'verify-authgate-live', control: true, runnable: false, cleanExit: true },
   ] as const,
-  gateControlCount: 64,
+  gateControlCount: 68,
   gateRunnableCount: 16,
-  gateCleanExitCount: 64,
+  gateCleanExitCount: 68,
   /** 최신 앱 버전(정본: src/app/changelog.ts의 첫 항목). 첫 로드 화면은 이걸 읽는다. */
   appVersion: '2.27',
   /** 에이전트 정의 이름(정본: .claude/agents/ — frontmatter가 있는 파일만). */
