@@ -421,6 +421,7 @@ npm run brief            # 또는: npm run brief <고칠 파일들>
 
 ```bash
 npm run brief <고칠 파일들>   # 착수 전 — 읽을 스킬 문서·형제 목록·그 영역의 과거 실수
+npm run gen                   # 생성물 재생성 — **의존 순서대로 전부**(순서를 외우지 않는다)
 npm run gates                 # 편집 루프 (약 6초 · 정적 + typecheck)
 npm run build                 # 기능 화면 실측 또는 릴리스 후보 앱 재빌드(tsc --noEmit + vite build)
 npm run harness               # 🔴 머지·배포할 때만 — build 다음 전체 검사

@@ -86,6 +86,8 @@ export const GATE_DESC: Record<string, string> = {
     '버전을 말하는 자리가 전부 한 정본에서 파생되는가 — 생성물·안드로이드 versionName·워크플로 주입·문서',
   'check-date-freshness':
     '적어 둔 날짜가 오늘과 어긋나지 않는가 — 미래 날짜 금지(항상) + 릴리스를 얼렸으면 최신 항목이 오늘 것인가',
+  'check-screen-lifecycle':
+    '라우터가 한 번에 한 화면만 살려 두는가 — 모든 화면이 screen.mount()를 거치고, 비동기 뒤에 그리기 전에 isCurrent()를 묻는가',
   'check-timezone': '날짜를 UTC가 아닌 사용자 로컬로 계산(+ 다른 시간대에서도 유닛 통과)',
   'check-instant-normalization': '밖에서 온 시각을 앱의 표준 표기로 바꿔 저장(같은 순간을 두 표기로 적지 않게)',
   'check-exif-strip-on-share': '서버로 나가는 사진은 canvas 재인코딩본만 — 원본의 촬영위치(GPS)가 따라가지 않게',
@@ -190,6 +192,7 @@ export const GATE_AXIS: Record<string, string> = {
   'check-doc-counts': '마커 수가 아니라, 각 마커가 실제 카운트와 일치하는지',
   'check-date-freshness': '날짜 개수가 아니라, 오늘과의 차이가 시간대 허용치를 넘는지',
   'check-version-ssot': '버전 문자열 개수가 아니라, 각 자리가 정본에서 파생되는 배선인지',
+  'check-screen-lifecycle': '화면 수가 아니라, 라우터의 화면 호출 **전부**가 세션을 거치고 비동기 갈래가 세대 확인을 갖는지',
   'check-timezone': '테스트 수가 아니라, 날짜가 UTC가 아닌 **사용자 로컬**로 계산되는지',
   'check-instant-normalization': '파일 수가 아니라, 서버 경계 **전부**가 시각을 정규화하는지',
   'check-exif-strip-on-share': '업로드 경로 수가 아니라, 공유 바이트가 canvas 파생본만이고 재인코딩 우회가 0인지',
@@ -296,6 +299,7 @@ export const GATE_WORLD: Record<string, string> = {
   // 유일하게 **시스템 시계**를 읽는 게이트다 — 작업트리 밖에서 값을 가져오는 자리.
   'check-date-freshness': 'runtimeEnv',
   'check-version-ssot': '',
+  'check-screen-lifecycle': '',
   'check-timezone': '',
   'check-instant-normalization': '',
   'check-exif-strip-on-share': '',
@@ -376,6 +380,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-doc-counts': 'generated',
   'check-date-freshness': 'static',
   'check-version-ssot': 'static',
+  'check-screen-lifecycle': 'static',
   'check-timezone': 'static',
   'check-instant-normalization': 'static',
   'check-exif-strip-on-share': 'static',

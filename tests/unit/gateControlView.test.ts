@@ -51,6 +51,24 @@ describe('게이트 대조군 현황 문장', () => {
     expect(gateControlHeadline(summarizeGateControl([]))).toContain('읽지 못했');
   });
 
+  // 🔴 §17 표면↔표면 모순 차단(2026-08-13). 가이드·기계화 흐름도는 **하네스 항목 수**
+  //    (`REGISTRY.gateCount` — `typecheck`·`unit-tests` 포함)를 「게이트 N가지」로 말한다.
+  //    이 문장의 모집단은 **검사 스크립트**라 그보다 작다. 둘 다 참이지만 **같은 낱말**을 쓰면
+  //    두 화면을 본 사용자에게는 어긋난 것으로 읽힌다 — M-0157이 정확히 그 형태였다.
+  //    그래서 이 문장은 자기 모집단의 이름을 **반드시** 달고 다닌다.
+  it('🔴 숫자가 자기 모집단의 이름을 달고 다닌다 — 「게이트 N개」로 말하지 않는다(§17)', () => {
+    const cases = [
+      gateControlHeadline(summarizeGateControl([row('a', true, false, true)])), // 약한 축이 있는 갈래
+      gateControlHeadline(summarizeGateControl([row('a', true, true, true)])), // 전부 갖춘 갈래
+      gateControlHeadline(summarizeGateControl([])), // 못 읽은 갈래
+    ];
+    for (const line of cases) {
+      expect(line).toContain('검사 스크립트');
+      // 한정 없는 「게이트 N개」는 가이드 화면의 숫자와 충돌한다.
+      expect(line).not.toMatch(/게이트\s*\d+개/);
+    }
+  });
+
   it('🔴 못 갖춘 이름을 전부 늘어놓지 않는다 — 화면이 작업 목록이 되면 안 된다', () => {
     const many = Array.from({ length: 20 }, (_, i) => row(`g${i}`, true, false, true));
     const axes = summarizeGateControl(many);
