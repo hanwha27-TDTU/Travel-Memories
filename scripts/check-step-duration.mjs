@@ -23,6 +23,7 @@
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MIN_SAMPLES = 3;
@@ -116,7 +117,7 @@ export function selfTest() {
   SELF.pos += 1;
 }
 
-selfTest();
+runSelfTest('check-step-duration', () => selfTest());
 
 const isMain = process.argv[1] && process.argv[1].endsWith('check-step-duration.mjs');
 if (isMain) {

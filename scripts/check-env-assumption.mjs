@@ -31,6 +31,7 @@ import { cpus, tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { recordKeys, recordValues } from './check-gate-promise.mjs';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -257,7 +258,7 @@ export function selfTest() {
   SELF.pos += 1;
 }
 
-selfTest();
+runSelfTest('check-env-assumption', () => selfTest());
 
 const isMain = process.argv[1] && process.argv[1].endsWith('check-env-assumption.mjs');
 if (isMain) {

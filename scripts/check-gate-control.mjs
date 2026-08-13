@@ -52,18 +52,34 @@ const HARNESS = 'scripts/harness.mjs';
  *  · `RUNNABLE`    — 그 대조군을 **밖에서 돌려 볼 수 있는가**(`--selftest` 플래그).
  *                    이게 있어야 이 게이트가 「살아 있는지」까지 확인할 수 있다.
  */
-export const HAS_CONTROL_BASELINE = 63;
-export const RUNNABLE_BASELINE = 15;
+export const HAS_CONTROL_BASELINE = 64;
+export const RUNNABLE_BASELINE = 16;
 /**
  * 🔴 세 번째 축(2026-08-12 · M-0152) — **대조군이 실패를 「판정」으로 알리는가.**
  *
- * 63개 전부 대조군을 갖고 있다. 남은 문제는 **알리는 방식**이다: 23개가 `throw`로 죽어
- * 스택과 함께 `exit 1`이 되고, 하네스는 그것을 「위반을 찾았다」로 적는다. 자체검사 실패는
- * 위반이 아니라 **「이 게이트를 믿을 수 없다」**이므로 `exit 2`가 맞다(§18-G).
+ * 모든 게이트가 대조군을 갖고 있다. 남은 문제는 **알리는 방식**이었다: `throw`로 죽으면 스택과 함께
+ * `exit 1`이 되고, 하네스는 그것을 「위반을 찾았다」로 적는다. 자체검사 실패는 위반이 아니라
+ * **「이 게이트를 믿을 수 없다」**이므로 `exit 2`가 맞다(§18-G).
  *
- * 한 방향 래칫이다. 23개를 한 번에 바꾸지 않는다 — 급하게 손대면 이번에 피한 §11 ②를 밟는다.
+ * 🔴 **기준선 40은 참이었던 적이 없다**(2026-08-12 · M-0153). 그때 판정은 「파일 어딘가에
+ *    자체검사 낱말이 있고, 파일 어딘가에 `exit 2`가 있으면 깨끗함」이었다. 그래서
+ *    `check-lazy-screens`·`check-fn-size`·`check-sw` — **자체검사가 전부 던지는데** 다른
+ *    용도의 `exit 2`를 가진 세 개 — 가 깨끗함으로 세어졌다. 진짜 값은 **37**이었다.
+ *    래칫이 지키고 있던 숫자 자체가 오탐이었던 것이고, 이건 §11 ②(옛 전제를 못박음)의
+ *    **기준선판**이다. 내린 것이 아니라 **처음부터 없던 3을 걷어낸 뒤 실제로 올렸다**:
+ *    37(참값) → 판정 모양만 틀렸던 3개 전환 → 40 → 공용 헬퍼로 11개 전환 → 51
+ *    → 남은 IIFE 블록 14개 전환(T-027) → 63 → **새 게이트 `check-date-freshness`가
+ *    처음부터 옳은 모양으로 태어나 64 = 전부**.
+ *
+ * 🔴 그 마지막 +1이 §7 2층의 증거다. 새 형제는 규칙을 **몰라도** 따라왔다 — 공용 헬퍼를
+ *    쓰는 것이 유일한 길이었기 때문이다. 조항이었다면 읽어야 했을 것이다.
+ *
+ * 🔴 이제 이 축은 **꽉 찼다**(64/64). 그러므로 이 래칫의 뜻이 바뀐다 — 「늘려 가는 목표」가
+ *    아니라 **「되돌아감의 차단」**이다. 새 게이트가 던지는 채로 들어오면 즉시 RED다.
+ *    그게 §7 2층이 하는 일이다: 다음 형제가 규칙을 몰라도 따라오게 만든다.
+ * 🔴 이 숫자는 **세어서** 넣는다. 어림하지 마라 — 이 저장소는 그것으로 세 번 틀렸다(M-0152).
  */
-export const CLEAN_EXIT_BASELINE = 40;
+export const CLEAN_EXIT_BASELINE = 64;
 
 /** 하네스에 등록된 게이트 중 `node scripts/*.mjs`로 도는 것의 스크립트 경로를 뽑는다. */
 export function gateScripts(harnessSrc) {
@@ -120,12 +136,53 @@ function hasSelfTestFunction(code) {
  * 코드에 있는가」를 본다.
  */
 function hasInlineSelfCheck(code) {
-  return declaresSelfCheckExit(code) || throwsOnSelfCheck(code);
+  return announceStyle(code) !== 'unknown';
+}
+
+/** 자체검사를 말하는 낱말. 🔴 이 저장소는 네 가지를 쓴다 — 하나만 알면 형제를 못 본다(M-0151). */
+const SELF_TEST_WORDING = /(셀프테스트|자체검사|자기점검|SELF-TEST)/;
+
+/**
+ * 자체검사 실패를 **어떻게 알리는가** — 한 게이트는 **정확히 하나**의 값을 갖는다.
+ *
+ * 🔴 왜 술어 여럿이 아니라 값 하나인가(2026-08-12 · M-0153): 예전 판은 술어 둘
+ *    (`declaresSelfCheckExit`·`throwsOnSelfCheck`)을 `if / else if`로 이어 붙였다.
+ *    그래서 **둘 다 거짓인 게이트 3개가 어느 통에도 안 들어가** 판정문에서 조용히 사라졌다 —
+ *    화면은 「40개 + 19개」라고 말하는데 전체는 63개였다(**40 + 19 = 59 ≠ 63**).
+ *    값이 하나면 합계가 **구조적으로** 맞고, 새 형태가 생겨도 `unknown`으로 반드시 드러난다(§7 2층).
+ *
+ * 값의 뜻:
+ *  · `verdict`    — 사유를 적고 `exit 2`로 나간다. **이것이 목표 형태다**(§18-G).
+ *  · `throw`      — 던져서 죽는다. 스택과 함께 `exit 1`이 되어 하네스가 「위반을 찾았다」로 적는다.
+ *  · `wrongCode`  — 판정 **모양은 맞는데**(사유를 적고 나간다) 종료코드가 `2`가 아니다.
+ *                   고치는 값이 가장 싸다 — 이미 모양은 옳고 숫자 하나가 틀렸다.
+ *  · `unknown`    — 대조군이 아니다. 낱말이 아예 없거나, **말만 하고 나가지 않는다**.
+ *                   🔴 나가지 않으면 아무것도 막지 못하므로 판정이 아니다(이 구분은 대조군이
+ *                   음성 사례로 잠그고 있다 — 실제로 이 절을 고치다 그 사례에 걸렸다).
+ *
+ * 🔴 **`throw`가 먼저다.** 던지는 길이 **하나라도** 있으면 그 게이트는 스택으로 죽을 수 있으므로,
+ *    파일 어딘가에 `exit 2`가 따로 있다고 해서 깨끗한 것이 아니다. 예전 판정이 정확히 여기서
+ *    틀렸다 — `check-lazy-screens`·`check-fn-size`·`check-sw`는 자체검사가 **전부 던지는데**
+ *    다른 용도의 `exit 2`가 파일에 있다는 이유로 **「깨끗함」으로 세어졌다**(기준선 40은 그 오탐
+ *    3개가 섞인 값이었다).
+ */
+export function announceStyle(code) {
+  // 🔴 공용 헬퍼가 **먼저다.** `runSelfTest`는 던지는 자체검사를 받아 사유를 적고 `exit 2`로
+  //    나간다 — 그래서 그 안의 `throw`는 더 이상 스택으로 죽지 않는다. 감싸 놓고도 「던진다」로
+  //    세면 고친 게이트가 영원히 미전환으로 남는다.
+  //    정직한 한계: 이 판정은 **감싼 블록**에 대한 것이다. 같은 파일에 감싸지 않은 자체검사
+  //    블록이 따로 남아 있으면 그건 못 본다(전환은 진입점이 하나인 게이트부터 한 이유다).
+  if (/runSelfTest\s*\(/.test(code)) return 'verdict';
+  if (/throw\s+new\s+Error\(\s*['"`]\s*(SELF-TEST|셀프테스트|자체검사|자기점검)/.test(code)) return 'throw';
+  if (!SELF_TEST_WORDING.test(code)) return 'unknown';
+  if (/process\.exit\(\s*2\s*\)/.test(code)) return 'verdict';
+  // 말은 하는데 **나가지 않으면** 대조군이 아니다 — 아무것도 막지 못한다.
+  return /process\.exit\(\s*1\s*\)/.test(code) ? 'wrongCode' : 'unknown';
 }
 
 /** 자체검사 실패를 **판정으로** 알린다 — 사유를 적고 `exit 2`(전제 미충족)로 나간다. */
 export function declaresSelfCheckExit(code) {
-  return /(셀프테스트|자체검사|SELF-TEST)/.test(code) && /process\.exit\(\s*2\s*\)/.test(code);
+  return announceStyle(code) === 'verdict';
 }
 
 /**
@@ -136,7 +193,7 @@ export function declaresSelfCheckExit(code) {
  *    **「이 게이트를 믿을 수 없다」**이다. 그래서 이 형태는 세되 **따로** 센다.
  */
 export function throwsOnSelfCheck(code) {
-  return /throw\s+new\s+Error\(\s*['"`]SELF-TEST/.test(code);
+  return announceStyle(code) === 'throw';
 }
 
 function selfTest() {
@@ -194,6 +251,42 @@ function selfTest() {
       '🔴 플래그도 주석이면 거짓 — 같은 함정을 형제에도 건다(§7)',
       () => !declaresSelftest(`// if (process.argv.includes('--selftest')) {}`),
     ],
+    // ── 알림 방식(announceStyle) — 값 하나 · 상호배타 · 전수(2026-08-12 · M-0153) ──
+    [
+      '알림: 사유를 적고 exit 2면 판정(목표 형태)',
+      () => announceStyle(`console.error('자체검사 실패'); process.exit(2);`) === 'verdict',
+    ],
+    [
+      '알림: SELF-TEST를 던지면 throw',
+      () => announceStyle(`throw new Error('SELF-TEST 실패: 못 잡음');`) === 'throw',
+    ],
+    [
+      '🔴 알림: **한글로 적은 던짐**도 throw — 낱말 하나만 알면 형제를 못 본다(M-0151)',
+      () => announceStyle(`throw new Error('셀프테스트 실패: 못 잡음');`) === 'throw',
+    ],
+    [
+      '🔴 알림: 던지는 길이 있으면 파일 딴 곳의 exit 2로 깨끗해지지 않는다(기준선 40의 오탐 3개가 이 형태였다)',
+      () =>
+        announceStyle(
+          `throw new Error('SELF-TEST 실패: x');\nif (!existsSync(P)) { console.error('대상 없음'); process.exit(2); }`,
+        ) === 'throw',
+    ],
+    [
+      '알림: 사유는 적는데 exit 1이면 wrongCode(모양은 맞고 숫자가 틀렸다)',
+      () => announceStyle(`console.error('자체검사 실패'); process.exit(1);`) === 'wrongCode',
+    ],
+    [
+      '🔴 알림: 말만 하고 **나가지 않으면** 대조군이 아니다 — 아무것도 못 막는다',
+      () => announceStyle(`console.error('셀프테스트 실패했지만 계속 간다');`) === 'unknown',
+    ],
+    [
+      '알림: 자체검사를 말하는 낱말이 없으면 unknown',
+      () => announceStyle(`if (bad.length) { console.error('위반'); process.exit(1); }`) === 'unknown',
+    ],
+    [
+      '🔴 알림: 공용 헬퍼로 감싸면 판정 — 안의 throw는 헬퍼가 받아 exit 2로 낸다',
+      () => announceStyle(`runSelfTest('check-x', () => selfTest());`) === 'verdict',
+    ],
   ];
   const failed = cases.filter(([, fn]) => !fn());
   if (failed.length) {
@@ -225,16 +318,32 @@ if (isMain) {
 
   const withControl = [];
   const runnable = [];
-  const cleanExit = [];
-  const dies = [];
   const without = [];
+  /** 알림 방식별 통. 🔴 게이트당 값이 **하나**라 합계가 구조적으로 전체와 같다. */
+  const by = { verdict: [], throw: [], wrongCode: [], unknown: [] };
   for (const g of gates) {
     const code = stripComments(readFileSync(g.script, 'utf8'));
     if (hasControl(code)) withControl.push(g);
     else without.push(g);
     if (declaresSelftest(code)) runnable.push(g);
-    if (declaresSelfCheckExit(code)) cleanExit.push(g);
-    else if (throwsOnSelfCheck(code)) dies.push(g);
+    // 🔴 `||=`인 이유: 나중에 누가 `announceStyle`에 **다섯 번째 값**을 더하고 통을 안 만들면,
+    //    `by[새값].push`가 TypeError로 **스택째 죽는다** — 그게 바로 이 판이 없애려는 §18-G
+    //    결함이다. 통을 만들어 두면 그 게이트는 아래 합계 대조에 안 잡혀 **판정으로** 걸린다.
+    (by[announceStyle(code)] ||= []).push(g);
+  }
+  const cleanExit = by.verdict;
+  const dies = by.throw;
+
+  // 🔴 **자기 모집단을 설명하지 못하면 판정하지 않는다**(2026-08-12 · M-0153).
+  //    예전 판은 `if / else if` 두 술어로 세어 **어느 통에도 안 들어간 게이트 3개**가
+  //    판정문에서 조용히 사라졌다 — 화면은 「40개 + 19개」인데 전체는 63개였다.
+  //    합계가 안 맞는다는 것은 「위반을 찾았다」가 아니라 **「내가 나를 못 센다」**이므로 exit 2다.
+  const counted = by.verdict.length + by.throw.length + by.wrongCode.length + by.unknown.length;
+  if (counted !== gates.length) {
+    console.error(
+      `check-gate-control: 게이트 ${gates.length}개 중 ${counted}개만 분류됐습니다 — 자기 모집단을 설명하지 못합니다.`,
+    );
+    process.exit(2);
   }
 
   // B) 있다고 한 대조군이 **실제로 도는가.** 산문을 믿지 않는다 — 돌려 본다(§18-A: 결론을 직접 묻는다).
@@ -282,14 +391,30 @@ if (isMain) {
       `대조군이 있다고 **읽었을 뿐** 살아 있는지 재지 못했습니다 — 플래그를 달면 그때 재집니다.`,
   );
   console.log(
-    `    ↳ 🔴 자체검사 실패를 **던져서 죽는** 게이트 ${dies.length}개 — 스택과 함께 exit 1이 되어 ` +
-      `하네스가 「위반을 찾았다」로 적습니다. 자체검사 실패는 위반이 아니라 「이 게이트를 믿을 수 없다」입니다(§18-G).` +
-      (dies.length ? `\n       ${dies.map((g) => g.name).join(', ')}` : ''),
+    dies.length
+      ? `    ↳ 🔴 자체검사 실패를 **던져서 죽는** 게이트 ${dies.length}개 — 스택과 함께 exit 1이 되어 ` +
+          `하네스가 「위반을 찾았다」로 적습니다. 자체검사 실패는 위반이 아니라 「이 게이트를 믿을 수 없다」입니다(§18-G).` +
+          `\n       ${dies.map((g) => g.name).join(', ')}`
+      : `    ↳ 던져서 죽는 게이트는 **없습니다** — ${gates.length}개 전부 자체검사 실패를 판정(exit 2)으로 알립니다(§18-G).`,
+  );
+  // 🔴 남은 두 통도 **반드시 말한다.** 0이어도 적는다 — 「안 나온 것」과 「없는 것」은 다른 말이고,
+  //    이 게이트는 정확히 그 침묵 때문에 게이트 3개를 놓쳤다(M-0153).
+  console.log(
+    by.wrongCode.length
+      ? `    ↳ 판정 **모양은 맞는데 종료코드가 2가 아닌** 게이트 ${by.wrongCode.length}개 — 사유는 적으므로 고치는 값이 가장 쌉니다.` +
+          `\n       ${by.wrongCode.map((g) => g.name).join(', ')}`
+      : `    ↳ 판정 모양인데 종료코드만 틀린 게이트는 **없습니다**(0개).`,
+  );
+  console.log(
+    by.unknown.length
+      ? `    ↳ 🔴 알림 방식을 **읽지 못한** 게이트 ${by.unknown.length}개 — 확인 불가입니다(정상으로도 문제로도 반올림하지 않습니다).` +
+          `\n       ${by.unknown.map((g) => g.name).join(', ')}`
+      : `    ↳ 알림 방식을 읽지 못한 게이트는 **없습니다** — ${gates.length}개 전부 분류했습니다(합계 대조 통과).`,
   );
   console.log(
     without.length
       ? `    ↳ 아직 대조군이 없는 게이트 ${without.length}개: ${without.map((g) => g.name).join(', ')}`
-      : `    ↳ 대조군이 없는 게이트는 **없습니다** — 63개 전부 갖고 있습니다.`,
+      : `    ↳ 대조군이 없는 게이트는 **없습니다** — ${gates.length}개 전부 갖고 있습니다.`,
   );
 
 }

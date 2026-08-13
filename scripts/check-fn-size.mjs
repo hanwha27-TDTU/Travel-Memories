@@ -16,6 +16,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -117,7 +118,7 @@ export function topLevelFunctions(source, fileName = 'source.ts') {
 
 
 // ── 비공허 자체검사(§4) ──
-(() => {
+runSelfTest('check-fn-size', () => {
   const src = [
     'function a(): void {',
     '  x();',
@@ -163,7 +164,7 @@ export function topLevelFunctions(source, fileName = 'source.ts') {
   if (!bf || bf.lines !== 122 || bf.lines <= LIMIT) {
     throw new Error(`SELF-TEST 실패: 큰 화살표 길이 오산(${bf?.lines}) — 알려진 상한 위반 주입을 RED로 잡지 못함.`);
   }
-})();
+});
 
 /**
  * src 아래 모든 `.ts`를 모은다. **`fs.globSync`를 쓰지 않는다** — 그건 Node 22+ API인데 CI는 Node를

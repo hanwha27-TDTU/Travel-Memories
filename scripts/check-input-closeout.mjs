@@ -21,6 +21,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PROFILE = join(ROOT, 'schemas', 'release-profile.json');
@@ -127,7 +128,7 @@ export function selfTest() {
   }
 }
 
-selfTest();
+runSelfTest('check-input-closeout', () => selfTest());
 
 const isMain = process.argv[1] && process.argv[1].endsWith('check-input-closeout.mjs');
 if (isMain) {

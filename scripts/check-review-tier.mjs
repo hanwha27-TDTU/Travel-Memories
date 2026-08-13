@@ -28,6 +28,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -170,7 +171,7 @@ export function selfTest() {
   SELF.pos += 3;
 }
 
-selfTest();
+runSelfTest('check-review-tier', () => selfTest());
 
 const isMain = process.argv[1] && process.argv[1].endsWith('check-review-tier.mjs');
 if (isMain) {

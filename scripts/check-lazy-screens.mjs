@@ -16,6 +16,7 @@
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -103,7 +104,7 @@ export function reachableFrom(entry, readFile = (p) => readFileSync(p, 'utf8')) 
 }
 
 // ── 비공허 자체검사: 알려진 실패를 주입해 잡히는지 먼저 증명한다(§4) ──
-(() => {
+runSelfTest('check-lazy-screens', () => {
   const valueImport = staticRelativeImports(`import { openAboutApp } from './aboutApp';`);
   if (valueImport.length !== 1) throw new Error('SELF-TEST 실패: 값 import를 못 봤다(게이트 공허).');
 
@@ -118,7 +119,7 @@ export function reachableFrom(entry, readFile = (p) => readFileSync(p, 'utf8')) 
 
   const dynamic = staticRelativeImports(`const m = await import('./screens/aboutApp');`);
   if (dynamic.length !== 0) throw new Error('SELF-TEST 실패: 동적 import를 정적으로 오탐한다.');
-})();
+});
 
 const reachable = reachableFrom(join(ROOT, 'src/main.ts'));
 

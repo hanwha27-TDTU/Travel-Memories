@@ -11,6 +11,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const BP = join(ROOT, 'src/app/blueprint.ts');
@@ -110,7 +111,7 @@ for (const f of [BP, DB, SYNC]) {
   }
 }
 
-selfTest();
+runSelfTest('check-blueprint', () => selfTest());
 if (process.argv.includes('--selftest')) {
   console.log('check-blueprint: 셀프테스트 통과');
   process.exit(0);

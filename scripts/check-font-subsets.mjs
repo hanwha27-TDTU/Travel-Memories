@@ -11,6 +11,7 @@
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CSS = join(ROOT, 'src/ui/styles/fonts.css');
@@ -40,7 +41,7 @@ export function rangeSpan(range) {
 }
 
 // ── 비공허 자체검사(§4) ──
-(() => {
+runSelfTest('check-font-subsets', () => {
   const sample = `@font-face { src: url('./fonts/a.woff2') format('woff2'); font-display: swap; unicode-range: U+AC00-AC01,U+AC04; }`;
   const f = parseFaces(sample);
   if (f.length !== 1 || f[0].file !== './fonts/a.woff2') throw new Error('SELF-TEST 실패: @font-face 파싱이 틀림.');
@@ -48,7 +49,7 @@ export function rangeSpan(range) {
   if (!Number.isNaN(rangeSpan('U+ZZZZ')) === true) throw new Error('SELF-TEST 실패: 잘못된 구간을 통과시킴.');
   if (parseFaces('@font-face { src: url("./x.woff2"); }')[0].display !== false)
     throw new Error('SELF-TEST 실패: font-display 누락을 못 봄.');
-})();
+});
 
 const css = readFileSync(CSS, 'utf8');
 const faces = parseFaces(css);

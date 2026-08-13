@@ -17,6 +17,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SW = join(ROOT, 'public/sw.js');
@@ -133,7 +134,7 @@ const GOOD_MAIN = [
   '}',
 ].join('\n');
 
-(() => {
+runSelfTest('check-sw', () => {
   const hosts = externalHostsFromCsp();
   if (hosts.length === 0) throw new Error('SELF-TEST 실패: CSP에서 외부 호스트를 하나도 못 읽음(대조가 공허해짐).');
 
@@ -163,7 +164,7 @@ const GOOD_MAIN = [
   if (registrationViolations(GOOD_MAIN.replace('import.meta.env.PROD', 'true')).length === 0) {
     throw new Error('SELF-TEST 실패: PROD 제한 부재를 못 잡음.');
   }
-})();
+});
 
 const problems = [];
 if (!existsSync(SW)) {

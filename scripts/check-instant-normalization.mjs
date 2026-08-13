@@ -20,6 +20,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DOMAIN = join(ROOT, 'src', 'domain');
@@ -90,7 +91,7 @@ export function backupViolations(src) {
 }
 
 // ── 자체검사: 알려진 실패를 주입해 RED를 확인한 뒤에만 이 게이트를 믿는다(§4·§11) ──
-(() => {
+runSelfTest('check-instant-normalization', () => {
   const good = `
 export function fromRow(r: TripRow): WithInstants<LocalTrip> {
   return {
@@ -125,7 +126,7 @@ export function fromRow(r: TripRow): WithInstants<LocalTrip> {
   if (backupViolations(bkOk).length !== 0) throw new Error('SELF-TEST 실패: 정상 백업 코드를 위반으로 잡음(오탐).');
   const bkBad = "import { withCanonicalStamps } from '../domain/time';\nconst rows = { trips: incoming.trips };";
   if (backupViolations(bkBad).length !== 1) throw new Error('SELF-TEST 실패: 호출이 사라진 백업을 못 잡음(게이트 공허).');
-})();
+});
 
 /**
  * **시각을 문자열로 비교하지 않는가** (논리적 충돌 점검 2026-07-27).
@@ -155,7 +156,7 @@ export function stringTimeComparisons(files) {
 }
 
 // ── 비교층 자체검사: 실제로 있었던 두 줄을 그대로 넣는다 ──
-(() => {
+runSelfTest('check-instant-normalization', () => {
   const hit = stringTimeComparisons([['a.ts', '.sort((a, b) => (a.occurredAt || a.createdAt).localeCompare(b.occurredAt || b.createdAt));']]);
   if (hit.length !== 1) throw new Error('SELF-TEST 실패: localeCompare 비교를 못 잡음(게이트 공허).');
   const rel = stringTimeComparisons([['a.ts', 'if (mx === null || m.occurredAt > mx.updatedAt) return 1;']]);
@@ -166,7 +167,7 @@ export function stringTimeComparisons(files) {
   if (cmt.length !== 0) throw new Error('SELF-TEST 실패: 주석까지 위반으로 잡음(오탐).');
   const other = stringTimeComparisons([['a.ts', 'if (a.title.localeCompare(b.title) > 0) return 1;']]);
   if (other.length !== 0) throw new Error('SELF-TEST 실패: 시각이 아닌 문자열 정렬을 잡음(오탐).');
-})();
+});
 
 function walk(dir) {
   const out = [];
