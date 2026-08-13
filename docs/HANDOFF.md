@@ -21,6 +21,20 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 - **사용자 결정**: 「가져온다」(§16 ④에 따라 물었고 승인받았다).
 - **다음 작업**: T-029 · T-028 · T-026.
 
+## HANDOFF-0175 · **화면 68 · 게이트 69 — 사용자가 물어서 찾았다** (2026-08-13 · v2.29 · M-0157)
+
+- **branch**: `claude/continue-previous-session-4kl87t` · **변경**: `check-gate-control.mjs`(`gatePopulation` 신설) · `gen-registry.mjs` · 원장 · 생성물
+- **어떻게 찾았나**: 사용자가 *"게이트 카운터 같은 기본적인 실수는 없는 거지? 그것 땜에 외부화를 이야기한 것"*이라고 물었다. 🔴 **「없다」고 답하기 전에 전수로 쟀고, 있었다.**
+- **증상**: 게이트는 **69**, 앱 화면은 **68**. `gen-registry`가 모집단을 **따로 계산**해 하네스 밖에서 도는 `verify-sync-release-live` 하나가 화면에서만 빠졌다. **v2.28이 그 상태로 배포됐다.**
+- 🔴 **그날 내가 헌법 §18-I에 쓴 조항이 정확히 이것을 금한다** — *"기대값 계산을 한 함수에 두고 생성기와 게이트가 함께 쓰게 하라. 따로 계산하면 갈라지고 갈라진 쪽은 조용해진다."* **조항을 쓴 판에 그 조항을 어긴 코드가 남아 있었다**(M-0012와 같은 형태 — 산문에 동의하는 것과 적용하는 것은 다른 일이다).
+- 🔴 **§13을 했는데도 못 봤다.** 화면을 열어 *"69가 있다"*를 확인했지만 그때 읽은 것은 **changelog 산문 속 69**였고 **표의 68**은 안 봤다. 같은 화면의 두 숫자 중 **하나만 골라 읽은 것**이다(§17 판정문 ↔ 그 아래 값). 이번 판에서 확인 절차가 **표의 숫자를 직접** 읽게 고쳤다.
+- **수정**: `gatePopulation()` 한 함수로 수렴 — 게이트와 생성기가 같은 것을 쓴다. 화면 68 → **69**.
+- **예방**: 대조군에 *"생성기가 옛 방식(`gateScripts(harness)`)으로 되돌아가지 않았는가"*를 넣고 **주입으로 RED 확인**(옛 방식 복원 → `exit 2`).
+- **전수 감사 결과(사용자 질문에 대한 답)**: `scripts/*.mjs` 91개 = 게이트 68 · 생성기 8 · 훅 4 · 라이브러리 4 · 기타 7. **안 세어진 게이트 0 · 죽은 게이트 0 · 화면↔게이트 숫자 일치(69/16/69).** 훅 4개는 게이트가 아닌 별도 층이고 `check-hooks-wired`·`check-enforcement-parity`가 감사한다.
+- 🔴 **정직한 한계**: 이 감사는 **이름 규약**(`check-`/`verify-`/`gen-`/`hook-`)이 지켜진다는 전제 위에 있다. 규약 밖 이름으로 판정 스크립트를 만들면 여전히 안 보인다 — 그건 아직 기계가 아니라 **규약**이다.
+- **게이트 외부 모듈화는 보류**(사용자 결정). 오늘 실수 셋(M-0153·0155·0157)이 전부 **검출기의 모집단 문제**였지 위치 문제가 아니었다.
+- **실행 검사**: `tsc` 0 · `vitest` 1,645건 · `gates` 65/65.
+
 ## HANDOFF-0174 · **외부 프롬프트 흡수 · 모집단이 두 번 틀렸다** (2026-08-13 · v2.28 · M-0155)
 
 - **branch**: `claude/continue-previous-session-4kl87t` · **변경**: `check-gate-control.mjs`(모집단·템플릿) · `live-browser-lib.mjs`(기록기·넘침 스캐너) · 라이브 게이트 4개 · `check-timezone` · 헌법 §18-I 확장 · `gates-mechanization-dev` §2-J · 원장 · 생성물
@@ -1385,7 +1399,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.28<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->228<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.29<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->229<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->30<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
