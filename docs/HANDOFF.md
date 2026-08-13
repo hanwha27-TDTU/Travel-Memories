@@ -8,6 +8,20 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0176 · **외부 리뷰 6건 중 4건을 한 릴리스로 — 화면 생명주기가 처음으로 검사 가능해졌다** (2026-08-13 · v2.30 · M-0158)
+
+- **branch**: `claude/continue-previous-session-4kl87t` · **PR**: (아래 배포 기록 참조)
+- **입력**: 사용자가 외부 리뷰어 평가(10건)를 가져왔다. **전부 실측으로 확인**한 뒤 8건 수용·2건 재해석했고, 그중 릴리스 대상 4건을 이 판에 묶었다.
+- **변경 파일**: `src/app/screenSession.ts`(신설) · `src/main.ts` · `src/ui/screens/home.ts` · `src/ui/screens/tripDetail.ts` · `tests/unit/screenSession.test.ts`(신설) · `src/services/appUpdate.ts` · `src/offline/db.ts` · `supabase/migrations/0030_journey_videos.sql` · `supabase/migrations/0031_videos_comment_fix.sql`(신설) · `android-shell/android/app/build.gradle` · `.github/workflows/android-apk.yml` · `scripts/check-version-ssot.mjs`(신설) · `scripts/check-fn-size.mjs`(래칫) · `scripts/brief.mjs`(라우팅) · `docs/PROJECT_SPEC.md` · `docs/DATA_MODEL.md`
+- **DB 변경**: `0031` — `journey.videos` 테이블 주석 교정. **운영 프로젝트(`ihxiywffzmvrwmqvatzt`)에 적용하고 되읽어 확인했다.** 스키마·권한 변경은 없다(주석뿐).
+- **보안 영향**: 없음. (리뷰가 지적한 안드로이드 OAuth 콜백 host/path 제한과 하드코딩 소유자 이메일은 **이번 판에 넣지 않았다** — 아래 「남은 것」.)
+- **핵심 — 지적 #2·#3은 원인이 하나였다(M-0158)**: 라우터가 「지금 어느 화면인가」를 아무 데도 안 적었다. 그래서 ①늦게 끝난 인증 확인이 떠난 화면을 다시 그리고 ②떠난 화면의 구독이 살아남았다. 🔴 **홈은 이 함정을 이미 알고 세대 카운터를 쓰고 있었는데(M-0131) 라우터만 안 물려받았다** — §7의 최빈형.
+- **왜 게이트 71종이 전부 초록이었나**: 그 규율이 `main.ts`에 있었고 진입점은 유닛이 못 부른다. 기존 `router.test.ts`는 **경로 파싱만** 봤다. → `src/app/screenSession.ts`로 뽑아 유닛 6건을 붙였다(§10 ③).
+- **실행한 검사**: `npx tsc --noEmit`(0) · `npx vitest run tests/unit/screenSession.test.ts`(6/6) · `npm run gates`(0) · **주입 3종으로 RED 확인**(세대 확인 제거 · 이전 화면 정리 제거 · 늦은 mount 보호 제거) · 릴리스 하네스는 아래.
+- **래칫을 우회하지 않았다**: `check-fn-size`가 두 함수의 증가를 잡았고, 주석을 줄이는 대신 **중복을 덜어냈다** — 홈의 인증 3단계가 두 곳에 적혀 있던 것을 `applyHomeAuth`로, 히어로 버튼 셋의 같은 모양을 `heroButton`으로. 결과: 148→146 · 505→500(§11의 *"게이트가 설계를 밀어준다"*).
+- **남은 것(다음 판)**: 백업 메모리 **측정**(주장 전에 재기) · 죽은 라우트(`trips`·`map`·`settings` — 유닛이 있으나 **공허하다**) · 안드로이드 OAuth 콜백 host/path 제한 · `0002` 마이그레이션의 하드코딩 소유자 이메일 · 거대 파일 분할(T-0xx) · 칩 닫기 버튼 44px.
+- **롤백**: 이 판은 화면 배선과 문서·주석 교정뿐이라 커밋 되돌리기로 충분하다. `0031`은 주석만 바꾸므로 되돌릴 필요가 없다.
+
 ## HANDOFF-0175 · **버려질 뻔한 미머지 브랜치를 흡수했다 — 그 브랜치가 내 판독 실수를 지적했다** (2026-08-13 · M-0156)
 
 - **branch**: `claude/continue-previous-session-4kl87t` · **변경**: `docs/CONSTITUTION.md` §16 · `scripts/brief.mjs` · 원장(M-0156) · 어댑터·생성물
@@ -1399,7 +1413,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.29<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->229<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.30<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->230<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->31<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
