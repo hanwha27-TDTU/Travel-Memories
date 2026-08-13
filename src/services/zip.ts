@@ -223,7 +223,11 @@ export function unzip(buf: ArrayBuffer): ZipEntry[] {
     }
     // 디렉터리 엔트리(이름이 /로 끝남)는 건너뜀.
     if (!name.endsWith('/')) {
-      const data = bytes.slice(dataStart, dataEnd);
+      // 원본 ZIP 전체를 이미 `file.arrayBuffer()`로 들고 있다. 여기서 `slice()`하면 모든
+      // 엔트리 합계만큼 두 번째 ArrayBuffer를 만들고, 복원 Blob/IndexedDB 복사와 겹쳐
+      // 대용량 WebView를 먼저 죽인다(T-030). CRC는 읽기 전용 view로 충분하고 Blob 생성은
+      // 호출부에서 snapshot하므로, 입력 버퍼를 가리키는 view만 돌려준다.
+      const data = bytes.subarray(dataStart, dataEnd);
       if (crc32(data) !== expectedCrc) throw new Error(`${name}: ZIP CRC가 맞지 않습니다(손상).`);
       out.push({ name, data });
     }

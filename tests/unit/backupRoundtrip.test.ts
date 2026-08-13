@@ -8,7 +8,9 @@ import {
   serializeZip,
   deserializeZip,
   assertBackupImportSize,
+  backupImportLimitBytes,
   MAX_BACKUP_IMPORT_BYTES,
+  UNKNOWN_ANDROID_BACKUP_IMPORT_BYTES,
   type CollectedRows,
 } from '../../src/services/backup';
 import { encryptBytes, decryptBytes, isEncryptedEnvelope } from '../../src/services/backupCrypto';
@@ -238,7 +240,12 @@ describe('백업 복원 왕복 드릴(순수)', () => {
 
   it('메모리 상한을 넘는 파일은 arrayBuffer 읽기 전에 거절할 수 있다', () => {
     expect(() => assertBackupImportSize(MAX_BACKUP_IMPORT_BYTES)).not.toThrow();
-    expect(() => assertBackupImportSize(MAX_BACKUP_IMPORT_BYTES + 1)).toThrow(/1GB 이하/);
+    expect(() => assertBackupImportSize(MAX_BACKUP_IMPORT_BYTES + 1)).toThrow(/파일이 깨진 게 아니에요/);
+    expect(backupImportLimitBytes(false, 256 * 1024 ** 2)).toBe(MAX_BACKUP_IMPORT_BYTES);
+    expect(backupImportLimitBytes(true)).toBe(UNKNOWN_ANDROID_BACKUP_IMPORT_BYTES);
+    expect(backupImportLimitBytes(true, 512 * 1024 ** 2)).toBe(64 * 1024 ** 2);
+    expect(() => assertBackupImportSize(64 * 1024 ** 2 + 1, backupImportLimitBytes(true, 512 * 1024 ** 2)))
+      .toThrow(/64MB/);
   });
 });
 

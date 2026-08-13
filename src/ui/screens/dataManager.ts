@@ -19,9 +19,9 @@ import {
   type TrashPurgeEntry,
   type TrashedChild,
 } from '../../services/trash';
-import { assertBackupImportSize, backupFilename, exportBackup, exportBackupZip, importBackupAuto, type BackupStats } from '../../services/backup';
+import { assertBackupImportSize, backupFilename, backupImportLimitBytes, exportBackup, exportBackupZip, importBackupAuto, type BackupStats } from '../../services/backup';
 import { backupSaveMessage, saveBackupBlob, saveBackupBlobToChosenFolder } from '../../services/fileSave';
-import { backupFileWriter } from '../../services/capacitorShell';
+import { backupFileWriter, rendererHeapSizeLimit, shellState } from '../../services/capacitorShell';
 import { recordBackupNow, getLastBackupAt, backupFreshness } from '../../services/backupMeta';
 import {
   listDeletedTrips, listDeletedTripsFromServer, restoreTripFromTrash, purgeTripPermanently, prepareTripForAction,
@@ -326,7 +326,9 @@ function restorePanel(onChanged: () => void): HTMLElement {
     status.textContent = '복원 중…';
     void (async () => {
       try {
-        assertBackupImportSize(file.size);
+        const limit = backupImportLimitBytes(shellState() !== 'browser', rendererHeapSizeLimit());
+        // 🔴 반드시 `file.arrayBuffer()` **전**에 막는다. 읽고 나서 거절하면 이미 OOM 위험을 밟았다.
+        assertBackupImportSize(file.size, limit);
         const buf = await file.arrayBuffer();
         const r = await importBackupAuto(buf, passInput.value.trim() || undefined);
         if (r.needsPassphrase) {

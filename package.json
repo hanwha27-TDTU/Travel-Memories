@@ -27,7 +27,8 @@
     "gen:module-designs": "node scripts/gen-module-design-docs.mjs",
     "gen:sync-release": "node scripts/gen-sync-release-contract.mjs",
     "verify:sync-release-live": "node scripts/verify-sync-release-live.mjs",
-    "known": "node scripts/known.mjs"
+    "known": "node scripts/known.mjs",
+    "measure:backup-memory": "node scripts/measure-backup-zip-memory.mjs"
   },
   "engines": {
     "node": ">=22"
