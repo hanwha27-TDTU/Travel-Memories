@@ -138,6 +138,37 @@ export function workflowScripts(workflowSrcs, pkgScripts) {
 }
 
 /**
+ * 🔴 **모집단을 계산하는 한 곳**(2026-08-13 · M-0157).
+ *
+ * 왜 함수로 뽑았나: 예전엔 `gen-registry`와 이 게이트가 모집단을 **따로** 계산했다.
+ * 그래서 이 게이트가 모집단을 하네스 ∪ 워크플로로 넓혔을 때 **생성기는 안 따라왔고**,
+ * 화면은 **68**, 게이트는 **69**를 말했다 — 사용자가 *"게이트 카운터 같은 기본적인 실수는
+ * 없는 거지?"*라고 물어서 재보고 찾았다.
+ *
+ * 이건 바로 이날 헌법 §18-I에 적은 조항이 금하는 형태다: *"기대값 계산을 한 함수에 두고
+ * 생성기와 게이트가 그것을 함께 쓰게 하라. 게이트가 기대값을 따로 계산하면 둘이 갈라지고,
+ * **갈라진 쪽은 조용해진다**."* 조항을 쓴 같은 날 그 조항을 어긴 코드가 남아 있었다.
+ *
+ * @param root 저장소 루트
+ * @returns `{ name, script }[]` — 중복 없이, 실제로 존재하는 파일만
+ */
+export function gatePopulation(root = '.') {
+  const harnessPath = join(root, HARNESS);
+  if (!existsSync(harnessPath)) return [];
+  const wfDir = join(root, '.github/workflows');
+  const wfSrcs = existsSync(wfDir)
+    ? readdirSync(wfDir).filter((f) => f.endsWith('.yml')).map((f) => readFileSync(join(wfDir, f), 'utf8'))
+    : [];
+  const pkgPath = join(root, 'package.json');
+  const pkgScripts = existsSync(pkgPath) ? JSON.parse(readFileSync(pkgPath, 'utf8')).scripts : {};
+  const seen = new Map();
+  for (const g of [...gateScripts(readFileSync(harnessPath, 'utf8')), ...workflowScripts(wfSrcs, pkgScripts)]) {
+    if (existsSync(join(root, g.script)) && !seen.has(g.script)) seen.set(g.script, g);
+  }
+  return [...seen.values()];
+}
+
+/**
  * 주석을 지운다. 🔴 **이 게이트가 첫 판에 여기서 뚫렸다** — 호출을 `// selfTest();`로 주석
  * 처리해도 대조군이 살아 있다고 셌다. 오늘 `check-edge-cors`에서 똑같이 당한 자리를
  * 그대로 반복한 것이다(§7 — 한 곳에서 옳은 것은 형제 전부에서 옳다).
@@ -289,6 +320,13 @@ function selfTest() {
     ['name만 있고 cmd가 없으면 세지 않는다(오탐 금지)', () => gateScripts(`{ name: 'x' },`).length === 0],
     // ── 모집단: 하네스 ∪ 워크플로 (2026-08-13 · 사용자 질문 「숨은 게이트가 더 있나」) ──
     [
+      '🔴 생성기와 게이트가 **같은 모집단 함수**를 쓴다 — 따로 계산하면 갈라지고 갈라진 쪽이 조용해진다(M-0157)',
+      () => {
+        const src = readFileSync('scripts/gen-registry.mjs', 'utf8');
+        return /gatePopulation\s*\(/.test(src) && !/gateControl\s*=\s*gateScripts\s*\(/.test(src);
+      },
+    ],
+    [
       '🔴 워크플로가 `npm run`으로 부르는 게이트도 센다 — 하네스 밖에서 도는 것이 실제로 있었다',
       () =>
         workflowScripts(['        run: npm run verify:sync-release-live'], {
@@ -421,17 +459,8 @@ if (isMain) {
     process.exit(2);
   }
 
-  // 🔴 모집단 = 하네스 ∪ 워크플로. 하나만 세면 다른 길로 도는 게이트를 영원히 못 본다.
-  const wfDir = '.github/workflows';
-  const wfSrcs = existsSync(wfDir)
-    ? readdirSync(wfDir).filter((f) => f.endsWith('.yml')).map((f) => readFileSync(join(wfDir, f), 'utf8'))
-    : [];
-  const pkgScripts = existsSync('package.json') ? JSON.parse(readFileSync('package.json', 'utf8')).scripts : {};
-  const seen = new Map();
-  for (const g of [...gateScripts(readFileSync(HARNESS, 'utf8')), ...workflowScripts(wfSrcs, pkgScripts)]) {
-    if (existsSync(g.script) && !seen.has(g.script)) seen.set(g.script, g);
-  }
-  const gates = [...seen.values()];
+  // 🔴 모집단은 **공용 함수 한 곳**에서 온다 — 생성기도 같은 것을 쓴다(M-0157).
+  const gates = gatePopulation('.');
 
   // 🔴 대상 0에서 공허하게 통과하지 않는다 — 목록 확보를 **먼저 판정**한다(§4).
   if (gates.length === 0) {

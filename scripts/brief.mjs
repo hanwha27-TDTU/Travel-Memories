@@ -531,9 +531,47 @@ console.log('  → 라이브로 잴 때: 그 검사가 **모순이 날 수 있�
       return null; // 얕은 클론 등 — 0으로 반올림하지 않는다(§8: 모르는 것은 '확인 불가')
     }
   };
+  const lines = (cmd) => {
+    try {
+      return execSync(cmd, { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean);
+    } catch {
+      return null; // 얕은 클론 등 — 0으로 반올림하지 않는다(§8: 모르는 것은 '확인 불가')
+    }
+  };
   const dirty = count('git status --porcelain');
   const stashed = count('git stash list');
   const unmerged = count('git log --oneline origin/main..HEAD');
+
+  // 🔴 **내 HEAD만 세면 「남이 두고 간 것」은 영원히 안 보인다.** 예전엔 여기가 산문 한 줄
+  //    ("브랜치는 따로 본다")이었고, 그래서 실제로 새어 나갔다 — 릴리스 후보를 브랜치에 올려
+  //    두고 CI를 기다리다 컨테이너가 재시작되자 **머지되지 않은 판이 조용히 남았다**(M-0153).
+  //    §16이 「세션 시작·종료마다」라고 말하는 대상은 **저장소 전체**이지 내 체크아웃이 아니다.
+  //    산문으로 시키면 새는 것이 이 저장소의 관측된 사실이므로(§7 2층) 여기서 **세어서 보여준다**.
+  const strayBranches = (() => {
+    const refs = lines("git branch -r --format='%(refname:short)'");
+    if (refs === null) return null;
+    const out = [];
+    for (const raw of refs) {
+      const ref = raw.replace(/^'|'$/g, '');
+      if (ref === 'origin/main' || ref.endsWith('/HEAD')) continue;
+      const ahead = count(`git log --oneline origin/main..${ref}`);
+      // 🔴 **못 센 것(null)을 0으로 반올림하지 않는다**(§8). `origin/main`이 없는 세계
+      //    (얕은 체크아웃)에서는 이 명령이 실패하는데, `!ahead`로 묶으면 「0개」로 조용히
+      //    사라져 **안 본 것이 없는 것으로** 보고된다 — §18-G가 정확히 이 부류다.
+      if (ahead === null) return null;
+      if (ahead === 0) continue;
+      // 🔴 **두 점(`a b`)이 아니라 세 점(`a...b`)이다.** 두 점은 **양방향** 차이라
+      //    「main이 앞서 있다」까지 세어, 이미 흡수된 낡은 브랜치를 미완성으로 보고한다.
+      //    실측(2026-08-12): 같은 브랜치가 두 점으로 55개 파일, 세 점으로 **1개**였다.
+      //    오탐은 「빡빡한 검사」가 아니라 **틀린 검사**이고, 사람이 무시하기 시작하면 죽는다(§11 ③).
+      //    세 점은 merge-base 이후 **브랜치가 바꾼 것**만 본다 = 「이 브랜치가 기여한 것」.
+      const diff = lines(`git diff --name-only origin/main...${ref} -- src scripts docs supabase schemas`);
+      if (diff === null || diff.length === 0) continue;
+      out.push({ ref, ahead, files: diff.length });
+    }
+    return out;
+  })();
+
   const unknown = [dirty, stashed, unmerged].some((n) => n === null);
   const total = [dirty, stashed, unmerged].reduce((a, n) => a + (n ?? 0), 0);
 
@@ -546,7 +584,29 @@ console.log('  → 라이브로 잴 때: 그 검사가 **모순이 날 수 있�
     console.log('  🔴 미완성이 있습니다. **보존(chore(wip): … 미완성 · 머지 금지) → 재고 → 사용자에게 묻는다.**');
     console.log('     "미완성 X가 있습니다. 이어서 마무리할까요?" — 안 물으면 그건 내가 만든 미완성이다(§16 ④).');
   } else if (!unknown) {
-    console.log('  ✓ 없음 — 그래도 남이 두고 간 브랜치는 따로 본다: git branch -r → origin/main..origin/<브랜치>');
+    console.log('  ✓ 작업트리·숨김·내 커밋은 비었습니다.');
+  }
+
+  // 🔴 **남이 두고 간 브랜치는 「미완성」과 **다른 칸**에 센다.**
+  //    이 저장소는 squash 머지라 브랜치의 패치 동일성이 사라진다 — 그래서 어떤 명령으로도
+  //    「이미 흡수됐는가」를 기계가 확정하지 못한다. 확정 못 하는 것을 미완성으로 반올림하면
+  //    오탐이 규칙보다 많아지고, 오탐이 많은 검사는 사람이 무시하기 시작해 죽는다(§11 ③).
+  //    그래서 여기서는 **세어서 보여주고 판정은 사람에게 넘긴다**(§8 — 모르는 것은 '확인 불가').
+  //    ⚠️ 그래도 침묵하지는 않는다: 산문 한 줄로만 상기시켰더니 실제로 새어 나갔다(M-0153).
+  // 🔴 「원격이 하나도 없음」과 「원격을 다 봤는데 0개」는 다른 말이다 — 0개를 「확인했다」로
+  //    읽히게 두지 않는다(§8). 얕은 체크아웃·아카이브 사본에서 실제로 갈린다.
+  const noRemotes = strayBranches !== null && (lines("git branch -r --format='%(refname:short)'")?.length ?? 0) === 0;
+  console.log(
+    `  · 확인 필요 — main에 없는 커밋을 가진 브랜치 ${
+      strayBranches === null ? '확인 불가' : noRemotes ? '확인 불가(원격 없음)' : `${strayBranches.length}개`
+    }:`,
+  );
+  for (const b of strayBranches ?? []) {
+    console.log(`     ↳ ${b.ref} — 커밋 ${b.ahead}개 · 갈라진 뒤 바꾼 파일 ${b.files}개`);
+  }
+  if (strayBranches?.length) {
+    console.log('     → 흡수됐는지 **직접 가른다**: git diff origin/main...<브랜치> -- docs src (내용이 main에 이미 있으면 흡수됨)');
+    console.log('     🔴 아직 안 옮긴 것이 있으면 **origin/main에서 브랜치를 다시 세우기 전에** 옮긴다 — 그 순간 사라진다.');
   }
 }
 console.log('');
