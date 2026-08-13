@@ -1088,4 +1088,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '전역 설치본을 프로젝트 lock에 억지로 되돌리기 전에 정본 저장소를 대조했다. 전역 상태는 더 새로운 정본 커밋을 가리키고 프로젝트 lock만 이전 커밋에 머물러 있었으며, 정본은 깨끗하고 origin/main과 일치했고 전체 자체 테스트도 통과했다.',
     decision: '공식 sync-skills 설치기만 사용해 Codex·Claude 전역 설치본을 백업 후 원자 교체하고 프로젝트 vendor/lock을 같은 d7adbed 커밋으로 갱신한다. 프로젝트 release profile과 승인 커밋도 lock에 맞추고 전역·vendor·계약 주입검사·전체 게이트를 다시 실행한다. 전역 공유 스킬은 소비 저장소에서 직접 덮어쓰지 않는다.',
   },
+  {
+    seq: 136,
+    date: '2026-08-13',
+    topic: '영상·순간 기록 개선과 개발 도구 원장·공유 스킬 정합성을 하나의 v2.33 릴리스로 닫는다',
+    human: '이번 세션의 모든 변경을 스킬과 문서에 반영하고 운영 DB, PR, Pages, APK까지 배포·검증한 뒤 인계하라고 요청했다.',
+    ai: '사용자 기능 변경뿐 아니라 companion_names 스키마, 생성물 원장, Windows hook 판정, 전역 공유 스킬 해시가 한 릴리스 경계에 함께 있으므로 공급자 우선 DB 이전과 전체 게이트를 거친 단일 배포가 필요하다고 판단했다.',
+    decision: '운영 DB는 사전 트랜잭션 적용·롤백 후 마이그레이션하고 행 수·함수 권한을 되읽는다. v2.33으로 버전을 올려 전체 생성·검증을 실행하고, 보호 브랜치 PR의 필수 CI가 같은 최종 SHA에서 통과한 뒤 squash merge한다. Pages version.json과 Android APK workflow·artifact를 각각 되읽어 배포를 닫는다.',
+  },
 ];

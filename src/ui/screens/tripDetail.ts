@@ -131,7 +131,10 @@ function pickedLocationText(
   const admin = [address?.country ?? '', city]
     .filter((part, index, parts) => part && parts.indexOf(part) === index)
     .join(' · ');
-  return admin ? `${coord} · ${admin}` : coord;
+  // 현재 위치처럼 정확도 자체가 사용자 판단 근거인 detail은 좌표로 바꿔 그리더라도 잃지 않는다.
+  // 검색 결과의 긴 주소는 국가·도시로 접되, ± 정확도는 별도 사실이라 화면에 남겨야 한다(§8).
+  const accuracy = detail.includes('±') ? ` · ${detail}` : '';
+  return `${coord}${admin ? ` · ${admin}` : ''}${accuracy}`;
 }
 
 function buildPickedBadge(onClear: () => void): PickedBadge {

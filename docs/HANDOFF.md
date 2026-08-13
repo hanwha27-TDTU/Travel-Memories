@@ -8,6 +8,13 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0182 · **v2.33 영상·순간 기록 개선과 운영 정합성 릴리스 마감** (2026-08-13 · 릴리스 진행)
+
+- 작업 브랜치 `codex/video-upload-playback`은 영상 업로드 UI·클릭 재생, 순간 편집 첫 터치, 동행인 입력, 좌표·국가·도시 표시와 좌표 전용 복사를 함께 담는다. 개발 도구 원장과 생성물 정합성, Windows Git hook 판정, 전역 공유 스킬/vendor/lock 해시 복구도 같은 브랜치에 통합했다.
+- 운영 Supabase `ihxiywffzmvrwmqvatzt`에 `add_moment_companion_names`를 공급자 우선 적용했다. 적용 전 트랜잭션 시험은 롤백까지 통과했고, 적용 후 `moments 35 / trips 10 / media 124 / videos 0`으로 행 수가 유지됐다. 새 열 계약과 canonical 함수 반영은 참, 폐기한 11인자 함수의 authenticated 실행 권한은 거짓으로 되읽었다.
+- `Bugeon_API35` Android Chrome과 설치형 APK WebView에서 실제 터치 흐름을 직접 검증했다. 전역 공유 스킬 정합성은 공식 sync 경로로 복구했으며 소비 저장소에서 전역 설치본을 임의 편집하지 않았다.
+- 릴리스 SSOT는 `src/app/changelog.ts`의 **v2.33**이다. 최종 PR·merge·Pages·APK 실행 번호는 이 세션 최종 보고와 GitHub Actions 원장이 권위다. 다음 작업은 `docs/BACKLOG.md`의 열린 과제 우선순위를 다시 확인한 뒤 시작한다.
+
 ## HANDOFF-0181 · **전역 공유 스킬과 프로젝트 lock을 공식 정본으로 재정렬** (2026-08-13 · 릴리스 전)
 
 - 정본 `Codex-Shared-Skills`의 깨끗한 `origin/main` 커밋 `d7adbed`와 자체 테스트를 먼저 확인했다.
@@ -1535,7 +1542,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.32<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->232<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->135<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.33<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->233<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->136<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->32<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

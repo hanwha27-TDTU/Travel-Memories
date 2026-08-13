@@ -245,6 +245,15 @@ await page.route('**://tile.openstreetmap.org/**', (route) => {
   if (m) tileZooms.push(Number(m[1]));
   return route.fulfill({ status: 200, contentType: 'image/png', body: PNG_1X1 });
 });
+// 앱 시작 직후 기존 좌표 배지를 보강하는 역지오코딩도 외부망에 새지 않게 기본 응답을 둔다.
+// 뒤의 역지오코딩 검사는 더 나중에 등록한 구체 fixture가 우선한다. 그 fixture를 해제한 뒤에는
+// 이 fallback을 다시 걸어, 테스트가 샌드박스 밖 네트워크에 우연히 기대지 않게 한다.
+const defaultReverseRoute = (route) => route.fulfill({
+  status: 200,
+  contentType: 'application/json',
+  body: JSON.stringify({ error: 'fixture offline' }),
+});
+await page.route('**/reverse**', defaultReverseRoute);
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(String(e)));
@@ -1677,7 +1686,9 @@ await page.waitForFunction(() => {
   const f = document.querySelector('.moment-form');
   const badge = f?.querySelector('.place-picked');
   const button = f?.querySelector('.place-here');
-  return badge instanceof HTMLElement && !badge.hidden && (badge.textContent ?? '').includes('지금 내 위치') && !button?.disabled;
+  return badge instanceof HTMLElement && !badge.hidden
+    && (badge.textContent ?? '').includes('37.56650, 126.97800')
+    && !button?.disabled;
 });
 const hereApplied = await page.evaluate(() => {
   const f = document.querySelector('.moment-form');
@@ -1692,7 +1703,7 @@ const hereApplied = await page.evaluate(() => {
 });
 check(
   '🔴 [📍 내 위치]: 누르면 **좌표가 실제로 들어간다**(라벨만 읽지 않는다 — §13 4항)',
-  hereApplied.badge.includes('지금 내 위치'),
+  hereApplied.badge.includes('37.56650, 126.97800'),
   JSON.stringify(hereApplied),
 );
 check(
@@ -1868,6 +1879,7 @@ check(
   namedFromPhoto || '(빈 칸)',
 );
 await page.unroute('**/reverse**'); // §3-C — 내가 건 스텁을 내가 뗀다
+await page.route('**/reverse**', defaultReverseRoute);
 
 // ── 💰 비용 메모: 모델에 있던 note를 화면이 부르는가 ──
 const noteField = await page.evaluate(() => {
@@ -1979,6 +1991,7 @@ check('시간대 제안: 입력 칸이 **그 시간대로** 적는다고 말한�
 
 // §3-C 되돌리기 — 이 클릭은 **여행을 실제로 고쳤다.** 원래대로 돌려놓는다.
 await page.unroute('**/reverse**');
+await page.route('**/reverse**', defaultReverseRoute);
 await page.locator('.hero-edit').first().click();
 await settle(page);
 await page.selectOption('[data-zone-input]', '');
@@ -2116,6 +2129,7 @@ check(
   kept2,
 );
 await page.unroute('**/reverse**');
+await page.route('**/reverse**', defaultReverseRoute);
 
 // ── 🔴 v1.30: **위치 없는 사진**과 **이름 없는 좌표** (사용자 지적 2026-07-31 *"안되네요"*) ──
 //
@@ -2244,6 +2258,7 @@ await page.evaluate(() => localStorage.setItem('bugeon:photoGeoOk', '1')); // §
 await noGpsCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
 await settle(page);
 await page.unroute('**/reverse**');
+await page.route('**/reverse**', defaultReverseRoute);
 // §3-C — 편집 폼을 닫고 스크롤을 되돌린다(사진 2장은 이 순간에 실제로 붙었다 — 뒤 검사가
 // 개수를 세지 않으므로 그대로 둔다. 세는 검사가 생기면 여기서 지워야 한다).
 await editCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
@@ -3996,8 +4011,8 @@ await page.waitForFunction(() => (document.querySelector('.place-input')?.value 
   });
 const revBadge = await page.evaluate(() => document.querySelector('.place-picked-text')?.textContent ?? '');
 check(
-  '역지오코딩: 배지가 전체 주소를 보여 준다(어디인지 확인할 수 있게)',
-  revBadge.includes('종로구'),
+  '역지오코딩: 배지가 좌표와 행정구역을 함께 보여 준다(어디인지 확인할 수 있게)',
+  revBadge.includes('37.57960, 126.97700') && revBadge.includes('서울특별시'),
   revBadge,
 );
 
