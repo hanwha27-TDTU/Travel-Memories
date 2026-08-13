@@ -409,12 +409,29 @@ function videoFileInput(): HTMLInputElement {
   return input;
 }
 
+function updateVideoPickerLabel(input: HTMLInputElement): void {
+  const text = input.parentElement?.querySelector('.moment-video-label-text');
+  if (!(text instanceof HTMLElement)) return;
+  const count = input.files?.length ?? 0;
+  text.textContent = count ? `영상 ${count}개` : '영상 추가';
+}
+
+function buildVideoPicker(extraClass = ''): { input: HTMLInputElement; label: HTMLLabelElement } {
+  const input = videoFileInput();
+  const label = el('label', `moment-photo-label moment-video-label form-utility ${extraClass}`.trim()) as HTMLLabelElement;
+  const icon = el('span', 'moment-picker-icon', '🎬');
+  icon.setAttribute('aria-hidden', 'true');
+  const text = el('span', 'moment-video-label-text', '영상 추가');
+  text.setAttribute('aria-live', 'polite');
+  label.append(icon, text, input);
+  input.addEventListener('change', () => updateVideoPickerLabel(input));
+  return { input, label };
+}
+
 function buildAddVideoRow(): { wrap: HTMLElement; input: HTMLInputElement } {
   const wrap = el('div', 'moment-addvideo');
   wrap.hidden = true;
-  const input = videoFileInput();
-  const label = el('label', 'moment-photo-label moment-addvideo-btn form-utility');
-  label.append(document.createTextNode('🎬 영상 추가 '), input);
+  const { input, label } = buildVideoPicker('moment-addvideo-btn');
   wrap.append(label);
   return { wrap, input };
 }
@@ -437,6 +454,7 @@ function wireAddVideo(
         }
         progress.textContent = `영상 ${files.length}개를 기기에 저장했어요 · 클라우드 확인 중`;
         input.value = '';
+        updateVideoPickerLabel(input);
         await target.refresh();
         await trySync();
         await target.refresh();
@@ -2115,13 +2133,6 @@ function buildVideoGrid(o: {
   return grid;
 }
 
-function buildVideoPicker(): { input: HTMLInputElement; label: HTMLLabelElement } {
-  const input = videoFileInput();
-  const label = el('label', 'moment-photo-label form-utility') as HTMLLabelElement;
-  label.append(document.createTextNode('🎬 영상 추가 '), input);
-  return { input, label };
-}
-
 async function processVideosIntoMoment(
   files: File[],
   momentId: string,
@@ -2356,11 +2367,11 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       photoTzOffsetMin = photoHintOf(metas).exifOffsetMin;
     }, () => trip?.timeZone ?? '');
     photoLabel.append(picks.count, photoInput);
-  // 📁 안드로이드 사진 선택기가 GPS를 지우므로(M-0054), **원본 파일로 가는 길**을 함께 둔다.
-  const origBtn = galleryPickButton(photoInput);
-  const photoActions = el('div', 'photo-pick-actions');
-  photoActions.append(photoLabel, origBtn);
+    // 📁 안드로이드 사진 선택기가 GPS를 지우므로(M-0054), **원본 파일로 가는 길**을 함께 둔다.
+    const origBtn = galleryPickButton(photoInput);
+    const photoActions = el('div', 'photo-pick-actions');
     const { input: videoInput, label: videoLabel } = buildVideoPicker();
+    photoActions.append(photoLabel, origBtn, videoLabel);
     // 비용(선택) — 금액 + 통화. "10초 기록"을 방해하지 않도록 한 줄, 비우면 저장 안 함.
     const money = buildMoneyRow(undefined);
 
@@ -2379,7 +2390,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const whenField = buildWhenField(trip, clock, () => latestMomentAt);
     whenField.suggestFrom([]); // 사진 전에도 근거를 보여준다(직전 순간 / 여행 시작일)
 
-    form.append(input, emotion.el, whenField.el, placeField.el, money.el, photoActions, picks.el, videoLabel, save);
+    form.append(input, emotion.el, whenField.el, placeField.el, money.el, photoActions, picks.el, save);
     compose.appendChild(form);
 
     const note = el('p', 'sync-note', '');
@@ -2551,8 +2562,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       const { wrap: addPhotoWrap, input: addPhotoInput, progress: addProgress } = buildAddPhotoRow();
       const { wrap: addVideoWrap, input: addVideoInput } = buildAddVideoRow();
       // 🎙 소리 남기기 — 사진 추가와 **같은 줄**에 둔다(둘 다 "이 순간에 뭔가 더하기"다).
-      addPhotoWrap.append(buildRecordButton(m.id, trip!.id, addProgress, refresh), addProgress);
-      addPhotoWrap.append(addVideoWrap);
+      addPhotoWrap.append(buildRecordButton(m.id, trip!.id, addProgress, refresh), addVideoWrap, addProgress);
       // 사진 추가 배선은 최상위 `wireAddPhoto`가 한다(래칫이 밀어줬다 — 그리고 이 배선의
       // 규율은 「§0 굽기 전에 EXIF」라 화면 코드가 아니라 밖에 있는 편이 맞다).
 
@@ -2732,6 +2742,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           // 미리보기 URL 회수 + 개수 문구까지 한 번에(초기화 경로를 두 개 만들지 않는다).
           picks.setFiles([]);
           videoInput.value = '';
+          updateVideoPickerLabel(videoInput);
           setNote(note, '✅ 기기에 저장됨 · 클라우드 확인 중', 'info', null);
           await refresh();
           await trySync(); setNote(note, savedPhotoStatus('✅ 기기에 저장됨'), syncStatus().phase === 'ok' ? 'ok' : 'info', null);

@@ -2833,7 +2833,7 @@ const memoryFields = await page.evaluate(() => {
     placeBelowInput: Boolean(inputRect && placeRects.every((r) => r.top >= inputRect.bottom)),
     placeHeights: placeRects.map((r) => r.height),
     photoCount: photoRects.length,
-    photoOneRow: photoRects.length === 2 && new Set(photoRects.map((r) => Math.round(r.top))).size === 1,
+    photoOneRow: photoRects.length === 3 && new Set(photoRects.map((r) => Math.round(r.top))).size === 1,
     photoWidthSpread: photoRects.length ? Math.max(...photoRects.map((r) => r.width)) - Math.min(...photoRects.map((r) => r.width)) : -1,
     photoHeights: photoRects.map((r) => r.height),
     period: document.querySelector('.detail-period')?.textContent ?? '',
@@ -2849,8 +2849,8 @@ check('순간 폼 장소: 입력 아래 **검색·지도·내 위치가 같은 �
   memoryFields.placeCount === 3 && memoryFields.placeOneRow && memoryFields.placeBelowInput
     && memoryFields.placeWidthSpread <= 1,
   JSON.stringify(memoryFields));
-check('순간 폼 사진: **사진 추가·갤러리에서가 같은 폭 한 줄**',
-  memoryFields.photoCount === 2 && memoryFields.photoOneRow && memoryFields.photoWidthSpread <= 1,
+check('순간 폼 미디어: **사진 추가·갤러리에서·영상 추가가 같은 폭 한 줄**',
+  memoryFields.photoCount === 3 && memoryFields.photoOneRow && memoryFields.photoWidthSpread <= 1,
   JSON.stringify(memoryFields));
 check('순간 폼 보조 버튼: 터치 44px을 지키며 **46px 이하 공용 밀도**',
   [...memoryFields.emotionHeights, ...memoryFields.placeHeights, ...memoryFields.photoHeights]
@@ -5020,6 +5020,40 @@ await page.locator('.moment-form .moment-video-input').setInputFiles({
 await page.locator('.moment-form button[type="submit"]').click();
 const videoCard = page.locator('.moment-card').filter({ hasText: '라이브 영상 순간' }).first();
 await videoCard.locator('.video-thumb-button').waitFor({ state: 'visible', timeout: 60_000 });
+await videoCard.getByRole('button', { name: '이 순간 편집' }).click();
+const phoneAttachmentActions = await videoCard.locator('.moment-addphoto').evaluate((row) => {
+  const actions = [...row.querySelectorAll('.form-utility')];
+  const rects = actions.map((action) => action.getBoundingClientRect());
+  const hiddenInputs = [...row.querySelectorAll('input[type="file"]')]
+    .every((input) => input.getClientRects().length === 0);
+  return {
+    count: actions.length,
+    rows: new Set(rects.map((rect) => Math.round(rect.top))).size,
+    cols: new Set(rects.map((rect) => Math.round(rect.left))).size,
+    widthSpread: Math.max(...rects.map((rect) => rect.width)) - Math.min(...rects.map((rect) => rect.width)),
+    hiddenInputs,
+    text: row.textContent ?? '',
+  };
+});
+check('영상 추가 UI: 폰에서 네 첨부 행동이 같은 폭 2×2이고 네이티브 파일 입력은 숨긴다',
+  phoneAttachmentActions.count === 4 && phoneAttachmentActions.rows === 2 && phoneAttachmentActions.cols === 2
+    && phoneAttachmentActions.widthSpread <= 1 && phoneAttachmentActions.hiddenInputs
+    && !phoneAttachmentActions.text.includes('선택된 파일 없음'),
+  JSON.stringify(phoneAttachmentActions));
+await page.setViewportSize({ width: 1440, height: 900 });
+await settle(page);
+const desktopAttachmentActions = await videoCard.locator('.moment-addphoto').evaluate((row) => {
+  const rects = [...row.querySelectorAll('.form-utility')].map((action) => action.getBoundingClientRect());
+  return {
+    count: rects.length,
+    rows: new Set(rects.map((rect) => Math.round(rect.top))).size,
+    widthSpread: Math.max(...rects.map((rect) => rect.width)) - Math.min(...rects.map((rect) => rect.width)),
+  };
+});
+check('영상 추가 UI: 넓은 화면에서 네 첨부 행동이 같은 폭 한 줄이다',
+  desktopAttachmentActions.count === 4 && desktopAttachmentActions.rows === 1
+    && desktopAttachmentActions.widthSpread <= 1,
+  JSON.stringify(desktopAttachmentActions));
 const videoReadBack = await page.evaluate(async () => await new Promise((resolve) => {
   const req = indexedDB.open('journey-archive');
   req.onsuccess = () => {
@@ -5046,12 +5080,20 @@ check('v2.11 영상: 실제 File 입력이 압축·포스터 생성 뒤 localVid
 await observeViewerObjectUrls(page);
 await videoCard.locator('.video-thumb-button').click();
 await page.waitForSelector('.video-viewer .video-viewer-player');
+await page.waitForFunction(() => {
+  const player = document.querySelector('.video-viewer-player');
+  return player instanceof HTMLVideoElement && player.played.length > 0;
+});
 const videoViewer = await page.locator('.video-viewer').evaluate((overlay) => ({
   role: overlay.getAttribute('role'), modal: overlay.getAttribute('aria-modal'),
-  controls: overlay.querySelector('video')?.controls, src: overlay.querySelector('video')?.src.startsWith('blob:'),
+  controls: overlay.querySelector('video')?.controls, autoplay: overlay.querySelector('video')?.autoplay,
+  played: (overlay.querySelector('video')?.played.length ?? 0) > 0,
+  src: overlay.querySelector('video')?.src.startsWith('blob:'),
+  width: overlay.querySelector('video')?.getBoundingClientRect().width ?? 0,
 }));
 check('v2.11 영상: 포스터를 누르면 접근 가능한 blob 재생기가 열린다',
-  videoViewer.role === 'dialog' && videoViewer.modal === 'true' && videoViewer.controls === true && videoViewer.src === true,
+  videoViewer.role === 'dialog' && videoViewer.modal === 'true' && videoViewer.controls === true
+    && videoViewer.autoplay === true && videoViewer.played === true && videoViewer.src === true && videoViewer.width >= 300,
   JSON.stringify(videoViewer));
   const visibleVideoBytes = Buffer.from(await page.locator('.video-viewer-player').evaluate(async (player) => {
     const blob = window.__liveObjectUrlBlobs.get(player.src);
