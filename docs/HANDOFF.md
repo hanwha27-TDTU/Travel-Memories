@@ -8,7 +8,24 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
-## HANDOFF-0172 · **게이트가 자기 모집단을 못 셌다 — 40 + 19 = 59 ≠ 63** (2026-08-13 · M-0153 · 릴리스 대기)
+## HANDOFF-0173 · **T-027 완료 · 날짜 게이트 신설 · M-0154** (2026-08-13 · v2.27 릴리스)
+
+- **branch**: `claude/continue-previous-session-4kl87t` · **신규**: `scripts/check-date-freshness.mjs` · **변경**: 게이트 12개(블록 14개) · `check-gate-control.mjs` · `harness.mjs` · `gates.ts` · 헌법 §18-I · 생성물 4종 · 원장 · 백로그
+- **사용자 지시 셋을 한 판에 묶었다**(사용자 결정: *"다 한 번에 릴리스로 묶어서 배포하자"*).
+- 🔴 **M-0154 — 중간 진행 서술을 영어로 냈다(세 번째 재발).** 최종 보고와 도구 진행 줄은 한국어였는데 **도구 사이의 설명 산문**이 영어였다. §19에 같은 지적이 **이미 두 번 인용돼 있었고**, 그 문장을 읽은 세션에서 같은 자리를 다시 어겼다. 대상을 「최종 답변 + 도구 줄」로 **좁게 읽은 것**이 원인이다. 🔴 **게이트는 만들지 않는다** — §19가 그 이유를 이미 적어 뒀다(대화는 파일이 아니고, 문자 종류로 세면 오탐이 규칙보다 많아져 게이트가 죽는다). 남는 층은 이 원장과 착수 브리핑뿐이고, 검출기는 세 번 다 **사용자**였다.
+- **T-027 완료 — 12개가 아니라 블록 14개였다.** 두 파일(`check-registry-gen`·`check-instant-normalization`)이 자체검사 블록을 둘씩 갖고 있었다. 최상위 IIFE와 맨블록 두 모양을 다뤘고, **자체검사 던짐이 든 블록만** 감싼 뒤 파일마다 감싸지지 않은 던짐이 남았는지 검증했다(0건). 이제 **63/63**이다.
+- 🔴 **축이 꽉 차자 래칫의 뜻이 바뀌었다**: 「늘려 가는 목표」가 아니라 **「되돌아감의 차단」**. 새 게이트가 던지는 채로 들어오면 즉시 RED다(주입으로 확인 — 62 < 63).
+- **날짜 게이트(§18-I) — 사용자 제안의 전제는 틀렸고, 그래서 더 필요했다.** 사용자는 *"날짜가 틀려졌을 때 CI 페일을 미연에 방지"*라고 했는데, 재보니 **적어 둔 날짜를 오늘과 대조하는 게이트가 하나도 없었다.** CI는 초록이다 — 막아 주는 층이 없어서지 안전해서가 아니다. **그 값을 이 세션이 치렀다**: 날이 08-12 → 08-13으로 넘어갔고 원장에 08-12를 적었는데 하네스가 전부 초록이었다.
+- **설계에서 오탐 둘을 미리 막았다**: ①**얼렸을 때만** 최신 항목 날짜를 잰다 — §15 축적 기간에는 최신 항목이 지난 릴리스라 과거인 것이 정상이다. ②**시간대 하루는 허용**한다(CI는 UTC · 사용자는 KST). 잡는 것은 「이틀 이상 낡은 날짜」다.
+- 🔴 **`origin/main`과 대조하지 않았다.** 「이번이 새 릴리스인가」를 기준 가지로 알 수 있지만 그건 **얕은 체크아웃에 없는 세계**이고 정확히 그 형태로 데였다(M-0135). 릴리스 잠금 파일은 작업트리 안이라 아무 세계도 가정하지 않는다. 시계를 읽으므로 `GATE_WORLD`에 **`runtimeEnv`로 선언**했다(벗기지 못하는 세계라 「재지 않았습니다」로 정직하게 보고된다).
+- **주입 증명(§4)** — 이번 판 전체에서 아홉 방향, 전부 RED 확인 후 복원:
+  ①전환된 게이트 파손 → 판정 + exit 2(대조: 미전환은 **스택 + exit 1**) ②전환 되돌림 → 래칫 RED ③통 없는 다섯 번째 값 → 합계 대조 exit 2 ④전환된 IIFE 파손 ⑤두 블록짜리의 블록 파손 ⑥전환 되돌림(63 기준) ⑦얼림+낡은 날짜 → RED ⑧같은 날짜인데 얼리지 않음 → **오탐 없이 GREEN** ⑨미래 날짜 → RED.
+- 🔴 **주입 하나가 공허했고 그게 수확이었다.** 합계 대조를 검증하려 통 둘을 뺐는데 RED가 안 났다 — 그 통들이 **비어 있어** 합이 안 변했기 때문이다. **첫 주입이 GREEN이면 주입이 틀린 것이지 코드가 옳은 것이 아니다.**
+- 🔴 **게이트가 내 문서 편집을 두 번 잡았다**: 스킬 문서와 헌법에 **손으로 적은 게이트 개수**를 넣었고 `check-hand-counts`가 둘 다 RED로 잡았다. 그 숫자는 전환이 진행되면 반드시 낡는다 — 판정문이 세어서 말하게 두는 것이 맞다.
+- **실행 검사**: `tsc` 0 · `vitest` 116파일 **1,645건** · `gates` **65/65** · 빈 세계 실연 통과(61개 실연).
+- **다음 작업**: T-028(날짜 게이트의 남은 구멍 — 어제 날짜는 허용치 안이라 통과한다. 좁히려면 릴리스 시각의 지역 시간대 정본을 먼저 정해야 한다) · T-026(사용자 결정 대기).
+
+## HANDOFF-0172 · **게이트가 자기 모집단을 못 셌다 — 40 + 19 = 59 ≠ 63** (2026-08-13 · M-0153 · v2.27에 포함)
 
 - **branch**: `claude/continue-previous-session-4kl87t`(`origin/main` `7008c76`에서 이어받음) · **신규**: `scripts/gate-selftest-lib.mjs` · **변경**: `check-gate-control.mjs` · 게이트 14개 · `registry.gen.ts`(생성) · 모듈 설계서(생성) · `gates-mechanization-dev/SKILL.md` · `BACKLOG.md` · 실수 원장
 - **어디서 시작했나**: HANDOFF-0170이 지정한 다음 작업(*"`throw`로 죽는 19개를 작은 묶음으로 판정 형태로"*). 고치기 전에 버킷을 **실측**했더니 숫자가 안 맞았다.
@@ -1336,7 +1353,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.26<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->226<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.27<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->227<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->132<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->30<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
