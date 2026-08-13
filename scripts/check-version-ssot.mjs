@@ -35,6 +35,8 @@ const REGISTRY = 'src/app/registry.gen.ts';
 const GRADLE = 'android-shell/android/app/build.gradle';
 const APK_WF = '.github/workflows/android-apk.yml';
 const WINDOWS_BUILD = 'scripts/build-windows.mjs';
+const WINDOWS_VERSION_READER = 'scripts/print-app-version.mjs';
+const WINDOWS_WF = '.github/workflows/windows-installer.yml';
 const TAURI_CONFIG = 'src-tauri/tauri.conf.json';
 const TAURI_CARGO = 'src-tauri/Cargo.toml';
 
@@ -75,12 +77,20 @@ export function workflowInjects(src) {
 
 export function windowsVersionProblems(buildScript, configText, cargoText) {
   const problems = [];
-  if (!/src\/app\/changelog\.ts/.test(buildScript) || !/--config/.test(buildScript) || !/JSON\.stringify\(\{ version \}\)/.test(buildScript)) {
+  if (!/readAppVersion/.test(buildScript) || !/--config/.test(buildScript) || !/JSON\.stringify\(\{ version \}\)/.test(buildScript)) {
     problems.push('Windows 빌더가 changelog 버전을 Tauri --config로 주입하지 않습니다.');
   }
   const config = JSON.parse(configText);
   if (config.version !== '0.0.0') problems.push('tauri.conf의 수동 버전은 0.0.0 자리표시자여야 합니다.');
   if (!/^version = "0\.0\.0"$/m.test(cargoText)) problems.push('Cargo.toml의 수동 버전은 0.0.0 자리표시자여야 합니다.');
+  return problems;
+}
+
+export function windowsReleaseVersionProblems(readerScript, workflowText) {
+  const problems = [];
+  if (!/readAppVersion/.test(readerScript)) problems.push('Windows 릴리스 버전 출력기가 공용 changelog 파서를 쓰지 않습니다.');
+  if (!/node scripts\/print-app-version\.mjs/.test(workflowText)) problems.push('Windows 워크플로가 공용 버전 출력기를 호출하지 않습니다.');
+  if (!/IsNullOrWhiteSpace\(\$version\)/.test(workflowText)) problems.push('Windows 워크플로가 빈 릴리스 버전을 실패로 닫지 않습니다.');
   return problems;
 }
 
@@ -104,11 +114,17 @@ runSelfTest('check-version-ssot', () => {
     throw new Error('SELF-TEST 실패: 올바른 주입 형태를 위반으로 봤다.');
   }
   if (!workflowInjects('-PAPP_VERSION_NAME="$APP_VERSION_NAME"')) throw new Error('SELF-TEST 실패: 넘기는데 못 봤다.');
-  if (windowsVersionProblems("readFileSync('src/app/changelog.ts'); ['--config', JSON.stringify({ version })]", '{"version":"0.0.0"}', 'version = "0.0.0"').length !== 0) {
+  if (windowsVersionProblems("readAppVersion(); ['--config', JSON.stringify({ version })]", '{"version":"0.0.0"}', 'version = "0.0.0"').length !== 0) {
     throw new Error('SELF-TEST 실패: 올바른 Windows 버전 주입을 위반으로 봤다.');
   }
   if (windowsVersionProblems('tauri build', '{"version":"2.37.0"}', 'version = "2.37.0"').length !== 3) {
     throw new Error('SELF-TEST 실패: Windows 수동 버전 세 결함을 못 잡았다.');
+  }
+  if (windowsReleaseVersionProblems("readAppVersion()", "node scripts/print-app-version.mjs\nIsNullOrWhiteSpace($version)").length !== 0) {
+    throw new Error('SELF-TEST 실패: 올바른 Windows 릴리스 버전 배선을 위반으로 봤다.');
+  }
+  if (windowsReleaseVersionProblems("console.log('2.37')", '$version = 2.37').length !== 3) {
+    throw new Error('SELF-TEST 실패: Windows 릴리스 버전 드리프트 세 결함을 못 잡았다.');
   }
   if (docsClaimPackageJsonIsSsot('`package.json`의 version은 정본이 아니다')) {
     throw new Error('SELF-TEST 실패: 정정된 문장을 위반으로 오탐한다.');
@@ -158,12 +174,15 @@ if (isMain) {
 
   // D) Windows도 같은 정본을 빌드 시점에 주입하고, tauri.conf에 배포 버전을 손으로 복제하지 않는가
   const windowsBuild = read(WINDOWS_BUILD);
+  const windowsVersionReader = read(WINDOWS_VERSION_READER);
+  const windowsWorkflow = read(WINDOWS_WF);
   const tauriConfig = read(TAURI_CONFIG);
   const tauriCargo = read(TAURI_CARGO);
-  if (windowsBuild === null || tauriConfig === null || tauriCargo === null) {
-    problems.push(`${WINDOWS_BUILD}, ${TAURI_CONFIG} 또는 ${TAURI_CARGO}가 없습니다 — Windows 버전 파생을 재지 못했습니다.`);
+  if (windowsBuild === null || windowsVersionReader === null || windowsWorkflow === null || tauriConfig === null || tauriCargo === null) {
+    problems.push(`${WINDOWS_BUILD}, ${WINDOWS_VERSION_READER}, ${WINDOWS_WF}, ${TAURI_CONFIG} 또는 ${TAURI_CARGO}가 없습니다 — Windows 버전 파생을 재지 못했습니다.`);
   } else {
     problems.push(...windowsVersionProblems(windowsBuild, tauriConfig, tauriCargo).map((p) => `Windows: ${p}`));
+    problems.push(...windowsReleaseVersionProblems(windowsVersionReader, windowsWorkflow).map((p) => `Windows: ${p}`));
   }
 
   // E) 문서가 틀린 정본을 가리키는가
