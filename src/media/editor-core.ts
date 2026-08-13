@@ -29,6 +29,7 @@ export interface QuadPoint {
 
 /** 원근 보정 사각형 — TL, TR, BR, BL 순서 고정. 이 사다리꼴을 직사각형으로 편다. */
 export type Quad = [QuadPoint, QuadPoint, QuadPoint, QuadPoint];
+export type QuadEdge = 0 | 1 | 2 | 3;
 
 export interface EditState extends ColorAdjust {
   /** 90° 회전 횟수(0..3). */
@@ -135,6 +136,23 @@ export function rotateQuad90(q: Quad): Quad {
 export function flipQuadH(q: Quad): Quad {
   const f = (p: QuadPoint): QuadPoint => ({ x: 1 - p.x, y: p.y });
   return [f(q[1]), f(q[0]), f(q[3]), f(q[2])];
+}
+
+/**
+ * 원근 보정의 한 변을 통째로 평행 이동한다.
+ * edge는 위·오른쪽·아래·왼쪽(0..3)이며, 두 끝점 중 하나라도 화면 밖으로 나가지 않는
+ * 범위에서 dx/dy를 함께 클램프한다. 선분 모양은 유지되고 인접한 두 변만 따라 움직인다.
+ */
+export function moveQuadEdge(q: Quad, edge: QuadEdge, dx: number, dy: number): Quad {
+  const pairs = [[0, 1], [1, 2], [2, 3], [3, 0]] as const;
+  const [ai, bi] = pairs[edge];
+  const a = q[ai];
+  const b = q[bi];
+  const safeDx = Math.max(Math.max(-a.x, -b.x), Math.min(Math.min(1 - a.x, 1 - b.x), dx));
+  const safeDy = Math.max(Math.max(-a.y, -b.y), Math.min(Math.min(1 - a.y, 1 - b.y), dy));
+  return q.map((p, i) =>
+    i === ai || i === bi ? { x: p.x + safeDx, y: p.y + safeDy } : { ...p },
+  ) as Quad;
 }
 
 /**

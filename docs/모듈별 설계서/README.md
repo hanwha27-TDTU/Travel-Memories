@@ -15,18 +15,18 @@ shape_reason: 생성 계약→모듈 색인→의존 그래프→한계 순으�
 4. 새 실행 파일이 미분류되거나 모듈이 비면 생성과 검사가 실패한다.
 5. 생성 writer/check 쌍은 릴리스 입력 마감 원장에 들어가므로, 설계서를 갱신하지 않은 코드 후보는 릴리스 경계를 통과할 수 없다.
 
-현재 모집단은 307개 파일, 18개 모듈, 77137개 논리 줄이다. 이 숫자는 생성기가 매번 다시 센다.
+현재 모집단은 319개 파일, 18개 모듈, 78160개 논리 줄이다. 이 숫자는 생성기가 매번 다시 센다.
 
 ## 설계서 목록
 
 | 순서 | 모듈 | 파일 | 관측 파일 | 논리 줄 | 내용 SHA-256 |
 |---:|---|---|---:|---:|---|
-| 1 | 앱 셸과 라우팅 | [01-앱-셸과-라우팅.md](./01-%EC%95%B1-%EC%85%B8%EA%B3%BC-%EB%9D%BC%EC%9A%B0%ED%8C%85.md) | 18 | 5846 | `f88a86ed6ea1dc6f…` |
+| 1 | 앱 셸과 라우팅 | [01-앱-셸과-라우팅.md](./01-%EC%95%B1-%EC%85%B8%EA%B3%BC-%EB%9D%BC%EC%9A%B0%ED%8C%85.md) | 19 | 5885 | `243f500948fc5403…` |
 | 2 | 여행·순간 핵심 도메인 | [02-여행-순간-핵심도메인.md](./02-%EC%97%AC%ED%96%89-%EC%88%9C%EA%B0%84-%ED%95%B5%EC%8B%AC%EB%8F%84%EB%A9%94%EC%9D%B8.md) | 9 | 1981 | `57d1ba9d269af0d3…` |
 | 3 | 오프라인 데이터베이스와 Row Map | [03-오프라인-데이터베이스.md](./03-%EC%98%A4%ED%94%84%EB%9D%BC%EC%9D%B8-%EB%8D%B0%EC%9D%B4%ED%84%B0%EB%B2%A0%EC%9D%B4%EC%8A%A4.md) | 8 | 1221 | `2335df55e750838b…` |
 | 4 | 오프라인 동기화와 정본 전환 | [04-동기화와-정본전환.md](./04-%EB%8F%99%EA%B8%B0%ED%99%94%EC%99%80-%EC%A0%95%EB%B3%B8%EC%A0%84%ED%99%98.md) | 12 | 5084 | `8d20327012e66031…` |
 | 5 | 사진 수집·파생본·저장 | [05-사진-수집과-저장.md](./05-%EC%82%AC%EC%A7%84-%EC%88%98%EC%A7%91%EA%B3%BC-%EC%A0%80%EC%9E%A5.md) | 13 | 2426 | `c56df05b933a93e6…` |
-| 6 | 사진편집기 | [06-사진편집기.md](./06-%EC%82%AC%EC%A7%84%ED%8E%B8%EC%A7%91%EA%B8%B0.md) | 3 | 1727 | `737d3a2960d0d457…` |
+| 6 | 사진편집기 | [06-사진편집기.md](./06-%EC%82%AC%EC%A7%84%ED%8E%B8%EC%A7%91%EA%B8%B0.md) | 3 | 1800 | `093f2dbf83b9f2c0…` |
 | 7 | 영상 처리 파이프라인 | [07-영상-처리-파이프라인.md](./07-%EC%98%81%EC%83%81-%EC%B2%98%EB%A6%AC-%ED%8C%8C%EC%9D%B4%ED%94%84%EB%9D%BC%EC%9D%B8.md) | 5 | 978 | `58277f3d4ff015c6…` |
 | 8 | 오디오 노트 | [08-오디오-노트.md](./08-%EC%98%A4%EB%94%94%EC%98%A4-%EB%85%B8%ED%8A%B8.md) | 3 | 471 | `e5240641e09b7366…` |
 | 9 | 백업·복원·ZIP 무결성 | [09-백업과-복원.md](./09-%EB%B0%B1%EC%97%85%EA%B3%BC-%EB%B3%B5%EC%9B%90.md) | 5 | 1682 | `21b6e1475b63ffa9…` |
@@ -34,15 +34,15 @@ shape_reason: 생성 계약→모듈 색인→의존 그래프→한계 순으�
 | 11 | 진단·무결성·사용자 판정 | [11-진단과-판정.md](./11-%EC%A7%84%EB%8B%A8%EA%B3%BC-%ED%8C%90%EC%A0%95.md) | 22 | 6770 | `dc17c7c1a7998abf…` |
 | 12 | 지도·장소·지오코딩 | [12-지도와-장소.md](./12-%EC%A7%80%EB%8F%84%EC%99%80-%EC%9E%A5%EC%86%8C.md) | 18 | 4454 | `731c8c9b6bcd86a6…` |
 | 13 | 비용·통화·환율 | [13-비용과-환율.md](./13-%EB%B9%84%EC%9A%A9%EA%B3%BC-%ED%99%98%EC%9C%A8.md) | 4 | 565 | `f549fb3546056061…` |
-| 14 | 인증·Supabase 클라이언트·동의 | [14-인증과-동의.md](./14-%EC%9D%B8%EC%A6%9D%EA%B3%BC-%EB%8F%99%EC%9D%98.md) | 4 | 342 | `de90632958a99498…` |
-| 15 | 플랫폼 런타임·파일 저장·업데이트 | [15-플랫폼과-파일저장.md](./15-%ED%94%8C%EB%9E%AB%ED%8F%BC%EA%B3%BC-%ED%8C%8C%EC%9D%BC%EC%A0%80%EC%9E%A5.md) | 5 | 786 | `e726910a78cb8974…` |
-| 16 | 화면·오버레이·상호작용 | [16-화면과-상호작용.md](./16-%ED%99%94%EB%A9%B4%EA%B3%BC-%EC%83%81%ED%98%B8%EC%9E%91%EC%9A%A9.md) | 18 | 11275 | `ac146af46b78234b…` |
+| 14 | 인증·Supabase 클라이언트·동의 | [14-인증과-동의.md](./14-%EC%9D%B8%EC%A6%9D%EA%B3%BC-%EB%8F%99%EC%9D%98.md) | 5 | 419 | `462be4d614b5ffcc…` |
+| 15 | 플랫폼 런타임·파일 저장·업데이트 | [15-플랫폼과-파일저장.md](./15-%ED%94%8C%EB%9E%AB%ED%8F%BC%EA%B3%BC-%ED%8C%8C%EC%9D%BC%EC%A0%80%EC%9E%A5.md) | 12 | 916 | `cfc133c142617520…` |
+| 16 | 화면·오버레이·상호작용 | [16-화면과-상호작용.md](./16-%ED%99%94%EB%A9%B4%EA%B3%BC-%EC%83%81%ED%98%B8%EC%9E%91%EC%9A%A9.md) | 18 | 11364 | `933b6c8f86a98d10…` |
 | 17 | Supabase 스키마·RLS·Edge Function | [17-Supabase-백엔드.md](./17-Supabase-%EB%B0%B1%EC%97%94%EB%93%9C.md) | 42 | 4192 | `48d65daa9f512719…` |
-| 18 | 검증 게이트·생성기·릴리스 시스템 | [18-검증과-릴리스-시스템.md](./18-%EA%B2%80%EC%A6%9D%EA%B3%BC-%EB%A6%B4%EB%A6%AC%EC%8A%A4-%EC%8B%9C%EC%8A%A4%ED%85%9C.md) | 114 | 25839 | `28c5692f7534dff7…` |
+| 18 | 검증 게이트·생성기·릴리스 시스템 | [18-검증과-릴리스-시스템.md](./18-%EA%B2%80%EC%A6%9D%EA%B3%BC-%EB%A6%B4%EB%A6%AC%EC%8A%A4-%EC%8B%9C%EC%8A%A4%ED%85%9C.md) | 117 | 26454 | `0e0fabe7fd2aeef1…` |
 
 ## 모듈 의존 그래프(정적 import/re-export)
 
-- `app-shell` → `ui-shell`: 6건
+- `app-shell` → `ui-shell`: 7건
 - `app-shell` → `auth-security`: 3건
 - `app-shell` → `offline-db`: 2건
 - `app-shell` → `sync-canonical`: 1건
@@ -117,10 +117,10 @@ shape_reason: 생성 계약→모듈 색인→의존 그래프→한계 순으�
 - `map-place` → `auth-security`: 1건
 - `expense-fx` → `offline-db`: 2건
 - `expense-fx` → `travel-core`: 1건
-- `auth-security` → `platform-runtime`: 1건
+- `auth-security` → `platform-runtime`: 2건
 - `platform-runtime` → `app-shell`: 2건
 - `platform-runtime` → `ui-shell`: 1건
-- `ui-shell` → `app-shell`: 18건
+- `ui-shell` → `app-shell`: 19건
 - `ui-shell` → `map-place`: 16건
 - `ui-shell` → `travel-core`: 13건
 - `ui-shell` → `auth-security`: 10건

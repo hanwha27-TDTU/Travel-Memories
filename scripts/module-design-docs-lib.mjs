@@ -158,6 +158,8 @@ function walk(dir) {
 export function isSourceInput(path) {
   const p = slash(relative(ROOT, path));
   if (p.startsWith('src/')) return INCLUDED_EXTENSIONS.has(extname(p));
+  if (p.startsWith('src-tauri/icons/') || p.startsWith('src-tauri/gen/') || p.startsWith('src-tauri/target/')) return false;
+  if (p.startsWith('src-tauri/')) return ['.rs', '.toml', '.json'].includes(extname(p));
   // Supabase CLI가 기기마다 만드는 연결/버전 메타데이터다. 실행 소스가 아니며
   // CI에는 존재하지 않으므로 설계 문서 입력에 포함하면 재생성이 비결정적이 된다.
   if (p.startsWith('supabase/.temp/')) return false;
@@ -179,7 +181,7 @@ export function isSourceInput(path) {
 }
 
 export function sourceInputs(root = ROOT) {
-  const roots = ['src', 'supabase', 'scripts', '.github/workflows', '.githooks', 'schemas', 'public'];
+  const roots = ['src', 'src-tauri', 'supabase', 'scripts', '.github/workflows', '.githooks', 'schemas', 'public'];
   const files = roots.flatMap((dir) => walk(join(root, dir)));
   for (const name of ['package.json', 'package-lock.json', 'vite.config.ts', 'tsconfig.json', 'index.html', '.nvmrc']) {
     const full = join(root, name);
@@ -194,6 +196,7 @@ export function sourceInputs(root = ROOT) {
  */
 export function moduleIdOf(input) {
   const p = slash(typeof input === 'string' && input.startsWith(ROOT) ? relative(ROOT, input) : input);
+  if (p.startsWith('src-tauri/')) return 'platform-runtime';
   if (/^(scripts|\.github\/workflows|\.githooks|schemas)\//.test(p) || /^(package(?:-lock)?\.json|vite\.config\.ts|tsconfig\.json|index\.html|\.nvmrc|public\/(?:sw\.js|manifest\.webmanifest))$/.test(p)) return 'quality-release';
   if (p.startsWith('supabase/')) return 'supabase-backend';
   if (p === 'src/main.ts' || p.startsWith('src/app/')) return 'app-shell';
@@ -207,8 +210,8 @@ export function moduleIdOf(input) {
   if (/^src\/(?:services\/(?:diagnostics|envReport|fileReality|roundTrip|serverContract|sessionState|syncReleaseDiagnostics|placeZombieAudit)|domain\/(?:diagGroups|diagnosticReport|fileRealityVerdict|integrity|gateControlView|placeProviderVerdict|placeZombieVerdict|roundTripVerdict|serverContractVerdict|sessionVerdict|syncReleaseVerdict|syncStatusVerdict|syncTombstoneVerdict)|ui\/(?:panels\/.*|screens\/(?:diagnosticsHub|mechChecks)))\.ts$/.test(p)) return 'diagnostics';
   if (/^src\/(?:services\/(?:places|geocode|here|externalMapConsent|mapRenderer)|domain\/place\/.*|ui\/(?:externalMapRow|screens\/(?:mapView|placeRegistry)))\.ts$/.test(p)) return 'map-place';
   if (/^src\/(?:services\/(?:expenses|fx)|domain\/expense\/.*)\.ts$/.test(p)) return 'expense-fx';
-  if (/^src\/(?:services\/(?:auth|consent)|services\/supabase\/client|domain\/authGate)\.ts$/.test(p)) return 'auth-security';
-  if (/^src\/services\/(?:capacitorShell|fileSave|shellUpdate|appUpdate|nativePhotos)\.ts$/.test(p)) return 'platform-runtime';
+  if (/^src\/(?:services\/(?:auth|desktopAuth|consent)|services\/supabase\/client|domain\/authGate)\.ts$/.test(p)) return 'auth-security';
+  if (/^src\/services\/(?:nativePlatform|capacitorShell|fileSave|shellUpdate|appUpdate|nativePhotos)\.ts$/.test(p)) return 'platform-runtime';
   if (/^src\/(?:media\/(?:compress|exif)|services\/(?:media|r2|storage)|domain\/media\/.*|ui\/(?:mediaSave|photoViewer|pickOriginal))\.ts$/.test(p)) return 'photo-storage';
   if (/^src\/(?:services\/(?:trips|moments|homeZone)|domain\/(?:moment\/.*|trip\/.*|registry|time))\.ts$/.test(p)) return 'travel-core';
   if (p.startsWith('src/ui/') || p === 'src/services/storeState.ts' || p === 'src/domain/persistAdvice.ts') return 'ui-shell';

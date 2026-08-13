@@ -452,6 +452,14 @@
         "GitHub release apk-latest asset and notes"
       ],
       "branchExclusive": true
+    },
+    {
+      "id": "windows-installer-release",
+      "writes": [
+        "GitHub Actions artifact bugeon-journey-windows-installer",
+        "GitHub release windows-latest installer and SHA-256"
+      ],
+      "branchExclusive": true
     }
   ],
   "deploymentSurfaces": [
@@ -476,6 +484,22 @@
       ],
       "deploy": ".github/workflows/android-apk.yml — debug APK를 만들고 main에서 고정 release apk-latest를 --clobber",
       "readback": "workflow conclusion success, apk-latest asset 존재, release notes의 shell-version marker"
+    },
+    {
+      "id": "windows-installer-latest",
+      "affectedBy": [
+        "src/**",
+        "public/**",
+        "index.html",
+        "package.json",
+        "package-lock.json",
+        "vite.config.ts",
+        "scripts/build-windows.mjs",
+        "src-tauri/**",
+        ".github/workflows/windows-installer.yml"
+      ],
+      "deploy": ".github/workflows/windows-installer.yml — Windows NSIS를 만들고 main에서 고정 release windows-latest를 --clobber",
+      "readback": "workflow conclusion success, 고정 exe 존재, 업로드 뒤 다시 받은 exe의 SHA-256이 빌드 산출물과 정확히 일치"
     },
     {
       "id": "supabase-media-sign",

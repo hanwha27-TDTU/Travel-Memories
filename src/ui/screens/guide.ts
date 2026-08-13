@@ -7,7 +7,8 @@
 // 모든 자유 텍스트는 textContent로만 넣는다(innerHTML 금지 — dom.ts 규칙·CSP 게이트).
 
 import { el } from '../dom';
-import { APK_LATEST_URL, APK_INSTALL_STEPS, APK_FACTS, APP_ICONS } from '../../app/apk';
+import { APP_ICONS } from '../../app/apk';
+import { orderedInstallerGuides, type InstallerGuide } from '../../app/installers';
 import { buildPlaybookHtml, buildPlaybookMarkdown, playbookFilename, PLAYBOOK_VERSION } from '../../app/playbook';
 import { iconSwitcher } from '../../services/capacitorShell';
 import { EVAL_ITEMS, summarize, gradeOf, gradeClass, gradeLegend, CRITICAL_CAP } from '../../app/selfEval';
@@ -103,6 +104,27 @@ function panel(children: HTMLElement[]): HTMLElement {
   return wrap;
 }
 
+function installerSection(guide: InstallerGuide, preferred: boolean): HTMLElement {
+  const section = el('section', 'guide-installer');
+  const title = el('div', 'guide-installer-title');
+  title.append(el('span', undefined, `${guide.icon} ${guide.name}`));
+  if (preferred) title.append(el('span', 'guide-installer-badge', '이 기기에 추천'));
+  const meta = el('p', 'guide-installer-meta', guide.meta);
+  const download = el('a', 'guide-open-dashboard guide-apk-dl', `⬇️ ${guide.button}`) as HTMLAnchorElement;
+  download.href = guide.url;
+  download.target = '_blank';
+  download.rel = 'noopener noreferrer';
+  section.append(
+    title,
+    meta,
+    steps(guide.steps.map((s) => [s.title, s.desc] as [string, string])),
+    download,
+    h('알아두면 좋은 것'),
+    bullets([...guide.facts]),
+  );
+  return section;
+}
+
 /**
  * 🎨 앱 아이콘 선택 (ADR-0038). **셸(APK)에서만** 실제로 바꿀 수 있다 — 웹/PWA는 설치 시
  * 아이콘이 고정된다(§5: 안 되는 버튼을 보여주지 않는다 → 크롬에서는 「앱에서만」 안내만).
@@ -113,7 +135,7 @@ function renderIconPicker(): HTMLElement {
   if (!sw) {
     return panel([
       h('앱에서만 바꿀 수 있어요'),
-      p(`홈 화면 아이콘 바꾸기는 설치한 앱(APK)에서만 돼요. 웹/브라우저는 설치할 때 아이콘이 정해져서 나중에 못 바꿔요. 위 「안드로이드 앱 설치」로 앱을 설치하면 여기서 ${APP_ICONS.length}가지 중 골라 바꿀 수 있어요.`),
+      p(`홈 화면 아이콘 바꾸기는 설치한 안드로이드 앱(APK)에서만 돼요. 웹/브라우저는 설치할 때 아이콘이 정해져서 나중에 못 바꿔요. 위 「설치파일 다운로드」에서 안드로이드 앱을 설치하면 여기서 ${APP_ICONS.length}가지 중 골라 바꿀 수 있어요.`),
     ]);
   }
   const box = panel([h('홈 화면 아이콘'), p('원하는 아이콘을 누르면 홈 화면 아이콘이 바뀌어요.')]);
@@ -225,30 +247,57 @@ const CONNECT_GROUP: GuideGroup = {
   hint: '저장·사진·개발 도구를 앱에 연결하는 방법',
   cards: [
     {
-      icon: '📱',
-      label: '안드로이드 앱 설치',
-      hint: '갤러리 사진 위치가 살아 있는 유일한 길',
+      icon: '📦',
+      label: '설치파일 다운로드',
+      hint: '안드로이드와 Windows 설치파일을 한곳에서 받아요',
       render: () => {
-        // 🔒 순서·문장·주소를 여기 손으로 적지 않는다 — 전부 src/app/apk.ts(SSOT)에서 읽고,
-        // check-apk-release-link 게이트가 워크플로 ↔ 상수 ↔ 이 화면의 계약 일치를 강제한다.
-        const dl = el('a', 'guide-open-dashboard guide-apk-dl', '⬇️ 최신 앱(APK) 내려받기') as HTMLAnchorElement;
-        dl.href = APK_LATEST_URL;
-        dl.target = '_blank';
-        dl.rel = 'noopener';
+        const userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent;
+        const guides = orderedInstallerGuides(userAgent);
         const body = panel([
-          h('왜 앱이 따로 있나요'),
-          p(
-            '휴대폰(안드로이드)은 사진을 브라우저에 줄 때 위치를 지워서 줘요. 그래서 웹으로 쓰면 사진 위치가 안 들어와요. 이 앱만 위치가 살아 있는 원본 그대로 받을 수 있어요.',
-          ),
-          h('설치 순서 (한 번만 하면 돼요)'),
-          steps(APK_INSTALL_STEPS.map((s) => [s.title, s.desc] as [string, string])),
+          h('내 기기에 맞는 앱을 골라요'),
+          p('지금 쓰는 기기에 맞는 버튼을 맨 위에 보여 드려요. 다른 기기용 버튼도 바로 아래에 있으니 가족이나 다른 기기에 보낼 때 쓸 수 있어요.'),
         ]);
-        // 버튼은 단계 목록 **바로 아래**에 둔다 — 1단계가 "아래 버튼"이라고 말하므로(§7 화면 대칭).
-        body.appendChild(dl);
-        body.appendChild(h('알아두면 좋은 것'));
-        body.appendChild(bullets([...APK_FACTS]));
+        guides.forEach((guide, index) => body.appendChild(installerSection(guide, index === 0)));
         body.appendChild(h('이 설치 가이드를 파일로 저장'));
         body.appendChild(playbookDownloads());
+        return body;
+      },
+    },
+    {
+      icon: '🪟',
+      label: 'Windows 앱 로그인 설정',
+      hint: '브라우저 로그인이 끝나면 앱으로 돌아오게 해요',
+      render: () => {
+        const body = panel([
+          h('어려운 키 설정이 아니에요'),
+          p('Supabase에게 “로그인이 끝나면 Bugeon Journey 앱으로 돌아가도 돼요”라고 주소 한 줄을 알려주는 일입니다.'),
+          h('따라 하기'),
+          steps([
+            ['Supabase 설정 열기', '아래의 Supabase 로그인 주소 설정 열기 버튼을 누릅니다.'],
+            ['Redirect URLs 찾기', '화면에서 Redirect URLs 또는 Redirect URL Allow List를 찾고 Add URL을 누릅니다.'],
+            ['주소 한 줄 붙여넣기', 'app.bugeon.journey://auth-callback 을 그대로 붙여넣습니다. 별표(*)나 공백은 넣지 않습니다.'],
+            ['저장하기', 'Save를 누릅니다. API 키를 새로 만들거나 바꾸지 않습니다.'],
+            ['앱에서 확인하기', '새 Windows 설치본을 열고 Google 로그인을 누릅니다. 브라우저 로그인이 끝난 뒤 앱 창이 앞으로 오고 이메일이 보이면 성공입니다.'],
+          ]),
+          h('Windows 지도 주소도 함께 넣기'),
+          bullets([
+            'Kakao JavaScript SDK 도메인: https://tauri.localhost',
+            'TomTom Domain whitelist: tauri.localhost',
+            '키 값은 그대로 두고 허용 주소만 한 줄씩 더합니다.',
+          ]),
+          note('로그인 복귀가 실패하면 앱 아래 알림이 이유를 말합니다. 엉뚱한 host나 path는 세션으로 바꾸지 않습니다.'),
+        ]);
+        const links = el('div', 'guide-pb-row');
+        const dashboard = el('a', 'guide-open-dashboard', 'Supabase 로그인 주소 설정 열기') as HTMLAnchorElement;
+        dashboard.href = 'https://supabase.com/dashboard/project/ihxiywffzmvrwmqvatzt/auth/url-configuration';
+        dashboard.target = '_blank';
+        dashboard.rel = 'noopener noreferrer';
+        const docs = el('a', 'guide-open-dashboard', 'Supabase 공식 설명 보기') as HTMLAnchorElement;
+        docs.href = 'https://supabase.com/docs/guides/auth/redirect-urls';
+        docs.target = '_blank';
+        docs.rel = 'noopener noreferrer';
+        links.append(dashboard, docs);
+        body.appendChild(links);
         return body;
       },
     },

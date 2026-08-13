@@ -6,7 +6,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { buildPlaybookHtml, buildPlaybookMarkdown, playbookFilename, PLAYBOOK_VERSION } from '../../src/app/playbook';
-import { APK_LATEST_URL, APK_INSTALL_STEPS, APK_FACTS } from '../../src/app/apk';
+import { APK_LATEST_URL } from '../../src/app/apk';
+import { INSTALLER_GUIDES, WINDOWS_LATEST_URL } from '../../src/app/installers';
 import { CHANGELOG, DEVELOPER } from '../../src/app/changelog';
 
 const md = buildPlaybookMarkdown();
@@ -25,22 +26,24 @@ describe('플레이북 버전은 앱 버전과 통일된다', () => {
 });
 
 describe('플레이북은 SSOT에서 조립된다(손 사본 아님)', () => {
-  it('모든 설치 단계 제목이 두 형식에 다 들어간다', () => {
-    for (const s of APK_INSTALL_STEPS) {
+  it('두 플랫폼의 모든 설치 단계 제목이 두 형식에 다 들어간다', () => {
+    for (const s of INSTALLER_GUIDES.flatMap((guide) => guide.steps)) {
       expect(md).toContain(s.title);
       expect(html).toContain(s.title);
     }
   });
-  it('모든 「알아두면 좋은 것」 사실이 두 형식에 다 들어간다', () => {
-    for (const f of APK_FACTS) {
+  it('두 플랫폼의 모든 「알아두면 좋은 것」 사실이 두 형식에 다 들어간다', () => {
+    for (const f of INSTALLER_GUIDES.flatMap((guide) => guide.facts)) {
       expect(md).toContain(f);
       // HTML은 <>&를 이스케이프하므로, 그 글자가 없는 사실은 그대로 들어간다.
       if (!/[<>&]/.test(f)) expect(html).toContain(f);
     }
   });
-  it('고정 다운로드 주소와 앱 이름을 담는다', () => {
+  it('두 고정 다운로드 주소와 앱 이름을 담는다', () => {
     expect(md).toContain(APK_LATEST_URL);
     expect(html).toContain(APK_LATEST_URL);
+    expect(md).toContain(WINDOWS_LATEST_URL);
+    expect(html).toContain(WINDOWS_LATEST_URL);
     expect(md).toContain(DEVELOPER.appName);
     expect(html).toContain(DEVELOPER.appName);
   });
@@ -48,7 +51,7 @@ describe('플레이북은 SSOT에서 조립된다(손 사본 아님)', () => {
 
 describe('🔴 전문 용어를 쓰지 않는다 — 초등학생 기준(주소는 제외)', () => {
   // apkGuide.test.ts와 같은 규율(§10 ③). URL엔 'releases'가 들어가므로 검사에서 뺀다.
-  const strip = (s: string) => s.split(APK_LATEST_URL).join('');
+  const strip = (s: string) => s.split(APK_LATEST_URL).join('').split(WINDOWS_LATEST_URL).join('');
   it('Markdown 산문에 개발 용어가 없다', () => {
     expect(strip(md)).not.toMatch(/아티팩트|artifact|CI|워크플로|사이드로드|딥링크|릴리스|release/i);
   });
@@ -60,7 +63,7 @@ describe('🔴 전문 용어를 쓰지 않는다 — 초등학생 기준(주소�
 describe('HTML은 자체완결(외부 자원 없음)', () => {
   it('http(s) 외부 링크는 다운로드 주소뿐 — 스타일·폰트를 밖에서 불러오지 않는다', () => {
     const externals = html.match(/https?:\/\/[^\s"')]+/g) ?? [];
-    for (const u of externals) expect(u.startsWith(APK_LATEST_URL)).toBe(true);
+    for (const u of externals) expect([APK_LATEST_URL, WINDOWS_LATEST_URL]).toContain(u);
     expect(html).not.toMatch(/<link[^>]+stylesheet|<script/i);
   });
 });

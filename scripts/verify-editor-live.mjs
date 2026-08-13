@@ -1305,13 +1305,17 @@ const pxPrePersp = await previewPixel();
 await page.getByRole('button', { name: '📐 펴기' }).click();
 await page.waitForFunction(() => {
   const box = document.querySelector('.pe-quad-box');
-  return !!box && !box.hidden && document.querySelectorAll('.pe-quad-h').length === 4;
+  return !!box && !box.hidden
+    && document.querySelectorAll('.pe-quad-h').length === 4
+    && document.querySelectorAll('.pe-quad-edge').length === 4;
 });
 const quadShown = await page.evaluate(() => {
   const box = document.querySelector('.pe-quad-box');
-  return box && !box.hidden && document.querySelectorAll('.pe-quad-h').length === 4;
+  return box && !box.hidden
+    && document.querySelectorAll('.pe-quad-h').length === 4
+    && document.querySelectorAll('.pe-quad-edge').length === 4;
 });
-check('펴기 모드: 4점 오버레이 표시', !!quadShown);
+check('펴기 모드: 모서리 4점 + 잡을 수 있는 점선 4개 표시', !!quadShown);
 const perspBarShown = await page.evaluate(() => !document.querySelector('.pe-perspbar').hidden);
 check('펴기 모드: 확정 바 노출', perspBarShown);
 // TL 핸들을 아래로 드래그(세로 그라데이션이라 색이 달라지는 방향)
@@ -1333,6 +1337,54 @@ await page.evaluate(() => {
 await settle(page);
 const polyAfter = await page.$eval('.pe-quad-svg polygon', (p) => p.getAttribute('points'));
 check('펴기: 핸들 드래그 → 사다리꼴 갱신', polyBefore !== polyAfter, `${polyBefore} → ${polyAfter}`);
+
+// 사용자가 요청한 점선 자체 드래그를 **손가락 입력**으로 확인한다. 아래쪽 변을 위로 끌면
+// 두 끝점이 같은 벡터로 움직이고 위쪽 두 점은 그대로여야 한다.
+const edgeBefore = await page.$eval('.pe-quad-svg polygon', (p) =>
+  p.getAttribute('points').split(' ').map((pair) => pair.split(',').map(Number)),
+);
+const edgeTouch = await page.evaluate(() => {
+  const line = document.querySelector('.pe-quad-edge[data-edge="2"]');
+  const svg = document.querySelector('.pe-quad-svg');
+  const r = svg.getBoundingClientRect();
+  const x1 = Number(line.getAttribute('x1')); const x2 = Number(line.getAttribute('x2'));
+  const y1 = Number(line.getAttribute('y1')); const y2 = Number(line.getAttribute('y2'));
+  return {
+    x: r.left + ((x1 + x2) / 200) * r.width,
+    y: r.top + ((y1 + y2) / 200) * r.height,
+    dy: r.height * 0.12,
+    stroke: parseFloat(getComputedStyle(line).strokeWidth),
+  };
+});
+check('펴기 점선: 손가락용 투명 잡기 영역이 24px 이상', edgeTouch.stroke >= 24, `${edgeTouch.stroke}px`);
+const quadCdp = await page.context().newCDPSession(page);
+const quadTouch = (type, x, y) => quadCdp.send('Input.dispatchTouchEvent', {
+  type,
+  touchPoints: type === 'touchEnd' ? [] : [{ x, y, radiusX: 12, radiusY: 12, force: 1 }],
+});
+await quadTouch('touchStart', edgeTouch.x, edgeTouch.y);
+for (let step = 1; step <= 4; step += 1) {
+  await quadTouch('touchMove', edgeTouch.x, edgeTouch.y - (edgeTouch.dy * step) / 4);
+}
+await quadTouch('touchEnd', edgeTouch.x, edgeTouch.y - edgeTouch.dy);
+await settle(page);
+const edgeAfter = await page.$eval('.pe-quad-svg polygon', (p) =>
+  p.getAttribute('points').split(' ').map((pair) => pair.split(',').map(Number)),
+);
+const close = (a, b, tolerance = 0.2) => Math.abs(a - b) <= tolerance;
+const bottomDx2 = edgeAfter[2][0] - edgeBefore[2][0];
+const bottomDy2 = edgeAfter[2][1] - edgeBefore[2][1];
+const bottomDx3 = edgeAfter[3][0] - edgeBefore[3][0];
+const bottomDy3 = edgeAfter[3][1] - edgeBefore[3][1];
+const edgeMovedTogether =
+  close(edgeAfter[0][0], edgeBefore[0][0]) && close(edgeAfter[0][1], edgeBefore[0][1])
+  && close(edgeAfter[1][0], edgeBefore[1][0]) && close(edgeAfter[1][1], edgeBefore[1][1])
+  && close(bottomDx2, bottomDx3) && close(bottomDy2, bottomDy3)
+  && bottomDy2 < -2;
+check('펴기: 아래 점선을 손가락으로 끌면 양 끝점이 함께 움직인다', edgeMovedTogether, JSON.stringify({ edgeBefore, edgeAfter }));
+if (process.env.PHOTO_PERSPECTIVE_SCREENSHOT) {
+  await page.screenshot({ path: resolve(process.env.PHOTO_PERSPECTIVE_SCREENSHOT), fullPage: false });
+}
 await page.getByRole('button', { name: '📐 반듯하게 펴기' }).click();
 await waitUntil(async () => {
   const state = await page.$eval('.pe-quad-box', (b) => b.hidden);
@@ -4366,6 +4418,35 @@ const openGuideCard = async (label) => {
   check(`가이드 「${label}」 화면이 실제로 열렸다(전제 — 못 열면 아래 판정은 공허하다 · §4)`, drawn, drawn ? '' : '본문이 비어 있음');
 };
 
+await openGuideCard('설치파일 다운로드');
+const installerGuide = await page.evaluate(() => ({
+  text: document.querySelector('.guide-detail-body')?.textContent ?? '',
+  platforms: [...document.querySelectorAll('.guide-installer-title')].map((node) => node.textContent ?? ''),
+  links: [...document.querySelectorAll('.guide-installer a')].map((a) => ({ text: a.textContent ?? '', href: a.href })),
+  firstRecommended: document.querySelector('.guide-installer:first-of-type .guide-installer-badge')?.textContent ?? '',
+}));
+check(
+  '통합 설치 가이드: Android·Windows 두 형제를 같은 화면에 그린다',
+  installerGuide.platforms.length === 2
+    && installerGuide.text.includes('안드로이드')
+    && installerGuide.text.includes('Windows'),
+  JSON.stringify(installerGuide),
+);
+check(
+  '통합 설치 가이드: 두 버튼이 각 고정 릴리스 주소를 쓴다',
+  installerGuide.links.length === 2
+    && installerGuide.links.some((link) => link.href.includes('/releases/download/apk-latest/app-debug.apk'))
+    && installerGuide.links.some((link) => link.href.includes('/releases/download/windows-latest/Bugeon-Journey-Windows-x64-setup.exe')),
+  JSON.stringify(installerGuide.links),
+);
+check(
+  '통합 설치 가이드: 현재 기기 추천 표시와 쉬운 Windows 경고 설명이 보인다',
+  installerGuide.firstRecommended === '이 기기에 추천'
+    && installerGuide.text.includes('추가 정보')
+    && installerGuide.text.includes('실행'),
+  installerGuide.text,
+);
+
 await openGuideCard('한국·중앙아시아 지도 설정');
 const mapGuide = await page.evaluate(() => ({
   text: document.querySelector('.guide-detail-body')?.textContent ?? '',
@@ -4389,6 +4470,30 @@ check(
     && mapGuide.links.every((link) => link.target === '_blank' && /noreferrer/.test(link.rel))
     && mapGuide.links.filter((link) => link.href.startsWith('https://developer.tomtom.com/')).length === 3,
   JSON.stringify(mapGuide.links),
+);
+
+await openGuideCard('Windows 앱 로그인 설정');
+const windowsAuthGuide = await page.evaluate(() => ({
+  text: document.querySelector('.guide-detail-body')?.textContent ?? '',
+  links: [...document.querySelectorAll('.guide-detail-body a')].map((a) => ({
+    text: a.textContent ?? '', href: a.href, rel: a.rel, target: a.target,
+  })),
+}));
+check(
+  'Windows 로그인 가이드: 초보자 순서·정확한 콜백·두 지도 오리진을 말한다',
+  [
+    'Redirect URLs', 'Add URL', 'app.bugeon.journey://auth-callback', 'Save',
+    'Google 로그인', 'https://tauri.localhost', 'tauri.localhost',
+  ].every((word) => windowsAuthGuide.text.includes(word)),
+  windowsAuthGuide.text,
+);
+check(
+  'Windows 로그인 가이드: Supabase 대시보드·공식 문서를 새 창·noreferrer로 연다',
+  windowsAuthGuide.links.length === 2
+    && windowsAuthGuide.links.every((link) => link.target === '_blank' && /noreferrer/.test(link.rel))
+    && windowsAuthGuide.links.some((link) => link.href.includes('/auth/url-configuration'))
+    && windowsAuthGuide.links.some((link) => link.href === 'https://supabase.com/docs/guides/auth/redirect-urls'),
+  JSON.stringify(windowsAuthGuide.links),
 );
 
 await openGuideCard('무엇이 어디서 도나');

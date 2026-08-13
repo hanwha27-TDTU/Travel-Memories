@@ -34,6 +34,9 @@ const CHANGELOG = 'src/app/changelog.ts';
 const REGISTRY = 'src/app/registry.gen.ts';
 const GRADLE = 'android-shell/android/app/build.gradle';
 const APK_WF = '.github/workflows/android-apk.yml';
+const WINDOWS_BUILD = 'scripts/build-windows.mjs';
+const TAURI_CONFIG = 'src-tauri/tauri.conf.json';
+const TAURI_CARGO = 'src-tauri/Cargo.toml';
 
 /** changelog 맨 앞 항목의 버전 — 이 저장소의 버전 정본. */
 export function ssotVersion(src) {
@@ -70,6 +73,17 @@ export function workflowInjects(src) {
   return /-PAPP_VERSION_NAME/.test(src);
 }
 
+export function windowsVersionProblems(buildScript, configText, cargoText) {
+  const problems = [];
+  if (!/src\/app\/changelog\.ts/.test(buildScript) || !/--config/.test(buildScript) || !/JSON\.stringify\(\{ version \}\)/.test(buildScript)) {
+    problems.push('Windows 빌더가 changelog 버전을 Tauri --config로 주입하지 않습니다.');
+  }
+  const config = JSON.parse(configText);
+  if (config.version !== '0.0.0') problems.push('tauri.conf의 수동 버전은 0.0.0 자리표시자여야 합니다.');
+  if (!/^version = "0\.0\.0"$/m.test(cargoText)) problems.push('Cargo.toml의 수동 버전은 0.0.0 자리표시자여야 합니다.');
+  return problems;
+}
+
 /** 지시문서가 `package.json`을 버전 정본이라 부르는가 — 그 문장이 이 사고의 출발이었다. */
 export function docsClaimPackageJsonIsSsot(text) {
   return /`?package\.json`?\s*(의\s*)?version\s*[—-]\s*손편집 금지/.test(text);
@@ -90,6 +104,12 @@ runSelfTest('check-version-ssot', () => {
     throw new Error('SELF-TEST 실패: 올바른 주입 형태를 위반으로 봤다.');
   }
   if (!workflowInjects('-PAPP_VERSION_NAME="$APP_VERSION_NAME"')) throw new Error('SELF-TEST 실패: 넘기는데 못 봤다.');
+  if (windowsVersionProblems("readFileSync('src/app/changelog.ts'); ['--config', JSON.stringify({ version })]", '{"version":"0.0.0"}', 'version = "0.0.0"').length !== 0) {
+    throw new Error('SELF-TEST 실패: 올바른 Windows 버전 주입을 위반으로 봤다.');
+  }
+  if (windowsVersionProblems('tauri build', '{"version":"2.37.0"}', 'version = "2.37.0"').length !== 3) {
+    throw new Error('SELF-TEST 실패: Windows 수동 버전 세 결함을 못 잡았다.');
+  }
   if (docsClaimPackageJsonIsSsot('`package.json`의 version은 정본이 아니다')) {
     throw new Error('SELF-TEST 실패: 정정된 문장을 위반으로 오탐한다.');
   }
@@ -136,7 +156,17 @@ if (isMain) {
   if (wf === null) problems.push(`${APK_WF}이 없습니다 — 주입을 재지 못했습니다.`);
   else if (!workflowInjects(wf)) problems.push(`${APK_WF}: -PAPP_VERSION_NAME을 넘기지 않습니다 — build.gradle이 주입을 기다리는데 아무도 안 줍니다.`);
 
-  // D) 문서가 틀린 정본을 가리키는가
+  // D) Windows도 같은 정본을 빌드 시점에 주입하고, tauri.conf에 배포 버전을 손으로 복제하지 않는가
+  const windowsBuild = read(WINDOWS_BUILD);
+  const tauriConfig = read(TAURI_CONFIG);
+  const tauriCargo = read(TAURI_CARGO);
+  if (windowsBuild === null || tauriConfig === null || tauriCargo === null) {
+    problems.push(`${WINDOWS_BUILD}, ${TAURI_CONFIG} 또는 ${TAURI_CARGO}가 없습니다 — Windows 버전 파생을 재지 못했습니다.`);
+  } else {
+    problems.push(...windowsVersionProblems(windowsBuild, tauriConfig, tauriCargo).map((p) => `Windows: ${p}`));
+  }
+
+  // E) 문서가 틀린 정본을 가리키는가
   for (const doc of ['docs/PROJECT_SPEC.md']) {
     const text = read(doc);
     if (text && docsClaimPackageJsonIsSsot(text)) {
@@ -152,7 +182,7 @@ if (isMain) {
   }
 
   console.log(
-    `check-version-ssot: 정본 v${ssot} — 생성물·안드로이드 주입·워크플로·문서가 전부 일치합니다.`,
+    `check-version-ssot: 정본 v${ssot} — 생성물·Android·Windows 주입·워크플로·문서가 전부 일치합니다.`,
   );
   console.log(
     `    ↳ 정직한 한계: **파생되는 배선**만 봅니다 — 실제 APK가 그 값을 달고 나왔는지는 못 봅니다(빌드 산출물은 이 저장소에 없습니다).` +

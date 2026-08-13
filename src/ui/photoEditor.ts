@@ -16,6 +16,7 @@ import {
   rotateFreeCrop90,
   flipFreeCropH,
   resizeFreeCrop,
+  moveQuadEdge,
   rotateQuad90,
   flipQuadH,
   DEFAULT_EDIT,
@@ -23,6 +24,7 @@ import {
   type EditState,
   type FreeCropDragMode,
   type Quad,
+  type QuadEdge,
 } from '../media/editor-core';
 import { isNoAdjust } from '../media/pixelops';
 import { autoHealPoints } from '../media/editor-core';
@@ -120,6 +122,60 @@ function cloneState(s: EditState): EditState {
     freeCrop: s.freeCrop ? { ...s.freeCrop } : null,
     quad: s.quad ? (s.quad.map((p) => ({ ...p })) as Quad) : null,
   };
+}
+
+interface PerspectiveOverlay {
+  box: HTMLElement;
+  polygon: SVGPolygonElement;
+  edges: SVGLineElement[];
+  handles: HTMLElement[];
+}
+
+function createPerspectiveOverlay(): PerspectiveOverlay {
+  const box = el('div', 'pe-quad-box');
+  box.hidden = true;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'pe-quad-svg');
+  svg.setAttribute('viewBox', '0 0 100 100');
+  svg.setAttribute('preserveAspectRatio', 'none');
+  const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+  svg.appendChild(polygon);
+  const edges = Array.from({ length: 4 }, (_, edge) => {
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('class', 'pe-quad-edge');
+    line.dataset['edge'] = String(edge);
+    svg.appendChild(line);
+    return line;
+  });
+  box.appendChild(svg);
+  const handles = Array.from({ length: 4 }, (_, idx) => {
+    const handle = el('div', 'pe-handle pe-quad-h');
+    handle.dataset['idx'] = String(idx);
+    box.appendChild(handle);
+    return handle;
+  });
+  return { box, polygon, edges, handles };
+}
+
+function freshQuadDraft(): Quad {
+  return [{ x: 0.08, y: 0.08 }, { x: 0.92, y: 0.08 }, { x: 0.92, y: 0.92 }, { x: 0.08, y: 0.92 }];
+}
+
+function syncPerspectiveOverlay(overlay: PerspectiveOverlay, draft: Quad, show: boolean): void {
+  overlay.box.hidden = !show;
+  if (!show) return;
+  overlay.polygon.setAttribute('points', draft.map((p) => `${p.x * 100},${p.y * 100}`).join(' '));
+  overlay.edges.forEach((line, edge) => {
+    const a = draft[edge]!;
+    const b = draft[(edge + 1) % 4]!;
+    for (const [name, value] of [['x1', a.x], ['y1', a.y], ['x2', b.x], ['y2', b.y]] as const) {
+      line.setAttribute(name, String(value * 100));
+    }
+  });
+  draft.forEach((point, idx) => {
+    overlay.handles[idx]!.style.left = `${point.x * 100}%`;
+    overlay.handles[idx]!.style.top = `${point.y * 100}%`;
+  });
 }
 
 /** 슬라이더 값 표시: 각도는 °, 나머지는 -100..100 정수(0=원본). */
@@ -292,22 +348,8 @@ export async function openPhotoEditor(
     }
     canvasWrap.appendChild(cropBox);
     // 원근 펴기 오버레이: 4개의 독립 모서리 핸들 + 사다리꼴 윤곽(SVG). 좌표는 캔버스 %.
-    const quadBox = el('div', 'pe-quad-box');
-    quadBox.hidden = true;
-    const quadSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    quadSvg.setAttribute('class', 'pe-quad-svg');
-    quadSvg.setAttribute('viewBox', '0 0 100 100');
-    quadSvg.setAttribute('preserveAspectRatio', 'none');
-    const quadPoly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-    quadSvg.appendChild(quadPoly);
-    quadBox.appendChild(quadSvg);
-    const quadHandles: HTMLElement[] = [];
-    for (let qi = 0; qi < 4; qi += 1) {
-      const hnd = el('div', 'pe-handle pe-quad-h');
-      hnd.dataset['idx'] = String(qi);
-      quadBox.appendChild(hnd);
-      quadHandles.push(hnd);
-    }
+    const quadOverlay = createPerspectiveOverlay();
+    const quadBox = quadOverlay.box;
     canvasWrap.appendChild(quadBox);
     // 브러시 크기 표시(잡티 제거): 크기 조절·탭 순간에 실제 반경을 원으로 잠깐 보여준다.
     const brushDot = el('div', 'pe-brush-dot');
@@ -347,7 +389,7 @@ export async function openPhotoEditor(
     const perspClearBtn = el('button', 'pe-chip', '펴기 해제') as HTMLButtonElement;
     perspClearBtn.type = 'button';
     perspClearBtn.hidden = true;
-    const perspHint = el('span', 'pe-hint muted small', '네 모서리를 대상 모서리에 맞춘 뒤 누르세요');
+    const perspHint = el('span', 'pe-hint muted small', '동그란 점이나 점선을 끌어 대상 테두리에 맞춘 뒤 누르세요');
     perspBar.append(perspApplyBtn, perspClearBtn, perspHint);
     sheet.appendChild(perspBar);
 
@@ -360,21 +402,9 @@ export async function openPhotoEditor(
     // ── 원근 펴기 모드 상태 ──
     let perspMode = false;
     // 드래프트는 적용 전까지 state를 건드리지 않는다(적용이 이산 undo 한 단계).
-    let quadDraft: Quad = [
-      { x: 0.08, y: 0.08 },
-      { x: 0.92, y: 0.08 },
-      { x: 0.92, y: 0.92 },
-      { x: 0.08, y: 0.92 },
-    ];
+    let quadDraft = freshQuadDraft();
     function syncQuadBox(show: boolean): void {
-      quadBox.hidden = !show;
-      if (!show) return;
-      quadPoly.setAttribute('points', quadDraft.map((p) => `${p.x * 100},${p.y * 100}`).join(' '));
-      quadDraft.forEach((p, i) => {
-        const hnd = quadHandles[i]!;
-        hnd.style.left = `${p.x * 100}%`;
-        hnd.style.top = `${p.y * 100}%`;
-      });
+      syncPerspectiveOverlay(quadOverlay, quadDraft, show);
     }
 
     // 펴기 모드 진입 칩(기하 도구줄에 부착 — 생성만 여기서).
@@ -419,12 +449,28 @@ export async function openPhotoEditor(
       setPerspMode(false);
     });
 
-    // 모서리 핸들 드래그: 적용 전 드래프트만 갱신(상태 불변 → undo는 "펴기" 시 한 단계).
-    let quadDrag: { idx: number } | null = null;
+    // 모서리 점 또는 점선 변 드래그: 적용 전 드래프트만 갱신(상태 불변 → undo는 "펴기" 시 한 단계).
+    type QuadDrag =
+      | { kind: 'corner'; idx: number }
+      | { kind: 'edge'; edge: QuadEdge; startX: number; startY: number; startQuad: Quad };
+    let quadDrag: QuadDrag | null = null;
     quadBox.addEventListener('pointerdown', (e) => {
-      const idxStr = (e.target as HTMLElement).dataset['idx'];
-      if (idxStr === undefined) return;
-      quadDrag = { idx: Number(idxStr) };
+      const target = e.target as HTMLElement | SVGElement;
+      const idxStr = target.dataset['idx'];
+      const edgeStr = target.dataset['edge'];
+      if (idxStr !== undefined) {
+        quadDrag = { kind: 'corner', idx: Number(idxStr) };
+      } else if (edgeStr !== undefined) {
+        quadDrag = {
+          kind: 'edge',
+          edge: Number(edgeStr) as QuadEdge,
+          startX: e.clientX,
+          startY: e.clientY,
+          startQuad: quadDraft.map((p) => ({ ...p })) as Quad,
+        };
+      } else {
+        return;
+      }
       try {
         quadBox.setPointerCapture(e.pointerId);
       } catch {
@@ -435,10 +481,19 @@ export async function openPhotoEditor(
     quadBox.addEventListener('pointermove', (e) => {
       if (!quadDrag) return;
       const rect = canvasWrap.getBoundingClientRect();
-      quadDraft[quadDrag.idx] = {
-        x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
-        y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
-      };
+      if (quadDrag.kind === 'corner') {
+        quadDraft[quadDrag.idx] = {
+          x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+          y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
+        };
+      } else {
+        quadDraft = moveQuadEdge(
+          quadDrag.startQuad,
+          quadDrag.edge,
+          (e.clientX - quadDrag.startX) / rect.width,
+          (e.clientY - quadDrag.startY) / rect.height,
+        );
+      }
       syncQuadBox(true);
     });
     const endQuadDrag = (): void => {

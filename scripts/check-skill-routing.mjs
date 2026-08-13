@@ -62,6 +62,8 @@ const SCAN = [
   // 파일 · 벤더 .java 포함)와 android/app/build(gradle 산출물)가 실물로 존재해서, walk()가
   // .gitignore를 안 보고 파일시스템을 그대로 훑으면 남의 코드를 우리 소스로 잘못 센다.
   { dir: 'android-shell/android/app/src', ext: /\.java$/ },
+  { dir: 'src-tauri/src', ext: /\.rs$/ },
+  { dir: 'src-tauri/capabilities', ext: /\.json$/ },
 ];
 
 export function unrouted(paths, routes, excluded) {
@@ -169,6 +171,10 @@ for (const s of orphanSkills(SKILL_ROUTES, available)) {
   problems.push(`고아 스킬 문서(아무 경로도 가리키지 않음): ${s} — 라우팅에 넣거나 문서를 정리할 것`);
 }
 const files = SCAN.flatMap((s) => walk(join(ROOT, s.dir), s.ext));
+for (const name of ['src-tauri/Cargo.toml', 'src-tauri/build.rs', 'src-tauri/tauri.conf.json']) {
+  const full = join(ROOT, name);
+  if (existsSync(full)) files.push(routePath(relative(ROOT, full)));
+}
 for (const p of unrouted(files, SKILL_ROUTES, NO_SKILL_REQUIRED)) {
   problems.push(`먼저 읽을 문서가 정해지지 않은 파일: ${p} — SKILL_ROUTES에 넣거나 NO_SKILL_REQUIRED에 **이유와 함께** 등록`);
 }

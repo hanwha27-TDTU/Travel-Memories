@@ -66,6 +66,7 @@ export const REGISTRY = {
   'check-bytes-upload-symmetry',
   'check-known-index',
   'check-apk-release-link',
+  'check-windows-shell',
   'check-update-signal',
   'check-purge-scope',
   'check-real-coord',
@@ -79,7 +80,7 @@ export const REGISTRY = {
   'verify-diagnostics-live',
   'verify-authgate-live',
   ] as const,
-  gateCount: 73,
+  gateCount: 74,
   /**
    * 게이트의 **대조군 현황**(§4). 세 축 — 대조군 보유 · 밖에서 돌려 볼 수 있음 ·
    * 실패를 판정(exit 2)으로 알림.
@@ -149,6 +150,7 @@ export const REGISTRY = {
     { name: 'check-bytes-upload-symmetry', control: true, runnable: false, cleanExit: true },
     { name: 'check-known-index', control: true, runnable: false, cleanExit: true },
     { name: 'check-apk-release-link', control: true, runnable: true, cleanExit: true },
+    { name: 'check-windows-shell', control: true, runnable: false, cleanExit: true },
     { name: 'check-update-signal', control: true, runnable: true, cleanExit: true },
     { name: 'check-purge-scope', control: true, runnable: true, cleanExit: true },
     { name: 'check-real-coord', control: true, runnable: true, cleanExit: true },
@@ -162,11 +164,11 @@ export const REGISTRY = {
     { name: 'verify-authgate-live', control: true, runnable: false, cleanExit: true },
     { name: 'verify-sync-release-live', control: true, runnable: false, cleanExit: true },
   ] as const,
-  gateControlCount: 72,
+  gateControlCount: 73,
   gateRunnableCount: 18,
-  gateCleanExitCount: 72,
+  gateCleanExitCount: 73,
   /** 최신 앱 버전(정본: src/app/changelog.ts의 첫 항목). 첫 로드 화면은 이걸 읽는다. */
-  appVersion: '2.36',
+  appVersion: '2.37',
   /** 에이전트 정의 이름(정본: .claude/agents/ — frontmatter가 있는 파일만). */
   agents: [
   'accessibility-design-auditor',
@@ -200,9 +202,9 @@ export const REGISTRY = {
   agentCount: 27,
   /** docs/AGENT_REGISTRY.md의 논리 역할 수. 가이드가 손으로 「139개」를 적지 않게. */
   logicalRoleCount: 139,
-  skillCount: 12,
+  skillCount: 13,
   screenCount: 12,
   migrationCount: 32,
-  changelogCount: 236,
-  researchCount: 139,
+  changelogCount: 237,
+  researchCount: 141,
 } as const;

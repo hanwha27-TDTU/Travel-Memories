@@ -3,6 +3,7 @@ node_modules/
 
 # build output
 dist/
+windows-dist/
 *.tsbuildinfo
 # 라이브 진단 게이트가 만드는 주입 페이지(실행 끝에 스스로 지우지만, 중단되면 남는다)
 .diaglive/
@@ -28,3 +29,7 @@ android-shell/android/.gradle/
 android-shell/android/app/build/
 android-shell/android/build/
 android-shell/android/capacitor-cordova-android-plugins/build/
+
+# Windows Tauri 셸 — 소스와 설정만 추적하고 Rust/스키마 생성물은 다시 만든다
+src-tauri/target/
+src-tauri/gen/

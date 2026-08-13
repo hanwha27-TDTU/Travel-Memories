@@ -9,7 +9,7 @@ import {
   type PersistSurface,
 } from '../../src/domain/persistAdvice';
 
-const SURFACES: PersistSurface[] = ['shell', 'installed-pwa', 'browser-tab'];
+const SURFACES: PersistSurface[] = ['desktop-shell', 'shell', 'installed-pwa', 'browser-tab'];
 
 describe('persistResultNote — 허락된 경우', () => {
   it('표면과 무관하게 같은 말을 한다(설치 여부는 이때 상관없다)', () => {
@@ -28,6 +28,13 @@ describe('persistResultNote — 거절된 경우', () => {
     expect(note).not.toContain('홈 화면에 추가');
     expect(note).not.toContain('메뉴(⋮)');
     expect(note).toContain('앱으로 설치해 쓰고 있어요');
+  });
+
+  it('Windows 앱에게 브라우저 설치 메뉴를 말하지 않는다', () => {
+    const note = persistResultNote({ surface: 'desktop-shell', canPersist: true }, false);
+    expect(note).not.toContain('홈 화면에 추가');
+    expect(note).not.toContain('메뉴(⋮)');
+    expect(note).toContain('Windows 앱');
   });
 
   it('이미 설치한 PWA에게도 「설치하세요」로 끝내지 않는다 — 막다른 문장 금지(§7-D)', () => {
@@ -81,12 +88,14 @@ describe('persistResultNote — 거절된 경우', () => {
 describe('표면 판정', () => {
   it('셸에서는 「보호가 적용됐는가」가 의미 있는 질문이 아니다 — 재본 적이 없다', () => {
     expect(persistIsMeaningful('shell')).toBe(false);
+    expect(persistIsMeaningful('desktop-shell')).toBe(false);
     expect(persistIsMeaningful('installed-pwa')).toBe(true);
     expect(persistIsMeaningful('browser-tab')).toBe(true);
   });
 
   it('표면마다 사용자가 알아볼 이름이 있다 — 기술코드를 화면에 내지 않는다(§5-8)', () => {
     expect(surfaceLabel('shell')).toBe('설치된 앱(APK)');
+    expect(surfaceLabel('desktop-shell')).toBe('설치된 데스크톱 앱');
     expect(surfaceLabel('installed-pwa')).toBe('홈 화면에 추가된 앱');
     expect(surfaceLabel('browser-tab')).toBe('브라우저 탭');
     for (const s of SURFACES) expect(surfaceLabel(s)).not.toMatch(/[a-z-]{6,}/); // 슬러그 노출 금지
@@ -98,6 +107,7 @@ describe('shouldAutoRequestPersist — 앱이 스스로 물을 것인가(§12)',
 
   it('설치된 표면에서는 스스로 한 번 요청한다 — 크롬은 프롬프트를 띄우지 않는다', () => {
     expect(shouldAutoRequestPersist({ ...base, surface: 'shell' })).toBe(true);
+    expect(shouldAutoRequestPersist({ ...base, surface: 'desktop-shell' })).toBe(true);
     expect(shouldAutoRequestPersist({ ...base, surface: 'installed-pwa' })).toBe(true);
   });
 

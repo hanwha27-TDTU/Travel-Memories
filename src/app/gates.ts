@@ -97,7 +97,9 @@ export const GATE_DESC: Record<string, string> = {
   'check-known-index':
     '「이 증상을 이미 아는가」를 묻는 문(`npm run known`)이 **네 층을 다 뒤지는가** — 층이 비면 그 지식은 영영 안 보인다(M-0064)',
   'check-apk-release-link':
-    '「항상 최신 APK」 계약 — CI 릴리스(apk-latest·--clobber) ↔ 앱 상수 ↔ 가이드 버튼이 같은 고정 주소를 말하는가',
+      '「항상 최신 설치파일」 계약 — Android·Windows 고정 릴리스(--clobber·read-back) ↔ 앱 상수 ↔ 통합 가이드 버튼이 같은 주소를 말하는가',
+  'check-windows-shell':
+    'Windows 앱이 원격 사이트가 아닌 로컬 번들을 싣고, 고정 HTTPS 오리진·main 최소 권한·NSIS 설치 계약을 지키는가',
   'check-update-signal':
     '「접속하면 스스로 최신」 계약 — 빌드가 version.json을 심고, 앱이 시작·복귀 때 묻고, SW가 신호를 안 만지는가(M-0070)',
   'check-purge-scope':
@@ -201,6 +203,7 @@ export const GATE_AXIS: Record<string, string> = {
   'check-bytes-upload-symmetry': '도메인 수가 아니라, 바이트 도메인 **전부**가 공용 업로드 문과 작업별 불변 키를 지나는지',
   'check-known-index': '색인 덩어리 수가 아니라, **네 층 전부**가 색인에 들어오는지',
   'check-apk-release-link': '참조 수가 아니라, 워크플로·상수·가이드가 같은 **고정 주소** 계약을 지키는지',
+  'check-windows-shell': '파일 수가 아니라, 로컬 payload·영속 오리진·창 범위·권한 최소화가 **동시에** 유지되는지',
   'check-update-signal': '신호 수가 아니라, 빌드 신호·앱 확인·SW 무개입이 한 계약인지',
   'check-purge-scope': '도메인 수가 아니라, cascadeParents가 migration의 cascade 폐포·rowmap과 일치하는지',
   'check-real-coord': '파일 수가 아니라, 좌표 판정이 **isRealCoord 한 곳에만** 있는지',
@@ -309,6 +312,7 @@ export const GATE_WORLD: Record<string, string> = {
   'check-bytes-upload-symmetry': '',
   'check-known-index': '',
   'check-apk-release-link': '',
+  'check-windows-shell': '',
   'check-update-signal': '',
   'check-purge-scope': '',
   'check-real-coord': '',
@@ -391,6 +395,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-bytes-upload-symmetry': 'static',
   'check-known-index': 'static',
   'check-apk-release-link': 'static',
+  'check-windows-shell': 'static',
   'check-update-signal': 'static',
   'check-purge-scope': 'static',
   'check-real-coord': 'static',

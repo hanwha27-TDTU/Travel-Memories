@@ -42,6 +42,8 @@ export const SKILL_ROUTES = [
   // 개별 스킬 문서는 아래 skillsFor()가 자기 자신도 함께 라우팅한다.
   { match: /^\.claude\/skills\//, skill: 'gates-mechanization-dev' },
   { match: /^docs\/(CONSTITUTION|HANDOFF(?:_CODEX)?)\.md$/, skill: 'gates-mechanization-dev' },
+  { match: /^docs\/WINDOWS_TAURI\.md$/, skill: 'windows-tauri-dev' },
+  { match: /^docs\/WINDOWS_TAURI\.md$/, skill: 'gates-mechanization-dev' },
   // 생성 설계서는 손편집 대상이 아니다. 이 경로를 고치려는 순간 생성기·드리프트 계약부터 읽힌다.
   { match: /^docs\/모듈별 설계서\//, skill: 'gates-mechanization-dev' },
   // Current-work and decision maps change what the next agent is allowed to start.
@@ -104,17 +106,31 @@ export const SKILL_ROUTES = [
   // 규율(server.url 분리·브리지 감지 단일화)은 android-apk-dev가 정본이라 함께 걸린다.
   { match: /^src\/services\/capacitorShell/, skill: 'photo-storage-dev' },
   { match: /^src\/services\/capacitorShell/, skill: 'android-apk-dev' },
+  { match: /^src\/services\/nativePlatform/, skill: 'android-apk-dev' },
+  { match: /^src\/services\/nativePlatform/, skill: 'windows-tauri-dev' },
+  { match: /^src\/services\/desktopAuth/, skill: 'windows-tauri-dev' },
+  { match: /^src\/services\/desktopAuth/, skill: 'supabase-security-dev' },
+  { match: /^src\/services\/auth\.ts$/, skill: 'android-apk-dev' },
+  { match: /^src\/services\/auth\.ts$/, skill: 'windows-tauri-dev' },
+  { match: /^src\/services\/auth\.ts$/, skill: 'supabase-security-dev' },
   { match: /^src\/services\/nativePhotos/, skill: 'android-apk-dev' },
   // APK 배포 사실 SSOT(고정 릴리스 주소·설치 안내) — 셸 배포 계약이므로 같은 헌장.
   // **「항상 최신 APK」 계약 자체**(고정 태그·--clobber·3자리 대조)의 정본은 android-apk-dev.
   { match: /^src\/app\/apk\.ts/, skill: 'photo-storage-dev' },
   { match: /^src\/app\/apk\.ts/, skill: 'android-apk-dev' },
+  { match: /^src\/app\/installers\.ts/, skill: 'android-apk-dev' },
+  { match: /^src\/app\/installers\.ts/, skill: 'windows-tauri-dev' },
   // 설치 가이드 문서(플레이북) — apk.ts SSOT에서 조립되는 셸 배포 산출물이라 같은 헌장.
   { match: /^src\/app\/playbook\.ts/, skill: 'android-apk-dev' },
   // Capacitor 셸 프로젝트 전체(웹 자산 미번들 계약·네이티브 플러그인) — 2026-08-01
   // 사용자 지시로 전용 헌장이 생겼다: "안드로이드 APK 생성에 관한 스킬문서도 별도 관리하자".
   { match: /^android-shell\//, skill: 'android-apk-dev' },
+  { match: /^src-tauri\//, skill: 'windows-tauri-dev' },
+  { match: /^scripts\/check-windows-shell\.mjs$/, skill: 'windows-tauri-dev' },
+  { match: /^scripts\/check-windows-shell\.mjs$/, skill: 'gates-mechanization-dev' },
+  { match: /^scripts\/build-windows\.mjs$/, skill: 'windows-tauri-dev' },
   { match: /^\.github\/workflows\/android-apk\.yml/, skill: 'android-apk-dev' },
+  { match: /^\.github\/workflows\/windows-installer\.yml/, skill: 'windows-tauri-dev' },
   { match: /^scripts\/(check-apk-release-link|check-update-signal|gen-version-file)\.mjs/, skill: 'android-apk-dev' },
   // 훅은 「강제 수단」이라 게이트·프롬프트 거버넌스와 같은 규율을 받는다(S-09 · 헌법 §18).
   { match: /^scripts\/hook-[\w-]+\.mjs/, skill: 'gates-mechanization-dev' },

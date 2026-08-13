@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Bugeon Journey",
+  "version": "0.0.0",
+  "identifier": "app.bugeon.journey",
+  "build": {
+    "beforeDevCommand": "npm run dev -- --host 127.0.0.1",
+    "devUrl": "http://127.0.0.1:5173/Travel-Memories/",
+    "beforeBuildCommand": "npm run windows:web",
+    "frontendDist": "../windows-dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Bugeon Journey",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 360,
+        "minHeight": 640,
+        "resizable": true,
+        "useHttpsScheme": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; media-src 'self' blob:; img-src 'self' data: blob: https://*.supabase.co https://tile.openstreetmap.org https://api.tomtom.com https://*.daumcdn.net https://*.kakaocdn.net; connect-src 'self' ipc: https://ipc.localhost https://*.supabase.co wss://*.supabase.co https://*.r2.cloudflarestorage.com https://tile.openstreetmap.org https://api.tomtom.com https://nominatim.openstreetmap.org https://dapi.kakao.com https://*.daumcdn.net https://cdn.jsdelivr.net https://*.currency-api.pages.dev https://api.frankfurter.dev; worker-src 'self' blob:; child-src blob:; style-src 'self' 'unsafe-inline'; script-src 'self' https://dapi.kakao.com https://*.daumcdn.net; object-src 'none'; base-uri 'self'; form-action 'self'"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["app.bugeon.journey"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "category": "Lifestyle",
+    "shortDescription": "사진·장소·비용·감정을 엮는 개인 여행기록 앱",
+    "longDescription": "Bugeon Journey의 공통 웹 코어를 Windows WebView2에서 실행하는 최소 권한 데스크톱 셸입니다.",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"]
+  }
+}

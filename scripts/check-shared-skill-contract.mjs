@@ -66,6 +66,7 @@ export function workflowProblems(workflows) {
   if (!live || !live.includes('playwright install --with-deps chromium') || !live.includes('npm run build') || !live.includes('npm run live')) problems.push('CI live-render 실제 명령이 프로필과 다름');
   if (!workflows.pages.includes("branches: ['main']") || !workflows.pages.includes('npm run build') || !workflows.pages.includes('actions/deploy-pages@')) problems.push('GitHub Pages 배포 표면 계약이 달라짐');
   if (!workflows.apk.includes("- 'android-shell/**'") || !workflows.apk.includes('gh release upload apk-latest') || !workflows.apk.includes('--clobber') || !workflows.apk.includes('group: android-apk-${{ github.ref }}') || !workflows.apk.includes('cancel-in-progress: false')) problems.push('Android apk-latest 배포 표면 계약이 달라짐');
+  if (!workflows.windows.includes("- 'src-tauri/**'") || !workflows.windows.includes("$tag = 'windows-latest'") || !workflows.windows.includes('gh release upload $tag $exe $sha --clobber') || !workflows.windows.includes('gh release download $tag') || !workflows.windows.includes('group: windows-installer-${{ github.ref }}') || !workflows.windows.includes('cancel-in-progress: false')) problems.push('Windows windows-latest 배포·read-back 표면 계약이 달라짐');
   if (!workflows.supabaseGuide.includes('npx supabase functions deploy media-sign --project-ref ihxiywffzmvrwmqvatzt')) problems.push('Supabase Edge Function 배포 명령 근거가 달라짐');
   return problems;
 }
@@ -133,7 +134,7 @@ export function validateContract({
     if (!releaseEdgeIds.has(edge)) errors.push(`media-sign 제공자 선배포 간선이 없음: ${edge}`);
   }
   const surfaceIds = (profile?.deploymentSurfaces || []).map((surface) => surface.id).sort();
-  const expectedSurfaces = ['android-apk-latest', 'github-pages', 'supabase-migrations', ...workflows.functionNames.map((name) => `supabase-${name}`)].sort();
+  const expectedSurfaces = ['android-apk-latest', 'windows-installer-latest', 'github-pages', 'supabase-migrations', ...workflows.functionNames.map((name) => `supabase-${name}`)].sort();
   if (JSON.stringify(surfaceIds) !== JSON.stringify(expectedSurfaces)) errors.push('릴리스 프로필의 배포 표면 목록이 실제 저장소와 다름');
   for (const [name, version] of Object.entries(workflows.functionVersions)) {
     const surface = profile?.deploymentSurfaces?.find((entry) => entry.id === `supabase-${name}`);
@@ -186,6 +187,7 @@ function selfTest(lock, profile, vendorHashes, adapterText, workflows) {
     ['공통 법 복사 주입', (x) => { x.commonLawCopies = 1; }, '공통 HRL 조문'],
     ['CI 그룹 드리프트 주입', (x) => { x.workflows.ci = x.workflows.ci.replace('npm run live', 'npm run missing'); }, 'CI live-render'],
     ['배포 표면 드리프트 주입', (x) => { x.workflows.apk = x.workflows.apk.replaceAll('--clobber', '--skip'); }, 'Android apk-latest'],
+    ['Windows read-back 드리프트 주입', (x) => { x.workflows.windows = x.workflows.windows.replace('gh release download $tag', 'download removed'); }, 'Windows windows-latest'],
     ['제공자 선배포 노드 누락 주입', (x) => { x.profile.releaseNodes = x.profile.releaseNodes.filter((node) => node.id !== 'provider-predeploy'); x.profile.releaseEdges = x.profile.releaseEdges.filter((edge) => edge.from !== 'provider-predeploy' && edge.to !== 'provider-predeploy'); }, '제공자 선배포 노드'],
     ['제공자 운영 대조 간선 누락 주입', (x) => { x.profile.releaseEdges = x.profile.releaseEdges.filter((edge) => !(edge.from === 'provider-live-readback' && edge.to === 'required-ci')); }, '제공자 선배포 간선'],
     ['동기화 계약 영향 조건 누락 주입', (x) => { const surface = x.profile.deploymentSurfaces.find((entry) => entry.id === 'supabase-media-sign'); surface.affectedBy = surface.affectedBy.filter((path) => path !== 'schemas/sync-release-contract.json'); }, '동기화 릴리스 계약 변경'],
@@ -239,6 +241,7 @@ const workflows = {
   ci: readFileSync(join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8'),
   pages: readFileSync(join(ROOT, '.github', 'workflows', 'deploy-pages.yml'), 'utf8'),
   apk: readFileSync(join(ROOT, '.github', 'workflows', 'android-apk.yml'), 'utf8'),
+  windows: readFileSync(join(ROOT, '.github', 'workflows', 'windows-installer.yml'), 'utf8'),
   supabaseGuide: readFileSync(join(ROOT, 'docs', 'HANDOFF_CODEX.md'), 'utf8'),
 };
 workflows.functionNames = readdirSync(join(ROOT, 'supabase', 'functions'), { withFileTypes: true })

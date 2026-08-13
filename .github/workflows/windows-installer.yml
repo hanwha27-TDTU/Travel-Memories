@@ -1,0 +1,90 @@
+# Windows 설치본을 만들고 고정 주소 windows-latest의 자산을 교체한다.
+# 웹 코어가 번들 안에 들어가므로 src 변경도 Windows 설치본에 영향을 준다.
+name: Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.config.ts'
+      - 'scripts/build-windows.mjs'
+      - 'src-tauri/**'
+      - '.github/workflows/windows-installer.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-installer-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+      - name: Rust 준비
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - run: npm ci
+      - name: Windows NSIS 설치본 만들기
+        run: npm run windows:build
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_MAP_STYLE_URL: ${{ vars.VITE_MAP_STYLE_URL }}
+          VITE_KAKAO_JAVASCRIPT_KEY: ${{ vars.VITE_KAKAO_JAVASCRIPT_KEY }}
+          VITE_TOMTOM_API_KEY: ${{ vars.VITE_TOMTOM_API_KEY }}
+      - name: 고정 파일 이름과 SHA-256 만들기
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem 'src-tauri/target/release/bundle/nsis/*-setup.exe')
+          if ($files.Count -ne 1) { throw "NSIS 설치본이 정확히 1개여야 합니다. 실제: $($files.Count)" }
+          New-Item -ItemType Directory -Force release | Out-Null
+          $asset = 'release/Bugeon-Journey-Windows-x64-setup.exe'
+          Copy-Item -LiteralPath $files[0].FullName -Destination $asset
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $asset).Hash.ToLowerInvariant()
+          "$hash  Bugeon-Journey-Windows-x64-setup.exe" | Set-Content -Encoding ascii "$asset.sha256"
+      - name: Windows 설치본 작업 산출물
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bugeon-journey-windows-installer
+          path: release/*
+          retention-days: 30
+      - name: 고정 다운로드 주소 갱신 후 다시 받아 검증 (main만)
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $tag = 'windows-latest'
+          $exe = 'release/Bugeon-Journey-Windows-x64-setup.exe'
+          $sha = "$exe.sha256"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title 'Bugeon Journey Windows 앱 (항상 최신)' --notes '앱 가이드의 Windows 다운로드 버튼이 가리키는 고정 주소입니다.'
+          }
+          gh release upload $tag $exe $sha --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Windows 릴리스 업로드에 실패했습니다.' }
+          $version = node -e "process.stdout.write(require('fs').readFileSync('src/app/changelog.ts','utf8').match(/version: '([\\d.]+)'/)[1])"
+          gh release edit $tag --notes "최신 앱 v$version · $($env:GITHUB_SHA.Substring(0,7)) · $([DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm')) UTC`n`n이 주소는 언제나 최신 Windows 설치파일을 줍니다."
+          $readback = Join-Path $env:RUNNER_TEMP 'windows-release-readback'
+          New-Item -ItemType Directory -Force $readback | Out-Null
+          gh release download $tag --pattern 'Bugeon-Journey-Windows-x64-setup.exe' --dir $readback --clobber
+          if ($LASTEXITCODE -ne 0) { throw '업로드한 Windows 설치본을 되받지 못했습니다.' }
+          $localHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash
+          $remoteHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $readback 'Bugeon-Journey-Windows-x64-setup.exe')).Hash
+          if ($localHash -ne $remoteHash) { throw "릴리스 read-back 해시 불일치: $localHash / $remoteHash" }
+          Write-Host "Windows release read-back OK: $remoteHash"

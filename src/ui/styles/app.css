@@ -1385,6 +1385,36 @@ select.zone-input { text-overflow: ellipsis; }
 
 /* 설치 가이드(플레이북) 내려받기 — 두 형식 버튼을 나란히. 좁으면 줄바꿈. */
 .guide-pb-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.guide-installer {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-medium);
+  background: color-mix(in srgb, var(--surface) 92%, var(--a1d) 8%);
+}
+.guide-installer-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: 1.08rem;
+  font-weight: 800;
+}
+.guide-installer-badge {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: var(--accent-strong);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+.guide-installer-meta {
+  margin: 0.35rem 0 var(--space-3);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.guide-installer .guide-open-dashboard { margin-top: var(--space-3); }
 .guide-pb-btn { margin-top: var(--space-2); }
 
 /* 기계화 검증 흐름도(mechChecks) — 가이드 모달 셸 재사용 + 전용 클래스 */
@@ -1959,12 +1989,16 @@ select.zone-input { text-overflow: ellipsis; }
 .pe-h-ne { right: -11px; top: -11px; cursor: nesw-resize; }
 .pe-h-sw { left: -11px; bottom: -11px; cursor: nesw-resize; }
 .pe-h-se { right: -11px; bottom: -11px; cursor: nwse-resize; }
-/* 원근 펴기 오버레이: 4점 독립 핸들 + 사다리꼴 윤곽(SVG). 배경은 이벤트 통과, 핸들만 조작. */
+/* 원근 펴기 오버레이: 모서리 점과 네 점선 모두 조작한다. 점선은 굵은 투명 stroke로 잡기 쉽게. */
 .pe-quad-box { position: absolute; inset: 0; pointer-events: none; }
 .pe-quad-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .pe-quad-svg polygon {
   fill: rgba(0, 0, 0, .25); stroke: rgba(255, 255, 255, .95);
   stroke-width: 1.5; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke;
+}
+.pe-quad-edge {
+  pointer-events: stroke; stroke: transparent; stroke-width: 24;
+  vector-effect: non-scaling-stroke; cursor: move; touch-action: none;
 }
 .pe-quad-h {
   pointer-events: auto; transform: translate(-50%, -50%); cursor: grab;
