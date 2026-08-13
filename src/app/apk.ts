@@ -13,7 +13,7 @@
 // import 한다 — 게이트가 가이드의 하드코딩 URL을 잡는다.
 
 /** owner/repo — 다운로드 주소와 API 주소가 같은 저장소를 가리키게 하는 한 곳(SSOT). */
-const REPO_SLUG = 'hanwha27-TDTU/Travel-Memories';
+export const REPO_SLUG = 'hanwha27-TDTU/Travel-Memories';
 
 /** CI가 덮어쓰는 고정 릴리스 태그 — 워크플로의 `gh release upload` 대상과 1:1. */
 export const APK_RELEASE_TAG = 'apk-latest';

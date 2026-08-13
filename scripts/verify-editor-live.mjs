@@ -4418,6 +4418,35 @@ const openGuideCard = async (label) => {
   check(`가이드 「${label}」 화면이 실제로 열렸다(전제 — 못 열면 아래 판정은 공허하다 · §4)`, drawn, drawn ? '' : '본문이 비어 있음');
 };
 
+await openGuideCard('설치파일 다운로드');
+const installerGuide = await page.evaluate(() => ({
+  text: document.querySelector('.guide-detail-body')?.textContent ?? '',
+  platforms: [...document.querySelectorAll('.guide-installer-title')].map((node) => node.textContent ?? ''),
+  links: [...document.querySelectorAll('.guide-installer a')].map((a) => ({ text: a.textContent ?? '', href: a.href })),
+  firstRecommended: document.querySelector('.guide-installer:first-of-type .guide-installer-badge')?.textContent ?? '',
+}));
+check(
+  '통합 설치 가이드: Android·Windows 두 형제를 같은 화면에 그린다',
+  installerGuide.platforms.length === 2
+    && installerGuide.text.includes('안드로이드')
+    && installerGuide.text.includes('Windows'),
+  JSON.stringify(installerGuide),
+);
+check(
+  '통합 설치 가이드: 두 버튼이 각 고정 릴리스 주소를 쓴다',
+  installerGuide.links.length === 2
+    && installerGuide.links.some((link) => link.href.includes('/releases/download/apk-latest/app-debug.apk'))
+    && installerGuide.links.some((link) => link.href.includes('/releases/download/windows-latest/Bugeon-Journey-Windows-x64-setup.exe')),
+  JSON.stringify(installerGuide.links),
+);
+check(
+  '통합 설치 가이드: 현재 기기 추천 표시와 쉬운 Windows 경고 설명이 보인다',
+  installerGuide.firstRecommended === '이 기기에 추천'
+    && installerGuide.text.includes('추가 정보')
+    && installerGuide.text.includes('실행'),
+  installerGuide.text,
+);
+
 await openGuideCard('한국·중앙아시아 지도 설정');
 const mapGuide = await page.evaluate(() => ({
   text: document.querySelector('.guide-detail-body')?.textContent ?? '',

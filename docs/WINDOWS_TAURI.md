@@ -121,6 +121,16 @@ Windows 운영 오리진을 쓰려면 외부 대시보드에 다음 값이 필�
 - uninstall/reinstall 및 클라우드/백업 복구
 - 코드 서명과 updater는 installer 안정화 뒤 별도 릴리스
 
+#### 현재 설치파일 배포 계약
+
+- 앱 가이드의 `설치파일 다운로드` 카드에서 Android와 Windows 버튼을 함께 보여 준다.
+- Windows에서 열면 Windows 버튼이 먼저 나오고, 다른 기기용 Android 버튼도 숨기지 않는다.
+- Windows 고정 주소는 `windows-latest/Bugeon-Journey-Windows-x64-setup.exe`다. 버전별 파일명을 가이드에 직접 적지 않는다.
+- `.github/workflows/windows-installer.yml`이 `main`에서 NSIS 설치본과 SHA-256을 고정 릴리스에 `--clobber`로 올린다.
+- 업로드가 끝나면 같은 자산을 다시 내려받아 로컬 빌드와 SHA-256이 같은지 확인한다. 같지 않으면 배포 실패다.
+- 버전은 `src/app/changelog.ts`에서 `scripts/build-windows.mjs`가 읽어 Tauri에 주입한다. `tauri.conf.json`과 `Cargo.toml`의 `0.0.0`은 사람이 갱신하지 않는 자리표시자다.
+- 현재 설치본은 개인용 미서명 앱이다. Windows 경고에서 `추가 정보 → 실행`을 눌러 설치하며, 코드 서명은 별도 단계다.
+
 ## 6. rollback
 
 > 축: 플랫폼별 되돌림 단위

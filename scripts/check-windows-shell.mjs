@@ -10,7 +10,8 @@ const OAUTH_URL = 'https://ihxiywffzmvrwmqvatzt.supabase.co/auth/v1/authorize*';
 export function auditWindowsShell({ pkg, config, capability, cargo, rust, androidManifest }) {
   const problems = [];
   if (pkg.scripts?.['windows:web'] !== 'tsc --noEmit && vite build --base ./ --outDir windows-dist') problems.push('windows:web은 상대 base의 windows-dist를 만들어야 한다');
-  if (pkg.scripts?.['windows:build'] !== 'tauri build --bundles nsis') problems.push('windows:build는 NSIS만 명시적으로 만들어야 한다');
+  if (pkg.scripts?.['windows:build'] !== 'node scripts/build-windows.mjs') problems.push('windows:build는 changelog 버전을 주입하는 전용 빌더를 써야 한다');
+  if (config.version !== '0.0.0') problems.push('tauri.conf 버전은 배포판처럼 보이지 않는 0.0.0 자리표시자여야 한다');
   if (config.identifier !== 'app.bugeon.journey') problems.push('identifier가 고정값과 다르다');
   if (config.app?.windows?.[0]?.label !== 'main') problems.push('권한 대상 main 창이 없다');
   if (config.app?.windows?.[0]?.useHttpsScheme !== true) problems.push('useHttpsScheme가 true가 아니다 — 저장소 오리진이 바뀐다');
@@ -45,8 +46,8 @@ export function auditWindowsShell({ pkg, config, capability, cargo, rust, androi
 
 function fixtures() {
   return {
-    pkg: { scripts: { 'windows:web': 'tsc --noEmit && vite build --base ./ --outDir windows-dist', 'windows:build': 'tauri build --bundles nsis' } },
-    config: { identifier: 'app.bugeon.journey', app: { windows: [{ label: 'main', useHttpsScheme: true }] }, build: { frontendDist: '../windows-dist' }, bundle: { targets: ['nsis'] }, plugins: { 'deep-link': { desktop: { schemes: ['app.bugeon.journey'] } } } },
+    pkg: { scripts: { 'windows:web': 'tsc --noEmit && vite build --base ./ --outDir windows-dist', 'windows:build': 'node scripts/build-windows.mjs' } },
+    config: { version: '0.0.0', identifier: 'app.bugeon.journey', app: { windows: [{ label: 'main', useHttpsScheme: true }] }, build: { frontendDist: '../windows-dist' }, bundle: { targets: ['nsis'] }, plugins: { 'deep-link': { desktop: { schemes: ['app.bugeon.journey'] } } } },
     capability: { windows: ['main'], permissions: ['core:default', 'deep-link:default', { identifier: 'opener:allow-open-url', allow: [{ url: OAUTH_URL }] }] },
     cargo: 'tauri = { version = "2.11.5" }\ntauri-plugin-deep-link = "=2.4.9"\ntauri-plugin-opener = "=2.5.4"\ntauri-plugin-single-instance = { version = "=2.4.3", features = ["deep-link"] }',
     rust: 'tauri_plugin_single_instance::init(); tauri_plugin_deep_link::init(); tauri_plugin_opener::init();',

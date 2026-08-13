@@ -1,6 +1,6 @@
 [package]
 name = "bugeon-journey"
-version = "2.36.0"
+version = "0.0.0"
 description = "Bugeon Journey Windows desktop shell"
 authors = ["Kim Bugeon"]
 edition = "2021"

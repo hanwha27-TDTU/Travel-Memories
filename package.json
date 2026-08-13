@@ -10,7 +10,7 @@
     "build": "tsc --noEmit && vite build && node scripts/gen-version-file.mjs",
     "windows:web": "tsc --noEmit && vite build --base ./ --outDir windows-dist",
     "windows:dev": "tauri dev",
-    "windows:build": "tauri build --bundles nsis",
+    "windows:build": "node scripts/build-windows.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
