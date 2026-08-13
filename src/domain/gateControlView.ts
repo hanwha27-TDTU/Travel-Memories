@@ -85,8 +85,14 @@ export function gateControlHeadline(axes: readonly AxisSummary[]): string {
   // 🔴 **0을 「모두 갖췄다」로 반올림하지 않는다.** 0/0은 만족이 아니라 **못 읽은 것**이다.
   //    이 저장소의 최빈 실패가 정확히 이것이다(대상 0에서 나오는 초록은 「위반 없음」이
   //    아니라 「안 봤다」). 첫 판이 여기서 걸렸고, 유닛이 잡았다.
-  if (!axes.length || axes[0].total === 0) return '게이트 정보를 읽지 못했어요.';
+  if (!axes.length || axes[0].total === 0) return '검사 스크립트 정보를 읽지 못했어요.';
   const weakest = axes.reduce((a, b) => (b.have / b.total < a.have / a.total ? b : a));
-  if (weakest.have === weakest.total) return `게이트 ${weakest.total}개가 세 가지를 모두 갖췄어요.`;
-  return `게이트 ${weakest.total}개 중 「${weakest.label}」가 ${weakest.have}개예요 — 가장 약한 자리입니다.`;
+  // 🔴 **한정을 생략하지 않는다**(2026-08-13 · §17 표면↔표면). 예전엔 그냥 「게이트 N개」였는데,
+  //    가이드 화면은 **하네스 항목 수**(지금 72)를 말하고 이 문장은 **검사 스크립트 수**(지금 71)를
+  //    말한다 — 둘 다 참인데 **같은 낱말**이라 사용자가 두 화면을 보면 어긋난 것처럼 읽힌다.
+  //    두 모집단이 다른 이유는 하나다: `typecheck`·`unit-tests`는 하네스 항목이지만
+  //    `scripts/*.mjs`가 아니라서 **대조군을 가질 스크립트 자체가 없다.**
+  //    숫자가 자기 모집단의 이름을 달고 다니면 이 모순은 구조적으로 생기지 않는다(§7 2층).
+  if (weakest.have === weakest.total) return `검사 스크립트 ${weakest.total}개가 세 가지를 모두 갖췄어요.`;
+  return `검사 스크립트 ${weakest.total}개 중 「${weakest.label}」가 ${weakest.have}개예요 — 가장 약한 자리입니다.`;
 }
