@@ -319,7 +319,10 @@ if (isMain) {
     if (hasControl(code)) withControl.push(g);
     else without.push(g);
     if (declaresSelftest(code)) runnable.push(g);
-    by[announceStyle(code)].push(g);
+    // 🔴 `||=`인 이유: 나중에 누가 `announceStyle`에 **다섯 번째 값**을 더하고 통을 안 만들면,
+    //    `by[새값].push`가 TypeError로 **스택째 죽는다** — 그게 바로 이 판이 없애려는 §18-G
+    //    결함이다. 통을 만들어 두면 그 게이트는 아래 합계 대조에 안 잡혀 **판정으로** 걸린다.
+    (by[announceStyle(code)] ||= []).push(g);
   }
   const cleanExit = by.verdict;
   const dies = by.throw;
