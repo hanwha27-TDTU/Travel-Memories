@@ -14,7 +14,9 @@
 //  A) **미래 날짜 금지**(항상) — 추적 중인 모든 `.md`와 changelog. 오늘+1일을 넘는 날짜는
 //     오타이거나 앞당겨 적은 것이다. 이건 릴리스 여부와 무관하게 늘 참이라 늘 잰다.
 //  B) **릴리스가 얼려 있으면**(§18-H `.release-lock.json`의 `armed`) **최신 changelog 항목의
-//     날짜가 오늘이어야 한다.** 이게 사용자가 요청한 「머지 전 재확인」이다.
+//     날짜가 예상 도착 시각의 UTC 날짜여야 한다.** 이게 사용자가 요청한 「머지 전 재확인」이다.
+//     자정이 가까우면 오늘 날짜로 시작한 릴리스가 다음 날 도착한다. 그때 미리 다음 날을 적게
+//     막지 않으면, 도착하는 순간 changelog 날짜가 조용히 낡는다(T-029).
 //     🔴 얼려 있지 않을 때 이걸 재면 **§15 축적 기간에 오탐**이 난다 — 그때 최신 항목은
 //     「지난 릴리스」라 날짜가 과거인 것이 정상이다. 그래서 잠금을 앵커로 쓴다.
 //  C) 대상 파일이 0이면 통과가 아니라 **exit 2**(모집단 0에서 공허하게 초록을 내지 않는다).
@@ -25,7 +27,8 @@
 //    그러므로 이 게이트가 잡는 것은 「시간대 차이」가 아니라 **「이틀 이상 낡은 날짜」**다.
 //
 // 🔴 정직한 한계 — 못 보는 것:
-//    ① 날짜가 **그럴듯하게 틀린 것**은 못 본다. 어제 날짜로 적으면 허용 범위 안이다.
+//    ① 릴리스 밖 문서의 날짜가 **그럴듯하게 틀린 것**은 못 본다. 어제 날짜는 미래 검사의
+//       허용 범위 안이다. 다만 얼린 릴리스의 최신 항목은 도착일과 정확히 대조한다.
 //    ② 어떤 날짜가 **무엇의 날짜인지**는 모른다 — 형식만 본다. 「이 사건이 정말 그날
 //       일어났는가」는 사람만 안다(§8 — 계산이 아니라 판단이다).
 //    ③ 얼리지 않고 머지하면 B는 **돌지 않는다.** 그건 이 게이트의 구멍이 아니라
@@ -48,12 +51,25 @@ const LOCK = '.release-lock.json';
 /** 시간대 때문에 정상적으로 생기는 하루 차이는 위반이 아니다(머리말 참조). */
 export const TOLERANCE_DAYS = 1;
 
+/**
+ * 릴리스가 CI를 지나 Pages에 도착하기까지의 꼬리. 2026-08-13 v2.27 실측은 13.0분이었다
+ * (PR CI 시작 → 배포 완료; harness 2.2분 · 머지→배포 0.8분 · 나머지는 판단 시간).
+ * 추측한 25분이 아니라 측정값을 쓴다. 이 값은 도착 보증이 아니라 날짜를 무엇으로 적을지
+ * 알려 주는 기준선이다 — 더 오래 걸릴 수 있다는 사실은 이 게이트가 숨기지 않는다.
+ */
+export const RELEASE_ARRIVAL_TAIL_MINUTES = 13;
+
 /** `YYYY-MM-DD`. 앞뒤에 숫자가 붙은 것(버전·해시 조각)은 날짜가 아니다. */
 const DATE_RE = /(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)/g;
 
 /** 두 `YYYY-MM-DD` 사이의 일수(a - b). 문자열만 받는다 — 시계는 호출자가 준다. */
 export function daysBetween(a, b) {
   return Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86400000);
+}
+
+/** 예상 릴리스 도착 시각의 UTC 날짜. 시계는 호출자가 넣어 재현 가능하게 둔다. */
+export function expectedReleaseDate(now, tailMinutes = RELEASE_ARRIVAL_TAIL_MINUTES) {
+  return new Date(now.getTime() + tailMinutes * 60_000).toISOString().slice(0, 10);
 }
 
 /**
@@ -77,17 +93,16 @@ export function newestRelease(src) {
 }
 
 /**
- * B) 릴리스가 얼려 있을 때만 잰다 — 최신 항목이 **오늘 것**인가.
+ * B) 릴리스가 얼려 있을 때만 잰다 — 최신 항목이 **예상 도착일 것**인가.
  *
  * @returns 위반 문자열 배열(빈 배열이면 통과) · 얼려 있지 않으면 빈 배열
  */
-export function findStaleReleaseDate(newest, today, armed) {
+export function findStaleReleaseDate(newest, arrivalDate, armed) {
   if (!armed || !newest) return [];
-  const gap = daysBetween(today, newest.date);
-  if (gap <= TOLERANCE_DAYS) return [];
+  if (newest.date === arrivalDate) return [];
   return [
-    `${CHANGELOG}: 최신 항목 v${newest.version}의 날짜가 ${newest.date}인데 오늘은 ${today}입니다(${gap}일 낡음).` +
-      ' 릴리스를 얼린 상태이므로 이 날짜는 **머지·배포일**이어야 합니다.',
+    `${CHANGELOG}: 최신 항목 v${newest.version}의 날짜가 ${newest.date}인데 예상 도착일은 ${arrivalDate}입니다.` +
+      ` 릴리스를 얼린 상태이므로 이 날짜는 **도착 예상일**이어야 합니다(꼬리 ${RELEASE_ARRIVAL_TAIL_MINUTES}분).`,
   ];
 }
 
@@ -95,16 +110,29 @@ runSelfTest('check-date-freshness', () => {
   const T = '2026-08-13';
   // ── 잡아야 하는 것 ──
   if (findFutureDates('회의는 2026-09-01에', 'x.md', T).length !== 1) throw new Error('SELF-TEST 실패: 미래 날짜를 못 잡았다.');
-  if (findStaleReleaseDate({ version: '2.26', date: '2026-08-11' }, T, true).length !== 1) {
-    throw new Error('SELF-TEST 실패: 얼린 상태에서 이틀 낡은 날짜를 못 잡았다.');
+  if (expectedReleaseDate(new Date('2026-08-13T12:00:00.000Z')) !== T) {
+    throw new Error('SELF-TEST 실패: 한낮의 도착일이 오늘이 아니다.');
+  }
+  if (expectedReleaseDate(new Date('2026-08-13T23:46:59.999Z')) !== T) {
+    throw new Error('SELF-TEST 실패: 자정 13분 전 경계에서 도착일을 잘못 넘겼다.');
+  }
+  const next = '2026-08-14';
+  if (expectedReleaseDate(new Date('2026-08-13T23:47:00.000Z')) !== next) {
+    throw new Error('SELF-TEST 실패: 자정 13분 전 경계에서 다음 날 도착일을 못 잡았다.');
+  }
+  if (findStaleReleaseDate({ version: '2.26', date: T }, T, true).length !== 0) {
+    throw new Error('SELF-TEST 실패: 한낮의 오늘 날짜를 위반으로 봤다.');
+  }
+  if (findStaleReleaseDate({ version: '2.26', date: T }, next, true).length !== 1) {
+    throw new Error('SELF-TEST 실패: 자정 직전 오늘 날짜를 위반으로 못 잡았다.');
+  }
+  if (findStaleReleaseDate({ version: '2.26', date: next }, next, true).length !== 0) {
+    throw new Error('SELF-TEST 실패: 자정 직전의 다음 날 날짜를 위반으로 봤다.');
   }
   // ── 잡으면 안 되는 것(오탐 금지) ──
   if (findFutureDates('오늘은 2026-08-13', 'x.md', T).length !== 0) throw new Error('SELF-TEST 실패: 오늘 날짜를 미래로 봤다.');
   if (findFutureDates('내일 2026-08-14', 'x.md', T).length !== 0) throw new Error('SELF-TEST 실패: 시간대 하루 차이를 위반으로 봤다(KST는 UTC보다 앞선다).');
   if (findFutureDates('버전 1-2-3456과 12026-01-01', 'x.md', T).length !== 0) throw new Error('SELF-TEST 실패: 날짜가 아닌 숫자를 날짜로 봤다.');
-  if (findStaleReleaseDate({ version: '2.26', date: '2026-08-12' }, T, true).length !== 0) {
-    throw new Error('SELF-TEST 실패: 하루 차이(시간대)를 낡음으로 봤다.');
-  }
   if (findStaleReleaseDate({ version: '2.26', date: '2026-07-01' }, T, false).length !== 0) {
     throw new Error('SELF-TEST 실패: 얼리지 않았는데 쟀다 — §15 축적 기간에 오탐이 난다.');
   }
@@ -116,12 +144,14 @@ runSelfTest('check-date-freshness', () => {
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain && process.argv.includes('--selftest')) {
-  console.log('check-date-freshness: 셀프테스트 통과 (잡아야 할 것 3 · 잡으면 안 되는 것 5 · 파서 3)');
+  console.log('check-date-freshness: 셀프테스트 통과 (잡아야 할 것 4 · 잡으면 안 되는 것 5 · 파서 4)');
   process.exit(0);
 }
 
 if (isMain) {
-  const today = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const arrivalDate = expectedReleaseDate(now);
 
   // 🔴 한글 경로가 있으므로 `-z`로 받는다. 기본 출력은 한글을 이스케이프해 파일을 못 연다(M-0138).
   let tracked = [];
@@ -164,7 +194,7 @@ if (isMain) {
     console.error(`check-date-freshness: 릴리스를 얼렸는데 ${CHANGELOG}의 최신 항목을 못 읽었습니다.`);
     process.exit(2);
   }
-  problems.push(...findStaleReleaseDate(newest, today, armed));
+  problems.push(...findStaleReleaseDate(newest, arrivalDate, armed));
 
   if (problems.length) {
     console.error('check-date-freshness: **날짜가 오늘과 어긋납니다**.');
@@ -176,11 +206,12 @@ if (isMain) {
   console.log(
     `check-date-freshness: 문서 ${targets.length}개에 미래 날짜 없음` +
       (armed
-        ? ` · 릴리스 얼림 상태에서 최신 항목 v${newest.version}(${newest.date})이 오늘(${today})과 일치.`
+        ? ` · 릴리스 얼림 상태에서 최신 항목 v${newest.version}(${newest.date})이 예상 도착일(${arrivalDate})과 일치(꼬리 ${RELEASE_ARRIVAL_TAIL_MINUTES}분).`
         : ` · 릴리스가 얼려 있지 않아 **최신 항목 날짜는 재지 않았습니다**(§15 축적 중에는 과거가 정상).`),
   );
   console.log(
     `    ↳ 정직한 한계: **형식만** 봅니다 — 그럴듯하게 틀린 날짜(어제로 적기)와 「그 사건이 정말 그날인가」는 못 봅니다.` +
-      ` 시간대 때문에 ±${TOLERANCE_DAYS}일은 허용합니다(CI는 UTC · 사용자는 KST).`,
+      ` 시간대 때문에 문서 미래 날짜는 ±${TOLERANCE_DAYS}일을 허용합니다(CI는 UTC · 사용자는 KST).` +
+      ` 다만 얼린 릴리스의 최신 항목은 도착 예상일과 정확히 일치해야 합니다.`,
   );
 }

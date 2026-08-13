@@ -8,6 +8,15 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0190 · **v2.37 설치 릴리스 종료 점검과 T-029 회수** (2026-08-14 · 세션 종료)
+
+- 운영 `main`은 세션 시작 시 `131edef`였고 앱 정본은 v2.37이다. Windows 설치본 배포 run `31735061416`과 Pages run `31735061395`가 성공했으며, 운영 `version.json`은 HTTP 200으로 `2.37`을 되읽었다.
+- Windows 설치본 `Bugeon Journey_2.37.0_x64-setup.exe`는 4,654,177바이트이고 공개된 SHA-256 파일과 직접 계산값 `7795e48a0cbc25ea8dbcb452265f1001b6c4e3a73cc1f23cfed96b37c1e49674`가 일치했다. Android v2.37 APK 배포 run `31732828090`도 성공했다.
+- PR 없이 남아 있던 T-029 구현을 회수했다. 얼린 릴리스의 날짜를 실행 시작일이 아니라 실측 배포 꼬리 13분 뒤 UTC 도착일과 대조하고, 자정 직전에는 다음 날 날짜를 안내·허용한다. 앱 기능·DB·Storage·버전은 바꾸지 않는다.
+- Dependabot의 `glib 0.18.5` 보안 업데이트 불가를 숨기지 않고 T-037로 등록했다. 현재 Tauri의 Linux GTK 전이 경로이며 Windows 산출물에는 연결되지 않지만, 호환 업그레이드가 생기면 lock/tree와 Windows 설치본을 다시 검증한다.
+- 이 종료 PR에서 생성 문서·게이트·빌드·하네스·라이브를 다시 실행하고, Required CI·병합·Pages read-back까지 확인한다. 정확한 PR·merge·run 번호는 GitHub 실행 기록을 권위로 삼는다.
+- 다음 착수 우선순위: T-037의 호환 업그레이드 가능 여부를 짧게 판정한 뒤, 사용자가 우즈베키스탄 실기기를 쓸 수 있을 때 T-036의 실제 TomTom 타일·팬·핀치를 확인한다.
+
 ## HANDOFF-0189 · **원근 펴기 네 점선을 직접 끄는 조작** (2026-08-13 · v2.37 후보)
 
 - 사용자가 사진 편집 화면의 위·아래·왼쪽·오른쪽 점선을 파란색으로 표시하며 그 선으로도 조절하고 싶다고 요청했다. 기존에는 네 모서리 원만 포인터를 받았다.
@@ -62,7 +71,6 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 - 사용자가 Kakao JavaScript SDK 도메인 3개, GitHub 변수 `VITE_KAKAO_JAVASCRIPT_KEY`, Supabase 시크릿 `KAKAO_REST_KEY`를 등록했다. CLI로 두 설정의 **이름 존재만** 되읽었고 값·해시는 출력하지 않았다.
 - `docs/DEPLOYMENT.md`에 링크와 함께 네 단계 설정 가이드를 추가했다. 로그인 Redirect URI는 비워 두고, JavaScript 키와 REST 키의 자리를 바꾸지 않는다고 명시했다.
 - 작업 브랜치 `codex/kakao-map-korea`에서 프로덕션 키 배선 build, 제공자 유닛 5건, 빠른 게이트 68개, 편집 라이브 407건과 전체 라이브를 통과했다. Kakao SDK 허용 주소를 일부러 뺀 CSP 대조군은 예상대로 RED였고 복원 뒤 GREEN이다. 사용자 지시로 v2.34에 묶어 Pages까지 배포하며, 완료는 Required CI와 운영 `version.json` read-back 뒤에만 보고한다.
-
 ## HANDOFF-0182 · **v2.33 영상·순간 기록 개선과 운영 정합성 릴리스 마감** (2026-08-13 · 릴리스 진행)
 
 - 작업 브랜치 `codex/video-upload-playback`은 영상 업로드 UI·클릭 재생, 순간 편집 첫 터치, 동행인 입력, 좌표·국가·도시 표시와 좌표 전용 복사를 함께 담는다. 개발 도구 원장과 생성물 정합성, Windows Git hook 판정, 전역 공유 스킬/vendor/lock 해시 복구도 같은 브랜치에 통합했다.
