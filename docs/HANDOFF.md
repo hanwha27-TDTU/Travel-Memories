@@ -8,6 +8,14 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0191 · **장소 칩의 국가코드 누락과 TomTom v2.38 후보** (2026-08-14)
+
+- 운영 Pages에서 사용자의 기존 `TSMU 대학병원 4번 건물` 장소 칩을 직접 열었다. 지도 렌더와 확대 버튼은 동작했지만 하단 귀속이 OpenStreetMap이어서 TomTom 완료라고 말할 수 없었다.
+- 원인은 여행 전체 지도가 `LocalPlace.countryCode`를 전달하는 반면, 순간 카드의 장소 칩은 새 `MapPoint`를 만들며 좌표·이름만 복사하고 국가코드를 버린 형제 비대칭이었다. 연결된 장소의 국가코드를 같은 대장 SSOT에서 읽어 칩 지도에도 전달한다.
+- 라이브 검사에 UZ 국가코드 장소와 연결 순간을 직접 심고 장소 칩을 눌렀다. 테스트 전용 키·가로챈 타일로 `provider=tomtom`과 TomTom 타일 요청을 함께 확인했으며 전체 라이브는 425/425 PASS, typecheck·production build도 통과했다. 실제 키 값은 읽거나 출력하지 않았다.
+- T-037은 최신 Tauri 2.11.5·tauri-runtime-wry 2.11.4·wry 0.56.1도 Linux에서 GTK/glib 0.18 계열을 요구함을 확인했다. Windows target의 cargo tree에는 glib가 없으므로 경고를 숨기거나 무리하게 fork하지 않고 업스트림 호환 버전을 기다린다.
+- 정직한 경계: v2.38 운영 Pages 배포와 Android 실기기의 실제 TomTom 타일·팬·핀치는 아직 남아 있다. 이 인계는 릴리스 후보 증거이며 배포 완료 증거가 아니다.
+
 ## HANDOFF-0190 · **v2.37 설치 릴리스 종료 점검과 T-029 회수** (2026-08-14 · 세션 종료)
 
 - 운영 `main`은 세션 시작 시 `131edef`였고 앱 정본은 v2.37이다. Windows 설치본 배포 run `31735061416`과 Pages run `31735061395`가 성공했으며, 운영 `version.json`은 HTTP 200으로 `2.37`을 되읽었다.
@@ -1605,7 +1613,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.37<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->237<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->141<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.38<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->238<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->142<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->32<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

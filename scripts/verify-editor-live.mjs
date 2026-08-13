@@ -2947,6 +2947,59 @@ check(
 await page.locator('.map-close').click();
 await settle(page);
 
+// ── v2.38: 장소 칩도 연결된 장소의 국가코드를 잃지 않는다 ────────────────
+// 여행 전체 지도는 LocalPlace.countryCode를 넘겼지만 장소 칩은 좌표·이름만 새 배열로 만들며
+// 국가코드를 버렸다. 그래서 같은 타슈켄트 장소가 전체 지도에서는 TomTom, 칩에서는 OSM이었다.
+const tomtomChipSeed = await page.evaluate(async (momentId) => {
+  const now = new Date().toISOString();
+  const place = {
+    id: 'tomtom-chip-live', name: 'TSMU 라이브검사', latitude: 41.35045, longitude: 69.172,
+    formattedAddress: null, provider: null, providerPlaceId: null, countryCode: 'uz',
+    country: 'Uzbekistan', region: null, city: 'Tashkent', district: null, postcode: null,
+    category: null, memo: null, precision: null, spanMeters: null, mapPicked: true,
+    version: 1, baseVersion: 0, createdAt: now, updatedAt: now, deletedAt: null,
+    clientOperationId: 'tomtom-chip-live-op',
+  };
+  return await new Promise((resolve, reject) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const tx = req.result.transaction(['localPlaces', 'localMoments'], 'readwrite');
+      tx.objectStore('localPlaces').put(place);
+      const getMoment = tx.objectStore('localMoments').get(momentId);
+      getMoment.onsuccess = () => {
+        const moment = getMoment.result;
+        if (!moment) return;
+        tx.objectStore('localMoments').put({
+          ...moment,
+          placeId: place.id,
+          placeName: place.name,
+          placeLat: place.latitude,
+          placeLng: place.longitude,
+        });
+      };
+      tx.oncomplete = () => resolve({ momentId, placeId: place.id });
+      tx.onerror = () => reject(tx.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}, placeSeed.id);
+check('TomTom 장소 칩: 국가코드 연결 픽스처 주입', tomtomChipSeed?.placeId === 'tomtom-chip-live', JSON.stringify(tomtomChipSeed));
+await page.reload({ waitUntil: 'networkidle' });
+const tomtomSeededCard = page.locator('.moment-card', { hasText: placeSeed.title }).first();
+const tomtomChipButton = tomtomSeededCard.locator('.place-chip-map');
+const tomtomChipBefore = tomtomTileRequests;
+await tomtomChipButton.click();
+await page.waitForSelector('.map-overlay', { timeout: 10000 });
+await waitUntil(async () => (await page.locator('.map-canvas').getAttribute('data-map-provider')) !== null, 15000);
+const tomtomChipProvider = await page.locator('.map-canvas').getAttribute('data-map-provider');
+check(
+  '🔴 TomTom 장소 칩: 연결된 UZ 국가코드를 보존해 TomTom 타일을 실제 요청한다',
+  tomtomChipProvider === 'tomtom' && tomtomTileRequests > tomtomChipBefore,
+  `provider=${tomtomChipProvider || '(없음)'} · tile=${tomtomTileRequests - tomtomChipBefore}`,
+);
+await page.locator('.map-close').click();
+await settle(page);
+
 // ── v1.68 이후: 감정 선택 확장 + 여행 기간 요일 ─────────────────────────────
 // 계약: 생성·편집이 공유하는 감정 줄은 10종을 모두 제공하고, 폰에서도 5×2로 넘침 없이 선다.
 // 여행 기간은 시간대 없는 달력 날짜이므로 시작·종료일 각각의 요일을 같은 문장으로 보여 준다.
