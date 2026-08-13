@@ -155,9 +155,12 @@ function walk(dir) {
   return out;
 }
 
-function isSourceInput(path) {
+export function isSourceInput(path) {
   const p = slash(relative(ROOT, path));
   if (p.startsWith('src/')) return INCLUDED_EXTENSIONS.has(extname(p));
+  // Supabase CLI가 기기마다 만드는 연결/버전 메타데이터다. 실행 소스가 아니며
+  // CI에는 존재하지 않으므로 설계 문서 입력에 포함하면 재생성이 비결정적이 된다.
+  if (p.startsWith('supabase/.temp/')) return false;
   if (p.startsWith('supabase/')) return ['.ts', '.sql', '.json'].includes(extname(p));
   if (p.startsWith('scripts/')) return ['.mjs', '.js', '.py'].includes(extname(p));
   if (p.startsWith('.github/workflows/')) return ['.yml', '.yaml'].includes(extname(p));
