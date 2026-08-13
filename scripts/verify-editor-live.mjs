@@ -245,6 +245,15 @@ await page.route('**://tile.openstreetmap.org/**', (route) => {
   if (m) tileZooms.push(Number(m[1]));
   return route.fulfill({ status: 200, contentType: 'image/png', body: PNG_1X1 });
 });
+// 앱 시작 직후 기존 좌표 배지를 보강하는 역지오코딩도 외부망에 새지 않게 기본 응답을 둔다.
+// 뒤의 역지오코딩 검사는 더 나중에 등록한 구체 fixture가 우선한다. 그 fixture를 해제한 뒤에는
+// 이 fallback을 다시 걸어, 테스트가 샌드박스 밖 네트워크에 우연히 기대지 않게 한다.
+const defaultReverseRoute = (route) => route.fulfill({
+  status: 200,
+  contentType: 'application/json',
+  body: JSON.stringify({ error: 'fixture offline' }),
+});
+await page.route('**/reverse**', defaultReverseRoute);
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(String(e)));
@@ -1677,7 +1686,9 @@ await page.waitForFunction(() => {
   const f = document.querySelector('.moment-form');
   const badge = f?.querySelector('.place-picked');
   const button = f?.querySelector('.place-here');
-  return badge instanceof HTMLElement && !badge.hidden && (badge.textContent ?? '').includes('지금 내 위치') && !button?.disabled;
+  return badge instanceof HTMLElement && !badge.hidden
+    && (badge.textContent ?? '').includes('37.56650, 126.97800')
+    && !button?.disabled;
 });
 const hereApplied = await page.evaluate(() => {
   const f = document.querySelector('.moment-form');
@@ -1692,7 +1703,7 @@ const hereApplied = await page.evaluate(() => {
 });
 check(
   '🔴 [📍 내 위치]: 누르면 **좌표가 실제로 들어간다**(라벨만 읽지 않는다 — §13 4항)',
-  hereApplied.badge.includes('지금 내 위치'),
+  hereApplied.badge.includes('37.56650, 126.97800'),
   JSON.stringify(hereApplied),
 );
 check(
@@ -1868,6 +1879,7 @@ check(
   namedFromPhoto || '(빈 칸)',
 );
 await page.unroute('**/reverse**'); // §3-C — 내가 건 스텁을 내가 뗀다
+await page.route('**/reverse**', defaultReverseRoute);
 
 // ── 💰 비용 메모: 모델에 있던 note를 화면이 부르는가 ──
 const noteField = await page.evaluate(() => {
@@ -1979,6 +1991,7 @@ check('시간대 제안: 입력 칸이 **그 시간대로** 적는다고 말한�
 
 // §3-C 되돌리기 — 이 클릭은 **여행을 실제로 고쳤다.** 원래대로 돌려놓는다.
 await page.unroute('**/reverse**');
+await page.route('**/reverse**', defaultReverseRoute);
 await page.locator('.hero-edit').first().click();
 await settle(page);
 await page.selectOption('[data-zone-input]', '');
@@ -2116,6 +2129,7 @@ check(
   kept2,
 );
 await page.unroute('**/reverse**');
+await page.route('**/reverse**', defaultReverseRoute);
 
 // ── 🔴 v1.30: **위치 없는 사진**과 **이름 없는 좌표** (사용자 지적 2026-07-31 *"안되네요"*) ──
 //
@@ -2244,6 +2258,7 @@ await page.evaluate(() => localStorage.setItem('bugeon:photoGeoOk', '1')); // §
 await noGpsCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
 await settle(page);
 await page.unroute('**/reverse**');
+await page.route('**/reverse**', defaultReverseRoute);
 // §3-C — 편집 폼을 닫고 스크롤을 되돌린다(사진 2장은 이 순간에 실제로 붙었다 — 뒤 검사가
 // 개수를 세지 않으므로 그대로 둔다. 세는 검사가 생기면 여기서 지워야 한다).
 await editCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
@@ -2833,7 +2848,7 @@ const memoryFields = await page.evaluate(() => {
     placeBelowInput: Boolean(inputRect && placeRects.every((r) => r.top >= inputRect.bottom)),
     placeHeights: placeRects.map((r) => r.height),
     photoCount: photoRects.length,
-    photoOneRow: photoRects.length === 2 && new Set(photoRects.map((r) => Math.round(r.top))).size === 1,
+    photoOneRow: photoRects.length === 3 && new Set(photoRects.map((r) => Math.round(r.top))).size === 1,
     photoWidthSpread: photoRects.length ? Math.max(...photoRects.map((r) => r.width)) - Math.min(...photoRects.map((r) => r.width)) : -1,
     photoHeights: photoRects.map((r) => r.height),
     period: document.querySelector('.detail-period')?.textContent ?? '',
@@ -2849,8 +2864,8 @@ check('순간 폼 장소: 입력 아래 **검색·지도·내 위치가 같은 �
   memoryFields.placeCount === 3 && memoryFields.placeOneRow && memoryFields.placeBelowInput
     && memoryFields.placeWidthSpread <= 1,
   JSON.stringify(memoryFields));
-check('순간 폼 사진: **사진 추가·갤러리에서가 같은 폭 한 줄**',
-  memoryFields.photoCount === 2 && memoryFields.photoOneRow && memoryFields.photoWidthSpread <= 1,
+check('순간 폼 미디어: **사진 추가·갤러리에서·영상 추가가 같은 폭 한 줄**',
+  memoryFields.photoCount === 3 && memoryFields.photoOneRow && memoryFields.photoWidthSpread <= 1,
   JSON.stringify(memoryFields));
 check('순간 폼 보조 버튼: 터치 44px을 지키며 **46px 이하 공용 밀도**',
   [...memoryFields.emotionHeights, ...memoryFields.placeHeights, ...memoryFields.photoHeights]
@@ -3996,8 +4011,8 @@ await page.waitForFunction(() => (document.querySelector('.place-input')?.value 
   });
 const revBadge = await page.evaluate(() => document.querySelector('.place-picked-text')?.textContent ?? '');
 check(
-  '역지오코딩: 배지가 전체 주소를 보여 준다(어디인지 확인할 수 있게)',
-  revBadge.includes('종로구'),
+  '역지오코딩: 배지가 좌표와 행정구역을 함께 보여 준다(어디인지 확인할 수 있게)',
+  revBadge.includes('37.57960, 126.97700') && revBadge.includes('서울특별시'),
   revBadge,
 );
 
@@ -5020,6 +5035,40 @@ await page.locator('.moment-form .moment-video-input').setInputFiles({
 await page.locator('.moment-form button[type="submit"]').click();
 const videoCard = page.locator('.moment-card').filter({ hasText: '라이브 영상 순간' }).first();
 await videoCard.locator('.video-thumb-button').waitFor({ state: 'visible', timeout: 60_000 });
+await videoCard.getByRole('button', { name: '이 순간 편집' }).click();
+const phoneAttachmentActions = await videoCard.locator('.moment-addphoto').evaluate((row) => {
+  const actions = [...row.querySelectorAll('.form-utility')];
+  const rects = actions.map((action) => action.getBoundingClientRect());
+  const hiddenInputs = [...row.querySelectorAll('input[type="file"]')]
+    .every((input) => input.getClientRects().length === 0);
+  return {
+    count: actions.length,
+    rows: new Set(rects.map((rect) => Math.round(rect.top))).size,
+    cols: new Set(rects.map((rect) => Math.round(rect.left))).size,
+    widthSpread: Math.max(...rects.map((rect) => rect.width)) - Math.min(...rects.map((rect) => rect.width)),
+    hiddenInputs,
+    text: row.textContent ?? '',
+  };
+});
+check('영상 추가 UI: 폰에서 네 첨부 행동이 같은 폭 2×2이고 네이티브 파일 입력은 숨긴다',
+  phoneAttachmentActions.count === 4 && phoneAttachmentActions.rows === 2 && phoneAttachmentActions.cols === 2
+    && phoneAttachmentActions.widthSpread <= 1 && phoneAttachmentActions.hiddenInputs
+    && !phoneAttachmentActions.text.includes('선택된 파일 없음'),
+  JSON.stringify(phoneAttachmentActions));
+await page.setViewportSize({ width: 1440, height: 900 });
+await settle(page);
+const desktopAttachmentActions = await videoCard.locator('.moment-addphoto').evaluate((row) => {
+  const rects = [...row.querySelectorAll('.form-utility')].map((action) => action.getBoundingClientRect());
+  return {
+    count: rects.length,
+    rows: new Set(rects.map((rect) => Math.round(rect.top))).size,
+    widthSpread: Math.max(...rects.map((rect) => rect.width)) - Math.min(...rects.map((rect) => rect.width)),
+  };
+});
+check('영상 추가 UI: 넓은 화면에서 네 첨부 행동이 같은 폭 한 줄이다',
+  desktopAttachmentActions.count === 4 && desktopAttachmentActions.rows === 1
+    && desktopAttachmentActions.widthSpread <= 1,
+  JSON.stringify(desktopAttachmentActions));
 const videoReadBack = await page.evaluate(async () => await new Promise((resolve) => {
   const req = indexedDB.open('journey-archive');
   req.onsuccess = () => {
@@ -5046,12 +5095,20 @@ check('v2.11 영상: 실제 File 입력이 압축·포스터 생성 뒤 localVid
 await observeViewerObjectUrls(page);
 await videoCard.locator('.video-thumb-button').click();
 await page.waitForSelector('.video-viewer .video-viewer-player');
+await page.waitForFunction(() => {
+  const player = document.querySelector('.video-viewer-player');
+  return player instanceof HTMLVideoElement && player.played.length > 0;
+});
 const videoViewer = await page.locator('.video-viewer').evaluate((overlay) => ({
   role: overlay.getAttribute('role'), modal: overlay.getAttribute('aria-modal'),
-  controls: overlay.querySelector('video')?.controls, src: overlay.querySelector('video')?.src.startsWith('blob:'),
+  controls: overlay.querySelector('video')?.controls, autoplay: overlay.querySelector('video')?.autoplay,
+  played: (overlay.querySelector('video')?.played.length ?? 0) > 0,
+  src: overlay.querySelector('video')?.src.startsWith('blob:'),
+  width: overlay.querySelector('video')?.getBoundingClientRect().width ?? 0,
 }));
 check('v2.11 영상: 포스터를 누르면 접근 가능한 blob 재생기가 열린다',
-  videoViewer.role === 'dialog' && videoViewer.modal === 'true' && videoViewer.controls === true && videoViewer.src === true,
+  videoViewer.role === 'dialog' && videoViewer.modal === 'true' && videoViewer.controls === true
+    && videoViewer.autoplay === true && videoViewer.played === true && videoViewer.src === true && videoViewer.width >= 300,
   JSON.stringify(videoViewer));
   const visibleVideoBytes = Buffer.from(await page.locator('.video-viewer-player').evaluate(async (player) => {
     const blob = window.__liveObjectUrlBlobs.get(player.src);

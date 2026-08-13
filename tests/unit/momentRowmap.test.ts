@@ -11,6 +11,7 @@ const base: LocalMoment = {
   title: '협재 노을',
   note: '',
   emotion: '🥹',
+  companionNames: '아버지, 어머니',
   placeName: '협재 해변',
   placeLat: 33.3937,
   placeLng: 126.2396,
@@ -34,6 +35,7 @@ describe('moment rowmap 경계', () => {
     expect(row.place_lat).toBe(33.3937);
     expect(row.place_lng).toBe(126.2396);
     expect(row.place_id).toBe('pl-1');
+    expect(row.companion_names).toBe('아버지, 어머니');
     expect(row.occurred_at).toBe('2026-07-10T09:20:00.000Z');
     expect(row.base_version).toBe(3);
     expect(row.base_canonical_version).toBe('legacy');
@@ -47,6 +49,12 @@ describe('moment rowmap 경계', () => {
   it('링크가 없는 순간(자유 입력)도 왕복한다 — null이 정상이다', () => {
     const round = fromMomentRow(toMomentRow({ ...base, placeId: null }, 'u'));
     expect(round.placeId).toBeNull();
+  });
+
+  it('옛 서버 행에 동행인 열이 없어도 빈 값으로 읽는다', () => {
+    const row = toMomentRow(base, 'u');
+    delete row.companion_names;
+    expect(fromMomentRow(row).companionNames).toBe('');
   });
 
   it('빈 occurredAt은 null로, 되읽으면 다시 빈 문자열', () => {

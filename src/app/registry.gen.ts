@@ -72,13 +72,14 @@ export const REGISTRY = {
   'check-edge-cors',
   'check-gate-control',
   'check-enforcement-parity',
+  'check-tooling-registry',
   'check-ui-color-token',
   'unit-tests',
   'verify-editor-live',
   'verify-diagnostics-live',
   'verify-authgate-live',
   ] as const,
-  gateCount: 72,
+  gateCount: 73,
   /**
    * 게이트의 **대조군 현황**(§4). 세 축 — 대조군 보유 · 밖에서 돌려 볼 수 있음 ·
    * 실패를 판정(exit 2)으로 알림.
@@ -154,17 +155,18 @@ export const REGISTRY = {
     { name: 'check-edge-cors', control: true, runnable: true, cleanExit: true },
     { name: 'check-gate-control', control: true, runnable: true, cleanExit: true },
     { name: 'check-enforcement-parity', control: true, runnable: true, cleanExit: true },
+    { name: 'check-tooling-registry', control: true, runnable: true, cleanExit: true },
     { name: 'check-ui-color-token', control: true, runnable: false, cleanExit: true },
     { name: 'verify-editor-live', control: true, runnable: false, cleanExit: true },
     { name: 'verify-diagnostics-live', control: true, runnable: false, cleanExit: true },
     { name: 'verify-authgate-live', control: true, runnable: false, cleanExit: true },
     { name: 'verify-sync-release-live', control: true, runnable: false, cleanExit: true },
   ] as const,
-  gateControlCount: 71,
-  gateRunnableCount: 17,
-  gateCleanExitCount: 71,
+  gateControlCount: 72,
+  gateRunnableCount: 18,
+  gateCleanExitCount: 72,
   /** 최신 앱 버전(정본: src/app/changelog.ts의 첫 항목). 첫 로드 화면은 이걸 읽는다. */
-  appVersion: '2.32',
+  appVersion: '2.33',
   /** 에이전트 정의 이름(정본: .claude/agents/ — frontmatter가 있는 파일만). */
   agents: [
   'accessibility-design-auditor',
@@ -200,7 +202,7 @@ export const REGISTRY = {
   logicalRoleCount: 139,
   skillCount: 12,
   screenCount: 12,
-  migrationCount: 31,
-  changelogCount: 232,
-  researchCount: 133,
+  migrationCount: 32,
+  changelogCount: 233,
+  researchCount: 136,
 } as const;

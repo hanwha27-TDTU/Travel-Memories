@@ -14,7 +14,7 @@ const SOURCE = 'https://github.com/hanwha27-TDTU/Codex-Shared-Skills';
 // 🔴 HRL-18~20, Windows 공급망 경계, 데이터 안전 스킬 3종과 소비 앱 호환성 원장까지
 // 검증된 공통 정본 커밋이다.
 // 각 앱의 lock이 커밋을 고정하므로 다른 앱은 자기 승인 커밋에 계속 머문다.
-const APPROVED_COMMIT = '1454e8218e841de06f8079d7db041556e7f3b3ae';
+const APPROVED_COMMIT = 'd7adbed143e50c234bf42c2f1336d48c78e5392b';
 const EXPECTED_SKILLS = [
   'backup-recovery-governance',
   'bg-codex-autorouter',

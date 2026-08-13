@@ -15,6 +15,7 @@ export function openVideoViewer(item: LocalVideo, tripTitle: string): void {
   const video = el('video', 'video-viewer-player') as HTMLVideoElement;
   video.src = url;
   video.controls = true;
+  video.autoplay = true;
   video.playsInline = true;
   video.preload = 'metadata';
   const save = createMediaSaveControl('영상', () => ({
@@ -43,5 +44,8 @@ export function openVideoViewer(item: LocalVideo, tripTitle: string): void {
   document.addEventListener('keydown', onKey);
   overlay.append(close, video, actions, save.status);
   document.body.appendChild(overlay);
+  // 썸네일 자체가 「재생」 버튼이다. 사용자 클릭 제스처 안에서 바로 시작하고,
+  // 브라우저가 자동재생을 막아도 controls가 같은 자리에서 수동 재생 경로를 보존한다.
+  void video.play().catch(() => undefined);
   close.focus();
 }

@@ -1072,4 +1072,28 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '기존 production 경로는 File 입력 뒤 전체 ArrayBuffer 복사와 엔트리별 payload 복사를 추가로 만들었다. Node에서 평문과 암호화를 분리해 재니 불필요한 복사를 제거한 뒤에도 평문 sampled RSS는 약 2배, 암호화의 프로세스 최고 RSS는 약 4~5배 증가했다. renderer heap과 Android Runtime.maxMemory는 WebView renderer 종료점과 같은 값이 아니므로 안전 보증으로 쓸 수 없었다.',
     decision: 'ZIP 엔트리를 원본 입력 view로 유지하고 자동감지 전체 복사를 제거한다. 측정 하네스 자체 복사는 실패로 닫고 표식으로 남긴다. Android 복원은 File.arrayBuffer 전에 최대 32MiB에서 거절하며 renderer/native 값은 상한을 올리지 않고 더 낮추는 데만 쓴다. 초과 시 파일 손상이 아님과 PC 또는 메모리 여유가 큰 브라우저라는 실행 가능한 다음 행동을 말한다. Android WebView 실기기 PSS와 원본·영상-heavy 표본은 미검증 경계로 남긴다.',
   },
+  {
+    seq: 134,
+    date: '2026-08-13',
+    topic: '순간 편집의 첫 터치를 직접 처리하고 동행인·좌표 행정구역을 같은 장소 흐름에 묶는다',
+    human: '순간 카드의 편집 버튼이 첫 입력에는 빠져나가는 듯하고 두 번째 입력에야 열리는 문제, 장소 아래에 함께 한 사람을 기록하는 입력, 좌표 숫자와 국가·도시 표시 및 좌표만 복사하는 동작을 요청했다.',
+    ai: '터치 뒤 합성 click이 이어지는 모바일 입력 경계와 순간의 오프라인·Supabase 왕복 계약을 함께 확인했다. 동행인은 아직 독립 인물 원장이 없는 범위이므로 순간 소유의 companionNames로 두되 rowmap·canonical snapshot·이전 행 호환까지 한 묶음으로 반영해야 했다.',
+    decision: 'touch·pen의 pointerup에서 편집을 즉시 열고 뒤따르는 합성 click 한 번만 억제한다. 장소 편집 배지는 실제 좌표와 저장된 국가·도시를 표시하고 복사 버튼은 좌표 문자열만 쓴다. companion_names 마이그레이션과 정확집합 RPC 기반 함수를 갱신했으며 Bugeon_API35의 Chrome과 localhost 디버그 APK WebView에서 단일 touch, 필드 순서, 저장, 표시를 직접 검증했다.',
+  },
+  {
+    seq: 135,
+    date: '2026-08-13',
+    topic: '전역 공유 스킬 설치본과 프로젝트 승인 lock을 같은 정본 커밋으로 맞춘다',
+    human: '남아 있는 release-harness-governance 전역 설치본 해시 불일치도 해결해야 한다고 요청했다.',
+    ai: '전역 설치본을 프로젝트 lock에 억지로 되돌리기 전에 정본 저장소를 대조했다. 전역 상태는 더 새로운 정본 커밋을 가리키고 프로젝트 lock만 이전 커밋에 머물러 있었으며, 정본은 깨끗하고 origin/main과 일치했고 전체 자체 테스트도 통과했다.',
+    decision: '공식 sync-skills 설치기만 사용해 Codex·Claude 전역 설치본을 백업 후 원자 교체하고 프로젝트 vendor/lock을 같은 d7adbed 커밋으로 갱신한다. 프로젝트 release profile과 승인 커밋도 lock에 맞추고 전역·vendor·계약 주입검사·전체 게이트를 다시 실행한다. 전역 공유 스킬은 소비 저장소에서 직접 덮어쓰지 않는다.',
+  },
+  {
+    seq: 136,
+    date: '2026-08-13',
+    topic: '영상·순간 기록 개선과 개발 도구 원장·공유 스킬 정합성을 하나의 v2.33 릴리스로 닫는다',
+    human: '이번 세션의 모든 변경을 스킬과 문서에 반영하고 운영 DB, PR, Pages, APK까지 배포·검증한 뒤 인계하라고 요청했다.',
+    ai: '사용자 기능 변경뿐 아니라 companion_names 스키마, 생성물 원장, Windows hook 판정, 전역 공유 스킬 해시가 한 릴리스 경계에 함께 있으므로 공급자 우선 DB 이전과 전체 게이트를 거친 단일 배포가 필요하다고 판단했다.',
+    decision: '운영 DB는 사전 트랜잭션 적용·롤백 후 마이그레이션하고 행 수·함수 권한을 되읽는다. v2.33으로 버전을 올려 전체 생성·검증을 실행하고, 보호 브랜치 PR의 필수 CI가 같은 최종 SHA에서 통과한 뒤 squash merge한다. Pages version.json과 Android APK workflow·artifact를 각각 되읽어 배포를 닫는다.',
+  },
 ];

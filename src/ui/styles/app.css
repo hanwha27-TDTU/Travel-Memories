@@ -652,6 +652,7 @@
   background: var(--bg-2); color: var(--ink-soft);
 }
 .chip.gps { background: color-mix(in srgb, var(--sem-sky) 15%, transparent); color: var(--sem-sky-ink); }
+.chip.companions { background: color-mix(in srgb, var(--sem-pink) 13%, transparent); color: var(--sem-pink-ink); }
 /* 누를 수 있는 칩(장소 → 지도). **모양은 형제 칩과 똑같이 두고** 버튼 기본 장식만 지운다 —
    칩 줄에서 어떤 것은 span이고 어떤 것은 button이라는 사실이 화면에 드러나면 안 된다(§7). */
 button.chip { border: 0; font-family: inherit; }
@@ -880,7 +881,7 @@ select.zone-input { text-overflow: ellipsis; }
 .moment-photo-count { color: var(--a1d); }
 /* 편집 모드: 저장된 순간에 사진 추가 */
 .moment-addphoto {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: stretch; gap: var(--space-2); margin-top: var(--space-2);
 }
 .moment-addphoto > :is(label, button) { width: 100%; min-width: 0; }
@@ -901,7 +902,7 @@ select.zone-input { text-overflow: ellipsis; }
 /* 📁 원본에서 — 사진 선택기가 GPS를 지우므로 파일 선택기로 가는 길(M-0054).
    보조 경로이므로 사진 추가 버튼 옆에 **작게** 둔다: 평소 흐름을 밀어내지 않는다. */
 .pick-original { align-self: flex-start; margin-top: var(--space-2); }
-.photo-pick-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+.photo-pick-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
 .photo-pick-actions > :is(label, button) { width: 100%; min-width: 0; align-self: stretch; margin-top: 0; }
 .place-results {
   display: flex; flex-direction: column; gap: 4px;
@@ -950,7 +951,12 @@ select.zone-input { text-overflow: ellipsis; }
   border-radius: var(--radius-small); padding: 6px 10px; line-height: 1.4;
 }
 .place-picked[hidden] { display: none; }
-.place-picked-text { flex: 1 1 auto; min-width: 0; }
+.place-picked-text { flex: 1 1 auto; min-width: 0; word-break: keep-all; }
+.place-picked-copy {
+  flex: 0 0 auto; min-height: var(--touch-target-min); padding: 0 var(--space-2);
+  border: 0; background: transparent; color: var(--sem-teal-ink); font: inherit;
+  text-decoration: underline; cursor: pointer; white-space: nowrap;
+}
 /* 「점이 아니다」를 말하는 줄. 배지 안에 넣으면 길어져 안 읽힌다 — 아래 줄로 뺀다. */
 .place-picked-hint { margin: 4px 2px 0; line-height: 1.45; color: var(--sem-pink-ink); }
 
@@ -1006,10 +1012,16 @@ select.zone-input { text-overflow: ellipsis; }
 .video-thumb { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
 .video-duration { position: absolute; right: 8px; bottom: 8px; padding: 3px 7px; border-radius: 999px; background: rgb(0 0 0 / 72%); font-size: .75rem; }
 .moment-addvideo { display: contents; }
-.moment-video-input { max-width: 100%; }
+.moment-video-input { display: none; }
+.moment-video-label-text { white-space: nowrap; }
+/* 저장된 순간에서는 사진·원본 선택·녹음·영상이 같은 성격의 네 행동이다.
+   넓은 화면은 한 줄, 폰은 2×2로 두어 네이티브 파일 입력이나 세로 글자가 다시 나오지 않게 한다. */
+@media (max-width: 620px) {
+  .moment-addphoto { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 .video-viewer { position: fixed; inset: 0; z-index: 1100; display: grid; place-items: center; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); background: rgb(0 0 0 / 88%); overflow: auto; }
-.video-viewer-player { display: block; max-width: min(100%, 1100px); max-height: calc(100dvh - 48px); border-radius: 12px; background: #000; }
+.video-viewer-player { display: block; width: min(100%, 1100px); height: auto; max-height: calc(100dvh - 48px); object-fit: contain; border-radius: 12px; background: #000; }
 .video-viewer-close { position: fixed; z-index: 1; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); width: 44px; height: 44px; border: 0; border-radius: 999px; color: #fff; background: rgb(0 0 0 / 65%); font-size: 1.25rem; }
 .media-viewer-actions {
   position: fixed; top: max(16px, env(safe-area-inset-top, 0)); left: max(16px, env(safe-area-inset-left, 0));
@@ -1096,7 +1108,7 @@ select.zone-input { text-overflow: ellipsis; }
   display: grid; place-items: center;
   border: 1px solid var(--line); border-radius: var(--radius-pill);
   background: var(--surface); color: var(--ink-soft);
-  font-size: 0.9rem; line-height: 1; cursor: pointer;
+  font-size: 0.9rem; line-height: 1; cursor: pointer; touch-action: manipulation;
 }
 .icon-btn:hover { color: var(--ink); border-color: var(--ink-soft); }
 .moment-note {

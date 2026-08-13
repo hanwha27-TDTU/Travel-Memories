@@ -2,18 +2,18 @@
   "schemaVersion": 1,
   "policyApi": 1,
   "source": "https://github.com/hanwha27-TDTU/Codex-Shared-Skills",
-  "commit": "1454e8218e841de06f8079d7db041556e7f3b3ae",
-  "manifestSha256": "7b975b988b7ba68048dce9cd00408361a379f01d58427bd0323d07453b392419",
+  "commit": "d7adbed143e50c234bf42c2f1336d48c78e5392b",
+  "manifestSha256": "065f3044f077b3450834a5a59de85c37aa9ca1835a78e3b9d02e0171ae9f49bf",
   "skills": [
     {
       "name": "bg-codex-autorouter",
       "path": "vendor/codex-shared-skills/bg-codex-autorouter",
-      "contentSha256": "21c88c79411ad51debde486a53d5241b96ce9d12d50be6349ea89e6e88a5d191"
+      "contentSha256": "79e2b7b90a1993d952aa90507248c9d67df8e046652d16373c8f4ff39880854b"
     },
     {
       "name": "release-harness-governance",
       "path": "vendor/codex-shared-skills/release-harness-governance",
-      "contentSha256": "e06b8d9e019d4a390968518390d05bcf49ee901d833e0c3fd9346008248f13b4"
+      "contentSha256": "c05bf3209b1c358d39e9455e7802e8a6e2c6d18090a95370e5327bbd087d9537"
     },
     {
       "name": "offline-sync-governance",
@@ -38,7 +38,7 @@
   ],
   "adapter": {
     "path": "vendor/codex-shared-skills/adapters/codex-autorouter-block.md",
-    "contentSha256": "ebd06429c09fd81a5c8f77d5accaa5c1265e57a2b0cda7165f7be38ffb58ca90",
+    "contentSha256": "4c47f05f43566873b33ead540f2743b97866a4f66cdfca8c42d995dad5f5fd08",
     "start": "<!-- BG_CODEX_AUTOROUTER_START -->",
     "end": "<!-- BG_CODEX_AUTOROUTER_END -->"
   }

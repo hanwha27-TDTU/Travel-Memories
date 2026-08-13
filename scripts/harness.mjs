@@ -211,6 +211,7 @@ const gates = [
   { name: 'check-edge-cors', cmd: 'node scripts/check-edge-cors.mjs' },
   { name: 'check-gate-control', cmd: 'node scripts/check-gate-control.mjs' },
   { name: 'check-enforcement-parity', cmd: 'node scripts/check-enforcement-parity.mjs' },
+  { name: 'check-tooling-registry', cmd: 'node scripts/check-tooling-registry.mjs' },
   // 브랜드 색이 UI TS에 하드코딩되지 않는가 — 색 SSOT는 tokens.css(H-6).
   { name: 'check-ui-color-token', cmd: 'node scripts/check-ui-color-token.mjs' },
   { slow: true, name: 'unit-tests', cmd: 'npm run -s test' },

@@ -58,7 +58,14 @@ import { isWindowsPlatform, partitionDroppedPhotos, photoDropIntent } from '../.
 // 보조 화면은 반드시 lazyScreens를 거친다(정적 import 금지 — check-lazy-screens).
 import { openMapView, openMapPicker, openDiagnosticsHub } from '../lazyScreens';
 import type { MapPoint } from './mapView';
-import { ensureProviders, providersOf, reverseGeocode, searchPlaces, type PlaceResult } from '../../services/geocode';
+import {
+  ensureProviders,
+  providersOf,
+  reverseGeocode,
+  searchPlaces,
+  type AddressParts,
+  type PlaceResult,
+} from '../../services/geocode';
 import { providerLabel } from '../../domain/place/provider';
 import { coordInputLabel, parseCoordinateInput, swapCoord, isRealCoord, type ParsedCoord } from '../../domain/place/coordInput';
 import { listPlaces, savePlace } from '../../services/places';
@@ -105,8 +112,31 @@ interface PlaceField {
 interface PickedBadge {
   badge: HTMLElement;
   hint: HTMLElement;
-  set: (detail: string | null, precision?: PrecisionVerdict | null) => void;
+  set: (
+    detail: string | null,
+    precision?: PrecisionVerdict | null,
+    coords?: { lat: number; lng: number } | null,
+    address?: Pick<AddressParts, 'country' | 'region' | 'city'> | null,
+  ) => void;
 }
+
+function pickedLocationText(
+  detail: string,
+  coords: { lat: number; lng: number } | null,
+  address?: Pick<AddressParts, 'country' | 'region' | 'city'> | null,
+): string {
+  if (!coords) return detail || '장소 지정됨';
+  const coord = `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`;
+  const city = address?.city || address?.region || '';
+  const admin = [address?.country ?? '', city]
+    .filter((part, index, parts) => part && parts.indexOf(part) === index)
+    .join(' · ');
+  // 현재 위치처럼 정확도 자체가 사용자 판단 근거인 detail은 좌표로 바꿔 그리더라도 잃지 않는다.
+  // 검색 결과의 긴 주소는 국가·도시로 접되, ± 정확도는 별도 사실이라 화면에 남겨야 한다(§8).
+  const accuracy = detail.includes('±') ? ` · ${detail}` : '';
+  return `${coord}${admin ? ` · ${admin}` : ''}${accuracy}`;
+}
+
 function buildPickedBadge(onClear: () => void): PickedBadge {
   const badge = el('div', 'place-picked');
   badge.setAttribute('role', 'status');
@@ -117,23 +147,47 @@ function buildPickedBadge(onClear: () => void): PickedBadge {
   clearBtn.setAttribute('aria-label', '지정한 위치 해제');
   clearBtn.title = '위치 해제';
   const text = el('span', 'place-picked-text');
-  badge.append(text, clearBtn);
+  const copyBtn = el('button', 'place-picked-copy', '좌표 복사') as HTMLButtonElement;
+  copyBtn.type = 'button';
+  copyBtn.hidden = true;
+  let copyValue = '';
+  copyBtn.addEventListener('click', () => {
+    if (!copyValue || !navigator.clipboard?.writeText) {
+      showNoticeToast('좌표를 복사하지 못했어요');
+      return;
+    }
+    void navigator.clipboard.writeText(copyValue).then(
+      () => showNoticeToast('좌표를 복사했어요'),
+      () => showNoticeToast('좌표를 복사하지 못했어요'),
+    );
+  });
+  badge.append(text, copyBtn, clearBtn);
   clearBtn.addEventListener('click', onClear);
 
   // 정밀도 안내는 배지에 욱여넣지 않고 아래 줄로 뺀다(길어지면 읽히지 않는다).
   const hint = el('p', 'place-picked-hint muted small');
   hint.hidden = true;
 
-  const set = (detail: string | null, precision?: PrecisionVerdict | null): void => {
+  const set = (
+    detail: string | null,
+    precision?: PrecisionVerdict | null,
+    coords: { lat: number; lng: number } | null = null,
+    address?: Pick<AddressParts, 'country' | 'region' | 'city'> | null,
+  ): void => {
     if (detail === null) {
       badge.hidden = true;
       text.textContent = '';
+      copyBtn.hidden = true;
+      copyValue = '';
       hint.hidden = true;
       hint.textContent = '';
       return;
     }
     badge.hidden = false;
-    text.textContent = detail ? `📍 ${detail}` : '📍 좌표 있음';
+    text.textContent = `📍 ${pickedLocationText(detail, coords, address)}`;
+    copyValue = coords ? `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}` : '';
+    copyBtn.hidden = !copyValue;
+    copyBtn.setAttribute('aria-label', copyValue ? `${copyValue} 좌표 복사` : '좌표 복사');
     const coarse = precision != null && needsRefine(precision);
     hint.hidden = !coarse;
     hint.textContent = coarse
@@ -166,6 +220,75 @@ function placeInputOf(field: PlaceField): {
     placeLat: coords?.lat ?? null,
     placeLng: coords?.lng ?? null,
   };
+}
+
+/** 생성·사진 단건 생성·편집이 같은 동행인 입력 계약을 공유한다(§7 화면 대칭). */
+function companionField(initial = ''): HTMLInputElement {
+  const input = el('input', 'edit-input companion-input') as HTMLInputElement;
+  input.type = 'text';
+  input.value = initial;
+  input.maxLength = 200;
+  input.placeholder = '👥 함께 한 사람 (예: 아버지, 어머니)';
+  input.setAttribute('aria-label', '함께 한 사람(선택)');
+  return input;
+}
+
+/**
+ * 터치·펜은 첫 pointerup에서 바로 실행하고, 뒤따르는 합성 click은 한 번만 삼킨다.
+ * 마우스 click과 키보드 Enter/Space는 기존 click 경로를 그대로 쓴다.
+ */
+function wireFirstPress(button: HTMLButtonElement, activate: () => void): void {
+  let lastDirectPointerAt = Number.NEGATIVE_INFINITY;
+  button.addEventListener('pointerup', (event) => {
+    if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
+    lastDirectPointerAt = performance.now();
+    activate();
+  });
+  button.addEventListener('click', (event) => {
+    if (performance.now() - lastDirectPointerAt < 750) {
+      event.preventDefault();
+      return;
+    }
+    activate();
+  });
+}
+
+function wireMomentEditToggle(o: {
+  button: HTMLButtonElement;
+  form: HTMLElement;
+  photoRow: HTMLElement;
+  videoRow: HTMLElement;
+  onClose: () => void;
+}): void {
+  wireFirstPress(o.button, () => {
+    const show = o.form.hidden;
+    o.form.hidden = !show;
+    o.photoRow.hidden = !show;
+    o.videoRow.hidden = !show;
+    o.button.setAttribute('aria-expanded', String(show));
+    if (!show) o.onClose();
+    if (show) requestAnimationFrame(() => {
+      o.form.scrollIntoView({ block: 'nearest' });
+      (o.form.querySelector('input') as HTMLInputElement | null)?.focus({ preventScroll: true });
+    });
+  });
+}
+
+function initializeMomentEditToggle(
+  button: HTMLButtonElement,
+  form: HTMLElement,
+  photoRow: HTMLElement,
+  videoRow: HTMLElement,
+  initiallyOpen: boolean,
+  onClose: () => void,
+): void {
+  form.hidden = !initiallyOpen;
+  button.setAttribute('aria-expanded', String(initiallyOpen));
+  wireMomentEditToggle({ button, form, photoRow, videoRow, onClose });
+}
+
+function labeledField(label: string, field: HTMLElement): HTMLElement[] {
+  return [el('label', 'edit-label', label), field];
 }
 
 /**
@@ -204,6 +327,7 @@ interface PickedPlace {
   lat: number;
   lng: number;
   detail: string;
+  address: Pick<AddressParts, 'country' | 'region' | 'city'> | null;
   precision: PrecisionVerdict | null;
   placeId: string | null;
   mapPicked: boolean;
@@ -222,6 +346,7 @@ function savedPick(p: LocalPlace): PickedPlace {
     lat: p.latitude,
     lng: p.longitude,
     detail: p.formattedAddress || p.name,
+    address: { country: p.country, region: p.region, city: p.city },
     // 라이브러리에 등급을 적어 뒀으므로 **그대로 다시 말한다.** 두 번째로 고를 때 조용해지면
     // 같은 사실에 대해 앱이 두 번 다르게 말하는 셈이다(§7·§8).
     precision: verdictFromStored(p.precision, p.spanMeters),
@@ -298,6 +423,7 @@ async function runPlaceSearch(q: string, ctx: PlaceSearchContext): Promise<void>
         lat: p.lat,
         lng: p.lng,
         detail: p.displayName,
+        address: p.address,
         precision: p.precision,
         placeId: null, // 아직 안 담겼다 — 담기면 아래 linkPlace가 붙인다
         mapPicked: false, // 검색 좌표는 이름과 묶임
@@ -409,12 +535,29 @@ function videoFileInput(): HTMLInputElement {
   return input;
 }
 
+function updateVideoPickerLabel(input: HTMLInputElement): void {
+  const text = input.parentElement?.querySelector('.moment-video-label-text');
+  if (!(text instanceof HTMLElement)) return;
+  const count = input.files?.length ?? 0;
+  text.textContent = count ? `영상 ${count}개` : '영상 추가';
+}
+
+function buildVideoPicker(extraClass = ''): { input: HTMLInputElement; label: HTMLLabelElement } {
+  const input = videoFileInput();
+  const label = el('label', `moment-photo-label moment-video-label form-utility ${extraClass}`.trim()) as HTMLLabelElement;
+  const icon = el('span', 'moment-picker-icon', '🎬');
+  icon.setAttribute('aria-hidden', 'true');
+  const text = el('span', 'moment-video-label-text', '영상 추가');
+  text.setAttribute('aria-live', 'polite');
+  label.append(icon, text, input);
+  input.addEventListener('change', () => updateVideoPickerLabel(input));
+  return { input, label };
+}
+
 function buildAddVideoRow(): { wrap: HTMLElement; input: HTMLInputElement } {
   const wrap = el('div', 'moment-addvideo');
   wrap.hidden = true;
-  const input = videoFileInput();
-  const label = el('label', 'moment-photo-label moment-addvideo-btn form-utility');
-  label.append(document.createTextNode('🎬 영상 추가 '), input);
+  const { input, label } = buildVideoPicker('moment-addvideo-btn');
   wrap.append(label);
   return { wrap, input };
 }
@@ -437,6 +580,7 @@ function wireAddVideo(
         }
         progress.textContent = `영상 ${files.length}개를 기기에 저장했어요 · 클라우드 확인 중`;
         input.value = '';
+        updateVideoPickerLabel(input);
         await target.refresh();
         await trySync();
         await target.refresh();
@@ -594,7 +738,11 @@ function buildPlaceFieldShell(initialName: string): PlaceFieldShell {
 /** 좌표를 적용할 때 필요한 최소한 — 필드의 나머지 상태를 밖으로 흘리지 않는다. */
 interface CoordApplyContext {
   input: HTMLInputElement;
-  setPicked: (detail: string | null, precision?: PrecisionVerdict | null) => void;
+  setPicked: (
+    detail: string | null,
+    precision?: PrecisionVerdict | null,
+    address?: Pick<AddressParts, 'country' | 'region' | 'city'> | null,
+  ) => void;
   /** 좌표 확정을 필드 상태에 반영한다(지도 픽과 같은 성격 — 이름과 독립). */
   commit: (lat: number, lng: number) => void;
 }
@@ -626,7 +774,7 @@ async function fillNameFromReverse(ctx: CoordApplyContext, lat: number, lng: num
   const hit = await reverseGeocode(lat, lng);
   if (!hit || ctx.input.value.trim()) return; // 그 사이 사용자가 적었으면 건드리지 않는다
   ctx.input.value = hit.name;
-  ctx.setPicked(hit.displayName);
+  ctx.setPicked(hit.displayName, hit.precision, hit.address);
 }
 
 /**
@@ -1367,6 +1515,49 @@ function placeCoordState(initial: { lat: number | null; lng: number | null; plac
   };
 }
 
+function enrichExistingPlaceBadge(o: {
+  initial: { name: string; placeId?: string | null };
+  coords: () => { lat: number; lng: number } | null;
+  setPicked: (
+    detail: string | null,
+    precision?: PrecisionVerdict | null,
+    address?: Pick<AddressParts, 'country' | 'region' | 'city'> | null,
+  ) => void;
+}): void {
+  if (!o.coords()) return;
+  void (async () => {
+    const linked = o.initial.placeId ? (await listPlaces()).find((p) => p.id === o.initial.placeId) : null;
+    if (linked) {
+      o.setPicked(o.initial.name, verdictFromStored(linked.precision, linked.spanMeters), linked);
+      return;
+    }
+    if (!hasAgreed(PHOTO_GEO_CONSENT_KEY)) return;
+    const coords = o.coords();
+    if (!coords) return;
+    const hit = await reverseGeocode(coords.lat, coords.lng);
+    if (hit) o.setPicked(hit.displayName, hit.precision, hit.address);
+  })();
+}
+
+function bindPlaceBadge(
+  badge: PickedBadge,
+  coords: () => { lat: number; lng: number } | null,
+): (
+  detail: string | null,
+  precision?: PrecisionVerdict | null,
+  address?: Pick<AddressParts, 'country' | 'region' | 'city'> | null,
+) => void {
+  return (detail, precision, address) => badge.set(detail, precision, coords(), address);
+}
+
+function wirePlaceSearchEnter(input: HTMLInputElement, search: () => void): void {
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    search();
+  });
+}
+
 function buildPlaceField(initial: { name: string; lat: number | null; lng: number | null; placeId?: string | null }): PlaceField {
   const { wrap, row, input, searchBtn, mapBtn, hereBtn, results } = buildPlaceFieldShell(initial.name);
   const st = placeCoordState(initial);
@@ -1377,12 +1568,12 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
     st.clear();
     picked.set(null);
   });
-  const setPicked = picked.set;
+  const setPicked = bindPlaceBadge(picked, st.coords);
   wrap.append(row, results, picked.badge, picked.hint);
   setPicked(st.coords() || st.getPlaceId() ? '' : null); // 기존 좌표나 연결이 있으면 배지 표시
   wireNameEdit({ input, coordIsIndependent: st.isIndependent, setPicked, clearCoord: st.clear });
 
-  const coordCtx: CoordApplyContext = { input, setPicked: (d, p) => setPicked(d, p), commit: st.commit };
+  const coordCtx: CoordApplyContext = { input, setPicked, commit: st.commit };
   const useCoord = (c: ParsedCoord): void => applyPastedCoord(coordCtx, c);
 
   // 고른 장소를 폼에 앉히는 **유일한 경로**. 치는 동안 고른 것과 [🔍 검색]으로 고른 것이
@@ -1391,7 +1582,7 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
     input.value = p.name;
     st.pick(p);
     results.hidden = true;
-    setPicked(p.detail, p.precision);
+    setPicked(p.detail, p.precision, p.address);
   };
   const doSearch = makeDoSearch({
     input,
@@ -1405,12 +1596,7 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
   });
   searchBtn.addEventListener('click', doSearch);
   const showSavedPlaces = wireLiveRegistry(input, results, (p) => applyPick(savedPick(p)), owner);
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault(); // 폼 제출 대신 검색
-      doSearch();
-    }
-  });
+  wirePlaceSearchEnter(input, doSearch);
 
   // 📷 사진이 위치를 알고 있으면 그것으로 채운다(사용자 제안 2026-07-30). 로직은 최상위에.
   const photoNote = el('p', 'place-photo-note when-note', '');
@@ -1428,6 +1614,10 @@ function buildPlaceField(initial: { name: string; lat: number | null; lng: numbe
   wireMapPickButton(mapBtn, results, coordCtx, st.coords);
   // 📍 내 위치 — 같은 부품이므로 생성 폼·편집 폼이 **함께** 받는다(§7 2층).
   wireHereButton({ btn: hereBtn, note: photoNote, ctx: coordCtx, hasCoord: () => st.coords() !== null });
+
+  // 기존 연결 장소는 네트워크 없이 대장의 국가·도시를 되읽는다. 링크가 없고 사용자가 이미
+  // 위치 조회에 동의한 좌표만 역지오코딩한다. 어느 쪽도 실패해도 실제 좌표는 즉시 보인다.
+  enrichExistingPlaceBadge({ initial, coords: st.coords, setPicked });
 
   return {
     el: wrap,
@@ -1770,6 +1960,7 @@ async function openSinglePhotoMomentComposer(
     const emotion = buildEmotionRow('');
     const whenField = buildWhenField(context.trip, context.clock, context.latestMomentAt);
     const placeField = buildPlaceField({ name: '', lat: null, lng: null });
+    const companions = companionField();
     const actions = el('div', 'single-photo-moment-actions');
     const cancel = el('button', 'btn-ghost', '취소') as HTMLButtonElement;
     cancel.type = 'button';
@@ -1778,7 +1969,7 @@ async function openSinglePhotoMomentComposer(
     const status = el('p', 'sync-note single-photo-moment-status', '');
     status.setAttribute('role', 'status');
     actions.append(cancel, save);
-    form.append(previewWrap, title, emotion.el, whenField.el, placeField.el, actions, status);
+    form.append(previewWrap, title, emotion.el, whenField.el, placeField.el, companions, actions, status);
     body.replaceChildren(form);
     whenField.suggestFrom([meta]);
     placeField.suggestFrom([meta]);
@@ -1808,6 +1999,7 @@ async function openSinglePhotoMomentComposer(
             tripId: context.trip.id,
             title: title.value,
             emotion: emotion.value(),
+            companionNames: companions.value,
             note: '',
             ...placeInputOf(placeField),
             ...(whenField.value() ? { occurredAt: whenField.value()! } : {}),
@@ -2115,13 +2307,6 @@ function buildVideoGrid(o: {
   return grid;
 }
 
-function buildVideoPicker(): { input: HTMLInputElement; label: HTMLLabelElement } {
-  const input = videoFileInput();
-  const label = el('label', 'moment-photo-label form-utility') as HTMLLabelElement;
-  label.append(document.createTextNode('🎬 영상 추가 '), input);
-  return { input, label };
-}
-
 async function processVideosIntoMoment(
   files: File[],
   momentId: string,
@@ -2337,6 +2522,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const emotion = buildEmotionRow('');
 
     const placeField = buildPlaceField({ name: '', lat: null, lng: null });
+    const companions = companionField();
 
     // 사진 선택(원본은 기기에 보관·압축본은 파생, §0). label 안에 input을 넣어 접근성 확보.
     /** 이 여행에서 가장 늦은 순간의 발생 시각. `refresh()`가 채운다. */
@@ -2356,11 +2542,11 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       photoTzOffsetMin = photoHintOf(metas).exifOffsetMin;
     }, () => trip?.timeZone ?? '');
     photoLabel.append(picks.count, photoInput);
-  // 📁 안드로이드 사진 선택기가 GPS를 지우므로(M-0054), **원본 파일로 가는 길**을 함께 둔다.
-  const origBtn = galleryPickButton(photoInput);
-  const photoActions = el('div', 'photo-pick-actions');
-  photoActions.append(photoLabel, origBtn);
+    // 📁 안드로이드 사진 선택기가 GPS를 지우므로(M-0054), **원본 파일로 가는 길**을 함께 둔다.
+    const origBtn = galleryPickButton(photoInput);
+    const photoActions = el('div', 'photo-pick-actions');
     const { input: videoInput, label: videoLabel } = buildVideoPicker();
+    photoActions.append(photoLabel, origBtn, videoLabel);
     // 비용(선택) — 금액 + 통화. "10초 기록"을 방해하지 않도록 한 줄, 비우면 저장 안 함.
     const money = buildMoneyRow(undefined);
 
@@ -2379,7 +2565,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const whenField = buildWhenField(trip, clock, () => latestMomentAt);
     whenField.suggestFrom([]); // 사진 전에도 근거를 보여준다(직전 순간 / 여행 시작일)
 
-    form.append(input, emotion.el, whenField.el, placeField.el, money.el, photoActions, picks.el, videoLabel, save);
+    form.append(input, emotion.el, whenField.el, placeField.el, companions, money.el, photoActions, picks.el, save);
     compose.appendChild(form);
 
     const note = el('p', 'sync-note', '');
@@ -2540,6 +2726,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       const editBtn = el('button', 'icon-btn', '✎') as HTMLButtonElement;
       editBtn.type = 'button';
       editBtn.setAttribute('aria-label', '이 순간 편집');
+      editBtn.setAttribute('aria-expanded', 'false');
       const delBtn = el('button', 'icon-btn', '🗑') as HTMLButtonElement;
       delBtn.type = 'button';
       delBtn.setAttribute('aria-label', '이 순간 삭제');
@@ -2551,8 +2738,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       const { wrap: addPhotoWrap, input: addPhotoInput, progress: addProgress } = buildAddPhotoRow();
       const { wrap: addVideoWrap, input: addVideoInput } = buildAddVideoRow();
       // 🎙 소리 남기기 — 사진 추가와 **같은 줄**에 둔다(둘 다 "이 순간에 뭔가 더하기"다).
-      addPhotoWrap.append(buildRecordButton(m.id, trip!.id, addProgress, refresh), addProgress);
-      addPhotoWrap.append(addVideoWrap);
+      addPhotoWrap.append(buildRecordButton(m.id, trip!.id, addProgress, refresh), addVideoWrap, addProgress);
       // 사진 추가 배선은 최상위 `wireAddPhoto`가 한다(래칫이 밀어줬다 — 그리고 이 배선의
       // 규율은 「§0 굽기 전에 EXIF」라 화면 코드가 아니라 밖에 있는 편이 맞다).
 
@@ -2600,19 +2786,14 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           targetController.closePlaceEditor(m.id);
           editForm.hidden = true;
           addPhotoWrap.hidden = true;
+          addVideoWrap.hidden = true;
+          editBtn.setAttribute('aria-expanded', 'false');
         },
       );
-      editForm.hidden = !targetController.opensPlaceEditor(m.id);
       // `hasPlace`: 이름이든 좌표든 하나라도 있으면 사진이 장소를 **손대지 않는다.**
       wireAddPhoto(addPhotoInput, addProgress, { momentId: m.id, tripId: trip!.id, fallbackZone: trip?.timeZone ?? '', hasPlace, refresh });
       wireAddVideo(addVideoInput, addProgress, { momentId: m.id, tripId: trip!.id, refresh });
-      editBtn.addEventListener('click', () => {
-        const show = editForm.hidden; // 열기로 전환
-        editForm.hidden = !show;
-        addPhotoWrap.hidden = !show;
-        addVideoWrap.hidden = false;
-        if (!show) targetController.closePlaceEditor(m.id);
-      });
+      initializeMomentEditToggle(editBtn, editForm, addPhotoWrap, addVideoWrap, targetController.opensPlaceEditor(m.id), () => targetController.closePlaceEditor(m.id));
 
       // 삭제 → tombstone + 실행취소 토스트(5초). 사진도 함께 tombstone되고 undo가 함께 복원.
       delBtn.addEventListener('click', () => {
@@ -2635,9 +2816,10 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       });
 
       if (m.note) card.appendChild(el('p', 'moment-note', m.note));
-      if (hasPlace || expenseList.length || audioList.length) {
+      if (hasPlace || m.companionNames || expenseList.length || audioList.length) {
         const chips = el('div', 'chips');
         if (hasPlace) chips.appendChild(placeChip(m)); // 좌표만 있어도 그린다 — placeChip 주석 참조
+        if (m.companionNames) chips.appendChild(el('span', 'chip companions', `👥 ${m.companionNames}`));
         appendAudioChips(chips, audioList, refresh);
         // 환율 상세(탭하면 펼쳐짐) — 툴팁(title)은 모바일에서 안 보이므로 실제 패널로 보여준다.
         const fxDetail = el('div', 'fx-detail');
@@ -2710,6 +2892,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
             tripId: trip!.id,
             title: input.value,
             emotion: emotion.value(),
+            companionNames: companions.value,
             note: '',
             ...placeInputOf(placeField),
             // 비었으면 넘기지 않는다 — 서비스가 `now`로 채운다(계약을 두 곳에 쓰지 않는다).
@@ -2727,11 +2910,13 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           await processVideosIntoMoment(videoFiles, moment.id, trip!.id, (message) => setNote(note, message, 'info', null));
           input.value = '';
           placeField.reset();
+          companions.value = '';
           emotion.reset();
           money.reset();
           // 미리보기 URL 회수 + 개수 문구까지 한 번에(초기화 경로를 두 개 만들지 않는다).
           picks.setFiles([]);
           videoInput.value = '';
+          updateVideoPickerLabel(videoInput);
           setNote(note, '✅ 기기에 저장됨 · 클라우드 확인 중', 'info', null);
           await refresh();
           await trySync(); setNote(note, savedPhotoStatus('✅ 기기에 저장됨'), syncStatus().phase === 'ok' ? 'ok' : 'info', null);
@@ -3322,6 +3507,7 @@ function buildMomentEditForm(
   const emotion = buildEmotionRow(m.emotion);
 
   const placeField = buildPlaceField({ name: m.placeName, lat: m.placeLat ?? null, lng: m.placeLng ?? null, placeId: m.placeId ?? null });
+  const companions = companionField(m.companionNames ?? '');
 
   const noteIn = el('textarea', 'edit-input edit-note') as HTMLTextAreaElement;
   noteIn.value = m.note;
@@ -3344,17 +3530,13 @@ function buildMomentEditForm(
   row.append(save, cancel);
 
   panel.append(
-    el('label', 'edit-label', '한 줄 기록'),
-    titleIn,
+    ...labeledField('한 줄 기록', titleIn),
     emotion.el,
-    el('label', 'edit-label', '장소'),
-    placeField.el,
-    el('label', 'edit-label', '메모'),
-    noteIn,
-    el('label', 'edit-label', '비용'),
-    money.el,
-    el('label', 'edit-label', '발생 시각'),
-    timeField.el,
+    ...labeledField('장소', placeField.el),
+    ...labeledField('함께 한 사람', companions),
+    ...labeledField('메모', noteIn),
+    ...labeledField('비용', money.el),
+    ...labeledField('발생 시각', timeField.el),
     row,
   );
   openPlaceCandidates(placeField, openPlacePicker);
@@ -3366,6 +3548,7 @@ function buildMomentEditForm(
     const patch: UpdateMomentPatch = {
       title: titleIn.value,
       emotion: emotion.value(),
+      companionNames: companions.value,
       ...placeInputOf(placeField),
       note: noteIn.value,
     };

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "tools": [
+    { "id": "node", "command": "node", "purpose": "project scripts", "required": true },
+    { "id": "playwright", "command": "npx playwright --version", "purpose": "browser live checks", "required": true },
+    { "id": "adb", "command": "adb version", "purpose": "Android device checks", "required": false },
+    { "id": "android-emulator", "command": "emulator -version", "purpose": "Android emulator checks", "required": false },
+    { "id": "scrcpy", "command": "scrcpy --version", "purpose": "physical Android screen control", "required": false },
+    { "id": "rustc", "command": "rustc --version", "purpose": "Tauri Windows build", "required": false },
+    { "id": "cargo", "command": "cargo --version", "purpose": "Tauri Windows build", "required": false }
+  ]
+}
