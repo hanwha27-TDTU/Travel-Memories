@@ -186,6 +186,7 @@ const gates = [
   { name: 'check-sw', cmd: 'node scripts/check-sw.mjs' },
   { name: 'check-hand-counts', cmd: 'node scripts/check-hand-counts.mjs' },
   { name: 'check-doc-counts', cmd: 'node scripts/check-doc-counts.mjs' },
+  { name: 'check-date-freshness', cmd: 'node scripts/check-date-freshness.mjs' },
   { slow: true, name: 'check-timezone', cmd: 'node scripts/check-timezone.mjs' },
   { name: 'check-instant-normalization', cmd: 'node scripts/check-instant-normalization.mjs' },
   { name: 'check-exif-strip-on-share', cmd: 'node scripts/check-exif-strip-on-share.mjs' },

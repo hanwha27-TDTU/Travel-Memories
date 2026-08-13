@@ -82,6 +82,8 @@ export const GATE_DESC: Record<string, string> = {
   'check-sw': '서비스워커가 서버 응답을 캐시에 가두지 않는지(교차 출처 무개입·GET 전용)',
   'check-hand-counts': '지시문서가 게이트 개수를 손으로 적지 않는지(반드시 낡는 숫자 차단)',
   'check-doc-counts': '문서에 표시한 live 카운트가 실제와 일치(마커 대조)',
+  'check-date-freshness':
+    '적어 둔 날짜가 오늘과 어긋나지 않는가 — 미래 날짜 금지(항상) + 릴리스를 얼렸으면 최신 항목이 오늘 것인가',
   'check-timezone': '날짜를 UTC가 아닌 사용자 로컬로 계산(+ 다른 시간대에서도 유닛 통과)',
   'check-instant-normalization': '밖에서 온 시각을 앱의 표준 표기로 바꿔 저장(같은 순간을 두 표기로 적지 않게)',
   'check-exif-strip-on-share': '서버로 나가는 사진은 canvas 재인코딩본만 — 원본의 촬영위치(GPS)가 따라가지 않게',
@@ -184,6 +186,7 @@ export const GATE_AXIS: Record<string, string> = {
   'check-sw': '캐시 수가 아니라, 서비스워커가 교차 출처에 개입하지 않고 GET 전용인지',
   'check-hand-counts': '문서 수가 아니라, 지시문서에 **손편집 개수**가 남아 있지 않은지',
   'check-doc-counts': '마커 수가 아니라, 각 마커가 실제 카운트와 일치하는지',
+  'check-date-freshness': '날짜 개수가 아니라, 오늘과의 차이가 시간대 허용치를 넘는지',
   'check-timezone': '테스트 수가 아니라, 날짜가 UTC가 아닌 **사용자 로컬**로 계산되는지',
   'check-instant-normalization': '파일 수가 아니라, 서버 경계 **전부**가 시각을 정규화하는지',
   'check-exif-strip-on-share': '업로드 경로 수가 아니라, 공유 바이트가 canvas 파생본만이고 재인코딩 우회가 0인지',
@@ -287,6 +290,8 @@ export const GATE_WORLD: Record<string, string> = {
   'check-sw': '',
   'check-hand-counts': '',
   'check-doc-counts': '',
+  // 유일하게 **시스템 시계**를 읽는 게이트다 — 작업트리 밖에서 값을 가져오는 자리.
+  'check-date-freshness': 'runtimeEnv',
   'check-timezone': '',
   'check-instant-normalization': '',
   'check-exif-strip-on-share': '',
@@ -365,6 +370,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-sw': 'static',
   'check-hand-counts': 'generated',
   'check-doc-counts': 'generated',
+  'check-date-freshness': 'static',
   'check-timezone': 'static',
   'check-instant-normalization': 'static',
   'check-exif-strip-on-share': 'static',
