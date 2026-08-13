@@ -14,7 +14,10 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 - 한국 장소 검색 순서를 `Kakao → 행정안전부 도로명주소 → VWorld(설정 시) → OpenStreetMap`으로 확장했다. 해외 질의에는 정부 국내 제공자를 호출하지 않는다.
 - 도로명주소 API 자체에는 좌표가 없으므로, 공식 도로명주소를 기존 Kakao REST 주소 검색에 다시 물어 실제 WGS84 좌표가 확인된 후보만 반환한다. 좌표제공 API가 승인되면 이 resolver 한 곳만 교체한다.
 - Edge 함수는 인증·초대제·호출 제한·CORS·검색어 비로그 계약을 유지하고 `FN_VERSION=2`로 올렸다. 앱 가이드와 DEPLOYMENT에는 `JUSO_ROAD_KEY`를 넣는 공식 링크와 초보자 순서를 추가했다.
-- 배포·운영 되읽기와 최종 검증 결과는 이 변경의 릴리스 종료 시 갱신한다.
+- 관련 유닛 48/48, typecheck, 빠른 게이트 69/69, production build를 통과했다. PR #282의 Required CI run `31753806215`에서 fast-gates·harness·Chromium live-render가 모두 성공했고, squash 병합된 `main`은 `2d5ad10`이다.
+- 운영 `geocode` Edge Function은 version 6·ACTIVE이며 LF 정규화한 배포 소스가 로컬과 일치한다. OPTIONS는 HTTP 200, 무인증 본문 요청은 HTTP 401로 되읽었다. 사용자 로그인 JWT를 가진 실제 정부 검색 왕복은 아직 실행하지 못했으므로 완료로 반올림하지 않는다.
+- Pages run `31753955177`과 Windows run `31753955161`이 성공했다. 운영 `version.json`은 HTTP 200·v2.39이며, Windows 고정 릴리스는 업로드한 파일을 다시 받아 SHA-256 `147bad87…284af6` 일치를 확인했다.
+- 종료 점검에서 비공개 저장소의 Windows 릴리스 자산은 GitHub 인증 없이 직접 요청하면 HTTP 404임을 확인했다. 워크플로의 토큰 기반 read-back은 성공했지만 공개 배포 증거는 아니므로 T-039로 분리했다. 별도 Dependabot run `31753963952`는 T-037과 같은 `glib 0.18.5 → 0.20.0` 해석 불가로 실패했으며 제품 CI·Pages·Windows 배포 실패와는 구분한다.
 
 ## HANDOFF-0192 · **정부지도 예비 어댑터 — 승인 전에는 꺼지고, 카카오 실패 때만 켜진다** (2026-08-14)
 
