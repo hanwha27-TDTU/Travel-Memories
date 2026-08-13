@@ -5,7 +5,7 @@ shape_reason: 맥락 없는 AI가 처음부터 따라 읽는 문서다 — 순�
 # HANDOFF_CODEX · Bugeon Journey 인계서
 
 > **읽는 사람**: 이 앱 제작에 거의 참여하지 않은 AI(Codex 등) 또는 새 Claude 세션.
-> **작성**: 2026-07-27 · **상태 포인터 갱신 2026-08-11**. 현재 버전·migration·배포 상태는
+> **작성**: 2026-07-27 · **상태 포인터 갱신 2026-08-14**. 현재 버전·migration·배포 상태는
 > `src/app/registry.gen.ts`와 `docs/HANDOFF.md` 맨 위가 정본이다. 이 문서의 버전별 절은 역사·구조 설명이며
 > 현재 상태로 읽지 않는다.
 >
@@ -19,18 +19,16 @@ shape_reason: 맥락 없는 AI가 처음부터 따라 읽는 문서다 — 순�
 
 ---
 
-## 🆕 현재 시작점 — 생성 등록부와 최신 인계로 이동 (2026-08-11 · **v2.17 코드 기반 모듈 설계서**)
+## 🆕 현재 시작점 — 생성 등록부와 최신 인계로 이동 (2026-08-14 · **v2.37**)
 
 - 앱 버전, 적용 migration, 도구·게이트 개수는 손으로 복제하지 않는다. `src/app/registry.gen.ts`를 읽는다.
-- 현재 작업·검증·배포 상태는 `docs/HANDOFF.md` 맨 위 HANDOFF-0149를 읽는다. 구현 근거는
-  바로 아래 HANDOFF-0148이고, v2.16 UI 배포(HANDOFF-0147)와 공용 스킬 채택(HANDOFF-0146)도 이어진다.
+- 현재 작업·검증·배포 상태는 `docs/HANDOFF.md` 맨 위 HANDOFF-0190을 읽는다. v2.37의
+  사진 원근 점선 조작은 HANDOFF-0189, Windows OAuth·설치본 근거는 HANDOFF-0188부터 이어진다.
 - 비상 재현용 현재 코드 구조는 `docs/모듈별 설계서/README.md`에서 시작한다. 이 폴더는 손편집
   문서가 아니라 `npm run gen:module-designs` 생성물이며, 코드와 갈라지면 Required 게이트가 RED다.
 - 진단 시스템의 재사용 가능한 계약은 `docs/DIAGNOSTIC_TOOL_DESIGN_BLUEPRINT.md`가 정본이다.
-- v2.17은 현재 코드에서 재생성되는 18개 모듈 상세 설계서와 드리프트 게이트를 릴리스하고,
-  그 일반 규율을 프로젝트 게이트 스킬에 흡수한다. 앱 실행 기능·사용자 기록·DB/R2 계약은
-  바뀌지 않으며 Pages만 영향받고 Android 셸의 APK 재빌드는 필요하지 않다.
-- 아래 v1.75 이하 절은 과거 사건의 근거이며 최신 상태가 아니다.
+- v2.37의 운영 Pages·Android APK·Windows 설치본은 배포되었다. 정확한 실행 번호·해시와
+  남은 경계는 HANDOFF-0190이 정본이다. 아래 버전별 절은 과거 사건의 근거이며 최신 상태가 아니다.
 
 ### 🔴 릴리스를 하려면 이 문서 하나부터 — `docs/HARNESS_RELEASE_LAW.md` (2026-08-09 신설)
 
