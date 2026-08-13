@@ -78,7 +78,10 @@ jobs:
           }
           gh release upload $tag $exe $sha --clobber
           if ($LASTEXITCODE -ne 0) { throw 'Windows 릴리스 업로드에 실패했습니다.' }
-          $version = node -e "process.stdout.write(require('fs').readFileSync('src/app/changelog.ts','utf8').match(/version: '([\\d.]+)'/)[1])"
+          $version = node scripts/print-app-version.mjs
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($version)) {
+            throw 'changelog 정본에서 Windows 릴리스 버전을 읽지 못했습니다.'
+          }
           gh release edit $tag --notes "최신 앱 v$version · $($env:GITHUB_SHA.Substring(0,7)) · $([DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm')) UTC`n`n이 주소는 언제나 최신 Windows 설치파일을 줍니다."
           $readback = Join-Path $env:RUNNER_TEMP 'windows-release-readback'
           New-Item -ItemType Directory -Force $readback | Out-Null
