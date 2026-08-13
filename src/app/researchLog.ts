@@ -1080,4 +1080,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '터치 뒤 합성 click이 이어지는 모바일 입력 경계와 순간의 오프라인·Supabase 왕복 계약을 함께 확인했다. 동행인은 아직 독립 인물 원장이 없는 범위이므로 순간 소유의 companionNames로 두되 rowmap·canonical snapshot·이전 행 호환까지 한 묶음으로 반영해야 했다.',
     decision: 'touch·pen의 pointerup에서 편집을 즉시 열고 뒤따르는 합성 click 한 번만 억제한다. 장소 편집 배지는 실제 좌표와 저장된 국가·도시를 표시하고 복사 버튼은 좌표 문자열만 쓴다. companion_names 마이그레이션과 정확집합 RPC 기반 함수를 갱신했으며 Bugeon_API35의 Chrome과 localhost 디버그 APK WebView에서 단일 touch, 필드 순서, 저장, 표시를 직접 검증했다.',
   },
+  {
+    seq: 135,
+    date: '2026-08-13',
+    topic: '전역 공유 스킬 설치본과 프로젝트 승인 lock을 같은 정본 커밋으로 맞춘다',
+    human: '남아 있는 release-harness-governance 전역 설치본 해시 불일치도 해결해야 한다고 요청했다.',
+    ai: '전역 설치본을 프로젝트 lock에 억지로 되돌리기 전에 정본 저장소를 대조했다. 전역 상태는 더 새로운 정본 커밋을 가리키고 프로젝트 lock만 이전 커밋에 머물러 있었으며, 정본은 깨끗하고 origin/main과 일치했고 전체 자체 테스트도 통과했다.',
+    decision: '공식 sync-skills 설치기만 사용해 Codex·Claude 전역 설치본을 백업 후 원자 교체하고 프로젝트 vendor/lock을 같은 d7adbed 커밋으로 갱신한다. 프로젝트 release profile과 승인 커밋도 lock에 맞추고 전역·vendor·계약 주입검사·전체 게이트를 다시 실행한다. 전역 공유 스킬은 소비 저장소에서 직접 덮어쓰지 않는다.',
+  },
 ];
