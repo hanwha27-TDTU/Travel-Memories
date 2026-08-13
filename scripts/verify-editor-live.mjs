@@ -4391,6 +4391,30 @@ check(
   JSON.stringify(mapGuide.links),
 );
 
+await openGuideCard('Windows 앱 로그인 설정');
+const windowsAuthGuide = await page.evaluate(() => ({
+  text: document.querySelector('.guide-detail-body')?.textContent ?? '',
+  links: [...document.querySelectorAll('.guide-detail-body a')].map((a) => ({
+    text: a.textContent ?? '', href: a.href, rel: a.rel, target: a.target,
+  })),
+}));
+check(
+  'Windows 로그인 가이드: 초보자 순서·정확한 콜백·두 지도 오리진을 말한다',
+  [
+    'Redirect URLs', 'Add URL', 'app.bugeon.journey://auth-callback', 'Save',
+    'Google 로그인', 'https://tauri.localhost', 'tauri.localhost',
+  ].every((word) => windowsAuthGuide.text.includes(word)),
+  windowsAuthGuide.text,
+);
+check(
+  'Windows 로그인 가이드: Supabase 대시보드·공식 문서를 새 창·noreferrer로 연다',
+  windowsAuthGuide.links.length === 2
+    && windowsAuthGuide.links.every((link) => link.target === '_blank' && /noreferrer/.test(link.rel))
+    && windowsAuthGuide.links.some((link) => link.href.includes('/auth/url-configuration'))
+    && windowsAuthGuide.links.some((link) => link.href === 'https://supabase.com/docs/guides/auth/redirect-urls'),
+  JSON.stringify(windowsAuthGuide.links),
+);
+
 await openGuideCard('무엇이 어디서 도나');
 
 const plat = await page.evaluate(() => {

@@ -8,6 +8,17 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0188 · **Windows 시스템 브라우저 OAuth와 strict 딥링크** (2026-08-13 · Phase 2)
+
+- Phase 1의 실제 설치본을 current-user로 설치해 `https://tauri.localhost/` 창 실행과 테마 변경→종료→재실행 보존을 확인했다. 이는 localStorage 재실행 증거이며 IndexedDB 기록·재설치 보존 증거는 아니다.
+- Windows 로그인은 Supabase PKCE URL만 받고 scoped opener로 시스템 브라우저에 보낸다. `deep-link`와 `single-instance(deep-link)`가 시작 URL·실행 중 URL을 기존 main 창으로 전달한다.
+- 콜백은 스킴·host·path·비어 있지 않은 code를 모두 확인한다. 틀린 URL은 조용히 버리지 않고 화면 알림으로 말한다. Android intent-filter도 같은 host까지 좁혀 T-032를 함께 닫았다.
+- Tauri capability는 기본 권한, deep-link 기본 읽기, 정확한 Supabase authorize URL 하나의 opener만 허용한다. `check-windows-shell`은 HTTPS·권한·스킴·플러그인 버전·등록 순서·Android host 누락 대조군을 함께 검사한다.
+- 사용자 설정은 Supabase Redirect URLs에 `app.bugeon.journey://auth-callback` 한 줄을 추가하는 것이다. Kakao에는 `https://tauri.localhost`, TomTom에는 `tauri.localhost`가 별도로 필요하다.
+- 새 NSIS 설치본을 current-user로 설치한 뒤 Windows 레지스트리의 `app.bugeon.journey` 실행 명령을 되읽었다. 실행 중 딥링크를 호출해도 프로세스가 PID 44396 하나로 유지되어 프로토콜 등록과 single-instance 경계는 실제 설치본에서 확인했다. 설치 파일은 `Bugeon Journey_2.36.0_x64-setup.exe` 4,651,363바이트, SHA-256 `5A43AFA17B52725CAA12782C96E2263DFDF5592B90D77A523062E8C9EB912F91`다.
+- 검증은 typecheck, 유닛 1,675건, Rust `cargo check`, Windows 웹 빌드, 일반 빌드, NSIS 빌드와 테스트 전용 지도 키를 쓴 편집 라이브 417/417까지 통과했다. 딥링크 스킴을 일부러 손상하자 `check-windows-shell`이 exit 1로 RED를 냈고 복원 뒤 GREEN이었다.
+- 정직한 경계: 실제 Google 계정 선택→Supabase 세션 생성의 전체 왕복, 일시 오류 알림의 화면 캡처, Windows WebView2 Kakao·TomTom 타일은 아직 사용자 설정·실행 확인 전이다. 설치본은 개발 증거이며 서명·배포하지 않았다.
+
 ## HANDOFF-0187 · **Bugeon Journey 전용 Tauri 2 Windows 기반** (2026-08-13 · Phase 1)
 
 - 다른 의료 앱 착수서를 복사하지 않고 Journey의 공통 코어·canonical sync·지도 정책을 중심으로 `docs/WINDOWS_TAURI.md`와 ADR-0071을 세웠다.
@@ -1578,7 +1589,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.36<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->236<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->139<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.36<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->236<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->140<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->32<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

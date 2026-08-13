@@ -40,6 +40,8 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
     "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-deep-link": "2.4.9",
+    "@tauri-apps/plugin-opener": "2.5.4",
     "dexie": "^4.0.8",
     "maplibre-gl": "^4.5.0",
     "mediabunny": "1.53.0"

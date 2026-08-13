@@ -1,8 +1,18 @@
-// Windows 셸은 제품 코어가 아니다. 네이티브 기능은 실제 필요가 증명될 때만
-// capability와 플러그인을 함께 추가한다(docs/WINDOWS_TAURI.md).
+// Windows OAuth는 새 프로세스로 돌아올 수 있다. single-instance를 **먼저** 등록해야
+// deep-link 플러그인이 기존 창으로 URL을 전달한다(Tauri 공식 계약).
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_opener::init())
         .run(tauri::generate_context!())
         .expect("Bugeon Journey Windows shell failed to start");
 }

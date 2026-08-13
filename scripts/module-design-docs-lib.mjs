@@ -210,7 +210,7 @@ export function moduleIdOf(input) {
   if (/^src\/(?:services\/(?:diagnostics|envReport|fileReality|roundTrip|serverContract|sessionState|syncReleaseDiagnostics|placeZombieAudit)|domain\/(?:diagGroups|diagnosticReport|fileRealityVerdict|integrity|gateControlView|placeProviderVerdict|placeZombieVerdict|roundTripVerdict|serverContractVerdict|sessionVerdict|syncReleaseVerdict|syncStatusVerdict|syncTombstoneVerdict)|ui\/(?:panels\/.*|screens\/(?:diagnosticsHub|mechChecks)))\.ts$/.test(p)) return 'diagnostics';
   if (/^src\/(?:services\/(?:places|geocode|here|externalMapConsent|mapRenderer)|domain\/place\/.*|ui\/(?:externalMapRow|screens\/(?:mapView|placeRegistry)))\.ts$/.test(p)) return 'map-place';
   if (/^src\/(?:services\/(?:expenses|fx)|domain\/expense\/.*)\.ts$/.test(p)) return 'expense-fx';
-  if (/^src\/(?:services\/(?:auth|consent)|services\/supabase\/client|domain\/authGate)\.ts$/.test(p)) return 'auth-security';
+  if (/^src\/(?:services\/(?:auth|desktopAuth|consent)|services\/supabase\/client|domain\/authGate)\.ts$/.test(p)) return 'auth-security';
   if (/^src\/services\/(?:nativePlatform|capacitorShell|fileSave|shellUpdate|appUpdate|nativePhotos)\.ts$/.test(p)) return 'platform-runtime';
   if (/^src\/(?:media\/(?:compress|exif)|services\/(?:media|r2|storage)|domain\/media\/.*|ui\/(?:mediaSave|photoViewer|pickOriginal))\.ts$/.test(p)) return 'photo-storage';
   if (/^src\/(?:services\/(?:trips|moments|homeZone)|domain\/(?:moment\/.*|trip\/.*|registry|time))\.ts$/.test(p)) return 'travel-core';

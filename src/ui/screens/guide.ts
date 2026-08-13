@@ -253,6 +253,44 @@ const CONNECT_GROUP: GuideGroup = {
       },
     },
     {
+      icon: '🪟',
+      label: 'Windows 앱 로그인 설정',
+      hint: '브라우저 로그인이 끝나면 앱으로 돌아오게 해요',
+      render: () => {
+        const body = panel([
+          h('어려운 키 설정이 아니에요'),
+          p('Supabase에게 “로그인이 끝나면 Bugeon Journey 앱으로 돌아가도 돼요”라고 주소 한 줄을 알려주는 일입니다.'),
+          h('따라 하기'),
+          steps([
+            ['Supabase 설정 열기', '아래의 Supabase 로그인 주소 설정 열기 버튼을 누릅니다.'],
+            ['Redirect URLs 찾기', '화면에서 Redirect URLs 또는 Redirect URL Allow List를 찾고 Add URL을 누릅니다.'],
+            ['주소 한 줄 붙여넣기', 'app.bugeon.journey://auth-callback 을 그대로 붙여넣습니다. 별표(*)나 공백은 넣지 않습니다.'],
+            ['저장하기', 'Save를 누릅니다. API 키를 새로 만들거나 바꾸지 않습니다.'],
+            ['앱에서 확인하기', '새 Windows 설치본을 열고 Google 로그인을 누릅니다. 브라우저 로그인이 끝난 뒤 앱 창이 앞으로 오고 이메일이 보이면 성공입니다.'],
+          ]),
+          h('Windows 지도 주소도 함께 넣기'),
+          bullets([
+            'Kakao JavaScript SDK 도메인: https://tauri.localhost',
+            'TomTom Domain whitelist: tauri.localhost',
+            '키 값은 그대로 두고 허용 주소만 한 줄씩 더합니다.',
+          ]),
+          note('로그인 복귀가 실패하면 앱 아래 알림이 이유를 말합니다. 엉뚱한 host나 path는 세션으로 바꾸지 않습니다.'),
+        ]);
+        const links = el('div', 'guide-pb-row');
+        const dashboard = el('a', 'guide-open-dashboard', 'Supabase 로그인 주소 설정 열기') as HTMLAnchorElement;
+        dashboard.href = 'https://supabase.com/dashboard/project/ihxiywffzmvrwmqvatzt/auth/url-configuration';
+        dashboard.target = '_blank';
+        dashboard.rel = 'noopener noreferrer';
+        const docs = el('a', 'guide-open-dashboard', 'Supabase 공식 설명 보기') as HTMLAnchorElement;
+        docs.href = 'https://supabase.com/docs/guides/auth/redirect-urls';
+        docs.target = '_blank';
+        docs.rel = 'noopener noreferrer';
+        links.append(dashboard, docs);
+        body.appendChild(links);
+        return body;
+      },
+    },
+    {
       icon: '🎨',
       label: '앱 아이콘 바꾸기',
       hint: `홈 화면 아이콘을 ${APP_ICONS.length}가지 중에 골라요 (앱 전용)`,

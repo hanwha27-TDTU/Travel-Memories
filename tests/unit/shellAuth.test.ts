@@ -23,8 +23,20 @@ describe('authCodeFromUrl — 딥링크에서 PKCE code만', () => {
     expect(authCodeFromUrl('https://example.com/?code=evil')).toBeNull();
   });
 
+  it('같은 스킴이어도 다른 host는 거부한다', () => {
+    expect(authCodeFromUrl('app.bugeon.journey://not-auth?code=evil')).toBeNull();
+  });
+
+  it('같은 host여도 다른 path는 거부한다', () => {
+    expect(authCodeFromUrl('app.bugeon.journey://auth-callback/not-allowed?code=evil')).toBeNull();
+  });
+
   it('code가 없으면 null(오류 복귀 등) — 지어내지 않는다', () => {
     expect(authCodeFromUrl(`${SHELL_AUTH_REDIRECT}?error=access_denied`)).toBeNull();
+  });
+
+  it('빈 code는 null이다', () => {
+    expect(authCodeFromUrl(`${SHELL_AUTH_REDIRECT}?code=%20`)).toBeNull();
   });
 
   it('깨진 URL은 조용히 null — 예외가 부트를 죽이면 안 된다', () => {

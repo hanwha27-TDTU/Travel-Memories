@@ -9,7 +9,8 @@ import { initTheme } from './ui/theme';
 import { db } from './offline/db';
 import { installErrorLog } from './app/errorLog';
 import { installAutoSync } from './services/autoSync';
-import { wireShellAuthReturn, currentUser } from './services/auth';
+import { wireShellAuthReturn, currentUser, SHELL_AUTH_ERROR_EVENT } from './services/auth';
+import { showNoticeToast } from './ui/toast';
 import { isConfigured } from './services/supabase/client';
 import { canViewLocalRecords } from './domain/authGate';
 // 🔴 화면 생명주기는 **검사 가능한 순수 모듈**에 있다 — main.ts는 진입점이라 유닛이 못 부른다(§10 ③).
@@ -24,6 +25,10 @@ installAutoSync();
 
 // 셸(ADR-0037): 구글 로그인이 시스템 브라우저에서 딥링크로 돌아오면 세션으로 교환.
 // 크롬에서는 무행동 — 부트에서 한 번만 배선한다.
+window.addEventListener(SHELL_AUTH_ERROR_EVENT, (event) => {
+  const message = (event as CustomEvent<string>).detail;
+  showNoticeToast(`로그인 복귀 실패: ${message}`);
+});
 wireShellAuthReturn();
 
 // 저장된 테마·계절 선호를 문서에 반영(첫 페인트 전).

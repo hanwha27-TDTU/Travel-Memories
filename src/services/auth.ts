@@ -11,6 +11,8 @@
 
 import { supabase } from './supabase/client';
 import { shellPlugin, shellState } from './capacitorShell';
+import { nativePlatform } from './nativePlatform';
+import { openDesktopOAuthUrl, wireDesktopAuthUrls } from './desktopAuth';
 
 /** 셸 딥링크 복귀 주소 — AndroidManifest의 intent-filter·Supabase 허용 목록과 1:1이다. */
 export const SHELL_AUTH_REDIRECT = 'app.bugeon.journey://auth-callback';
@@ -33,13 +35,20 @@ export async function currentUser(): Promise<SessionUser | null> {
 export async function signInWithGoogle(): Promise<void> {
   const c = supabase();
   if (!c) throw new Error('Supabase 미설정 — 환경변수 필요');
+  const platform = nativePlatform();
   const redirectTo =
-    shellState() === 'browser' ? window.location.origin + import.meta.env.BASE_URL : SHELL_AUTH_REDIRECT;
-  const { error } = await c.auth.signInWithOAuth({
+    platform === 'browser' && shellState() === 'browser'
+      ? window.location.origin + import.meta.env.BASE_URL
+      : SHELL_AUTH_REDIRECT;
+  const { data, error } = await c.auth.signInWithOAuth({
     provider: 'google',
-    options: { redirectTo },
+    options: { redirectTo, skipBrowserRedirect: platform === 'windows' },
   });
   if (error) throw new Error(error.message);
+  if (platform === 'windows') {
+    if (!data.url) throw new Error('로그인 주소를 만들지 못했어요.');
+    await openDesktopOAuthUrl(data.url);
+  }
 }
 
 /**
@@ -50,7 +59,10 @@ export function authCodeFromUrl(url: string): string | null {
   try {
     const u = new URL(url);
     if (u.protocol !== 'app.bugeon.journey:') return null;
-    return u.searchParams.get('code');
+    if (u.hostname !== 'auth-callback') return null;
+    if (u.pathname !== '' && u.pathname !== '/') return null;
+    const code = u.searchParams.get('code');
+    return code?.trim() ? code : null;
   } catch {
     return null;
   }
@@ -66,19 +78,49 @@ interface AppPlugin {
  * 크롬·옛 APK(App 플러그인 없음)에서는 무행동 — 기존 경로에 손대지 않는다(ADR-0036과
  * 같은 규율). 성공은 onAuthStateChange가 화면에 알린다(홈이 이미 구독 중).
  */
-export function wireShellAuthReturn(): void {
-  const app = shellPlugin<AppPlugin>('App');
-  if (!app) return;
-  app.addListener('appUrlOpen', ({ url }) => {
-    const code = authCodeFromUrl(url);
-    if (!code) return; // 로그인 복귀가 아닌 딥링크 — 여기서는 볼 일 없다
-    const c = supabase();
-    if (!c) return;
-    void c.auth.exchangeCodeForSession(code).then(({ error }) => {
-      // 실패를 조용히 삼키지 않는다(§13 4항 ③) — 홈 화면 로그인 버튼은 여전히 살아 있다.
-      if (error) console.error('셸 로그인 복귀 교환 실패:', error.message);
-    });
+export const SHELL_AUTH_ERROR_EVENT = 'journey:shell-auth-error';
+
+const authCodesInFlight = new Set<string>();
+
+function reportShellAuthError(message: string): void {
+  console.error('앱 로그인 복귀 실패:', message);
+  window.dispatchEvent(new CustomEvent<string>(SHELL_AUTH_ERROR_EVENT, { detail: message }));
+}
+
+function exchangeShellAuthUrl(url: string): void {
+  const code = authCodeFromUrl(url);
+  if (!code) {
+    reportShellAuthError('우리 앱의 로그인 주소가 아니어서 열지 않았어요.');
+    return;
+  }
+  if (authCodesInFlight.has(code)) return;
+  const c = supabase();
+  if (!c) {
+    reportShellAuthError('Supabase 설정을 찾지 못했어요.');
+    return;
+  }
+  authCodesInFlight.add(code);
+  void c.auth.exchangeCodeForSession(code).then(({ error }) => {
+    if (error) {
+      authCodesInFlight.delete(code);
+      reportShellAuthError(error.message);
+    }
   });
+}
+
+export function wireShellAuthReturn(): void {
+  const platform = nativePlatform();
+  if (platform === 'android') {
+    const app = shellPlugin<AppPlugin>('App');
+    if (!app) return;
+    app.addListener('appUrlOpen', ({ url }) => exchangeShellAuthUrl(url));
+    return;
+  }
+  if (platform === 'windows') {
+    void wireDesktopAuthUrls(exchangeShellAuthUrl).catch((error) => {
+      reportShellAuthError(error instanceof Error ? error.message : String(error));
+    });
+  }
 }
 
 /**

@@ -108,6 +108,11 @@ export const SKILL_ROUTES = [
   { match: /^src\/services\/capacitorShell/, skill: 'android-apk-dev' },
   { match: /^src\/services\/nativePlatform/, skill: 'android-apk-dev' },
   { match: /^src\/services\/nativePlatform/, skill: 'windows-tauri-dev' },
+  { match: /^src\/services\/desktopAuth/, skill: 'windows-tauri-dev' },
+  { match: /^src\/services\/desktopAuth/, skill: 'supabase-security-dev' },
+  { match: /^src\/services\/auth\.ts$/, skill: 'android-apk-dev' },
+  { match: /^src\/services\/auth\.ts$/, skill: 'windows-tauri-dev' },
+  { match: /^src\/services\/auth\.ts$/, skill: 'supabase-security-dev' },
   { match: /^src\/services\/nativePhotos/, skill: 'android-apk-dev' },
   // APK 배포 사실 SSOT(고정 릴리스 주소·설치 안내) — 셸 배포 계약이므로 같은 헌장.
   // **「항상 최신 APK」 계약 자체**(고정 태그·--clobber·3자리 대조)의 정본은 android-apk-dev.

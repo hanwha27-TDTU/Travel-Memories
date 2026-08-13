@@ -77,6 +77,39 @@ Pages 순서 앞에 다음 의존 간선이 생긴다.
 2. (Supabase 프로비저닝 후) **Settings → Secrets and variables → Actions → Variables**에 `VITE_SUPABASE_URL`·`VITE_SUPABASE_PUBLISHABLE_KEY` 등록. 그 전까지는 로컬 전용 모드로 배포된다.
 3. `deploy-pages.yml`은 **`main` push에만 발동**한다 — 작업 브랜치가 main에 병합되기 전에는 어떤 배포도 일어나지 않으며, "배포 그린"은 병합 후에만 확인할 수 있다. 이 워크플로는 배포 산출물 build·시크릿 검사·업로드만 하고 전체 하네스는 Ready PR에서 이미 끝낸다.
 
+### Windows 로그인 설정 — 주소 한 줄만 추가하기
+
+Windows 앱은 Google 로그인 화면을 기본 브라우저에서 열고, 로그인이 끝나면 아래 주소로 다시 앱을 연다.
+API 키를 새로 만드는 작업이 아니다. **Supabase에 돌아올 주소 한 줄을 허용하는 작업**이다.
+
+먼저 열 곳:
+
+- [Supabase 프로젝트의 URL Configuration](https://supabase.com/dashboard/project/ihxiywffzmvrwmqvatzt/auth/url-configuration)
+- [Supabase Redirect URLs 설명](https://supabase.com/docs/guides/auth/redirect-urls)
+
+1. 첫 링크를 열고 로그인한다.
+2. 화면에서 **Redirect URLs** 또는 **Redirect URL Allow List**를 찾는다.
+3. **Add URL**을 누른다.
+4. 아래 한 줄을 그대로 붙여넣는다. 앞뒤 공백이나 `*`를 붙이지 않는다.
+
+   ```text
+   app.bugeon.journey://auth-callback
+   ```
+
+5. **Save**를 누른다.
+6. Windows 앱을 완전히 닫았다가 다시 열고 **Google 로그인**을 누른다.
+7. Chrome이나 Edge에서 로그인한 뒤 Bugeon Journey 창이 앞으로 돌아오고 이메일이 보이면 성공이다.
+
+안 될 때 확인할 것:
+
+- 브라우저 주소가 아니라 위의 `app.bugeon.journey://...` 한 줄을 넣었는지 본다.
+- `auth-callback` 철자와 하이픈 하나가 정확한지 본다.
+- Windows 설치본이 Phase 2 이후 새 설치본인지 본다. 웹 배포만으로 Rust 딥링크 등록은 바뀌지 않는다.
+- 실패하면 앱 아래쪽 알림에 이유가 나타난다. 주소가 틀린 콜백은 세션으로 바꾸지 않는다.
+
+지도도 Windows에서 쓰려면 기존 목록에 Kakao는 `https://tauri.localhost`, TomTom은
+`tauri.localhost`를 각각 한 줄 더 등록한다. 키 값 자체는 바꾸지 않는다.
+
 ### 카카오맵 설정 — 처음 하는 사람도 따라 하는 순서
 
 앱은 **한국은 카카오맵**, **우즈베키스탄·카자흐스탄·키르기스스탄은 TomTom**, 그 밖은 기존

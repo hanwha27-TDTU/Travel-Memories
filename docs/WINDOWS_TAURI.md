@@ -5,7 +5,7 @@ shape_reason: 공통 코어에서 웹·Android·Windows가 갈라지는 소유�
 
 # Bugeon Journey · Tauri 2 Windows 개념 스키마
 
-> 상태: Phase 1 골격. 이 문서는 다른 앱의 착수서를 복사한 것이 아니라 Bugeon Journey 실행 코드와 데이터 계약에 맞춘 Windows 정본이다.
+> 상태: Phase 2 인증 어댑터 구현. 이 문서는 다른 앱의 착수서를 복사한 것이 아니라 Bugeon Journey 실행 코드와 데이터 계약에 맞춘 Windows 정본이다.
 
 ## 1. 목적과 경계
 
@@ -100,8 +100,14 @@ Windows 운영 오리진을 쓰려면 외부 대시보드에 다음 값이 필�
 ### Phase 2 · 플랫폼 어댑터와 인증
 
 - 브라우저 / Android / Windows 판정을 한 공용 어댑터에서 제공 — Phase 1에서 기반 완료
-- 시스템 브라우저 OAuth, strict callback, single instance
-- 외부 링크 opener
+- 시스템 브라우저 OAuth — `skipBrowserRedirect`로 URL만 받은 뒤 scoped opener가 정확한 Supabase authorize 주소만 연다
+- strict callback — 스킴·host·path·비어 있지 않은 code를 모두 확인한다
+- single instance — Windows가 콜백으로 두 번째 프로세스를 띄워도 기존 main 창으로 전달하고 포커스한다
+- Android도 같은 변경에서 intent-filter를 `auth-callback` host까지 좁혔다
+
+`single-instance`는 Rust builder에서 `deep-link`보다 먼저 등록한다. 순서가 바뀌면 Windows에서 실행 중인
+앱으로 URL이 전달되지 않는다. capability는 `core:default`, `deep-link:default`, 이 프로젝트의 Supabase
+`/auth/v1/authorize*` 하나를 여는 scoped opener만 허용한다.
 
 ### Phase 3 · 파일과 실동작
 
@@ -128,8 +134,8 @@ Windows 도입이 실패해도 웹과 Android는 계속 배포할 수 있어야 
 > 근거: 손목록
 
 - WebView2에서 Kakao·TomTom 실제 렌더
-- Google OAuth 시스템 브라우저 왕복
-- Windows 설치본에서 IndexedDB 재실행·재설치 보존
+- Google 계정 선택부터 실제 세션 생성까지의 전체 OAuth 왕복
+- Windows 설치본의 localStorage 재실행 보존은 확인했다. IndexedDB 기록 재실행과 앱 재설치 뒤 보존·복구는 미확인이다.
 - 백업 파일 저장·복원과 대용량 메모리
 - 마이크·위치·Clipboard 권한
 - 서명된 installer와 updater

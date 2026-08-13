@@ -26,6 +26,13 @@
       "csp": "default-src 'self'; media-src 'self' blob:; img-src 'self' data: blob: https://*.supabase.co https://tile.openstreetmap.org https://api.tomtom.com https://*.daumcdn.net https://*.kakaocdn.net; connect-src 'self' ipc: https://ipc.localhost https://*.supabase.co wss://*.supabase.co https://*.r2.cloudflarestorage.com https://tile.openstreetmap.org https://api.tomtom.com https://nominatim.openstreetmap.org https://dapi.kakao.com https://*.daumcdn.net https://cdn.jsdelivr.net https://*.currency-api.pages.dev https://api.frankfurter.dev; worker-src 'self' blob:; child-src blob:; style-src 'self' 'unsafe-inline'; script-src 'self' https://dapi.kakao.com https://*.daumcdn.net; object-src 'none'; base-uri 'self'; form-action 'self'"
     }
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["app.bugeon.journey"]
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis"],

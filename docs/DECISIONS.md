@@ -9,6 +9,15 @@ shape_reason: ADR은 결정에 이른 경위가 값이다. 항목으로 자르�
 
 ---
 
+## ADR-0072 · Windows OAuth는 시스템 브라우저·strict 딥링크·단일 인스턴스로 왕복한다 `[AI-autonomous]` (Codex)
+
+- **문제**: Phase 1은 Windows를 판별했지만 인증 복귀 배선은 Capacitor `App.appUrlOpen`만 읽었다. 그래서 Windows의 Google 로그인은 시작·복귀가 완결될 수 없었다.
+- **결정**: Windows에서는 Supabase에 `skipBrowserRedirect: true`로 OAuth URL만 요청하고, scoped Tauri opener로 정확한 프로젝트의 `/auth/v1/authorize`만 시스템 브라우저에서 연다. 복귀 주소는 기존 Android와 같은 `app.bugeon.journey://auth-callback`이다.
+- **수신 경계**: 스킴뿐 아니라 host=`auth-callback`, path=빈 값 또는 `/`, 비어 있지 않은 code를 모두 확인한다. 예상 밖 URL은 세션 교환을 하지 않고 사용자 알림과 콘솔에 사유를 남긴다.
+- **Windows 생명주기**: OS가 딥링크마다 새 프로세스를 시작할 수 있으므로 `single-instance(deep-link)`를 deep-link 플러그인보다 먼저 등록하고 기존 main 창을 보이게 한 뒤 포커스한다.
+- **수평 전개**: 같은 스킴만 보던 Android intent-filter도 host까지 좁혔다. path 최종 판정은 두 플랫폼이 공유하는 `authCodeFromUrl` 한 곳이 맡는다.
+- **권한**: capability는 `core:default`, `deep-link:default`, 정확한 Supabase authorize URL 하나의 opener만 갖는다. broad shell·HTTP·filesystem 권한은 추가하지 않는다.
+
 ## ADR-0071 · Windows는 공통 코어를 로컬 번들로 싣는 Tauri 2 표면으로 만든다 `[AI-proposed→user-approved]` (Codex)
 
 - **결정**: 다른 앱의 Windows 착수서는 개념만 참고한다. Bugeon Journey의 Vite·TypeScript 코어, Dexie 원자 커밋, Supabase canonical sync, 지도 공급자 판정을 정본으로 두고 Tauri 2는 Windows 실행·설치 경계만 소유한다.
