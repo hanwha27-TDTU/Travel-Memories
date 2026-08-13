@@ -8,13 +8,7 @@ import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 // 🔴 검출 로직을 **다시 구현하지 않는다**(§2 — 손편집 중복 자체가 결함). 게이트와 생성기가
 //    같은 함수를 쓰므로, 판정이 갈라질 수 없다. `check-gate-control`은 import에서 검사를
 //    돌지 않도록 `isMain` 가드를 갖고 있다.
-import {
-  gateScripts,
-  stripComments,
-  hasControl,
-  declaresSelftest,
-  declaresSelfCheckExit,
-} from './check-gate-control.mjs';
+import { gateScripts, stripComments, hasControl, declaresSelftest, declaresSelfCheckExit, gatePopulation } from './check-gate-control.mjs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -88,8 +82,9 @@ export function collect() {
   // 게이트의 **대조군 현황**(§4). 앱의 「개발자 정보」가 이 값을 그대로 비춘다 —
   // 🔴 앱은 게이트가 **실제로 돌았는지 볼 수 없다.** 여기 있는 것은 저장소에 적힌 계약이고,
   //    화면도 그렇게 말해야 한다(§8 — 앱이 판정하는 척하면 그 초록이 거짓이 된다).
-  const gateControl = gateScripts(harness)
-    .filter((g) => existsSync(join(ROOT, g.script)))
+  // 🔴 모집단을 **따로 계산하지 않는다** — 게이트와 같은 함수를 쓴다(M-0157).
+  //    예전엔 여기서 하네스만 봐서 화면이 68, 게이트가 69를 말했다.
+  const gateControl = gatePopulation(ROOT)
     .map((g) => {
       const code = stripComments(readFileSync(join(ROOT, g.script), 'utf8'));
       return {
