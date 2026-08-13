@@ -18,6 +18,7 @@ interface JourneyRenderOptions {
   container: HTMLElement;
   points: readonly RenderPoint[];
   kakaoKey: string;
+  tomtomKey: string;
   mapStyleUrl: string | undefined;
   markerColor: string;
   popupNode(point: RenderPoint): HTMLElement;
@@ -28,7 +29,10 @@ interface PickerRenderOptions {
   provider: MapDisplayProvider;
   container: HTMLElement;
   initial: MapCoordinate | null;
+  /** 현재 위치는 화면 중심만 옮긴다. 사용자가 누르기 전 선택 마커로 만들지 않는다. */
+  center: MapCoordinate | null;
   kakaoKey: string;
+  tomtomKey: string;
   mapStyleUrl: string | undefined;
   markerColor: string;
   onPick(coord: MapCoordinate): void;
@@ -52,6 +56,30 @@ const OSM_STYLE = {
   },
   layers: [{ id: 'osm', type: 'raster' as const, source: 'osm' }],
 };
+
+function tomtomStyle(key: string) {
+  if (!key) throw new Error('TomTom API 키가 설정되지 않았습니다.');
+  return {
+    version: 8 as const,
+    sources: {
+      tomtom: {
+        type: 'raster' as const,
+        tiles: [
+          `https://api.tomtom.com/maps/orbis/display/raster/tile/{z}/{x}/{y}?apiVersion=2&key=${encodeURIComponent(key)}&style=street-light&tileSize=256&geopoliticalView=Unified`,
+        ],
+        tileSize: 256,
+        maxzoom: 22,
+        attribution: '© TomTom',
+      },
+    },
+    layers: [{ id: 'tomtom', type: 'raster' as const, source: 'tomtom' }],
+  };
+}
+
+function mapLibreStyle(options: { provider: MapDisplayProvider; tomtomKey: string; mapStyleUrl: string | undefined }) {
+  if (options.provider === 'tomtom') return tomtomStyle(options.tomtomKey);
+  return options.mapStyleUrl || OSM_STYLE;
+}
 
 type KakaoLatLng = { getLat(): number; getLng(): number };
 type KakaoMap = {
@@ -238,7 +266,7 @@ async function renderMapLibreJourney(options: JourneyRenderOptions): Promise<Map
   const first = options.points[0]!;
   const map = new maplibregl.Map({
     container: options.container,
-    style: options.mapStyleUrl || (OSM_STYLE as unknown as string),
+    style: mapLibreStyle(options) as unknown as string,
     center: [first.lng, first.lat],
     zoom: options.points.length === 1 ? SINGLE_POINT_ZOOM : 10,
     attributionControl: { compact: true },
@@ -288,10 +316,10 @@ async function renderMapLibreJourney(options: JourneyRenderOptions): Promise<Map
 async function renderKakaoPicker(options: PickerRenderOptions): Promise<MapRendererHandle> {
   const maps = await loadKakaoMaps(options.kakaoKey);
   if (options.signal.aborted) throw abortError();
-  const center = options.initial ?? { lat: 36.5, lng: 127.8 };
+  const center = options.center ?? options.initial ?? { lat: 36.5, lng: 127.8 };
   const map = new maps.Map(options.container, {
     center: new maps.LatLng(center.lat, center.lng),
-    level: options.initial ? KAKAO_SINGLE_POINT_LEVEL : 9,
+    level: options.center || options.initial ? KAKAO_SINGLE_POINT_LEVEL : 9,
   });
   await waitForKakaoTiles(maps, map, options.signal);
 
@@ -334,12 +362,13 @@ async function renderKakaoPicker(options: PickerRenderOptions): Promise<MapRende
 async function renderMapLibrePicker(options: PickerRenderOptions): Promise<MapRendererHandle> {
   const maplibregl = await mapLibreModule();
   if (options.signal.aborted) throw abortError();
-  const center: [number, number] = options.initial ? [options.initial.lng, options.initial.lat] : [127.8, 36.5];
+  const centerCoord = options.center ?? options.initial;
+  const center: [number, number] = centerCoord ? [centerCoord.lng, centerCoord.lat] : [127.8, 36.5];
   const map = new maplibregl.Map({
     container: options.container,
-    style: options.mapStyleUrl || (OSM_STYLE as unknown as string),
+    style: mapLibreStyle(options) as unknown as string,
     center,
-    zoom: options.initial ? SINGLE_POINT_ZOOM : 6,
+    zoom: centerCoord ? SINGLE_POINT_ZOOM : 6,
     attributionControl: { compact: true },
   });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');

@@ -23,20 +23,40 @@ describe('지도 표시 제공자 판정', () => {
     const seoul = { lat: 37.5665, lng: 126.978 };
     const busan = { lat: 35.1796, lng: 129.0756 };
     const tashkent = { lat: 41.2995, lng: 69.2401 };
-    expect(displayProviderForPoints([seoul, busan], true)).toBe('kakao');
-    expect(displayProviderForPoints([seoul, busan], false)).toBe('maplibre');
-    expect(displayProviderForPoints([seoul, tashkent], true)).toBe('maplibre');
-    expect(displayProviderForPoints([], true)).toBe('maplibre');
+    const allKeys = { kakaoKeyConfigured: true, tomtomKeyConfigured: true };
+    expect(displayProviderForPoints([seoul, busan], allKeys)).toBe('kakao');
+    expect(displayProviderForPoints([seoul, busan], { ...allKeys, kakaoKeyConfigured: false })).toBe('maplibre');
+    expect(displayProviderForPoints([seoul, tashkent], allKeys)).toBe('maplibre');
+    expect(displayProviderForPoints([], allKeys)).toBe('maplibre');
   });
 
-  it('선택기는 초기 좌표가 한국으로 확인된 경우만 카카오를 쓴다', () => {
-    expect(displayProviderForPicker({ lat: 37.5665, lng: 126.978 }, true)).toBe('kakao');
-    expect(displayProviderForPicker({ lat: 41.2995, lng: 69.2401 }, true)).toBe('maplibre');
-    expect(displayProviderForPicker(null, true)).toBe('maplibre');
+  it('선택기는 한국 Kakao, 확인된 시범국 TomTom, 나머지는 기존 지도를 쓴다', () => {
+    const allKeys = { kakaoKeyConfigured: true, tomtomKeyConfigured: true };
+    expect(displayProviderForPicker({ lat: 37.5665, lng: 126.978 }, 'kr', allKeys)).toBe('kakao');
+    expect(displayProviderForPicker({ lat: 41.2995, lng: 69.2401 }, 'uz', allKeys)).toBe('tomtom');
+    expect(displayProviderForPicker({ lat: 43.2389, lng: 76.8897 }, 'kz', allKeys)).toBe('tomtom');
+    expect(displayProviderForPicker({ lat: 42.8746, lng: 74.5698 }, 'kg', allKeys)).toBe('tomtom');
+    expect(displayProviderForPicker({ lat: 55.7558, lng: 37.6173 }, 'ru', allKeys)).toBe('maplibre');
+    expect(displayProviderForPicker({ lat: 41.2995, lng: 69.2401 }, null, allKeys)).toBe('maplibre');
+    expect(displayProviderForPicker(null, 'uz', allKeys)).toBe('maplibre');
   });
 
-  it('카카오 실패 시 기존 MapLibre로 한 번만 폴백한다', () => {
+  it('지역별 키가 없으면 기존 지도로 안전하게 돌아간다', () => {
+    expect(displayProviderForPicker(
+      { lat: 37.5665, lng: 126.978 },
+      'kr',
+      { kakaoKeyConfigured: false, tomtomKeyConfigured: true },
+    )).toBe('maplibre');
+    expect(displayProviderForPicker(
+      { lat: 41.2995, lng: 69.2401 },
+      'uz',
+      { kakaoKeyConfigured: true, tomtomKeyConfigured: false },
+    )).toBe('maplibre');
+  });
+
+  it('지역 지도 실패 시 기존 MapLibre로 한 번만 폴백한다', () => {
     expect(displayProviderFallbackOrder('kakao')).toEqual(['kakao', 'maplibre']);
+    expect(displayProviderFallbackOrder('tomtom')).toEqual(['tomtom', 'maplibre']);
     expect(displayProviderFallbackOrder('maplibre')).toEqual(['maplibre']);
   });
 });

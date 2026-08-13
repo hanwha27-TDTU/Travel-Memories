@@ -1112,4 +1112,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '변경된 실행 표면은 GitHub Pages이며 Android 셸·DB migration·Edge Function 소스는 바뀌지 않았다. 따라서 앱 버전과 사용자 변경내역을 확정하고 전체 Required CI를 거쳐 Pages만 배포·되읽는 것이 정확한 영향 범위다.',
     decision: 'v2.34에 한국 Kakao 지도, 해외 MapLibre 유지, 실패 자동 복귀와 초보자 설정 가이드를 묶는다. 정확한 후보 커밋을 얼리고 전체 하네스·라이브가 같은 SHA에서 끝난 뒤 squash merge하며, Pages workflow success와 운영 version.json 2.34를 되읽고 릴리스 잠금을 닫는다.',
   },
+  {
+    seq: 139,
+    date: '2026-08-13',
+    topic: '새 위치 지도는 현재 위치로 제공자를 고르고 중앙아시아 3국은 TomTom을 시범 적용한다',
+    human: '추천한 TomTom 방향으로 진행하고, 지도 버튼을 눌렀을 때 한국 현재 위치에서는 Kakao가 기본이고 우즈베키스탄에서는 TomTom이어야 한다고 확인을 요청했다.',
+    ai: '기존 새 위치 선택기는 현재 위치를 전혀 읽지 않고 좌표 미정이라는 이유로 즉시 MapLibre를 골랐다. 현재 위치를 곧바로 선택값으로 쓰면 소급 기록이 오늘 위치에 저장되는 더 큰 결함이 생기므로, 지도 중심·제공자 선택과 사용자 확정을 분리해야 했다. TomTom은 별도 SDK 대신 MapLibre가 Orbis Raster v2를 그리게 하면 기존 실패·오프라인 대체 계약을 그대로 물려받는다.',
+    decision: '사용자가 지도 버튼을 누른 때만 현재 위치를 한 번 읽고, 기존 좌표가 있으면 그것을 우선한다. 한국은 Kakao, 확인된 ISO 코드가 UZ·KZ·KG이면 TomTom, 나머지·키 없음·판별 실패는 MapLibre다. 현재 위치는 중심만 맞추며 사용자가 지도를 누르기 전에는 저장하지 않는다. TomTom 키는 VITE_TOMTOM_API_KEY Repository Variable로 배선하고 도메인·제품 제한을 실제 보호선으로 안내한다.',
+  },
 ];

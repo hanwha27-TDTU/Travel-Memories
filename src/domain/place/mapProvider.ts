@@ -1,12 +1,23 @@
 // domain/place/mapProvider.ts — 지도 **표시** 제공자 판정의 유일한 자리.
-// 장소 검색 제공자(provider.ts)와는 다른 축이다: 검색은 Kakao/Nominatim, 표시는 Kakao/MapLibre다.
+// 장소 검색 제공자(provider.ts)와는 다른 축이다: 검색은 Kakao/Nominatim,
+// 표시는 Kakao/TomTom/MapLibre다.
 
-export type MapDisplayProvider = 'kakao' | 'maplibre';
+export type MapDisplayProvider = 'kakao' | 'tomtom' | 'maplibre';
 
 export interface MapCoordinate {
   lat: number;
   lng: number;
+  /** 역지오코딩/장소 대장에서 확인된 ISO 3166-1 alpha-2. 좌표만 보고 나라를 추측하지 않는다. */
+  countryCode?: string | null;
 }
+
+export interface MapProviderConfig {
+  kakaoKeyConfigured: boolean;
+  tomtomKeyConfigured: boolean;
+}
+
+/** TomTom 시범 적용국. 넓은 사각형 추측 대신 확인된 국가 코드로만 고른다. */
+const TOMTOM_PILOT_COUNTRIES = new Set(['uz', 'kz', 'kg']);
 
 interface CoordinateBox {
   minLat: number;
@@ -44,23 +55,29 @@ export function isKoreaMapCoordinate(coord: MapCoordinate): boolean {
  */
 export function displayProviderForPoints(
   points: readonly MapCoordinate[],
-  kakaoKeyConfigured: boolean,
+  config: MapProviderConfig,
 ): MapDisplayProvider {
-  if (!kakaoKeyConfigured || points.length === 0) return 'maplibre';
-  return points.every(isKoreaMapCoordinate) ? 'kakao' : 'maplibre';
+  if (points.length === 0) return 'maplibre';
+  const providers = points.map((point) => displayProviderForPicker(point, point.countryCode ?? null, config));
+  const first = providers[0]!;
+  return providers.every((provider) => provider === first) ? first : 'maplibre';
 }
 
-/** 좌표가 아직 없으면 지역도 미정이므로 기존 세계지도를 유지한다. */
+/** 한국은 좌표로, TomTom 시범국은 확인된 국가 코드로 판정한다. */
 export function displayProviderForPicker(
   initial: MapCoordinate | null,
-  kakaoKeyConfigured: boolean,
+  countryCode: string | null,
+  config: MapProviderConfig,
 ): MapDisplayProvider {
-  if (!initial || !kakaoKeyConfigured) return 'maplibre';
-  return isKoreaMapCoordinate(initial) ? 'kakao' : 'maplibre';
+  if (!initial) return 'maplibre';
+  if (config.kakaoKeyConfigured && isKoreaMapCoordinate(initial)) return 'kakao';
+  const normalized = countryCode?.trim().toLowerCase() ?? '';
+  if (config.tomtomKeyConfigured && TOMTOM_PILOT_COUNTRIES.has(normalized)) return 'tomtom';
+  return 'maplibre';
 }
 
-/** 카카오 실패 시 기존 MapLibre로 닫히도록 하는 순서도 한 곳에서 파생한다. */
+/** 지역 지도 실패 시 기존 MapLibre로 닫히도록 하는 순서도 한 곳에서 파생한다. */
 export function displayProviderFallbackOrder(preferred: MapDisplayProvider): readonly MapDisplayProvider[] {
-  return preferred === 'kakao' ? ['kakao', 'maplibre'] : ['maplibre'];
+  return preferred === 'maplibre' ? ['maplibre'] : [preferred, 'maplibre'];
 }
 

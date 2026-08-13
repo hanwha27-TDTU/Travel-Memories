@@ -39,7 +39,7 @@ GitHub Pages는 서버 없이 정적 파일만 제공한다. Bugeon Journey는 �
   기다리는 비용이 더 큰 경우만 단독 긴급 릴리스한다(헌법 §15).
 - **완료 = 병합이 아니라 배포 그린 확인**(AGENTS.md). Actions가 배포 성공을 보고한 뒤에만 완료 처리.
 - `check-secret-leak`가 빌드 아티팩트를 스캔해 시크릿 유출 없음을 확인한 뒤 배포.
-- 클라이언트 설정(`VITE_SUPABASE_URL`·`VITE_SUPABASE_PUBLISHABLE_KEY`·`VITE_MAP_STYLE_URL`·`VITE_KAKAO_JAVASCRIPT_KEY`)은
+- 클라이언트 설정(`VITE_SUPABASE_URL`·`VITE_SUPABASE_PUBLISHABLE_KEY`·`VITE_MAP_STYLE_URL`·`VITE_KAKAO_JAVASCRIPT_KEY`·`VITE_TOMTOM_API_KEY`)은
   **Repository Variables**로 주입한다(`deploy-pages.yml`의 `env:`, `vars.*` 참조).
   publishable 키는 설계상 공개 값이라 Secrets가 아니라 Variables가 맞다(마스킹 불필요·감사 용이).
   진짜 비밀(secret/service_role/DB 비밀번호)은 Secrets에도 넣지 않는다 — 클라이언트 빌드에 쓸 일이 없어야 정상.
@@ -79,9 +79,9 @@ Pages 순서 앞에 다음 의존 간선이 생긴다.
 
 ### 카카오맵 설정 — 처음 하는 사람도 따라 하는 순서
 
-앱은 **한국 좌표만 카카오맵**, 한국 밖 좌표와 지역을 아직 모르는 새 위치 선택은 기존
-MapLibre/OpenStreetMap 지도를 사용한다. 카카오 로딩이 실패해도 기존 지도로 자동 복귀한다.
-얀덱스 지도는 사용하지 않는다(ADR-0069).
+앱은 **한국은 카카오맵**, **우즈베키스탄·카자흐스탄·키르기스스탄은 TomTom**, 그 밖은 기존
+MapLibre/OpenStreetMap 지도를 사용한다. 지역 지도 로딩이 실패해도 기존 지도로 자동 복귀한다.
+얀덱스 지도는 사용하지 않는다(ADR-0070).
 
 먼저 열 곳:
 
@@ -122,6 +122,43 @@ MapLibre/OpenStreetMap 지도를 사용한다. 카카오 로딩이 실패해도 
 자주 틀리는 곳: `Default JS Key`라는 **키 이름**은 바꿀 필요가 없다. GitHub에 만드는 변수의
 이름만 위 철자와 같으면 된다. 도메인은 `https://hanwha27-tdtu.github.io/Travel-Memories/`가
 아니라 origin인 `https://hanwha27-tdtu.github.io`까지만 등록한다.
+
+### TomTom 지도 설정 — 그대로 따라 하기
+
+이 설정은 우즈베키스탄·카자흐스탄·키르기스스탄에서만 쓰인다. 키가 없거나 잘못되어도 앱은
+멈추지 않고 기존 지도로 돌아간다.
+
+먼저 열 곳:
+
+- [TomTom 개발자 대시보드](https://developer.tomtom.com/user/me/apps)
+- [TomTom API 키 관리 설명](https://developer.tomtom.com/platform/documentation/my-tomtom/api-key-management)
+- [TomTom Orbis Raster v2 설명](https://docs.tomtom.com/map-display-api/documentation/tomtom-orbis-maps/v2/raster/raster-tile)
+
+1. **TomTom 계정을 만든다.** 개발자 대시보드에 로그인하고 `My Apps`에서 새 앱을 만든다.
+   앱 이름은 알아보기 쉽게 `Bugeon Journey Web`처럼 적으면 된다.
+2. **API 키를 만든다.** 앱 안에서 키를 만들고, 사용할 제품은 **Map Display API**만 허용한다.
+   가능하면 허용 웹사이트를 아래 세 주소로 제한한다. 메뉴 이름은 TomTom 화면 개편에 따라
+   `Allowed domains`, `Websites` 또는 `Origin restrictions`처럼 보일 수 있다.
+
+   ```text
+   https://hanwha27-tdtu.github.io
+   http://localhost:5173
+   http://127.0.0.1:5173
+   ```
+
+3. **GitHub 변수에 넣는다.** GitHub 저장소 → **Settings → Secrets and variables → Actions →
+   Variables → New repository variable**을 누른다. 이름은 정확히 `VITE_TOMTOM_API_KEY`, 값에는
+   방금 만든 TomTom 키를 붙여넣고 저장한다. `Secrets` 탭이 아니라 **Variables** 탭이다.
+4. **새로 배포한다.** 변수는 이미 만들어진 앱에는 들어가지 않는다. `main`에 다음 배포가 끝난
+   뒤 적용된다.
+5. **눈으로 확인한다.** 휴대폰 위치 권한을 허용하고 우즈베키스탄에서 지도 버튼을 누른다.
+   지도 칸의 개발자 표시가 `TomTom`인지 확인한다. 지도를 누르기 전에는 **이 위치로 지정** 버튼이
+   비활성인 것이 정상이다. 한국에서는 Kakao, 그 밖에서는 OpenStreetMap 표시가 나와야 한다.
+
+아주 중요한 보안 설명: 웹 지도 키는 브라우저가 TomTom에 타일을 요청할 때 사용하므로 앱을 보는
+사람에게 완전히 숨길 수 없다. 그래서 채팅이나 문서에 키 값을 쓰지 말고, TomTom 콘솔의 **도메인
+제한 + Map Display API만 허용**이 실제 보호선이다. 키가 의심되면 기존 키를 폐기하고 새 키로
+GitHub 변수 값을 바꾼 뒤 다시 배포한다.
 
 ## 보안 헤더 · 롤백 (S-05 결정)
 

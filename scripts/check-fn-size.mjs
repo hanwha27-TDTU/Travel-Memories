@@ -29,7 +29,7 @@ const LIMIT = 120;
  */
 const LEGACY = {
   'src/ui/photoEditor.ts::openPhotoEditor': 756,
-  'src/ui/screens/tripDetail.ts::renderTripDetail': 500,
+  'src/ui/screens/tripDetail.ts::renderTripDetail': 495,
   'src/ui/panels/diagnostics.ts::storeStateProbe': 205,
   'src/ui/photoViewer.ts::openPhotoViewer': 248,
   'src/ui/screens/home.ts::renderHome': 146,

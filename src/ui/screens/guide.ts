@@ -300,6 +300,47 @@ const CONNECT_GROUP: GuideGroup = {
         ]),
     },
     {
+      icon: '🗺️',
+      label: '한국·중앙아시아 지도 설정',
+      hint: '한국 Kakao · UZ/KZ/KG TomTom · 나머지 기존 지도',
+      render: () => {
+        const body = panel([
+          h('어느 지도가 열리나요'),
+          bullets([
+            '한국: 카카오맵',
+            '우즈베키스탄·카자흐스탄·키르기스스탄: TomTom',
+            '그 밖의 나라 또는 지역 확인 실패: 기존 OpenStreetMap',
+          ]),
+          h('TomTom 키 넣기 (한 번만)'),
+          steps([
+            ['TomTom 앱 만들기', 'TomTom 개발자 사이트의 My Apps에서 새 앱과 Map Display API 키를 만듭니다.'],
+            ['키 사용처 잠그기', 'Map Display API만 허용하고 hanwha27-tdtu.github.io와 두 localhost 주소만 허용합니다.'],
+            ['GitHub에 넣기', '저장소 Settings → Secrets and variables → Actions → Variables에서 VITE_TOMTOM_API_KEY를 만듭니다.'],
+            ['다시 배포하기', '키는 다음 앱 빌드부터 들어갑니다. Pages 배포가 끝난 뒤 우즈베키스탄에서 지도 버튼을 눌러 확인합니다.'],
+          ]),
+          h('중요한 안전 규칙'),
+          bullets([
+            '키 값은 채팅·문서·스크린샷에 쓰지 않습니다. 웹 키는 숨기는 대신 TomTom의 도메인 제한으로 보호합니다.',
+            '현재 위치는 처음 보이는 지도 중심만 맞춥니다. 지도를 직접 누르기 전에는 위치로 저장하지 않습니다.',
+            'TomTom이나 Kakao를 못 불러오면 기존 지도로 자동으로 돌아갑니다.',
+          ]),
+          note('더 자세한 그림 없는 순서표: docs/DEPLOYMENT.md의 「카카오맵 설정」과 「TomTom 지도 설정」'),
+        ]);
+        const links = el('div', 'guide-pb-row');
+        const tomtom = el('a', 'guide-open-dashboard', 'TomTom 개발자 사이트 열기') as HTMLAnchorElement;
+        tomtom.href = 'https://developer.tomtom.com/user/me/apps';
+        tomtom.target = '_blank';
+        tomtom.rel = 'noopener noreferrer';
+        const kakao = el('a', 'guide-open-dashboard', 'Kakao Developers 열기') as HTMLAnchorElement;
+        kakao.href = 'https://developers.kakao.com/console/app';
+        kakao.target = '_blank';
+        kakao.rel = 'noopener noreferrer';
+        links.append(tomtom, kakao);
+        body.appendChild(links);
+        return body;
+      },
+    },
+    {
       icon: '🖼',
       label: '사진 저장 방식',
       hint: '클라우드 WebP가 사진 정본',
