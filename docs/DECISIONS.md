@@ -9,6 +9,14 @@ shape_reason: ADR은 결정에 이른 경위가 값이다. 항목으로 자르�
 
 ---
 
+## ADR-0070 · 새 위치 지도는 현재 위치로 제공자를 고르고 중앙아시아 3국은 TomTom을 쓴다 `[AI-proposed→user-approved]` (Codex)
+
+- **결정**: 사용자가 지도 버튼을 누른 명시적 시점에만 현재 위치를 한 번 읽는다. 한국은 Kakao Maps, 우즈베키스탄·카자흐스탄·키르기스스탄은 TomTom Orbis Raster v2, 그 밖과 판별 실패는 기존 MapLibre/OpenStreetMap을 쓴다. Yandex는 넣지 않는다.
+- **선택과 중심은 다르다**: 현재 위치는 처음 보이는 지도 중심과 제공자 선택에만 쓴다. 사용자가 지도를 직접 누르기 전에는 마커를 만들거나 위치를 저장하지 않는다. 기존 저장 좌표가 있으면 현재 위치보다 저장 좌표가 우선이다.
+- **나라 판정**: 한국은 로컬 좌표 경계로 판정한다. TomTom 시범국은 좌표 사각형으로 추측하지 않고, 사용자 지도 열기 1회에 Nominatim이 돌려준 ISO 국가 코드 또는 장소 대장에 저장된 국가 코드로만 판정한다.
+- **실패·키 경계**: `VITE_TOMTOM_API_KEY`가 없거나 TomTom 타일이 실패하면 MapLibre로 자동 복귀한다. 브라우저용 TomTom 키는 번들에 보이므로 GitHub Secret이 아니라 Repository Variable로 넣고, TomTom 콘솔에서 허용 도메인과 Map Display API로 제한한다.
+- **범위**: 먼저 UZ·KZ·KG 세 나라만 시범 적용한다. CIS 전체 확대는 실기기 지도 품질·표기·비용을 확인한 뒤 별도 결정한다.
+
 ## ADR-0069 · 한국 좌표만 Kakao Maps, 그 밖은 기존 MapLibre를 유지하고 Yandex는 넣지 않는다 `[user-decided]` (Codex)
 
 - **결정**: 사용자가 범위를 직접 확정했다. 저장된 모든 지점이 한국 좌표이면 Kakao Maps JavaScript SDK로 표시하고, 한국 밖 좌표·한국/해외가 섞인 지도·지역을 아직 모르는 새 위치 선택은 기존 MapLibre/OpenStreetMap을 쓴다. Yandex Maps와 VWorld는 이번 범위에서 제외한다.

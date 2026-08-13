@@ -196,6 +196,7 @@ const PNG_1X1 = Buffer.from(
  */
 const tileZooms = [];
 let kakaoSdkRequests = 0;
+let tomtomTileRequests = 0;
 /**
  * Node 쪽 조건이 참이 될 때까지 기다린다 — **못 채워도 던지지 않는다.**
  *
@@ -244,6 +245,10 @@ async function settle(p = page) {
 await page.route('**://tile.openstreetmap.org/**', (route) => {
   const m = /\/(\d+)\/\d+\/\d+\.png/.exec(route.request().url());
   if (m) tileZooms.push(Number(m[1]));
+  return route.fulfill({ status: 200, contentType: 'image/png', body: PNG_1X1 });
+});
+await page.route('https://api.tomtom.com/**', (route) => {
+  tomtomTileRequests += 1;
   return route.fulfill({ status: 200, contentType: 'image/png', body: PNG_1X1 });
 });
 // 한국 지도 경로는 Kakao SDK를 **결정적 가짜 구현**으로 실행한다. 외부망·쿼터를 쓰지 않되
@@ -733,6 +738,64 @@ while ((await page.locator('.guide-overlay').count()) > 0) {
 
 await page.getByLabel('편집기 검증 여행 여행 열기').first().click();
 await page.waitForSelector('.moment-photo-input', { state: 'attached' });
+
+// ── v2.35: 새 위치 지도는 **버튼을 누른 때의 현재 위치**로 제공자를 고른다.
+// 현재 위치는 중심만 맞추고 선택으로 저장하지 않는다. 한국=Kakao, UZ=TomTom을 실제 클릭으로 잰다.
+await page.locator('.moment-form .place-map').click();
+await page.waitForSelector('.map-overlay');
+await waitUntil(async () => (await page.locator('.map-canvas').getAttribute('data-map-provider')) !== null, 15000);
+const seoulPicker = await page.locator('.map-canvas').getAttribute('data-map-provider');
+check('새 위치 지도: 서울 현재 위치면 Kakao가 기본이다', seoulPicker === 'kakao', String(seoulPicker));
+check(
+  '새 위치 지도: 현재 위치는 중심일 뿐, 지도를 누르기 전에는 선택되지 않는다',
+  await page.locator('.map-pick-confirm').isDisabled(),
+);
+await page.locator('.map-close').click();
+await page.waitForSelector('.map-overlay', { state: 'detached' });
+
+await page.context().setGeolocation({ latitude: 41.2995, longitude: 69.2401, accuracy: 18 });
+await page.evaluate(() => {
+  const geo = navigator.geolocation;
+  window.__mapPickerOriginalGetPosition = geo.getCurrentPosition.bind(geo);
+  geo.getCurrentPosition = (ok) => ok({
+    coords: { latitude: 41.2995, longitude: 69.2401, accuracy: 18 },
+    timestamp: Date.now(),
+  });
+});
+const uzReverseRoute = (route) => route.fulfill({
+  status: 200,
+  contentType: 'application/json',
+  body: JSON.stringify({
+    osm_type: 'node', osm_id: 35, lat: '41.2995', lon: '69.2401', name: 'Toshkent',
+    display_name: 'Toshkent, Oʻzbekiston', place_rank: 16,
+    address: { city: 'Toshkent', country: 'Oʻzbekiston', country_code: 'uz' },
+  }),
+});
+await page.route('**/reverse**', uzReverseRoute);
+const tomtomBefore = tomtomTileRequests;
+await page.locator('.moment-form .place-map').click();
+await page.waitForSelector('.map-overlay');
+await waitUntil(async () => (await page.locator('.map-canvas').getAttribute('data-map-provider')) !== null, 15000);
+const tashkentPicker = await page.locator('.map-canvas').getAttribute('data-map-provider');
+check(
+  '새 위치 지도: 타슈켄트 현재 위치면 TomTom이 기본이다',
+  tashkentPicker === 'tomtom' && tomtomTileRequests > tomtomBefore,
+  `provider=${tashkentPicker} · tile=${tomtomTileRequests - tomtomBefore}`,
+);
+check(
+  '새 위치 지도: TomTom에서도 누르기 전에는 선택되지 않는다',
+  await page.locator('.map-pick-confirm').isDisabled(),
+);
+await page.locator('.map-close').click();
+await page.waitForSelector('.map-overlay', { state: 'detached' });
+await page.unroute('**/reverse**', uzReverseRoute);
+await page.evaluate(() => {
+  if (window.__mapPickerOriginalGetPosition) {
+    navigator.geolocation.getCurrentPosition = window.__mapPickerOriginalGetPosition;
+    delete window.__mapPickerOriginalGetPosition;
+  }
+});
+await page.context().setGeolocation({ latitude: 37.5665, longitude: 126.978, accuracy: 18 });
 
 // 테스트 이미지 2장 생성(600x400 그라데이션 JPEG) — 배치 흐름 검증용
 /**
@@ -4302,6 +4365,30 @@ const openGuideCard = async (label) => {
     .catch(() => false);
   check(`가이드 「${label}」 화면이 실제로 열렸다(전제 — 못 열면 아래 판정은 공허하다 · §4)`, drawn, drawn ? '' : '본문이 비어 있음');
 };
+
+await openGuideCard('한국·중앙아시아 지도 설정');
+const mapGuide = await page.evaluate(() => ({
+  text: document.querySelector('.guide-detail-body')?.textContent ?? '',
+  links: [...document.querySelectorAll('.guide-detail-body a')].map((a) => ({
+    text: a.textContent ?? '', href: a.href, rel: a.rel, target: a.target,
+  })),
+}));
+check(
+  '지도 설정 가이드: Kakao·TomTom·기존 지도와 정확한 GitHub 변수 이름을 쉬운 순서로 말한다',
+  [
+    '한국', '우즈베키스탄', 'TomTom', 'OpenStreetMap', 'My First API key',
+    'Domain whitelist', 'Off', 'On', 'ID를 복사하면 안 됩니다', 'VITE_TOMTOM_API_KEY',
+    'Supabase에는 TomTom 키를 넣지 않습니다', 'TomTom 변수 등록 완료',
+  ].every((word) => mapGuide.text.includes(word)),
+  mapGuide.text,
+);
+check(
+  '지도 설정 가이드: 공식 Kakao·TomTom 링크를 새 창·noreferrer로 연다',
+  mapGuide.links.length === 4
+    && mapGuide.links.every((link) => link.target === '_blank' && /noreferrer/.test(link.rel))
+    && mapGuide.links.filter((link) => link.href.startsWith('https://developer.tomtom.com/')).length === 3,
+  JSON.stringify(mapGuide.links),
+);
 
 await openGuideCard('무엇이 어디서 도나');
 

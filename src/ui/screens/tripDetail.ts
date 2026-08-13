@@ -2596,19 +2596,14 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const targetController = tripTargetController(target);
 
     async function refresh(): Promise<void> {
-      const [moments, media, expenses, videos] = await Promise.all([
-        listMoments(trip!.id),
-        listMediaByTrip(trip!.id),
-        listExpensesByTrip(trip!.id),
-        listVideosByTrip(trip!.id),
-      ]);
+      const [moments, media, expenses, videos, places] = await loadTripDetailRows(trip!.id);
       latestMomentAt = latestOccurredAt(moments); // 순수 함수 — 비교는 순간으로(M-0034)
       const audioAll = await listAudioByTrip(trip!.id);
       const audioByMoment = groupByMoment(audioAll);
       const byMoment = groupByMoment(media);
       const expByMoment = groupByMoment(expenses);
       const videoByMoment = groupByMoment(videos);
-      locatedPoints = toMapPoints(moments, byMoment, clock);
+      locatedPoints = toMapPoints(moments, byMoment, clock, places);
       renderTimeline(moments, byMoment, expByMoment, audioByMoment, videoByMoment);
       targetController.reveal(timeline, byMoment, refresh, clock, trip!.title);
       const groups = groupMomentsByDay(moments, clock, trip!.startDate || undefined);
@@ -3155,11 +3150,24 @@ function buildHomeZoneField(): ZoneField {
  * 그리고 여기가 **지도 팝업의 시각이 정해지는 유일한 자리**가 됐으므로(`mapView`는 더 이상
  * 계산하지 않는다) 그 사실이 화면 코드 깊숙이 묻히면 안 된다.
  */
+/** 상세 새로고침의 독립 읽기를 한 묶음으로 유지한다. 새 읽기 형제가 생겨도 호출부는 늘어나지 않는다. */
+async function loadTripDetailRows(tripId: string) {
+  return Promise.all([
+    listMoments(tripId),
+    listMediaByTrip(tripId),
+    listExpensesByTrip(tripId),
+    listVideosByTrip(tripId),
+    listPlaces(),
+  ]);
+}
+
 function toMapPoints(
   moments: LocalMoment[],
   byMoment: Map<string, LocalMedia[]>,
   clock: TripClock,
+  places: LocalPlace[],
 ): MapPoint[] {
+  const placeById = new Map(places.map((place) => [place.id, place]));
   const out: MapPoint[] = [];
   for (const m of moments) {
     const mediaList = byMoment.get(m.id) ?? [];
@@ -3173,6 +3181,7 @@ function toMapPoints(
       lat: coord.lat,
       lng: coord.lng,
       placeName: m.placeName,
+      countryCode: m.placeId ? placeById.get(m.placeId)?.countryCode ?? null : null,
       // 시각 문장은 **시계를 아는 이곳에서** 만든다 — 지도 화면은 계산하지 않는다.
       whenText: momentWhen(m.occurredAt, m.tzOffsetMin, clock).dateTime,
     };

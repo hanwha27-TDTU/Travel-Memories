@@ -300,6 +300,64 @@ const CONNECT_GROUP: GuideGroup = {
         ]),
     },
     {
+      icon: '🗺️',
+      label: '한국·중앙아시아 지도 설정',
+      hint: '한국 Kakao · UZ/KZ/KG TomTom · 나머지 기존 지도',
+      render: () => {
+        const body = panel([
+          h('어느 지도가 열리나요'),
+          bullets([
+            '한국: 카카오맵',
+            '우즈베키스탄·카자흐스탄·키르기스스탄: TomTom',
+            '그 밖의 나라 또는 지역 확인 실패: 기존 OpenStreetMap',
+          ]),
+          h('지금 보이는 TomTom 화면에서 할 일'),
+          steps([
+            ['새 키를 만들지 않기', '이미 My First API key가 있으므로 그대로 사용합니다. 화면에 보이는 ID는 실제 API 키가 아닙니다.'],
+            ['편집 화면 열기', 'My First API key 카드 오른쪽 끝의 … 버튼을 누르고 Edit를 누릅니다. 안 보이면 화면을 오른쪽으로 스크롤합니다.'],
+            ['지도 제품은 그대로 두기', '사진의 Products 목록에 Map Display API가 이미 보이므로 이 부분은 손대지 않습니다.'],
+            ['도메인 자물쇠 켜기', 'Security의 Domain whitelist를 Off에서 On으로 바꾸고 hanwha27-tdtu.github.io, localhost, 127.0.0.1을 쉼표로 나눠 적습니다. https://, 포트, /Travel-Memories/는 적지 않습니다.'],
+            ['저장하고 키 복사하기', 'Save Key를 누른 뒤 카드로 돌아옵니다. Domain whitelist: On인지 확인하고, 가려진 실제 Key나 복사 버튼을 눌러 복사합니다. ID를 복사하면 안 됩니다.'],
+            ['GitHub에 넣기', '저장소 Settings → Secrets and variables → Actions → Variables → New repository variable에서 이름을 VITE_TOMTOM_API_KEY로 만들고 실제 Key를 값에 붙여넣습니다.'],
+            ['등록 완료라고만 알려주기', '키 값은 채팅에 보내지 말고 “TomTom 변수 등록 완료”라고만 알려주세요. 그다음 새 배포와 실제 지도 확인을 진행합니다.'],
+          ]),
+          h('끝났는지 확인하는 세 가지'),
+          bullets([
+            'TomTom 카드에 Domain whitelist: On이 보입니다.',
+            'GitHub Variables 목록에 VITE_TOMTOM_API_KEY라는 이름이 보입니다.',
+            'Supabase에는 TomTom 키를 넣지 않습니다. 로그인 Redirect URI도 만들지 않습니다.',
+          ]),
+          h('중요한 안전 규칙'),
+          bullets([
+            '키 값은 채팅·문서·스크린샷에 쓰지 않습니다. 웹 키는 숨기는 대신 TomTom의 도메인 제한으로 보호합니다.',
+            '현재 위치는 처음 보이는 지도 중심만 맞춥니다. 지도를 직접 누르기 전에는 위치로 저장하지 않습니다.',
+            'TomTom이나 Kakao를 못 불러오면 기존 지도로 자동으로 돌아갑니다.',
+          ]),
+          note('더 자세한 최종 순서표: docs/DEPLOYMENT.md의 「카카오맵 설정」과 「TomTom 지도 설정」'),
+        ]);
+        const links = el('div', 'guide-pb-row');
+        const tomtom = el('a', 'guide-open-dashboard', 'TomTom 개발자 사이트 열기') as HTMLAnchorElement;
+        tomtom.href = 'https://developer.tomtom.com/user/me/apps';
+        tomtom.target = '_blank';
+        tomtom.rel = 'noopener noreferrer';
+        const tomtomKeys = el('a', 'guide-open-dashboard', 'TomTom 키 공식 설명') as HTMLAnchorElement;
+        tomtomKeys.href = 'https://developer.tomtom.com/platform/documentation/my-tomtom/api-key-management';
+        tomtomKeys.target = '_blank';
+        tomtomKeys.rel = 'noopener noreferrer';
+        const tomtomSafety = el('a', 'guide-open-dashboard', 'TomTom 도메인 보호 설명') as HTMLAnchorElement;
+        tomtomSafety.href = 'https://developer.tomtom.com/knowledgebase/platform/articles/api-key-management-best-practices/';
+        tomtomSafety.target = '_blank';
+        tomtomSafety.rel = 'noopener noreferrer';
+        const kakao = el('a', 'guide-open-dashboard', 'Kakao Developers 열기') as HTMLAnchorElement;
+        kakao.href = 'https://developers.kakao.com/console/app';
+        kakao.target = '_blank';
+        kakao.rel = 'noopener noreferrer';
+        links.append(tomtom, tomtomKeys, tomtomSafety, kakao);
+        body.appendChild(links);
+        return body;
+      },
+    },
+    {
       icon: '🖼',
       label: '사진 저장 방식',
       hint: '클라우드 WebP가 사진 정본',

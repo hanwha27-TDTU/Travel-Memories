@@ -1,4 +1,5 @@
-// ui/screens/mapView.ts — 여행 지도 모달. 한국은 Kakao, 그 밖은 MapLibre로 보여준다.
+// ui/screens/mapView.ts — 여행 지도 모달. 한국은 Kakao, 중앙아시아 시범국은 TomTom,
+// 그 밖은 MapLibre로 보여준다.
 // 규율(map-experience-designer):
 //  - 지도는 장식이 아니라 공간적 기억 복원 도구. 마커를 열면 좌표가 아니라 사진·기록.
 //  - 팝업에 사용자 텍스트를 문자열로 보간하지 않는다 — DOM 노드(textContent)로 안전하게(§XSS).
@@ -12,6 +13,9 @@ import type { PlaceLike } from '../../domain/place/externalMap';
 import { displayProviderFallbackOrder, displayProviderForPicker, displayProviderForPoints } from '../../domain/place/mapProvider';
 import { renderJourneyMap, renderPickerMap, type MapRendererHandle } from '../../services/mapRenderer';
 import { externalMapRow } from '../externalMapRow';
+import { readHere } from '../../services/here';
+import { reverseGeocode } from '../../services/geocode';
+import { hereFailMessage } from '../../domain/place/here';
 
 /**
  * 지도 마커 색 — **하드코딩하지 않고 `--a1`(여름 강조색) 토큰에서 읽는다**(색 SSOT는 tokens.css).
@@ -25,6 +29,8 @@ function markerColor(): string {
 
 export interface MapPoint extends LocatedPoint {
   placeName: string;
+  /** 장소 대장에서 확인된 ISO 국가 코드. 없으면 좌표만으로 중앙아시아 국가를 추측하지 않는다. */
+  countryCode?: string | null;
   previewBlob?: Blob; // 미리보기 이미지(표시본 ≤1600 — 썸네일보다 선명)
   /**
    * 팝업에 그대로 붙는 시각 문장(`YYYY.MM.DD HH:mm`). **없으면 빈 문자열.**
@@ -121,8 +127,12 @@ interface JourneyMapMountOptions {
 /** 제공자 선택·폴백은 화면 생명주기와 분리해 두 제공자가 같은 종료 계약을 지나게 한다. */
 async function mountJourneyMap(options: JourneyMapMountOptions): Promise<void> {
   const kakaoKey = ((import.meta.env.VITE_KAKAO_JAVASCRIPT_KEY as string | undefined) ?? '').trim();
+  const tomtomKey = ((import.meta.env.VITE_TOMTOM_API_KEY as string | undefined) ?? '').trim();
   const mapStyleUrl = ((import.meta.env.VITE_MAP_STYLE_URL as string | undefined) ?? '').trim() || undefined;
-  const preferred = displayProviderForPoints(options.points, kakaoKey.length > 0);
+  const preferred = displayProviderForPoints(options.points, {
+    kakaoKeyConfigured: kakaoKey.length > 0,
+    tomtomKeyConfigured: tomtomKey.length > 0,
+  });
   for (const provider of displayProviderFallbackOrder(preferred)) {
     if (options.signal.aborted) return;
     try {
@@ -132,6 +142,7 @@ async function mountJourneyMap(options: JourneyMapMountOptions): Promise<void> {
         container: options.mapEl,
         points: options.points,
         kakaoKey,
+        tomtomKey,
         mapStyleUrl,
         markerColor: markerColor(),
         popupNode: (point) => pointNode(point as MapPoint, options.objectUrls),
@@ -261,7 +272,7 @@ export function openMapView(tripTitle: string, points: MapPoint[], focusPlace?: 
   };
   const degradeTimer = setTimeout(degradeToList, 17_000); // Kakao 8초 + MapLibre 8초 폴백 뒤 강등
 
-  // 한국 좌표는 Kakao → 실패하면 MapLibre. 그 밖은 처음부터 MapLibre다.
+  // 한국은 Kakao, 중앙아시아 시범국은 TomTom. 실패하면 모두 MapLibre로 닫힌다.
   void mountJourneyMap({
     points,
     mapEl,
@@ -278,6 +289,32 @@ export function openMapView(tripTitle: string, points: MapPoint[], focusPlace?: 
       degradeToList();
     },
   });
+}
+
+interface PickerStart {
+  center: { lat: number; lng: number } | null;
+  countryCode: string | null;
+  locateFailure: string | null;
+}
+
+/** 새 위치의 현재 좌표 읽기와 1회 국가 판정을 화면 조립에서 분리한다. */
+async function resolvePickerStart(
+  initial: { lat: number; lng: number } | null,
+  signal: AbortSignal,
+): Promise<PickerStart | null> {
+  let center = initial;
+  let locateFailure: string | null = null;
+  if (!center) {
+    const reading = await readHere();
+    if (signal.aborted) return null;
+    center = reading.coord;
+    if (reading.fail) locateFailure = hereFailMessage(reading.fail);
+  }
+  if (!center) return { center, countryCode: null, locateFailure };
+  // 지도 버튼은 사용자의 명시적 행동이다. 이 1회 판정 때 좌표만 Nominatim으로 나간다.
+  const place = await reverseGeocode(center.lat, center.lng);
+  if (signal.aborted) return null;
+  return { center, countryCode: place?.address.countryCode ?? null, locateFailure };
 }
 
 /**
@@ -308,7 +345,9 @@ export function openMapPicker(initial: { lat: number; lng: number } | null): Pro
     actions.append(confirmBtn, closeBtn);
     header.appendChild(actions);
     const body = el('div', 'map-body');
-    const hint = el('p', 'map-fallback-note', '지도를 눌러 위치를 지정하세요. 마커를 끌어 미세 조정할 수 있어요.');
+    const hint = el('p', 'map-fallback-note', initial
+      ? '저장된 위치에 맞는 지도를 고르는 중이에요…'
+      : '현재 위치를 확인해 알맞은 지도를 고르는 중이에요…');
     const mapEl = el('div', 'map-canvas');
     body.append(hint, mapEl);
     modal.append(header, body);
@@ -344,8 +383,17 @@ export function openMapPicker(initial: { lat: number; lng: number } | null): Pro
 
     void (async () => {
       const kakaoKey = ((import.meta.env.VITE_KAKAO_JAVASCRIPT_KEY as string | undefined) ?? '').trim();
+      const tomtomKey = ((import.meta.env.VITE_TOMTOM_API_KEY as string | undefined) ?? '').trim();
       const mapStyleUrl = ((import.meta.env.VITE_MAP_STYLE_URL as string | undefined) ?? '').trim() || undefined;
-      const preferred = displayProviderForPicker(picked, kakaoKey.length > 0);
+      const start = await resolvePickerStart(picked, renderAbort.signal);
+      if (!start) return;
+      const preferred = displayProviderForPicker(start.center, start.countryCode, {
+        kakaoKeyConfigured: kakaoKey.length > 0,
+        tomtomKeyConfigured: tomtomKey.length > 0,
+      });
+      hint.textContent = start.locateFailure
+        ? `${start.locateFailure}. 기본 지도를 열었어요 — 지도를 눌러 직접 지정할 수 있어요.`
+        : '지도를 눌러 위치를 지정하세요. 현재 위치는 화면 중심만 맞추며, 누르기 전에는 저장하지 않아요.';
       for (const provider of displayProviderFallbackOrder(preferred)) {
         if (renderAbort.signal.aborted) return;
         try {
@@ -354,7 +402,9 @@ export function openMapPicker(initial: { lat: number; lng: number } | null): Pro
             provider,
             container: mapEl,
             initial: picked,
+            center: start.center,
             kakaoKey,
+            tomtomKey,
             mapStyleUrl,
             markerColor: markerColor(),
             onPick: (coord) => {

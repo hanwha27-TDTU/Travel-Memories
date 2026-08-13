@@ -1,7 +1,7 @@
 // check-csp.mjs — CSP ↔ 기술 스택 계약 게이트 (docs/DEPLOYMENT.md S-05)
 // index.html의 meta CSP가 선언된 스택(Supabase Realtime·MapLibre 워커·Storage 썸네일)이
 // 요구하는 소스를 포함하고, 금지 소스(unsafe-eval 등)를 넣지 않았는지 검사한다.
-// 지도 제공자: 한국 Kakao + 그 밖 OSM. SDK·보조 스크립트·타일 호스트를 함께 허용해야 한다.
+// 지도 제공자: 한국 Kakao + 중앙아시아 시범국 TomTom + 그 밖 OSM.
 import { readFileSync } from 'node:fs';
 
 // 지시어별 필수 소스. 스택 근거는 index.html의 CSP 주석 참조.
@@ -12,6 +12,7 @@ const REQUIRED = {
     'https://*.supabase.co',
     'wss://*.supabase.co',
     'https://tile.openstreetmap.org',
+    'https://api.tomtom.com',
     'https://nominatim.openstreetmap.org',
     'https://dapi.kakao.com',
     'https://*.daumcdn.net',
@@ -28,7 +29,7 @@ const REQUIRED = {
   // 오디오 노트 재생(2026-07-27). **없으면 default-src 'self'로 폴백해 blob: 소리가 차단된다** —
   // img-src에는 blob:이 있는데 media-src만 빠져 있던 §7 비대칭이었고, 이 게이트도 그걸 안 봤다.
   'media-src': ['blob:'],
-  'img-src': ['data:', 'blob:', 'https://*.supabase.co', 'https://tile.openstreetmap.org', 'https://*.daumcdn.net', 'https://*.kakaocdn.net'],
+  'img-src': ['data:', 'blob:', 'https://*.supabase.co', 'https://tile.openstreetmap.org', 'https://api.tomtom.com', 'https://*.daumcdn.net', 'https://*.kakaocdn.net'],
   'script-src': ["'self'", 'https://dapi.kakao.com', 'https://*.daumcdn.net'],
   'object-src': ["'none'"],
   'base-uri': ["'self'"],
@@ -67,7 +68,7 @@ function checkHtml(html) {
 }
 
 // ── 셀프테스트: 알려진 실패 주입이 RED로 잡히는지 확인(게이트 비공허, CLAUDE.md §4) ──
-const GOOD = `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: https://*.supabase.co https://tile.openstreetmap.org https://*.daumcdn.net https://*.kakaocdn.net; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://tile.openstreetmap.org https://nominatim.openstreetmap.org https://dapi.kakao.com https://*.daumcdn.net https://cdn.jsdelivr.net https://*.currency-api.pages.dev https://api.frankfurter.dev https://*.r2.cloudflarestorage.com; worker-src 'self' blob:; media-src 'self' blob:; script-src 'self' https://dapi.kakao.com https://*.daumcdn.net; object-src 'none'; base-uri 'self'" />`;
+const GOOD = `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: https://*.supabase.co https://tile.openstreetmap.org https://api.tomtom.com https://*.daumcdn.net https://*.kakaocdn.net; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://tile.openstreetmap.org https://api.tomtom.com https://nominatim.openstreetmap.org https://dapi.kakao.com https://*.daumcdn.net https://cdn.jsdelivr.net https://*.currency-api.pages.dev https://api.frankfurter.dev https://*.r2.cloudflarestorage.com; worker-src 'self' blob:; media-src 'self' blob:; script-src 'self' https://dapi.kakao.com https://*.daumcdn.net; object-src 'none'; base-uri 'self'" />`;
 const selfCases = [
   { name: '정상 CSP 통과', html: GOOD, expectClean: true },
   { name: 'wss 누락 검출', html: GOOD.replace(' wss://*.supabase.co', ''), expectClean: false },
@@ -79,6 +80,7 @@ const selfCases = [
   { name: 'media-src blob: 누락 검출', html: GOOD.replace(" media-src 'self' blob:;", ''), expectClean: false },
   { name: 'Kakao SDK script-src 누락 검출', html: GOOD.replace(' https://dapi.kakao.com', ''), expectClean: false },
   { name: 'Kakao 타일 img-src 누락 검출', html: GOOD.replace(' https://*.kakaocdn.net', ''), expectClean: false },
+  { name: 'TomTom 타일 img-src 누락 검출', html: GOOD.replace(' https://api.tomtom.com', ''), expectClean: false },
   { name: 'CSP 부재 검출', html: '<meta charset="UTF-8" />', expectClean: false },
 ];
 const brokenSelf = selfCases.filter((c) => (checkHtml(c.html).length === 0) !== c.expectClean);
