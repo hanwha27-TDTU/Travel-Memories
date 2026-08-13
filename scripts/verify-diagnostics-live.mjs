@@ -37,6 +37,12 @@ import { readdirSync, statSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, extname, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runSelfTest } from './gate-selftest-lib.mjs';
+import { proveCheckCounts, proveOverflowScanner, scanOverflowContainers } from './live-browser-lib.mjs';
+
+// 대조군(§4): 판정 기록기가 **실패를 실제로 세는가.** 안 세면 이 게이트는 무슨 일이 있어도 초록이다.
+// 🔴 이 줄은 **템플릿 문자열 밖**이어야 한다 — 안에 넣으면 실행되지 않는 가짜 대조군이 된다(M-0155).
+runSelfTest('verify-diagnostics-live', () => proveCheckCounts());
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = join(ROOT, 'dist');
@@ -1179,6 +1185,19 @@ await page.evaluate(async () => {
 });
 
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
+
+// ── 컨테이너 수준 가로 넘침(문서 지표가 원리적으로 못 보는 축 · 2026-08-13)
+// 🔴 대조군을 **먼저**: 심은 것을 못 잡으면 아래 초록은 「없다」가 아니라 「안 봤다」이다.
+await proveOverflowScanner(page);
+for (const w of [320, 375]) {
+  await page.setViewportSize({ width: w, height: 780 });
+  const over = await scanOverflowContainers(page);
+  check(
+    `${w}px 진단 화면에 가로로 넘치는 컨테이너 없음(문서 지표는 이 축을 못 본다)`,
+    over.length === 0,
+    over.length ? over.slice(0, 3).map((o) => `${o.sel} +${o.over}px`).join(' | ') : '대조군으로 검출력 확인함',
+  );
+}
 
 await browser.close();
 appServer.close();

@@ -4,6 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -24,7 +25,7 @@ export function liveContractProblems(contract, capability) {
 }
 
 // SELF-TEST: 옛 함수·연산 누락·다른 소스·시크릿 누락을 각각 RED로 잡고 정상은 통과한다.
-(() => {
+runSelfTest('verify-sync-release-live', () => {
   const contract = {
     mediaSign: { protocolVersion: 6, requiredOps: ['probe', 'get'], sourceSha256: 'a'.repeat(64) },
   };
@@ -38,7 +39,7 @@ export function liveContractProblems(contract, capability) {
   ]) {
     if (liveContractProblems(contract, bad).length === 0) throw new Error('SELF-TEST 실패: 운영 계약 누락을 통과시킵니다.');
   }
-})();
+});
 
 const url = (process.env.VITE_SUPABASE_URL ?? '').replace(/\/$/, '');
 const key = process.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? '';

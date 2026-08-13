@@ -20,6 +20,12 @@ import { fileURLToPath } from 'node:url';
 // (숫자를 적어 두면 이 검사 자체가 다음 드리프트의 씨앗이 된다.)
 import { collect as collectRegistry } from './gen-registry.mjs';
 import { collect as collectConstitution } from './gen-constitution.mjs';
+import { runSelfTest } from './gate-selftest-lib.mjs';
+import { proveCheckCounts } from './live-browser-lib.mjs';
+
+// 대조군(§4): 판정 기록기가 **실패를 실제로 세는가.** 안 세면 이 게이트는 무슨 일이 있어도 초록이다.
+// 🔴 이 줄은 **템플릿 문자열 밖**이어야 한다 — 안에 넣으면 실행되지 않는 가짜 대조군이 된다(M-0155).
+runSelfTest('verify-editor-live', () => proveCheckCounts());
 
 let chromium;
 for (const spec of ['playwright', '/opt/node22/lib/node_modules/playwright/index.mjs']) {
