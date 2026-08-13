@@ -11,12 +11,13 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collect, render, parse, numberedItems, bulletItems, sectionBody, SRC } from './gen-constitution.mjs';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'src/app/constitution.gen.ts');
 
 // ── 비공허 자체검사: 파싱과 렌더가 실제로 내용을 보고 있어야 한다 ──
-(() => {
+runSelfTest('check-constitution-gen', () => {
   const sample = [
     '## 비타협 원칙 (목적의 일부이지, 목적과 맞바꿀 대상이 아니다)',
     '',
@@ -59,7 +60,7 @@ const OUT = join(ROOT, 'src/app/constitution.gen.ts');
   if (numberedItems('') .length !== 0 || bulletItems('').length !== 0) {
     throw new Error('SELF-TEST 실패: 빈 입력에서 항목이 나옴.');
   }
-})();
+});
 
 if (!existsSync(OUT)) {
   console.error('check-constitution-gen: src/app/constitution.gen.ts 없음 — node scripts/gen-constitution.mjs 먼저 실행.');

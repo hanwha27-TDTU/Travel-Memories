@@ -18,6 +18,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CI = '.github/workflows/ci.yml';
@@ -126,7 +127,7 @@ export function findPolicyViolations(ciYaml, deployYaml) {
 }
 
 // ── 셀프테스트: 알려진 실패를 주입해 잡히는지 + 정상이 통과하는지 양쪽(§2-B) ──
-(() => {
+runSelfTest('check-ci-policy', () => {
   const goodCi = [
     'on:', '  pull_request:', '    types: [opened, synchronize, reopened, ready_for_review]', '',
     'concurrency:', '  cancel-in-progress: true', '',
@@ -173,7 +174,7 @@ export function findPolicyViolations(ciYaml, deployYaml) {
   if (findPolicyViolations(`# push: 를 쓰지 않는 이유를 설명한다\n${goodCi}`, goodDeploy).length !== 0) {
     throw new Error('SELF-TEST 실패: 주석 안의 push를 트리거로 오탐한다.');
   }
-})();
+});
 
 for (const f of [CI, DEPLOY]) {
   if (!existsSync(join(ROOT, f))) {

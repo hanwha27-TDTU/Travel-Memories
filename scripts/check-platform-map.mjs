@@ -11,12 +11,13 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collect, render, ROWS } from './gen-platform-map.mjs';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'src/app/platformMap.gen.ts');
 
 // ── 비공허 자체검사 ─────────────────────────────────────────────────────────
-(() => {
+runSelfTest('check-platform-map', () => {
   const row = (where) => [{ id: 'a', what: 'x', detail: 'y', where, part: 'p', evidence: 'e' }];
   if (render(row('Supabase')) === render(row('Cloudflare'))) {
     throw new Error('SELF-TEST 실패: 다른 지도가 같은 렌더로 나옴(게이트 공허).');
@@ -26,7 +27,7 @@ const OUT = join(ROOT, 'src/app/platformMap.gen.ts');
   // 모든 행에 근거 파일이 있어야 한다 — 근거 없는 행은 "주장"이지 실측이 아니다.
   const noEvidence = ROWS.filter((r) => !r.evidence || typeof r.probe !== 'function').map((r) => r.id);
   if (noEvidence.length) throw new Error(`SELF-TEST 실패: 근거·probe 없는 행 ${noEvidence.join(', ')}`);
-})();
+});
 
 if (!existsSync(OUT)) {
   console.error('check-platform-map: src/app/platformMap.gen.ts 없음 — node scripts/gen-platform-map.mjs 먼저 실행.');

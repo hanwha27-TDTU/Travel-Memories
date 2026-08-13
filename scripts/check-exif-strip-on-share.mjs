@@ -26,6 +26,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -61,7 +62,7 @@ export function privacyDocReferences(doc) {
 }
 
 // ── 자체검사: 알려진 실패를 주입해 RED를 확인한 뒤에만 믿는다(§4·§11) ──
-(() => {
+runSelfTest('check-exif-strip-on-share', () => {
   const ok = "await remote.uploadDisplay(path, media.displayBlob);";
   if (uploadsOriginalBytes(ok).length !== 0) throw new Error('SELF-TEST 실패: 정상 업로드를 위반으로 잡음(오탐).');
 
@@ -78,7 +79,7 @@ export function privacyDocReferences(doc) {
     throw new Error('SELF-TEST 실패: 재인코딩 우회를 못 잡음(게이트 공허).');
   }
   if (privacyDocReferences('아무 내용').length !== 1) throw new Error('SELF-TEST 실패: 문서 참조 소실을 못 잡음.');
-})();
+});
 
 const read = (rel) => (existsSync(join(ROOT, rel)) ? readFileSync(join(ROOT, rel), 'utf8') : '');
 

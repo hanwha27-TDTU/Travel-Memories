@@ -4,6 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 import {
   edgeSourceSha256,
   normalizeLf,
@@ -36,7 +37,7 @@ export function auditArtifacts({ contract, edgeSource, clientSource }) {
 }
 
 // SELF-TEST: 줄바꿈만 다른 대조군은 같고, 실제 문자 변조와 생성물 드리프트는 반드시 RED다.
-(() => {
+runSelfTest('check-sync-release-contract', () => {
   const edge = `head\n// SYNC_RELEASE_CONTRACT:BEGIN\nold\n// SYNC_RELEASE_CONTRACT:END\nsourceSha256: FN_SOURCE_SHA256\ntail\n`;
   if (edgeSourceSha256(edge) !== edgeSourceSha256(edge.replace(/\n/g, '\r\n'))) {
     throw new Error('SELF-TEST 실패: LF/CRLF만 다른 논리 소스를 다르게 해시합니다.');
@@ -61,7 +62,7 @@ export function auditArtifacts({ contract, edgeSource, clientSource }) {
   if (auditArtifacts({ ...good, edgeSource: withBlock.replace('tail', 'changed') }).length === 0) {
     throw new Error('SELF-TEST 실패: Edge 실제 소스 변조를 통과시킵니다.');
   }
-})();
+});
 
 const contract = JSON.parse(readFileSync(join(ROOT, 'schemas/sync-release-contract.json'), 'utf8'));
 const problems = auditArtifacts({

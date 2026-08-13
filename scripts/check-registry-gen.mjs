@@ -7,12 +7,13 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collect, render } from './gen-registry.mjs';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'src/app/registry.gen.ts');
 
 // ── 비공허 자체검사: 다른 내용이면 반드시 불일치로 잡혀야 한다 ──
-(() => {
+runSelfTest('check-registry-gen', () => {
   const base = {
     appVersion: '0.0',
     agents: ['a'],
@@ -38,7 +39,7 @@ const OUT = join(ROOT, 'src/app/registry.gen.ts');
   if (c === a || !c.includes('zzz-agent')) {
     throw new Error('SELF-TEST 실패: 에이전트 목록이 렌더에 반영되지 않음.');
   }
-})();
+});
 
 if (!existsSync(OUT)) {
   console.error('check-registry-gen: src/app/registry.gen.ts 없음 — node scripts/gen-registry.mjs 먼저 실행.');
@@ -83,7 +84,7 @@ export function recordKeys(source, constName) {
 }
 
 // 비공허 자체검사: 빠진 키가 있으면 반드시 드러나야 한다.
-(() => {
+runSelfTest('check-registry-gen', () => {
   const sample =
     "export const T: Record<string, string> = {\n  a: '1',\n  'b-c': '2',\n  '지운것': '3',\n};\n";
   const keys = recordKeys(sample, 'T');
@@ -95,7 +96,7 @@ export function recordKeys(source, constName) {
     "export const T: Record<string, string> = {\n  right: '2',\n};\n";
   const pk = recordKeys(prefixed, 'T');
   if (pk.join(',') !== 'right') throw new Error(`SELF-TEST 실패: 접두사가 같은 상수를 집었다(${pk}).`);
-})();
+});
 
 const described = new Set(recordKeys(gatesTs, 'GATE_DESC'));
 const categorized = new Set(recordKeys(gatesTs, 'GATE_CATEGORY'));

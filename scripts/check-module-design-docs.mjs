@@ -6,6 +6,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { collectModuleDesigns, expectedDocuments, moduleIdOf, MODULE_CATALOG, OUTPUT_DIR, renderModuleDoc } from './module-design-docs-lib.mjs';
+import { runSelfTest } from './gate-selftest-lib.mjs';
 
 export function findDrift(expected, actual) {
   const problems = [];
@@ -18,7 +19,7 @@ export function findDrift(expected, actual) {
 }
 
 // ── 셀프테스트: 정상·결함·오탐 대조군(게이트 비공허, §4) ──
-{
+runSelfTest('check-module-design-docs', () => {
   const good = new Map([['README.md', 'same']]);
   if (findDrift(good, new Map(good)).length !== 0) throw new Error('SELF-TEST 실패: 같은 문서를 오탐했다.');
   const changed = findDrift(good, new Map([['README.md', 'changed']]));
@@ -55,7 +56,7 @@ export function findDrift(expected, actual) {
     if (moduleIdOf(path) !== expectedOwner) throw new Error(`SELF-TEST 실패: ${path}의 소유 모듈이 ${expectedOwner}가 아니다.`);
   }
   if (moduleIdOf('src/unclassified-new-sibling.ts') !== null) throw new Error('SELF-TEST 실패: 미분류 새 형제를 조용히 기존 모듈에 넣었다.');
-}
+});
 
 const collected = collectModuleDesigns();
 const expected = expectedDocuments(collected);
