@@ -12,6 +12,8 @@ import { installAutoSync } from './services/autoSync';
 import { wireShellAuthReturn, currentUser } from './services/auth';
 import { isConfigured } from './services/supabase/client';
 import { canViewLocalRecords } from './domain/authGate';
+// 🔴 화면 생명주기는 **검사 가능한 순수 모듈**에 있다 — main.ts는 진입점이라 유닛이 못 부른다(§10 ③).
+import { createScreenSession } from './app/screenSession';
 
 // 런타임 오류를 앱이 스스로 모은다 — 개발자가 볼 수 없는 영역에 낸 창(진단 도구).
 // 가장 먼저 설치해야 이후 초기화에서 나는 오류도 잡힌다.
@@ -74,17 +76,22 @@ async function guardTripDetail(): Promise<boolean> {
   return canViewLocalRecords(true, (await currentUser()) !== null);
 }
 
+const screens = createScreenSession();
+
 const router: ReturnType<typeof createRouter> = createRouter((route: Route, param?: string, target?: import('./app/router').TripNavigationTarget) => {
+  const screen = screens.begin();
   switch (route) {
     case 'trip-detail':
       void guardTripDetail().then((allowed) => {
-        if (allowed) renderTripDetail(root, param ?? '', router.navigate, target);
+        // 🔴 기다리는 사이에 사용자가 다른 곳으로 갔으면 **아무것도 그리지 않는다.**
+        if (!screen.isCurrent()) return;
+        if (allowed) screen.mount(renderTripDetail(root, param ?? '', router.navigate, target));
         else router.navigate('home');
       });
       break;
     case 'home':
     default:
-      renderHome(root, router.navigate);
+      screen.mount(renderHome(root, router.navigate));
       break;
   }
 });

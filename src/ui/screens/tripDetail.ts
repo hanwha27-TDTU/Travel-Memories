@@ -2235,7 +2235,28 @@ function tripTargetController(initial?: TripNavigationTarget) {
   };
 }
 
-export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: Navigate, target?: TripNavigationTarget): void {
+/**
+ * 히어로의 버튼 셋(←·지도·편집)은 **모양이 같다** — `type`·`aria-label`·클릭을 세 번 적으면
+ * 한 곳만 고쳐진다(§7). 접근성 라벨을 빠뜨릴 수 없게 **인자로 강제**한다.
+ */
+function heroButton(cls: string, text: string, aria: string, onClick?: () => void): HTMLButtonElement {
+  const btn = el('button', cls, text) as HTMLButtonElement;
+  btn.type = 'button';
+  btn.setAttribute('aria-label', aria);
+  if (onClick) btn.addEventListener('click', onClick);
+  return btn;
+}
+
+/**
+ * 여행 상세를 그리고 **정리 함수를 돌려준다**(형제 `renderHome`과 같은 계약 · 2026-08-13).
+ *
+ * 🔴 **지금 이 화면은 정리할 것이 없다** — 모듈 전역 구독·타이머가 하나도 없고(실측),
+ *    걸어 둔 리스너는 전부 `mount.innerHTML = ''`로 떼어지는 DOM에 붙어 있다.
+ *    그래도 **빈 함수를 돌려주는 이유**는 §7이다: 반환형이 계약이면 여기에 나중에 구독을
+ *    더하는 사람이 **정리할 자리를 이미 갖고 있다.** 이유 없이 형제와 다른 모양이면
+ *    다음 사람이 「통일한다」며 지우고, 그때 규율이 조용히 사라진다.
+ */
+export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: Navigate, target?: TripNavigationTarget): () => void {
   mount.innerHTML = '';
   const wrap = el('main', 'screen screen-detail');
   mount.appendChild(wrap);
@@ -2253,20 +2274,12 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     // ===== 히어로 커버 =====
     const hero = el('header', `detail-hero cover--${coverIndex(trip.id)}`);
     hero.append(el('div', 'cover-veil'), el('div', 'cover-grain'));
-    const back = el('button', 'hero-back', '←') as HTMLButtonElement;
-    back.type = 'button';
-    back.setAttribute('aria-label', '홈으로');
-    back.addEventListener('click', () => navigate('home'));
-    const editBtn = el('button', 'hero-edit', '✎ 편집') as HTMLButtonElement;
-    editBtn.type = 'button';
-    editBtn.setAttribute('aria-label', '여행 정보 편집');
+    const back = heroButton('hero-back', '←', '홈으로', () => navigate('home'));
+    const editBtn = heroButton('hero-edit', '✎ 편집', '여행 정보 편집');
 
     // 지도 버튼 — 위치가 있는 순간을 지도/장소목록으로. 위치 없으면 안내를 띄운다.
     let locatedPoints: MapPoint[] = [];
-    const mapBtn = el('button', 'hero-map', '🗺 지도') as HTMLButtonElement;
-    mapBtn.type = 'button';
-    mapBtn.setAttribute('aria-label', '이 여행의 지도 보기');
-    mapBtn.addEventListener('click', () => void openMapView(trip!.title, locatedPoints));
+    const mapBtn = heroButton('hero-map', '🗺 지도', '이 여행의 지도 보기', () => void openMapView(trip!.title, locatedPoints));
 
     const heroInfo = el('div', 'detail-hero-info');
     const period = formatTripPeriod(trip.startDate, trip.endDate);
@@ -2739,6 +2752,9 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     await trySync(); // 다른 기기의 순간을 받아옴(pull)
     await refresh();
   })();
+
+  // 정리할 모듈 전역 자원이 없다 — 위 머리말의 이유 참조.
+  return () => undefined;
 }
 
 /**
