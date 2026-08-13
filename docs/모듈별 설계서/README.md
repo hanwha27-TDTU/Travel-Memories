@@ -38,7 +38,7 @@ shape_reason: 생성 계약→모듈 색인→의존 그래프→한계 순으�
 | 15 | 플랫폼 런타임·파일 저장·업데이트 | [15-플랫폼과-파일저장.md](./15-%ED%94%8C%EB%9E%AB%ED%8F%BC%EA%B3%BC-%ED%8C%8C%EC%9D%BC%EC%A0%80%EC%9E%A5.md) | 12 | 916 | `cfc133c142617520…` |
 | 16 | 화면·오버레이·상호작용 | [16-화면과-상호작용.md](./16-%ED%99%94%EB%A9%B4%EA%B3%BC-%EC%83%81%ED%98%B8%EC%9E%91%EC%9A%A9.md) | 18 | 11364 | `933b6c8f86a98d10…` |
 | 17 | Supabase 스키마·RLS·Edge Function | [17-Supabase-백엔드.md](./17-Supabase-%EB%B0%B1%EC%97%94%EB%93%9C.md) | 42 | 4192 | `48d65daa9f512719…` |
-| 18 | 검증 게이트·생성기·릴리스 시스템 | [18-검증과-릴리스-시스템.md](./18-%EA%B2%80%EC%A6%9D%EA%B3%BC-%EB%A6%B4%EB%A6%AC%EC%8A%A4-%EC%8B%9C%EC%8A%A4%ED%85%9C.md) | 117 | 26454 | `0d526fddb9876812…` |
+| 18 | 검증 게이트·생성기·릴리스 시스템 | [18-검증과-릴리스-시스템.md](./18-%EA%B2%80%EC%A6%9D%EA%B3%BC-%EB%A6%B4%EB%A6%AC%EC%8A%A4-%EC%8B%9C%EC%8A%A4%ED%85%9C.md) | 117 | 26454 | `0e0fabe7fd2aeef1…` |
 
 ## 모듈 의존 그래프(정적 import/re-export)
 
