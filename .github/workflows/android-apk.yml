@@ -52,7 +52,13 @@ jobs:
         run: |
           chmod +x gradlew
           # 🔴 versionCode = run_number(단조증가) — 앱이 새 셸을 감지해 업데이트 배너를 띄우는 근거.
-          ./gradlew assembleDebug --no-daemon -PAPP_VERSION_CODE=${{ github.run_number }}
+          # 🔴 versionName = changelog 맨 앞 항목(버전 SSOT). 예전엔 build.gradle에 "1.0"이
+          #    박혀 있어 안드로이드 앱 정보만 낡은 값을 보였다(§18-I 「자동 옆의 수동」).
+          APP_VERSION_NAME="$(node -e "process.stdout.write(require('fs').readFileSync('../../src/app/changelog.ts','utf8').match(/version: '([\d.]+)'/)[1])")"
+          echo "versionName=$APP_VERSION_NAME (SSOT: src/app/changelog.ts)"
+          ./gradlew assembleDebug --no-daemon \
+            -PAPP_VERSION_CODE=${{ github.run_number }} \
+            -PAPP_VERSION_NAME="$APP_VERSION_NAME"
       - name: APK 산출물 업로드
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

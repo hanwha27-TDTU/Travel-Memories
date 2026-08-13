@@ -24,10 +24,21 @@
 //  ③ 복귀(visibilitychange)마다 입력 이력을 리셋해, 글 쓰다 앱 전환 후 돌아오면 **글이 있는데도**
 //     안전하다고 오판했다. 이제 리셋은 **화면 이동(입력을 떠남)** 때만 한다.
 
-import { CHANGELOG } from '../app/changelog';
+import { REGISTRY } from '../app/registry.gen';
 
-/** 실행 중인 번들의 버전 — SSOT는 changelog 맨 앞 항목이다. */
-export const CURRENT_VERSION: string = CHANGELOG[0]?.version ?? '0';
+/**
+ * 실행 중인 번들의 버전.
+ *
+ * 🔴 **`changelog`를 통째로 들이지 않는다**(2026-08-13 · 외부 리뷰 지적). 예전엔
+ *    `import { CHANGELOG }` 후 `CHANGELOG[0].version` 한 글자를 읽었는데, 그 파일은
+ *    **222KB · 2,476줄**이고 이 모듈은 **production 시작 경로에서 즉시 동적 import** 된다.
+ *    버전 문자열 하나 때문에 시작마다 전체 이력을 번들에서 끌어오는 셈이었다.
+ *
+ * 🔴 그리고 이건 §7 비대칭이었다 — 형제인 홈 화면은 **이미** `REGISTRY.appVersion`을
+ *    쓰고 있었다(`home.ts`의 버전 배지). 같은 문제를 한쪽만 풀어 둔 것이다.
+ *    `appVersion`은 `gen-registry`가 changelog 맨 앞 항목에서 뽑으므로 **SSOT는 그대로**다.
+ */
+export const CURRENT_VERSION: string = REGISTRY.appVersion;
 
 /** 확인 사이 최소 간격 — 복귀 연타가 네트워크를 두드리지 않게. */
 export const CHECK_MIN_MS = 60_000;

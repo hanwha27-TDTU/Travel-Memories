@@ -11,7 +11,13 @@ android {
         //    증가하는 versionCode가 있어야 ①앱이 「지금 build < 최신 build」를 비교해 업데이트를
         //    알릴 수 있고 ②덮어설치가 '재설치'가 아니라 정상 '업데이트'로 처리된다. 로컬 빌드는 1.
         versionCode project.hasProperty('APP_VERSION_CODE') ? APP_VERSION_CODE.toInteger() : 1
-        versionName "1.0"
+        // 🔴 versionName도 **주입받는다**(2026-08-13 · 외부 리뷰 지적). 예전엔 `"1.0"`이 손으로
+        //    박혀 있어서, 앱 안 「개발자 정보」는 v2.29인데 **안드로이드 앱 정보는 1.0**으로 보였다.
+        //    바로 옆 `versionCode`는 이미 CI가 주입하고 있었다 — 자동 옆의 수동이 밀린
+        //    헌법 §18-I의 교과서적 사례이고, 그 조항은 *"형제를 전수로 세라"*고 말한다.
+        //    정본은 `src/app/changelog.ts` 맨 앞 항목이고 워크플로가 그것을 읽어 넘긴다.
+        //    로컬 빌드는 `0.0-local` — 배포본과 헷갈리지 않게 일부러 버전처럼 안 보이게 둔다.
+        versionName project.hasProperty('APP_VERSION_NAME') ? APP_VERSION_NAME : '0.0-local'
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

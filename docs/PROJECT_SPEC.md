@@ -59,7 +59,7 @@ shape: prose-debt
 |------|------|------|
 | 앱 이름·아이콘 | Bugeon Journey | 고정 |
 | 개발자 | 이름·소속 표기 | 설정값(ASSUMPTIONS A-015) |
-| 버전 | 현재 앱 버전 | `package.json` version — 손편집 금지, 빌드 시 주입 |
+| 버전 | 현재 앱 버전 | 🔴 **`src/app/changelog.ts` 맨 앞 항목이 정본**이다. `registry.gen.ts`·`dist/version.json`·안드로이드 `versionName`이 전부 거기서 파생된다. **`package.json`의 `version`은 정본이 아니다** — `0.0.0`으로 굳어 있고 아무도 읽지 않는다(예전 이 칸이 그것을 정본이라 적어 두어 실제와 갈라져 있었다 · 2026-08-13 정정) |
 | 최초 개발일 | 프로젝트 시작일 | 고정(2026-07-22) |
 | 코드 최종 수정 | 마지막 릴리스 일자 | 빌드 시 git 메타에서 주입 |
 | 업데이트 이력 | 버전별 변경 요약(최신 위, 펼치기) | `docs/CHANGELOG.md`에서 **파생 생성** |
