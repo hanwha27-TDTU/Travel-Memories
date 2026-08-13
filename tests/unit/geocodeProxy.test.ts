@@ -4,9 +4,12 @@ import {
   FN_VERSION,
   availableProviders,
   kakaoAddressRank,
+  kakaoCoordinate,
   normalizeKakaoAddress,
   normalizeKakaoKeyword,
+  normalizeJusoAddress,
   normalizeVworld,
+  parseJusoAddresses,
   splitKoreanAddress,
 } from '../../supabase/functions/geocode/index';
 import { parseProxyRows } from '../../src/services/geocode';
@@ -20,7 +23,12 @@ describe('Edge Function 계약', () => {
     expect(availableProviders(() => undefined)).toEqual([]);
     expect(availableProviders((k) => (k === 'KAKAO_REST_KEY' ? 'x' : undefined))).toEqual(['kakao']);
     expect(availableProviders((k) => (k === 'VWORLD_KEY' ? 'x' : undefined))).toEqual(['vworld']);
-    expect(availableProviders(() => 'x')).toEqual(['kakao', 'vworld']);
+    expect(availableProviders((k) => (k === 'JUSO_ROAD_KEY' ? 'x' : undefined))).toEqual([]);
+    expect(availableProviders((k) => (k === 'JUSO_ROAD_KEY' || k === 'KAKAO_REST_KEY' ? 'x' : undefined))).toEqual([
+      'kakao',
+      'juso',
+    ]);
+    expect(availableProviders(() => 'x')).toEqual(['kakao', 'juso', 'vworld']);
   });
 });
 
@@ -102,6 +110,68 @@ describe('normalizeKakaoAddress', () => {
     expect(rows[0]!.placeRank).toBe(26); // 도로명만 → 길
     expect(rows[1]!.placeRank).toBe(30); // 건물번호까지 → 건물
     expect(rows[1]!.address.postcode).toBe('03080');
+  });
+});
+
+describe('정부 도로명주소 — 주소와 좌표의 경계를 섞지 않는다', () => {
+  const response = {
+    results: {
+      common: { errorCode: '0', errorMessage: '정상', totalCount: '1' },
+      juso: [
+        {
+          roadAddr: '서울특별시 중구 세종대로 110 (태평로1가)',
+          roadAddrPart1: '서울특별시 중구 세종대로 110',
+          jibunAddr: '서울특별시 중구 태평로1가 31',
+          zipNo: '04524',
+          admCd: '1114010300',
+          rnMgtSn: '111402005001',
+          bdMgtSn: '1114010300100310000000001',
+          bdNm: '서울특별시청',
+          siNm: '서울특별시',
+          sggNm: '중구',
+          emdNm: '태평로1가',
+        },
+      ],
+    },
+  };
+
+  it('검색 API 응답은 좌표를 지어내지 않고 공식 주소 후보로만 읽는다', () => {
+    const rows = parseJusoAddresses(response);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      roadAddrPart1: '서울특별시 중구 세종대로 110',
+      bdMgtSn: '1114010300100310000000001',
+      zipNo: '04524',
+    });
+    expect(rows[0]).not.toHaveProperty('lat');
+    expect(rows[0]).not.toHaveProperty('lng');
+  });
+
+  it('정부 오류·깨진 응답은 빈 후보이고 오류 문구를 결과로 만들지 않는다', () => {
+    expect(parseJusoAddresses(null)).toEqual([]);
+    expect(parseJusoAddresses({ results: { common: { errorCode: 'E0001' }, juso: response.results.juso } })).toEqual([]);
+  });
+
+  it('실제로 얻은 WGS84 좌표가 있을 때만 지도 검색 결과가 된다', () => {
+    const candidate = parseJusoAddresses(response)[0]!;
+    expect(normalizeJusoAddress(candidate, null)).toBeNull();
+    const row = normalizeJusoAddress(candidate, { lat: 37.5663, lng: 126.9779 })!;
+    expect(row).toMatchObject({
+      provider: 'juso',
+      name: '서울특별시청',
+      lat: 37.5663,
+      lng: 126.9779,
+      providerId: 'juso/1114010300100310000000001',
+      address: { region: '서울특별시', city: '중구', district: '태평로1가', postcode: '04524' },
+    });
+  });
+
+  it('카카오 좌표의 x=경도·y=위도를 뒤집지 않는다', () => {
+    expect(kakaoCoordinate({ documents: [{ x: '126.9779', y: '37.5663' }] })).toEqual({
+      lat: 37.5663,
+      lng: 126.9779,
+    });
+    expect(kakaoCoordinate({ documents: [] })).toBeNull();
   });
 });
 

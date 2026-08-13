@@ -19,7 +19,11 @@
 import type { ProviderProbe } from '../services/geocode';
 
 /** 사용자에게 보이는 제공자 이름 — 코드 이름을 그대로 내보내지 않는다. */
-const LABEL: Record<string, string> = { kakao: '카카오맵', vworld: '국토교통부 VWorld' };
+const LABEL: Record<string, string> = {
+  kakao: '카카오맵',
+  juso: '행정안전부 도로명주소',
+  vworld: '국토교통부 VWorld',
+};
 
 interface ViewBase {
   actual: string;

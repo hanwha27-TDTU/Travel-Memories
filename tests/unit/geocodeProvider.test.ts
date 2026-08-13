@@ -46,6 +46,12 @@ describe('providerOrder — 누구에게 먼저 묻는가', () => {
   });
   it('한국 질의는 국내 제공자를 먼저 묻고 Nominatim으로 내려간다', () => {
     expect(providerOrder('대학로', { available: ['kakao'] })).toEqual(['kakao', 'nominatim']);
+    expect(providerOrder('세종대로 110', { available: ['kakao', 'juso', 'vworld'] })).toEqual([
+      'kakao',
+      'juso',
+      'vworld',
+      'nominatim',
+    ]);
   });
   it('🔴 해외 질의는 국내 제공자를 아예 부르지 않는다(답 없을 걸 알면서 부르지 않는다)', () => {
     expect(providerOrder('Roma Termini', { available: ['kakao', 'vworld'] })).toEqual(['nominatim']);
@@ -55,7 +61,7 @@ describe('providerOrder — 누구에게 먼저 묻는가', () => {
     expect(order[0]).toBe('kakao');
   });
   it('Nominatim은 **언제나 마지막에 있다**', () => {
-    for (const available of [[], ['kakao'], ['vworld'], ['kakao', 'vworld']] as ProviderId[][]) {
+    for (const available of [[], ['kakao'], ['juso'], ['vworld'], ['kakao', 'juso', 'vworld']] as ProviderId[][]) {
       for (const q of ['대학로', 'Roma']) {
         const order = providerOrder(q, { available });
         expect(order[order.length - 1]).toBe(FALLBACK_PROVIDER);
@@ -65,10 +71,11 @@ describe('providerOrder — 누구에게 먼저 묻는가', () => {
   it('국내 전용 제공자가 표시된다', () => {
     expect(isKoreaOnly('kakao')).toBe(true);
     expect(isKoreaOnly('vworld')).toBe(true);
+    expect(isKoreaOnly('juso')).toBe(true);
     expect(isKoreaOnly('nominatim')).toBe(false);
   });
   it('모든 제공자에 사용자에게 보일 이름이 있다', () => {
-    for (const p of ['nominatim', 'kakao', 'vworld'] as const) expect(providerLabel(p)).toBeTruthy();
+    for (const p of ['nominatim', 'kakao', 'juso', 'vworld'] as const) expect(providerLabel(p)).toBeTruthy();
   });
 });
 

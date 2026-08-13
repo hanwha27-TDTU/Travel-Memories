@@ -12,13 +12,14 @@
 // 🔴 이 파일은 "어디에 묻는가"만 정한다. 실제 호출·키·네트워크는 services/geocode.ts와
 //    Edge Function(supabase/functions/geocode)의 몫이다. 라우팅 규칙은 순수해야 검사된다.
 
-export type ProviderId = 'nominatim' | 'vworld' | 'kakao';
+export type ProviderId = 'nominatim' | 'vworld' | 'kakao' | 'juso';
 
 /** 사용자에게 보이는 제공자 이름 — **어디서 온 답인지 숨기지 않는다**(§8 출처 표시). */
 const PROVIDER_LABEL: Record<ProviderId, string> = {
   nominatim: 'OpenStreetMap',
   vworld: '국토교통부 VWorld',
   kakao: '카카오맵',
+  juso: '행정안전부 도로명주소',
 };
 
 export function providerLabel(id: ProviderId): string {
@@ -29,7 +30,7 @@ export function providerLabel(id: ProviderId): string {
 export const FALLBACK_PROVIDER: ProviderId = 'nominatim';
 
 /** 국내 전용 제공자(해외 질의에 쓰면 답이 없거나 엉뚱하다). */
-const KOREA_ONLY: ReadonlySet<ProviderId> = new Set<ProviderId>(['vworld', 'kakao']);
+const KOREA_ONLY: ReadonlySet<ProviderId> = new Set<ProviderId>(['vworld', 'kakao', 'juso']);
 
 export function isKoreaOnly(id: ProviderId): boolean {
   return KOREA_ONLY.has(id);

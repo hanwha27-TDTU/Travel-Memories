@@ -8,6 +8,22 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0193 · **승인된 정부 도로명주소를 한국 장소 검색의 두 번째 안전망으로 연결** (2026-08-14)
+
+- Supabase 운영 프로젝트에서 `JUSO_ROAD_KEY`라는 시크릿 이름이 등록된 것을 확인했다. 값은 읽거나 문서·로그에 옮기지 않았다.
+- 한국 장소 검색 순서를 `Kakao → 행정안전부 도로명주소 → VWorld(설정 시) → OpenStreetMap`으로 확장했다. 해외 질의에는 정부 국내 제공자를 호출하지 않는다.
+- 도로명주소 API 자체에는 좌표가 없으므로, 공식 도로명주소를 기존 Kakao REST 주소 검색에 다시 물어 실제 WGS84 좌표가 확인된 후보만 반환한다. 좌표제공 API가 승인되면 이 resolver 한 곳만 교체한다.
+- Edge 함수는 인증·초대제·호출 제한·CORS·검색어 비로그 계약을 유지하고 `FN_VERSION=2`로 올렸다. 앱 가이드와 DEPLOYMENT에는 `JUSO_ROAD_KEY`를 넣는 공식 링크와 초보자 순서를 추가했다.
+- 배포·운영 되읽기와 최종 검증 결과는 이 변경의 릴리스 종료 시 갱신한다.
+
+## HANDOFF-0192 · **정부지도 예비 어댑터 — 승인 전에는 꺼지고, 카카오 실패 때만 켜진다** (2026-08-14)
+
+- 사용자 화면에서 「도로명주소 검색 API」 1건만 승인이고 「좌표제공 검색 API」·「지도제공 검색 API」는 처리 중임을 확인했다. 세 키는 서로 대체하지 않으며, 도로명주소 키를 브라우저 지도 변수에 넣지 않는다.
+- 한국 여행 **보기**의 순서를 `Kakao → 행정안전부 정부지도 → MapLibre`로 확장했다. 정부지도는 `VITE_JUSO_MAP_KEY`가 있을 때만 후보가 되며, 한국 외 좌표와 위치 선택 화면에는 적용하지 않는다.
+- 공식 지도 안내서의 좌표 계약(GRS80/EPSG:5179)에 맞춰 WGS84 좌표를 기기 안에서 변환한다. 공식 예시 좌표로 순수 변환 유닛을 잠갔으므로 좌표제공 검색 API 승인은 지도 표시의 선행조건이 아니다.
+- CSP·CI·Pages·Windows 변수 배선, `.env.example`, 앱 가이드와 DEPLOYMENT의 초보자 순서를 함께 준비했다. T-038은 지도제공 검색 API 승인과 운영 라이브 확인 전까지 닫지 않는다.
+- 검증: 관련 유닛 8/8, 전체 유닛 1,684/1,684, 빠른 게이트 69/69, typecheck, production build, 기존 Kakao·TomTom 시험키 라이브 425/425 통과. CSP에서 정부지도 SDK 허용을 실제로 지우면 RED(exit 1), 복원하면 GREEN임을 확인했다. 실제 정부지도 타일은 승인키가 없어 아직 렌더 확인하지 않았다.
+
 ## HANDOFF-0191 · **장소 칩의 국가코드 누락과 TomTom v2.38 후보** (2026-08-14)
 
 - 운영 Pages에서 사용자의 기존 `TSMU 대학병원 4번 건물` 장소 칩을 직접 열었다. 지도 렌더와 확대 버튼은 동작했지만 하단 귀속이 OpenStreetMap이어서 TomTom 완료라고 말할 수 없었다.
@@ -1613,7 +1629,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.38<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->238<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->142<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.39<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->239<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->144<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->32<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

@@ -12,8 +12,8 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 서버 스키마, migration, RLS/grant와 독립 배포 Edge Function을 소유한다.
 
 - 모듈 ID: `supabase-backend`
-- 관측 파일: 42개 · 논리 줄: 4192 · 최상위 선언: 74개(외부 공개 47개)
-- 코드 내용 SHA-256: `48d65daa9f512719f87d8ea31fc87af8edcf913b27f254d616f5e622b92e4ef7`
+- 관측 파일: 42개 · 논리 줄: 4325 · 최상위 선언: 79개(외부 공개 51개)
+- 코드 내용 SHA-256: `ef7a3ff4c0bb16cd78c6db9047e296d8315f78ff2849824747d57628c2efc9e2`
 - 생성기 스키마: 1
 
 ## 2. 진입점과 모듈 간 흐름
@@ -75,7 +75,7 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 
 | 파일 | 줄 | export/선언 | 저장소 내부 의존 | 코드에서 관측한 I/O·생명주기 신호 |
 |---|---:|---:|---|---|
-| `supabase/functions/geocode/index.ts` | 486 | 14/26 | — | network fetch |
+| `supabase/functions/geocode/index.ts` | 619 | 18/31 | — | network fetch |
 | `supabase/functions/media-sign/index.ts` | 761 | 33/48 | — | network fetch; integrity/crypto; deletion lifecycle |
 | `supabase/migrations/0001_journey_schema_trips.sql` | 78 | 0/0 | — | SQL table: trips; SQL function: set_updated_at; deletion lifecycle |
 | `supabase/migrations/0002_journey_invite_only.sql` | 65 | 0/0 | — | SQL table: allowed_users; SQL function: is_allowed; deletion lifecycle |
@@ -128,12 +128,15 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 | `supabase/functions/geocode/index.ts` | export | const | `FN_OPS` | — | 이 함수가 처리하는 op. `check-edge-fn-ops`가 구현과 이 목록의 어긋남을 양방향으로 잡는다. |
 | `supabase/functions/geocode/index.ts` | internal | const | `LIMIT` | — | 결과 개수 상한 — 남의 서버에 예의를 지키고 화면도 감당 가능하게. |
 | `supabase/functions/geocode/index.ts` | export | interface | `NormalizedRow` | — | — |
+| `supabase/functions/geocode/index.ts` | export | interface | `JusoAddressCandidate` | — | 정부 도로명주소 검색 결과. 이 단계에는 좌표가 없으므로 지도 결과와 아직 다른 타입이다. |
 | `supabase/functions/geocode/index.ts` | internal | function const | `num(v: unknown)` | v.trim, Number, Number.isFinite | — |
 | `supabase/functions/geocode/index.ts` | internal | function const | `str(v: unknown)` | v.trim | — |
 | `supabase/functions/geocode/index.ts` | export | function | `splitKoreanAddress(addr: string \\| null): { region: string \\| null; city: string \\| null }` | addr.trim().split, addr.trim | 한국 주소 문자열 → 시·도 / 시·군·구. 국내 제공자는 구조화 주소를 조각으로 주지 않고 한 줄 문자열 로 준다 (`"서울 종로구 동숭동 1-1"`). 조각이 필요한 이유는 저장 때문이다 — 주소 표기는 행정구역 개편으로 바뀌지만 어느 시·구였는지 는 기억의 일부다. 앞 두 토큰만 본다. 더 깊이 파면 동·리·번지까… |
 | `supabase/functions/geocode/index.ts` | export | function | `kakaoAddressRank(addressType: string \\| null): number \\| null` | — | 카카오 주소검색의 `address_type` → Nominatim 랭크 자. 근거(카카오 문서의 뜻을 우리 등급으로 옮긴 것): · `ROAD_ADDR`/`REGION_ADDR` = 건물번호까지 확정된 주소 → 건물(28+) · `ROAD` = 도로명만 → 길(26) · `REGION` = 지역명만 → 동네(22) 모르… |
 | `supabase/functions/geocode/index.ts` | export | function | `normalizeKakaoKeyword(json: unknown): NormalizedRow[]` | Array.isArray, num, str, splitKoreanAddress, out.push, out.slice | 카카오 키워드(장소) 검색 응답 → 표준 행. 키워드 검색의 결과는 정의상 POI(가게·건물·시설) 이므로 건물 등급으로 옮긴다. 이건 추측이 아니라 그 엔드포인트의 계약이다 — 주소검색은 아래 함수가 따로 다룬다. |
 | `supabase/functions/geocode/index.ts` | export | function | `normalizeKakaoAddress(json: unknown): NormalizedRow[]` | Array.isArray, num, str, splitKoreanAddress, out.push, kakaoAddressRank, out.slice | 카카오 주소 검색 응답 → 표준 행. 랭크는 `address_type`이 정한다(위 함수 참조). |
+| `supabase/functions/geocode/index.ts` | export | function | `parseJusoAddresses(json: unknown): JusoAddressCandidate[]` | str, Array.isArray, out.push, out.slice | 행정안전부 도로명주소 검색 응답 → 주소 후보. 🔴 이 API는 위도·경도를 주지 않는다. 그래서 여기서 `NormalizedRow`를 지어내지 않고 주소 전용 타입으로 멈춘다. 좌표는 아래 `normalizeJusoAddress`가 실제로 받은 값 과만 합친다. |
+| `supabase/functions/geocode/index.ts` | export | function | `normalizeJusoAddress(candidate: JusoAddressCandidate, coord: { lat: number; lng: number } \\| null): NormalizedRow \\| null` | Number.isFinite | 정부의 공식 주소와 별도 제공자가 준 WGS84 좌표를 합친다. 좌표가 없으면 결과도 없다. |
 | `supabase/functions/geocode/index.ts` | export | function | `normalizeVworld(json: unknown, asked: 'place' \\| 'address'): NormalizedRow[]` | Array.isArray, num, str, splitKoreanAddress, out.push, out.slice | VWorld 검색 응답 → 표준 행. VWorld는 `type=place`(POI)와 `type=address`(주소)를 나눠 부르며, 응답 모양은 같다 (`response.result.items[]`). 그래서 랭크는 무엇을 물었는지 로 정한다. |
 | `supabase/functions/geocode/index.ts` | export | function | `availableProviders(env: (k: string) => string \\| undefined): string[]` | env, out.push | 설정된 시크릿으로부터 지금 실제로 쓸 수 있는 제공자 목록. 없으면 빈 배열. |
 | `supabase/functions/geocode/index.ts` | internal | const | `CORS: Record<string, string>` | — | 🔴 이 함수는 다른 출처 (앱은 ` .github.io`, 함수는 ` .supabase.co`)에서 불린다. 그러면 브라우저가 본 요청 앞에 사전요청(OPTIONS) 을 먼저 보내는데, 그 요청에는 본문이 없어 아래 `req.json()`이 던지고 400 이 나갔다. 본 요청은 나가지도 못했다. 실측(2026-08-1… |
@@ -147,6 +150,8 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 | `supabase/functions/geocode/index.ts` | internal | const | `rateState` | — | 이 인스턴스의 카운터. 위 주석대로 전역 보증이 아니다. |
 | `supabase/functions/geocode/index.ts` | internal | async function | `isInvited(req: Request): Promise<boolean>` | req.headers.get, envGet, auth.startsWith, fetch, r.json | 🔐 초대제 확인 — media-sign과 같은 규율 . 인증만으로는 부족하다. journey 테이블은 RLS로 초대제(`journey.is_allowed()`)를 걸지만, 지오코딩은 DB를 거치지 않으므로 그 방어가 빠진다 — 허용목록 밖 계정도 우리 지도 API 키로 검색을 돌릴 수 있었다. 허용목록 SSOT(`jo… |
 | `supabase/functions/geocode/index.ts` | internal | async function | `searchKakao(key: string, q: string): Promise<NormalizedRow[]>` | Promise.all, fetch(`${base}/keyword.json?size=${LIMIT}&query=${encodeURI…, fetch, encodeURIComponent, r.json, fetch(`${base}/address.json?size=${LIMIT}&query=${encodeURI…, normalizeKakaoKeyword, normalizeKakaoAddress | — |
+| `supabase/functions/geocode/index.ts` | export | function | `kakaoCoordinate(json: unknown): { lat: number; lng: number } \\| null` | Array.isArray, num | 카카오 주소 응답에서 좌표 하나만 읽는다. 정부 주소를 공식 표기 그대로 유지하기 위한 보조자다. |
+| `supabase/functions/geocode/index.ts` | internal | async function | `searchJuso(jusoKey: string, kakaoKey: string, q: string): Promise<NormalizedRow[]>` | String, fetch('https://business.juso.go.kr/addrlink/addrLinkApi.do'…, fetch, params.toString, parseJusoAddresses, response.json().catch, response.json, Promise.all, candidates.map, encodeURIComponent | — |
 | `supabase/functions/geocode/index.ts` | internal | async function | `searchVworld(key: string, q: string): Promise<NormalizedRow[]>` | String, p.set, fetch(`https://api.vworld.kr/req/search?${p.toString()}`).c…, fetch, p.toString, normalizeVworld, r.json().catch, r.json, Promise.all, call | — |
 | `supabase/functions/media-sign/index.ts` | internal | const | `DENO` | — | Deno 런타임 전역. Node에서는 undefined → serve를 호출하지 않고 순수 함수만 노출한다. |
 | `supabase/functions/media-sign/index.ts` | internal | function const | `envGet(k: string)` | DENO?.env.get | — |
@@ -209,7 +214,7 @@ shape_reason: 책임→흐름→파일→API→검증→한계가 복구 순서�
 ## 6. 복구 시 먼저 볼 큰 파일
 
 - `supabase/functions/media-sign/index.ts` — 761줄
-- `supabase/functions/geocode/index.ts` — 486줄
+- `supabase/functions/geocode/index.ts` — 619줄
 - `supabase/migrations/0027_canonical_sync_meta.sql` — 342줄
 - `supabase/migrations/20260813113101_add_moment_companion_names.sql` — 209줄
 - `supabase/migrations/0022_journey_places.sql` — 200줄

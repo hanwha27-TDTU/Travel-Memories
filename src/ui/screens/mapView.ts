@@ -127,13 +127,15 @@ interface JourneyMapMountOptions {
 /** 제공자 선택·폴백은 화면 생명주기와 분리해 두 제공자가 같은 종료 계약을 지나게 한다. */
 async function mountJourneyMap(options: JourneyMapMountOptions): Promise<void> {
   const kakaoKey = ((import.meta.env.VITE_KAKAO_JAVASCRIPT_KEY as string | undefined) ?? '').trim();
+  const jusoMapKey = ((import.meta.env.VITE_JUSO_MAP_KEY as string | undefined) ?? '').trim();
   const tomtomKey = ((import.meta.env.VITE_TOMTOM_API_KEY as string | undefined) ?? '').trim();
   const mapStyleUrl = ((import.meta.env.VITE_MAP_STYLE_URL as string | undefined) ?? '').trim() || undefined;
   const preferred = displayProviderForPoints(options.points, {
     kakaoKeyConfigured: kakaoKey.length > 0,
+    jusoMapKeyConfigured: jusoMapKey.length > 0,
     tomtomKeyConfigured: tomtomKey.length > 0,
   });
-  for (const provider of displayProviderFallbackOrder(preferred)) {
+  for (const provider of displayProviderFallbackOrder(preferred, preferred === 'kakao' && jusoMapKey.length > 0)) {
     if (options.signal.aborted) return;
     try {
       options.mapEl.replaceChildren();
@@ -142,6 +144,7 @@ async function mountJourneyMap(options: JourneyMapMountOptions): Promise<void> {
         container: options.mapEl,
         points: options.points,
         kakaoKey,
+        jusoMapKey,
         tomtomKey,
         mapStyleUrl,
         markerColor: markerColor(),
@@ -272,7 +275,7 @@ export function openMapView(tripTitle: string, points: MapPoint[], focusPlace?: 
   };
   const degradeTimer = setTimeout(degradeToList, 17_000); // Kakao 8초 + MapLibre 8초 폴백 뒤 강등
 
-  // 한국은 Kakao, 중앙아시아 시범국은 TomTom. 실패하면 모두 MapLibre로 닫힌다.
+  // 한국은 Kakao → 정부지도(승인 키가 있을 때) → MapLibre, 중앙아시아는 TomTom → MapLibre다.
   void mountJourneyMap({
     points,
     mapEl,
@@ -389,6 +392,7 @@ export function openMapPicker(initial: { lat: number; lng: number } | null): Pro
       if (!start) return;
       const preferred = displayProviderForPicker(start.center, start.countryCode, {
         kakaoKeyConfigured: kakaoKey.length > 0,
+        jusoMapKeyConfigured: false, // 정부 지도 API는 위치 선택 콜백을 보장하지 않아 보기 전용으로만 쓴다.
         tomtomKeyConfigured: tomtomKey.length > 0,
       });
       hint.textContent = start.locateFailure

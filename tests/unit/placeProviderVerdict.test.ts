@@ -7,10 +7,11 @@ import { placeProviderView } from '../../src/domain/placeProviderVerdict';
 
 describe('장소 검색 도우미 판정', () => {
   it('물어봤고 국내 지도가 붙어 있으면 정상이고, 이름을 사람 말로 적는다', () => {
-    const v = placeProviderView({ asked: true, providers: ['kakao'] });
+    const v = placeProviderView({ asked: true, providers: ['kakao', 'juso'] });
 
     expect(v.level).toBe('ok');
     expect(v.actual).toContain('카카오맵');
+    expect(v.actual).toContain('행정안전부 도로명주소');
     expect(v.actual).not.toContain('kakao'); // 코드 이름을 화면에 내보내지 않는다
   });
 

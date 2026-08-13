@@ -516,7 +516,7 @@
         "supabase/functions/geocode/**"
       ],
       "deploy": "Supabase MCP deploy_edge_function 또는 npx supabase functions deploy geocode --project-ref ihxiywffzmvrwmqvatzt",
-      "readback": "배포 소스를 되받아 대조하고 인증된 capabilities의 FN_VERSION=1·ops·providers 확인"
+      "readback": "배포 소스를 되받아 대조하고 인증된 capabilities의 FN_VERSION=2·ops·providers 확인"
     },
     {
       "id": "supabase-migrations",
