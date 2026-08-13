@@ -1,6 +1,6 @@
 ---
 name: android-apk-dev
-description: 안드로이드 APK 생성·배포 개발 프롬프트 — android-shell/**(Capacitor 셸)·.github/workflows/android-apk.yml·src/app/apk.ts·src/services/(appUpdate|nativePhotos|capacitorShell).ts·scripts/(check-apk-release-link|check-update-signal|gen-version-file).mjs를 만들거나 수정하기 전에 반드시 로드한다. 웹은 웹대로 셸은 셸대로 분리하는 원칙·「항상 최신 APK」 고정 릴리스 계약·네이티브 브리지 패턴·과거 결함 사례를 담은 작업 헌장. 셸 변경, APK 배포 방식 변경, 네이티브 플러그인 추가, 다른 프로젝트로 이 구조를 이식할 때 사용.
+description: 안드로이드 APK 생성·배포·동작 검증 프롬프트 — android-shell/**(Capacitor 셸)·.github/workflows/android-apk.yml·src/app/apk.ts·src/services/(appUpdate|nativePhotos|capacitorShell).ts·scripts/(check-apk-release-link|check-update-signal|gen-version-file).mjs를 만들거나 수정하기 전에 반드시 로드한다. Windows AVD Bugeon_API35, Android Emulator, adb, scrcpy, Playwright로 APK나 Android 모바일 UI를 검증할 때도 사용한다. 웹/셸 분리 원칙·「항상 최신 APK」 계약·네이티브 브리지·에뮬레이터 우선 실동작 검증을 담은 작업 헌장.
 ---
 
 # 안드로이드 APK 생성·배포 개발 프롬프트 (Android APK Dev Charter)
@@ -35,9 +35,11 @@ description: 안드로이드 APK 생성·배포 개발 프롬프트 — android-
    - 이유(ADR-0036): PWA/TWA는 크롬이 `ACCESS_MEDIA_LOCATION`을 요청하지 않아 **원리적으로**
      사진 원본 GPS를 못 받는다(실측 3종으로 확정 — 갤러리·파일 선택기 0/0, ZIP만 생존, 채팅
      사본과 해시 동일). 웹 코드의 문제가 아니라 **권한 계층**의 문제라 웹 안에서 대안이 없다.
-2. **CI가 빌드한다** — 개발 샌드박스에는 Android SDK가 없다. `android-apk.yml`이 셸 관련
-   경로(`android-shell/**`, 워크플로 파일 자체)가 바뀔 때만 돈다. 개인용·사이드로드 목적이라
-   **debug 서명**으로 충분하다(Play 스토어 낼 때만 release 서명 키를 Secrets로 추가).
+2. **CI와 로컬 AVD가 서로 다른 것을 증명한다** — `android-apk.yml`은 셸 관련 경로
+   (`android-shell/**`, 워크플로 파일 자체)가 바뀔 때 Gradle 빌드·산출물을 증명한다. Windows
+   개발 환경에서는 설치된 SDK와 AVD `Bugeon_API35`로 같은 셸을 직접 빌드·설치·실행해 사용자
+   흐름을 확인한다. 개인용·사이드로드 목적이라 **debug 서명**으로 충분하다(Play 스토어에
+   낼 때만 release 서명 키를 Secrets로 추가).
 3. **「항상 최신 APK」는 고정 태그 + `--clobber`다** — 커밋마다 새 릴리스 태그를 만들지 않는다.
    `apk-latest` 하나에 계속 덮어써서 다운로드 URL이 **절대 안 바뀌게** 한다. 이 계약은 세 자리
    (워크플로·`src/app/apk.ts`·가이드 화면)가 같은 값을 가리켜야 하고, `check-apk-release-link`가
@@ -78,8 +80,8 @@ description: 안드로이드 APK 생성·배포 개발 프롬프트 — android-
 ## 2. 코드 관례 (실제로 걸렸던 것)
 
 - **네이티브 코드는 최소 표면**: 플러그인 하나(`OriginalPhotosPlugin`)로 끝낸다. 로직·검증·
-  UI는 전부 웹에 둔다 — 네이티브 코드는 CI에서만 빌드되고 이 샌드박스에서 못 고쳐 보므로,
-  많을수록 "안 재본 채 배포"하는 표면이 늘어난다.
+  UI는 전부 웹에 둔다. 네이티브 표면은 CI 컴파일과 로컬 AVD 실동작을 모두 거치되, 많을수록
+  기기·API별로 재야 할 표면이 늘어난다.
 - **SAF를 쓰고 시스템 사진 선택기(`ACTION_PICK_IMAGES`)는 쓰지 않는다** — 선택기 제공자
   URI는 `MediaStore.getMediaUri` 변환이 보장되지 않는다. SAF 문서 URI는 변환 경로가
   문서화돼 있다(구체 사례는 `OriginalPhotosPlugin.java` 머리주석).
@@ -151,26 +153,53 @@ description: 안드로이드 APK 생성·배포 개발 프롬프트 — android-
 
 자동층:
 1. `npm run harness` — `check-apk-release-link`(고정 URL 3자리 + 배너 4자리 계약) + `check-update-signal`(4자리 계약)
-2. CI(`android-apk.yml`)가 실제로 Gradle 빌드에 성공하는가 — **이 샌드박스는 Android SDK가
-   없어 로컬로 재현할 수 없다.** 컴파일 확인은 CI 몫이다(정직한 경계).
+2. CI(`android-apk.yml`)와 로컬 `:app:assembleDebug`가 실제로 Gradle 빌드에 성공하는가.
 3. 네이티브 파일 저장을 바꿨다면 `tests/unit/fileSave.test.ts`에서 기본 버튼은 `downloads`,
    보조 버튼은 `picker`, 취소는 미완료, 실제 `destination`별 안내가 갈리는지 확인한다. 가능하면
    `:app:compileDebugJavaWithJavac`도 실행하되, 그 결과는 실기기 MediaStore/SAF 동작 증거가 아니다.
 
-실기기(정적 게이트가 못 보는 층 — §10):
-1. APK를 설치하고 사진 고르기 버튼을 눌러 실제로 네이티브 선택기가 뜨는가.
-2. 🔬 관측 창(있다면)이 `original: true/false`와 `reason`을 실제로 보여주는가 — 이게 그
-   폰에서 `setRequireOriginal` 승격이 됐는지 판정하는 유일한 창이다.
-3. 웹만 배포를 새로 했을 때, 앱을 다시 설치하지 않고 재실행만으로 새 화면이 뜨는가
-   (`appUpdate.ts`가 실제로 도는지).
-4. 기본 백업을 눌렀을 때 선택기 없이 `내 파일 > 다운로드 > Bugeon Journey`에 파일이 생기고,
-   앱이 그 경로와 되읽기 완료를 말하는가. 이어서 「다른 폴더」는 SAF가 열리고 취소 시 파일·
-   마지막 백업 시각이 생기지 않는가.
-5. 한 번은 기존 앱 위에 최신 APK를 실제 설치해 셸 build가 바뀌었는지 확인한다. 웹 화면이
-   최신인 것과 새 네이티브 플러그인이 설치된 것은 서로 다른 사실이다.
+### Windows AVD 직접 검증 — 사용자에게 넘기기 전 기본 경로
 
-**정직한 한계**: 이 개발 환경에는 Android SDK도 실기기도 없다. 컴파일은 CI가, 네이티브
-동작 확인(권한 승격이 실제로 되는가)은 사용자 실기기가 한다.
+Android/APK 동작 검증은 사용자의 수동 확인을 기본값으로 두지 말고 다음 순서로 직접 수행한다.
+
+1. **전제와 초기 상태를 확인한다.** `emulator -list-avds`에 `Bugeon_API35`가 있는지 확인하고,
+   `adb devices -l`로 기존 연결을 기록한다. 도구가 PATH에 없으면 Windows Android SDK 기본
+   위치와 설치 정보를 찾아 실행 파일을 확정한다. 실행하지 못한 전제는 성공으로 반올림하지 않는다.
+2. **AVD를 부팅하고 준비 완료를 기다린다.** `Bugeon_API35`를 시작한 뒤 `adb wait-for-device`와
+   `adb shell getprop sys.boot_completed`가 `1`인지 확인한다. 기존 emulator가 있으면 serial을
+   명시해 다른 기기에 명령하지 않는다. 테스트 전 화면·회전·네트워크·앱 프로세스 상태를 기록한다.
+3. **웹 표면을 Android Chrome에서 먼저 잰다.** Vite를 외부 접속 가능 주소로 실행하고
+   `adb reverse tcp:5173 tcp:5173` 뒤 emulator Chrome에서 `http://127.0.0.1:5173`을 연다.
+   Playwright의 Android/CDP 연결을 쓸 수 있으면 trace·console을 함께 수집하고, 불가능하면 adb
+   좌표/키 입력과 `uiautomator dump`를 사용한다. 데스크톱 Chromium 결과를 Android 통과로 쓰지 않는다.
+4. **APK 자체를 설치해 별도로 잰다.** `android-shell/android`에서 debug APK를 빌드하고
+   `adb install -r`로 설치한다. manifest/Gradle과 `cmd package resolve-activity --brief`로 package와
+   launcher activity를 확인한 뒤 `am start -n`으로 실행한다. 원격 웹이 보였다는 사실과 새
+   네이티브 플러그인이 설치됐다는 사실을 구분한다.
+5. **실제 모바일 흐름을 자동 수행한다.** emulator 해상도와 density를 기록하고 화면의 실제
+   터치 좌표 또는 접근성 노드를 사용한다. 필요하면 adb로 권한, 키보드, GPS, 회전, 네트워크를
+   설정한다. 변경한 상태와 복구 여부를 결과에 남긴다. scrcpy는 대화형 관찰이 필요할 때 쓰되,
+   자동 판정 증거는 스크린샷·UI dump·로그·read-back으로 남긴다.
+6. **성공은 결과를 되읽어 판정한다.** 화면 문구만 보지 말고 파일, URI, 길이·해시, 앱 데이터,
+   현재 activity 등 기능의 권위 저장소를 다시 읽는다. 기본 백업은 Downloads 파일과 영수증을,
+   SAF 취소는 새 파일·백업 완료 시각이 생기지 않았음을 확인한다.
+7. **실패 증거를 보존한다.** 실패 시 최소한 emulator 스크린샷, `uiautomator dump`, 대상 앱의
+   `adb logcat`, 현재 activity/package 상태를 수집한다. Playwright를 사용했다면 trace와 console도
+   남긴다. 테스트 뒤 emulator·앱 상태와 남은 파일/권한 변경을 다시 기록한다.
+8. **판정을 분리한다.** 직접 실행해 확인한 항목만 PASS로 쓴다. 도구·AVD·로그인·외부 서비스
+   전제가 없어 실행하지 못한 항목은 SKIP 또는 확인 불가로 적는다. 물리 카메라, 제조사 ROM,
+   실제 저사양 메모리/PSS, 실제 GPS 센서처럼 AVD가 대표하지 못하는 동작만 「실기기 전용」으로
+   명시하며, 그 이유 없이 사용자에게 확인을 넘기지 않는다.
+
+### 대표 흐름
+
+1. APK를 설치하고 사진 고르기 버튼을 눌러 네이티브 선택기가 뜨는지 확인한다.
+2. 관측 창이 `original: true/false`와 실제 `reason`을 표시하는지 확인한다. AVD의 가상 미디어
+   결과를 물리 기기의 원본 승격 보증으로 확대하지 않는다.
+3. 웹만 갱신했을 때 APK 재설치 없이 재실행으로 새 화면이 뜨는지 확인한다.
+4. 기본 백업이 `Download/Bugeon Journey`에 생기고 길이·SHA-256 되읽기가 일치하는지 확인한다.
+   「다른 폴더」 SAF 취소 뒤에는 파일과 마지막 백업 시각이 생기지 않아야 한다.
+5. 기존 앱 위에 최신 APK를 `-r`로 설치해 셸 build와 새 네이티브 method가 실제로 바뀌었는지 확인한다.
 
 ## 5. 변경 후 의무
 
