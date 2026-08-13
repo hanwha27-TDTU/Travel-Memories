@@ -1104,4 +1104,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '지도 제공자를 사용자 위치가 아니라 기록 좌표로 판정해야 같은 여행이 기기 위치에 따라 달라지지 않는다. Kakao JavaScript SDK와 서버 REST 검색 키는 서로 다른 보안 경계이고, 외부 SDK 실패가 여행의 장소 목록까지 막아서는 안 된다.',
     decision: '모든 표시 지점이 한국 좌표일 때만 Kakao를 선택하고 해외·혼합·미설정은 MapLibre를 유지한다. Kakao 로딩 실패 시 MapLibre로 자동 복귀하며 둘 다 실패해도 목록은 남긴다. JavaScript 키는 GitHub Variable, REST 키는 Supabase secret에 두고 CSP·CI·배포 배선을 갱신한다. 공식 링크와 정확한 입력 이름을 DEPLOYMENT에 쉬운 단계로 남기고 운영 배포 전에는 완료로 말하지 않는다.',
   },
+  {
+    seq: 138,
+    date: '2026-08-13',
+    topic: '카카오 지도와 설정 가이드를 v2.34로 함께 배포한다',
+    human: '설정 가이드를 생성하고 현재 카카오 지도 변경을 모두 배포까지 진행하라고 요청했다.',
+    ai: '변경된 실행 표면은 GitHub Pages이며 Android 셸·DB migration·Edge Function 소스는 바뀌지 않았다. 따라서 앱 버전과 사용자 변경내역을 확정하고 전체 Required CI를 거쳐 Pages만 배포·되읽는 것이 정확한 영향 범위다.',
+    decision: 'v2.34에 한국 Kakao 지도, 해외 MapLibre 유지, 실패 자동 복귀와 초보자 설정 가이드를 묶는다. 정확한 후보 커밋을 얼리고 전체 하네스·라이브가 같은 SHA에서 끝난 뒤 squash merge하며, Pages workflow success와 운영 version.json 2.34를 되읽고 릴리스 잠금을 닫는다.',
+  },
 ];
