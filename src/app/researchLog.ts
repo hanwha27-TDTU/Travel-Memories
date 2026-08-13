@@ -1144,4 +1144,12 @@ export const RESEARCH_LOG: ChainInput[] = [
     ai: '운영 Pages에서 TSMU 장소 칩을 직접 열자 지도는 그려졌지만 귀속이 OpenStreetMap이었다. 여행 전체 지도는 LocalPlace.countryCode를 MapPoint에 넣는데 장소 칩은 좌표·이름만 새 배열로 만들며 국가코드를 버리는 형제 비대칭이 원인이었다.',
     decision: '장소 칩도 같은 LocalPlace.countryCode SSOT를 전달한다. 연결된 UZ 장소를 Dexie에 심고 칩을 실제로 눌러 provider=tomtom과 TomTom 타일 요청을 함께 재는 라이브 회귀 검사를 추가한다. 좌표만 있고 국가가 확인되지 않은 옛 기록은 추측하지 않고 기존 지도에 남긴다.',
   },
+  {
+    seq: 143,
+    date: '2026-08-14',
+    topic: '카카오맵 실패 때만 행정안전부 정부지도를 한국 보기 전용 안전망으로 둔다',
+    human: '주소기반산업지원서비스의 도로명주소 검색 API만 먼저 승인되고 지도제공·좌표제공 검색 API는 처리 중이므로, 승인 전에 앱을 미리 준비하자고 요청했다.',
+    ai: '세 API의 승인키는 용도가 다르므로 승인된 주소 키를 지도에 재사용하면 안 된다. 지도 API는 EPSG:5179를 받지만 앱 좌표는 WGS84이므로 기기 안에서 투영하면 좌표제공 API 승인을 지도 표시의 선행조건으로 만들 필요가 없다. 위치 선택 콜백은 공식 계약에서 보장되지 않아 정부지도를 선택기에 넣으면 저장 동작을 잃는다.',
+    decision: '여행 보기의 한국 좌표에만 Kakao→정부지도→MapLibre 순서를 적용하고 선택기는 Kakao/MapLibre를 유지한다. 정부지도 키가 없으면 완전히 비활성이고, 승인 뒤 GitHub Variable VITE_JUSO_MAP_KEY를 넣어 새 배포하면 활성화한다. WGS84→EPSG:5179 순수 변환·CSP·세 배포 워크플로·초보자 가이드·대기 과제 T-038을 함께 준비한다.',
+  },
 ];

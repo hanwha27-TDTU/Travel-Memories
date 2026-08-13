@@ -23,15 +23,15 @@ describe('지도 표시 제공자 판정', () => {
     const seoul = { lat: 37.5665, lng: 126.978 };
     const busan = { lat: 35.1796, lng: 129.0756 };
     const tashkent = { lat: 41.2995, lng: 69.2401 };
-    const allKeys = { kakaoKeyConfigured: true, tomtomKeyConfigured: true };
+    const allKeys = { kakaoKeyConfigured: true, jusoMapKeyConfigured: true, tomtomKeyConfigured: true };
     expect(displayProviderForPoints([seoul, busan], allKeys)).toBe('kakao');
-    expect(displayProviderForPoints([seoul, busan], { ...allKeys, kakaoKeyConfigured: false })).toBe('maplibre');
+    expect(displayProviderForPoints([seoul, busan], { ...allKeys, kakaoKeyConfigured: false })).toBe('juso');
     expect(displayProviderForPoints([seoul, tashkent], allKeys)).toBe('maplibre');
     expect(displayProviderForPoints([], allKeys)).toBe('maplibre');
   });
 
   it('선택기는 한국 Kakao, 확인된 시범국 TomTom, 나머지는 기존 지도를 쓴다', () => {
-    const allKeys = { kakaoKeyConfigured: true, tomtomKeyConfigured: true };
+    const allKeys = { kakaoKeyConfigured: true, jusoMapKeyConfigured: true, tomtomKeyConfigured: true };
     expect(displayProviderForPicker({ lat: 37.5665, lng: 126.978 }, 'kr', allKeys)).toBe('kakao');
     expect(displayProviderForPicker({ lat: 41.2995, lng: 69.2401 }, 'uz', allKeys)).toBe('tomtom');
     expect(displayProviderForPicker({ lat: 43.2389, lng: 76.8897 }, 'kz', allKeys)).toBe('tomtom');
@@ -45,17 +45,19 @@ describe('지도 표시 제공자 판정', () => {
     expect(displayProviderForPicker(
       { lat: 37.5665, lng: 126.978 },
       'kr',
-      { kakaoKeyConfigured: false, tomtomKeyConfigured: true },
+      { kakaoKeyConfigured: false, jusoMapKeyConfigured: false, tomtomKeyConfigured: true },
     )).toBe('maplibre');
     expect(displayProviderForPicker(
       { lat: 41.2995, lng: 69.2401 },
       'uz',
-      { kakaoKeyConfigured: true, tomtomKeyConfigured: false },
+      { kakaoKeyConfigured: true, jusoMapKeyConfigured: false, tomtomKeyConfigured: false },
     )).toBe('maplibre');
   });
 
   it('지역 지도 실패 시 기존 MapLibre로 한 번만 폴백한다', () => {
     expect(displayProviderFallbackOrder('kakao')).toEqual(['kakao', 'maplibre']);
+    expect(displayProviderFallbackOrder('kakao', true)).toEqual(['kakao', 'juso', 'maplibre']);
+    expect(displayProviderFallbackOrder('juso')).toEqual(['juso', 'maplibre']);
     expect(displayProviderFallbackOrder('tomtom')).toEqual(['tomtom', 'maplibre']);
     expect(displayProviderFallbackOrder('maplibre')).toEqual(['maplibre']);
   });

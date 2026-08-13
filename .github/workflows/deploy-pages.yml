@@ -43,6 +43,7 @@ jobs:
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_MAP_STYLE_URL: ${{ vars.VITE_MAP_STYLE_URL }}
           VITE_KAKAO_JAVASCRIPT_KEY: ${{ vars.VITE_KAKAO_JAVASCRIPT_KEY }}
+          VITE_JUSO_MAP_KEY: ${{ vars.VITE_JUSO_MAP_KEY }}
           VITE_TOMTOM_API_KEY: ${{ vars.VITE_TOMTOM_API_KEY }}
           # 사진 바이트는 **R2 한 곳**이다(v0.86, 이관 완료). 저장소 선택 변수는 제거했다 —
           # 바이트가 R2에만 남는 순간 그 되돌리기는 이미 죽은 탈출구였다.

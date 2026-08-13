@@ -12,9 +12,9 @@
        - wss://*.supabase.co  : Supabase Realtime 웹소켓 (https만으로는 wss 불허)
        - worker-src blob:     : MapLibre GL이 blob: URL 워커를 생성 (없으면 지도 전체 불능)
        - img-src *.supabase.co: Storage 서명 URL 썸네일 직접 표시
-       - 한국 지도는 Kakao SDK, 중앙아시아 시범국은 TomTom Orbis, 그 밖은 OSM 타일을 쓴다. -->
+       - 한국 지도는 Kakao SDK(실패 시 행정안전부 정부지도), 중앙아시아는 TomTom, 그 밖은 OSM을 쓴다. -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; media-src 'self' blob:; img-src 'self' data: blob: https://*.supabase.co https://tile.openstreetmap.org https://api.tomtom.com https://*.daumcdn.net https://*.kakaocdn.net; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.r2.cloudflarestorage.com https://tile.openstreetmap.org https://api.tomtom.com https://nominatim.openstreetmap.org https://dapi.kakao.com https://*.daumcdn.net https://cdn.jsdelivr.net https://*.currency-api.pages.dev https://api.frankfurter.dev; worker-src 'self' blob:; child-src blob:; style-src 'self' 'unsafe-inline'; script-src 'self' https://dapi.kakao.com https://*.daumcdn.net; object-src 'none'; base-uri 'self'; form-action 'self'" />
+        content="default-src 'self'; media-src 'self' blob:; img-src 'self' data: blob: https://*.supabase.co https://tile.openstreetmap.org https://api.tomtom.com https://business.juso.go.kr https://*.daumcdn.net https://*.kakaocdn.net; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.r2.cloudflarestorage.com https://tile.openstreetmap.org https://api.tomtom.com https://business.juso.go.kr https://nominatim.openstreetmap.org https://dapi.kakao.com https://*.daumcdn.net https://cdn.jsdelivr.net https://*.currency-api.pages.dev https://api.frankfurter.dev; worker-src 'self' blob:; child-src blob:; style-src 'self' 'unsafe-inline' https://business.juso.go.kr; script-src 'self' https://business.juso.go.kr https://dapi.kakao.com https://*.daumcdn.net; object-src 'none'; base-uri 'self'; form-action 'self'" />
   <!-- base 의존 링크는 하드코딩 금지 — Vite가 %BASE_URL%을 치환(check-base-consistency 게이트) -->
   <link rel="icon" type="image/png" href="%BASE_URL%icons/favicon-512.png" />
   <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />

@@ -1,8 +1,8 @@
 // domain/place/mapProvider.ts — 지도 **표시** 제공자 판정의 유일한 자리.
 // 장소 검색 제공자(provider.ts)와는 다른 축이다: 검색은 Kakao/Nominatim,
-// 표시는 Kakao/TomTom/MapLibre다.
+// 표시는 Kakao/Juso/TomTom/MapLibre다.
 
-export type MapDisplayProvider = 'kakao' | 'tomtom' | 'maplibre';
+export type MapDisplayProvider = 'kakao' | 'juso' | 'tomtom' | 'maplibre';
 
 export interface MapCoordinate {
   lat: number;
@@ -13,6 +13,7 @@ export interface MapCoordinate {
 
 export interface MapProviderConfig {
   kakaoKeyConfigured: boolean;
+  jusoMapKeyConfigured: boolean;
   tomtomKeyConfigured: boolean;
 }
 
@@ -58,6 +59,9 @@ export function displayProviderForPoints(
   config: MapProviderConfig,
 ): MapDisplayProvider {
   if (points.length === 0) return 'maplibre';
+  const allKorean = points.every(isKoreaMapCoordinate);
+  if (allKorean && config.kakaoKeyConfigured) return 'kakao';
+  if (allKorean && config.jusoMapKeyConfigured) return 'juso';
   const providers = points.map((point) => displayProviderForPicker(point, point.countryCode ?? null, config));
   const first = providers[0]!;
   return providers.every((provider) => provider === first) ? first : 'maplibre';
@@ -77,7 +81,12 @@ export function displayProviderForPicker(
 }
 
 /** 지역 지도 실패 시 기존 MapLibre로 닫히도록 하는 순서도 한 곳에서 파생한다. */
-export function displayProviderFallbackOrder(preferred: MapDisplayProvider): readonly MapDisplayProvider[] {
-  return preferred === 'maplibre' ? ['maplibre'] : [preferred, 'maplibre'];
+export function displayProviderFallbackOrder(
+  preferred: MapDisplayProvider,
+  includeJusoAfterKakao = false,
+): readonly MapDisplayProvider[] {
+  if (preferred === 'maplibre') return ['maplibre'];
+  if (preferred === 'kakao' && includeJusoAfterKakao) return ['kakao', 'juso', 'maplibre'];
+  return [preferred, 'maplibre'];
 }
 

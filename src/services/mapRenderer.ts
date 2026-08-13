@@ -3,6 +3,7 @@
 
 import { zoomForSpan } from '../domain/place/precision';
 import type { MapCoordinate, MapDisplayProvider } from '../domain/place/mapProvider';
+import { toJusoMapPoint } from '../domain/place/jusoMap';
 
 export interface RenderPoint extends MapCoordinate {
   title: string;
@@ -18,6 +19,7 @@ interface JourneyRenderOptions {
   container: HTMLElement;
   points: readonly RenderPoint[];
   kakaoKey: string;
+  jusoMapKey: string;
   tomtomKey: string;
   mapStyleUrl: string | undefined;
   markerColor: string;
@@ -42,6 +44,79 @@ interface PickerRenderOptions {
 const SINGLE_POINT_ZOOM = zoomForSpan(null);
 const KAKAO_SINGLE_POINT_LEVEL = 5;
 const LOAD_TIMEOUT_MS = 8_000;
+
+async function renderJusoJourney(options: JourneyRenderOptions): Promise<MapRendererHandle> {
+  if (!options.jusoMapKey) throw new Error('정부지도 지도제공 검색 API 키가 설정되지 않았습니다.');
+  if (options.signal.aborted) throw abortError();
+
+  const iframe = document.createElement('iframe');
+  iframe.className = 'juso-map-frame';
+  iframe.title = '행정안전부 주소기반 정부지도';
+  iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+  iframe.referrerPolicy = 'origin';
+  const sdkUrl = `https://business.juso.go.kr/juso_support_center/js/addrlink/map/jusoro_map_api.min.js?confmKey=${encodeURIComponent(options.jusoMapKey)}&skinType=1`;
+  iframe.srcdoc = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#mapWrap{width:100%;height:100%;margin:0;overflow:hidden}</style></head><body><div id="mapWrap" class="mapWrap"></div><script src="${sdkUrl.replaceAll('&', '&amp;')}"></script></body></html>`;
+  options.container.replaceChildren(iframe);
+
+  const sendPoints = (): void => {
+    const rows = options.points.map((point) => {
+      const projected = toJusoMapPoint(point);
+      return [point.title, projected.x, projected.y] as const;
+    });
+    iframe.contentWindow?.postMessage(
+      { functionName: 'callJusoroMapApi', params: rows.length === 1 ? [rows[0]![1], rows[0]![2]] : [rows] },
+      window.location.origin,
+    );
+  };
+
+  await new Promise<void>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error('정부지도 SDK 로딩 시간이 초과됐습니다.'));
+    }, LOAD_TIMEOUT_MS);
+    const cleanup = (): void => {
+      window.clearTimeout(timeout);
+      options.signal.removeEventListener('abort', abort);
+      iframe.removeEventListener('load', loaded);
+      iframe.removeEventListener('error', failed);
+    };
+    const abort = (): void => {
+      cleanup();
+      reject(abortError());
+    };
+    const failed = (): void => {
+      cleanup();
+      reject(new Error('정부지도 SDK를 불러오지 못했습니다.'));
+    };
+    const loaded = (): void => {
+      const sdkWindow = iframe.contentWindow as (Window & { __jusoroMsgBridgeRegistered?: boolean }) | null;
+      if (sdkWindow?.__jusoroMsgBridgeRegistered !== true) {
+        cleanup();
+        reject(new Error('정부지도 SDK가 준비되지 않았습니다.'));
+        return;
+      }
+      cleanup();
+      sendPoints();
+      resolve();
+    };
+    options.signal.addEventListener('abort', abort, { once: true });
+    iframe.addEventListener('load', loaded, { once: true });
+    iframe.addEventListener('error', failed, { once: true });
+  });
+
+  return {
+    focus(lng, lat) {
+      const point = toJusoMapPoint({ lng, lat });
+      iframe.contentWindow?.postMessage(
+        { functionName: 'callJusoroMapApi', params: [point.x, point.y] },
+        window.location.origin,
+      );
+    },
+    destroy() {
+      iframe.remove();
+    },
+  };
+}
 
 const OSM_STYLE = {
   version: 8 as const,
@@ -414,7 +489,9 @@ async function renderMapLibrePicker(options: PickerRenderOptions): Promise<MapRe
 }
 
 export async function renderJourneyMap(options: JourneyRenderOptions): Promise<MapRendererHandle> {
-  return options.provider === 'kakao' ? renderKakaoJourney(options) : renderMapLibreJourney(options);
+  if (options.provider === 'kakao') return renderKakaoJourney(options);
+  if (options.provider === 'juso') return renderJusoJourney(options);
+  return renderMapLibreJourney(options);
 }
 
 export async function renderPickerMap(options: PickerRenderOptions): Promise<MapRendererHandle> {

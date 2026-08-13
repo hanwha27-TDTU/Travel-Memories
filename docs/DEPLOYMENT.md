@@ -156,6 +156,31 @@ MapLibre/OpenStreetMap 지도를 사용한다. 지역 지도 로딩이 실패해
 이름만 위 철자와 같으면 된다. 도메인은 `https://hanwha27-tdtu.github.io/Travel-Memories/`가
 아니라 origin인 `https://hanwha27-tdtu.github.io`까지만 등록한다.
 
+### 정부지도 예비 설정 — 카카오맵을 못 불러올 때만
+
+정부지도는 한국 여행 지도에서만 **두 번째 안전망**으로 사용한다. 순서는 `Kakao → 정부지도 →
+기존 MapLibre`다. 위치를 직접 찍는 선택기는 정부 API가 선택 좌표 반환을 보장하지 않으므로
+Kakao 또는 기존 지도만 사용한다.
+
+먼저 열 곳:
+
+- [지도제공 검색 API 신청·관리](https://business.juso.go.kr/jst/jstMapApiSearch)
+- [API 인증키 관리](https://business.juso.go.kr/jsm/jsmApiKeyList)
+
+1. API 인증키 관리에서 **「지도제공 검색 API」가 「승인」인지** 확인한다. 지금 승인된
+   「도로명주소 검색 API」 키는 주소 글자를 찾는 열쇠이고 지도 열쇠가 아니다. 「좌표제공 검색
+   API」도 별도 열쇠다. 서로 바꿔 넣지 않는다.
+2. 승인된 지도제공 검색 API의 **승인키**를 복사한다. 키 값은 채팅·스크린샷·문서에 적지 않는다.
+3. GitHub 저장소 → **Settings → Secrets and variables → Actions → Variables → New repository
+   variable**에서 이름을 정확히 `VITE_JUSO_MAP_KEY`로 만들고 승인키를 값에 넣는다.
+4. 새 배포가 끝난 뒤 한국 좌표가 있는 여행 지도를 연다. 정상 카카오맵은 그대로 우선한다.
+   카카오 SDK를 불러오지 못했을 때만 정부지도가 나타나야 한다. 정부 키가 없거나 잘못되어도
+   기존 지도까지 이어지므로 앱은 멈추지 않는다.
+
+앱은 저장된 WGS84 위도·경도를 정부지도 규격인 GRS80/EPSG:5179로 기기 안에서 변환한다.
+따라서 **지도 표시만을 위해 좌표제공 검색 API 승인을 기다릴 필요는 없다.** 도로명주소 검색 API는
+향후 한국 주소 품질 개선용 서버 어댑터로 별도 연결하며, 브라우저 지도 변수에 넣지 않는다.
+
 ### TomTom 지도 설정 — 사진 속 화면부터 그대로 따라 하기
 
 이 설정은 우즈베키스탄·카자흐스탄·키르기스스탄에서만 쓰인다. 키가 없거나 잘못되어도 앱은

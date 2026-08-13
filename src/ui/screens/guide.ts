@@ -351,14 +351,21 @@ const CONNECT_GROUP: GuideGroup = {
     {
       icon: '🗺️',
       label: '한국·중앙아시아 지도 설정',
-      hint: '한국 Kakao · UZ/KZ/KG TomTom · 나머지 기존 지도',
+      hint: '한국 Kakao→정부지도 · UZ/KZ/KG TomTom · 나머지 기존 지도',
       render: () => {
         const body = panel([
           h('어느 지도가 열리나요'),
           bullets([
-            '한국: 카카오맵',
+            '한국: 카카오맵. 카카오맵을 못 불러오고 정부지도 키가 있으면 행정안전부 지도로 자동 전환',
             '우즈베키스탄·카자흐스탄·키르기스스탄: TomTom',
             '그 밖의 나라 또는 지역 확인 실패: 기존 OpenStreetMap',
+          ]),
+          h('정부지도 승인 뒤 할 일 — 아주 쉽게'),
+          steps([
+            ['맞는 승인 건 확인하기', 'API 인증키 관리에서 이름이 꼭 「지도제공 검색 API」이고 상태가 「승인」인지 봅니다. 도로명주소 검색 키는 지도 키가 아닙니다.'],
+            ['승인키 복사하기', '승인된 지도제공 검색 API 항목을 열어 승인키를 복사합니다. 키 값은 채팅이나 스크린샷에 보이지 않게 합니다.'],
+            ['GitHub 변수 만들기', '저장소 Settings → Secrets and variables → Actions → Variables → New repository variable을 누릅니다. 이름은 VITE_JUSO_MAP_KEY, 값은 방금 복사한 승인키입니다.'],
+            ['새 배포 기다리기', '변수를 저장한 뒤 새 배포가 끝나면 한국에서 카카오맵 실패 시 정부지도가 두 번째로 열립니다. 키가 없거나 승인 전이면 기존 지도만 사용하므로 앱은 멈추지 않습니다.'],
           ]),
           h('지금 보이는 TomTom 화면에서 할 일'),
           steps([
@@ -382,9 +389,13 @@ const CONNECT_GROUP: GuideGroup = {
             '현재 위치는 처음 보이는 지도 중심만 맞춥니다. 지도를 직접 누르기 전에는 위치로 저장하지 않습니다.',
             'TomTom이나 Kakao를 못 불러오면 기존 지도로 자동으로 돌아갑니다.',
           ]),
-          note('더 자세한 최종 순서표: docs/DEPLOYMENT.md의 「카카오맵 설정」과 「TomTom 지도 설정」'),
+          note('더 자세한 최종 순서표: docs/DEPLOYMENT.md의 「카카오맵 설정」·「정부지도 예비 설정」·「TomTom 지도 설정」'),
         ]);
         const links = el('div', 'guide-pb-row');
+        const juso = el('a', 'guide-open-dashboard', '정부지도 API 신청·관리 열기') as HTMLAnchorElement;
+        juso.href = 'https://business.juso.go.kr/jst/jstMapApiSearch';
+        juso.target = '_blank';
+        juso.rel = 'noopener noreferrer';
         const tomtom = el('a', 'guide-open-dashboard', 'TomTom 개발자 사이트 열기') as HTMLAnchorElement;
         tomtom.href = 'https://developer.tomtom.com/user/me/apps';
         tomtom.target = '_blank';
@@ -401,7 +412,7 @@ const CONNECT_GROUP: GuideGroup = {
         kakao.href = 'https://developers.kakao.com/console/app';
         kakao.target = '_blank';
         kakao.rel = 'noopener noreferrer';
-        links.append(tomtom, tomtomKeys, tomtomSafety, kakao);
+        links.append(juso, tomtom, tomtomKeys, tomtomSafety, kakao);
         body.appendChild(links);
         return body;
       },
