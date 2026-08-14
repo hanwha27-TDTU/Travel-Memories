@@ -8,6 +8,13 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0196 · CodeQL High/Medium root-cause fixes prepared (2026-08-14)
+
+- `verify-authgate-live` local static server now parses a request URL, rejects malformed encodings and traversal, resolves below its output root, and checks containment before reading. Its self-test covers normal asset serving, encoded traversal, and malformed encoding; the real auth-gate live verifier passed 14/14 after a production build.
+- `verify-editor-live` Nominatim mocks now compare parsed hostname (and `/reverse` path where needed) instead of substring matching. `ci.yml` explicitly declares `contents: read` for fork PR verification jobs. Generated module-design docs were regenerated in the same change.
+- Fast gates passed 69/69. The full editor live verifier reached 420/425 with console errors 0; its five failures are Kakao/TomTom map-provider assertions in a local environment without their operational keys, which falls back to MapLibre. They are not evidence that the changed Nominatim mock failed and remain T-036/T-038 runtime checks.
+
+
 ## HANDOFF-0195 · Public-repository security protections enabled and initial CodeQL triaged (2026-08-14)
 
 - T-040 readback confirmed Secret Scanning, push protection, and Dependabot security updates are enabled. Open Secret Scanning and Dependabot alerts are both 0.

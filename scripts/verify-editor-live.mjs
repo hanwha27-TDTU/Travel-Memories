@@ -3869,7 +3869,7 @@ await page.evaluate(() => {
   const real = window.fetch;
   window.fetch = (input, init) => {
     const url = typeof input === 'string' ? input : input.url;
-    if (url.includes('nominatim.openstreetmap.org')) {
+    if (new URL(url, window.location.href).hostname === 'nominatim.openstreetmap.org') {
       return Promise.resolve(new Response(JSON.stringify(rows), {
         status: 200, headers: { 'Content-Type': 'application/json' },
       }));
@@ -3929,7 +3929,7 @@ await page.evaluate(() => {
   window.fetch = (input, init) => {
     const url = typeof input === 'string' ? input : input.url;
     // 이번엔 **빈 배열** — 「결과가 없어요」 경로를 만든다.
-    if (url.includes('nominatim.openstreetmap.org')) {
+    if (new URL(url, window.location.href).hostname === 'nominatim.openstreetmap.org') {
       return Promise.resolve(new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }));
     }
     return real(input, init);
@@ -3983,7 +3983,7 @@ await page.evaluate(() => {
   const real = window.fetch;
   window.fetch = (input, init) => {
     const url = typeof input === 'string' ? input : input.url;
-    if (url.includes('nominatim.openstreetmap.org')) {
+    if (new URL(url, window.location.href).hostname === 'nominatim.openstreetmap.org') {
       return Promise.resolve(new Response(JSON.stringify(rows), {
         status: 200, headers: { 'Content-Type': 'application/json' },
       }));
@@ -4147,7 +4147,7 @@ await page.evaluate(() => {
   const real = window.fetch;
   window.fetch = (input, init) => {
     const url = typeof input === 'string' ? input : input.url;
-    if (url.includes('nominatim.openstreetmap.org')) {
+    if (new URL(url, window.location.href).hostname === 'nominatim.openstreetmap.org') {
       return Promise.resolve(new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }));
     }
     return real(input, init);
@@ -4185,7 +4185,7 @@ await page.evaluate(() => {
   const real = window.fetch;
   window.fetch = (input, init) => {
     const url = typeof input === 'string' ? input : input.url;
-    if (url.includes('nominatim.openstreetmap.org/reverse')) {
+    if (new URL(url, window.location.href).hostname === 'nominatim.openstreetmap.org' && new URL(url, window.location.href).pathname === '/reverse') {
       reverseCount += 1;
       if (reverseCount === 2) {
         return new Promise((resolve) => {
@@ -4207,7 +4207,7 @@ await page.evaluate(() => {
         status: 200, headers: { 'Content-Type': 'application/json' },
       }));
     }
-    if (url.includes('nominatim.openstreetmap.org')) {
+    if (new URL(url, window.location.href).hostname === 'nominatim.openstreetmap.org') {
       return Promise.resolve(new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }));
     }
     return real(input, init);
