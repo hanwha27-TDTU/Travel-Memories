@@ -5274,17 +5274,27 @@ await targetCard.locator('.icon-btn[aria-label="이 순간 편집"]').click();
 await targetCard.locator('.moment-edit .place-input').fill('라이브 이름 동기화 장소');
 await targetCard.locator('.moment-edit').getByRole('button', { name: '저장', exact: true }).click();
 await page.waitForSelector(`.moment-card[data-moment-id="${PLACE_RECORD_IDS.moments[0]}"] .moment-edit`, { state: 'hidden' });
-const linkedNameReadBack = await page.evaluate(async (ids) => await new Promise((resolve) => {
+// 폼이 닫힌 것은 재렌더 사실일 뿐, 별도 IndexedDB 읽기 트랜잭션이 같은 커밋을 관측했다는
+// 증거는 아니다. 고정 시간 대신 장소·순간의 실제 read-back이 함께 새 이름이 된 사실을 기다린다.
+const linkedNameReadBack = await page.waitForFunction(async (ids) => await new Promise((resolve) => {
   const req = indexedDB.open('journey-archive');
   req.onsuccess = () => {
     const tx = req.result.transaction(['localPlaces', 'localMoments'], 'readonly');
     const placeReq = tx.objectStore('localPlaces').get(ids.place);
     const momentReq = tx.objectStore('localMoments').get(ids.moments[0]);
-    tx.oncomplete = () => resolve({ place: placeReq.result, moment: momentReq.result });
+    tx.oncomplete = () => {
+      const readBack = { place: placeReq.result, moment: momentReq.result };
+      resolve(
+        readBack.place?.name === '라이브 이름 동기화 장소'
+          && readBack.moment?.placeName === '라이브 이름 동기화 장소'
+          ? readBack
+          : null,
+      );
+    };
     tx.onerror = () => resolve(null);
   };
   req.onerror = () => resolve(null);
-}), PLACE_RECORD_IDS);
+}), PLACE_RECORD_IDS).then((handle) => handle.jsonValue());
 check('v1.97 연결 이름: 순간 편집이 placeId·당시 좌표를 보존하고 대장 이름까지 함께 바꾼다',
   linkedNameReadBack?.place?.name === '라이브 이름 동기화 장소'
     && linkedNameReadBack?.moment?.placeName === '라이브 이름 동기화 장소'

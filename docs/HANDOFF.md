@@ -8,6 +8,14 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0197 · CI live-render read-back race removed (2026-08-14)
+
+- PR #284 first Required CI run (`31795682461`) passed `harness` and CodeQL but its `live-render` failed one v1.97 place-name persistence assertion. The same build had 424/425 checks pass; the failing read showed a stale place row immediately after the form closed.
+- The application write path was inspected before changing it: `updateMomentLocalFirst` writes the linked place, moments, and sync operations in one Dexie transaction, then verifies the linked-place read-back. The failure was the verifier's own immediate, separate IndexedDB read after a render transition.
+- `verify-editor-live` now waits for the factual read-back condition (both linked place and moment expose the new name) rather than treating form disappearance as storage completion. Local Chromium then passed that v1.97 assertion with the expected place ID and historical coordinates preserved. Local map-provider-key failures remain separate T-036/T-038 environment gaps; CI has its configured keys.
+
+---
+
 ## HANDOFF-0196 · CodeQL High/Medium root-cause fixes prepared (2026-08-14)
 
 - `verify-authgate-live` local static server now parses a request URL, rejects malformed encodings and traversal, resolves below its output root, and checks containment before reading. Its self-test covers normal asset serving, encoded traversal, and malformed encoding; the real auth-gate live verifier passed 14/14 after a production build.
