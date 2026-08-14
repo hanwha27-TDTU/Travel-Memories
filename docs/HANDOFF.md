@@ -8,6 +8,13 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0195 · Public-repository security protections enabled and initial CodeQL triaged (2026-08-14)
+
+- T-040 readback confirmed Secret Scanning, push protection, and Dependabot security updates are enabled. Open Secret Scanning and Dependabot alerts are both 0.
+- CodeQL default setup (`default` queries, `remote` threat model) was enabled. Initial CodeQL Setup run `31793866669` succeeded and produced 12 alerts grouped into four root causes: local live-test path containment (High), test fetch URL substring matching (High), CI permissions not explicitly declared (Medium), and public owner email in migration `0002` (Low, existing T-033).
+- This bounded segment changed only GitHub security settings. It did not modify application code, Supabase, user data, or release assets. Source remediation needs a separate scoped fix with negative tests and required CI.
+
+
 ## HANDOFF-0194 · **공개 릴리스 다운로드 복구 — APK·Windows를 익명 요청으로 끝까지 되읽음** (2026-08-14)
 
 - 사용자가 소스·커밋 이력 공개 영향을 들은 뒤, 고정 GitHub Release URL을 일반 사용자에게 열기 위한 저장소 공개 전환을 승인했다. `hanwha27-TDTU/Travel-Memories`는 `visibility=PUBLIC`·`isPrivate=false`로 되읽었다.
