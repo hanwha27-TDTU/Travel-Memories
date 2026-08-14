@@ -8,6 +8,36 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0197 · CI live-render read-back race removed (2026-08-14)
+
+- PR #284 first Required CI run (`31795682461`) passed `harness` and CodeQL but its `live-render` failed one v1.97 place-name persistence assertion. The same build had 424/425 checks pass; the failing read showed a stale place row immediately after the form closed.
+- The application write path was inspected before changing it: `updateMomentLocalFirst` writes the linked place, moments, and sync operations in one Dexie transaction, then verifies the linked-place read-back. The failure was the verifier's own immediate, separate IndexedDB read after a render transition.
+- `verify-editor-live` now waits for the factual read-back condition (both linked place and moment expose the new name) rather than treating form disappearance as storage completion. Local Chromium then passed that v1.97 assertion with the expected place ID and historical coordinates preserved. Local map-provider-key failures remain separate T-036/T-038 environment gaps; CI has its configured keys.
+
+---
+
+## HANDOFF-0196 · CodeQL High/Medium root-cause fixes prepared (2026-08-14)
+
+- `verify-authgate-live` local static server now parses a request URL, rejects malformed encodings and traversal, resolves below its output root, and checks containment before reading. Its self-test covers normal asset serving, encoded traversal, and malformed encoding; the real auth-gate live verifier passed 14/14 after a production build.
+- `verify-editor-live` Nominatim mocks now compare parsed hostname (and `/reverse` path where needed) instead of substring matching. `ci.yml` explicitly declares `contents: read` for fork PR verification jobs. Generated module-design docs were regenerated in the same change.
+- Fast gates passed 69/69. The full editor live verifier reached 420/425 with console errors 0; its five failures are Kakao/TomTom map-provider assertions in a local environment without their operational keys, which falls back to MapLibre. They are not evidence that the changed Nominatim mock failed and remain T-036/T-038 runtime checks.
+
+
+## HANDOFF-0195 · Public-repository security protections enabled and initial CodeQL triaged (2026-08-14)
+
+- T-040 readback confirmed Secret Scanning, push protection, and Dependabot security updates are enabled. Open Secret Scanning and Dependabot alerts are both 0.
+- CodeQL default setup (`default` queries, `remote` threat model) was enabled. Initial CodeQL Setup run `31793866669` succeeded and produced 12 alerts grouped into four root causes: local live-test path containment (High), test fetch URL substring matching (High), CI permissions not explicitly declared (Medium), and public owner email in migration `0002` (Low, existing T-033).
+- This bounded segment changed only GitHub security settings. It did not modify application code, Supabase, user data, or release assets. Source remediation needs a separate scoped fix with negative tests and required CI.
+
+
+## HANDOFF-0194 · **공개 릴리스 다운로드 복구 — APK·Windows를 익명 요청으로 끝까지 되읽음** (2026-08-14)
+
+- 사용자가 소스·커밋 이력 공개 영향을 들은 뒤, 고정 GitHub Release URL을 일반 사용자에게 열기 위한 저장소 공개 전환을 승인했다. `hanwha27-TDTU/Travel-Memories`는 `visibility=PUBLIC`·`isPrivate=false`로 되읽었다.
+- `apk-latest/app-debug.apk`와 `windows-latest/Bugeon-Journey-Windows-x64-setup.exe`는 릴리스 자산에 존재했지만, 전환 전 익명 요청은 둘 다 HTTP 404였다. 전환 후 인증 없는 `curl -L --fail`로 APK **7,719,557바이트**, Windows 설치파일 **4,694,686바이트**를 각각 HTTP 200으로 끝까지 받았다.
+- 앱의 다운로드 상수·고정 태그·워크플로는 바꾸지 않았다. 실패 원인은 파일 부재나 URL 드리프트가 아니라 **비공개 저장소가 GitHub Release 자산의 익명 접근을 막은 것**이었다.
+- T-039를 완료 아카이브로 옮겼다. 반대로 ADR-0047/T-009의 비공개 전제가 사라졌으므로, 과거 결정을 지우지 않고 공개 저장소 보안 기능·노출면 재판정 T-040을 열었다. 공개로 보이는 하드코딩 소유자 이메일은 T-033의 위험 설명도 갱신했다.
+- 검증: 공개 전 `npm run gates` 빠른 차선 69/69 PASS(시크릿 유출 검사 포함), 공개 후 익명 두 파일 실제 전송 PASS. 앱 코드·DB·Storage·릴리스 자산의 내용은 변경하지 않았다.
+
 ## HANDOFF-0193 · **승인된 정부 도로명주소를 한국 장소 검색의 두 번째 안전망으로 연결** (2026-08-14)
 
 - Supabase 운영 프로젝트에서 `JUSO_ROAD_KEY`라는 시크릿 이름이 등록된 것을 확인했다. 값은 읽거나 문서·로그에 옮기지 않았다.

@@ -80,7 +80,7 @@ shape_reason: 맥락 없는 AI가 처음부터 따라 읽는 문서다 — 순�
 
 - Windows 주 개발 clone을 `C:\AppDevelopment\Bugeon_Journey`로 옮겼다. OneDrive 옛 clone은 새 위치의 최종 배포 read-back 뒤 제거한다.
 - main 보호(Required harness/live), 의존성 취약점 0, 운영 sourcemap 차단, Dependabot·npm audit·Action SHA pin, 백업 1GiB/버전/행 메타 검증, 현재 문서 사실 게이트를 한 릴리스로 묶었다.
-- GitHub Pages 응답 헤더와 비공개 저장소 GHAS는 플랫폼·유료 제약이라 각각 BACKLOG T-008·T-009에 남겼다. 미검사를 완료로 반올림하지 않는다.
+- GitHub Pages 응답 헤더는 T-008의 플랫폼 한계다. 저장소는 HANDOFF-0194에서 공개로 전환됐으므로, 과거 비공개 저장소 GHAS 결정(T-009)은 현재 정책이 아니며 공개 저장소 보안 기능·노출면은 T-040에서 다시 판정한다. 미검사를 완료로 반올림하지 않는다.
 - 최신 상세는 `docs/HANDOFF.md` HANDOFF-0071, 사용자 변화의 정본은 `src/app/changelog.ts` v1.70이다.
 
 ---

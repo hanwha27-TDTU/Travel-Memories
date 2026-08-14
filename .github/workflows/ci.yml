@@ -22,6 +22,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
+# Fork PR code needs only repository contents to run the verification jobs.
+permissions:
+  contents: read
+
 # ③ 같은 PR에 연속 push 시 이전 실행 취소(최신 커밋만 의미 있음).
 concurrency:
   group: ci-pr-${{ github.event.pull_request.number }}

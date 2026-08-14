@@ -23,7 +23,7 @@ import { launchLiveBrowser } from './live-browser-lib.mjs';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { dirname, extname, join, resolve } from 'node:path';
+import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runSelfTest } from './gate-selftest-lib.mjs';
 import { proveCheckCounts, proveOverflowScanner, scanOverflowContainers } from './live-browser-lib.mjs';
@@ -38,6 +38,32 @@ const TMP = join(ROOT, '.authgatelive');
 /** `npx`는 셸 shim이라 `execFileSync`의 계약이 아니다 — Windows에서 ENOENT로 층 전체가 SKIP된다(M-0091). */
 const VITE = join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
 const PORT = 4178;
+
+/** Resolve only a file contained in the temporary build output. Invalid encodings and traversal are rejected. */
+export function outputPathForRequest(outputRoot, requestUrl) {
+  let pathname;
+  try {
+    pathname = decodeURIComponent(new URL(requestUrl ?? '/', 'http://localhost').pathname);
+  } catch {
+    return null;
+  }
+  const relativePath = pathname.replace(/^[/\\]+/, '') || 'index.html';
+  const candidate = resolve(outputRoot, relativePath);
+  return candidate === outputRoot || candidate.startsWith(`${outputRoot}${sep}`) ? candidate : null;
+}
+
+runSelfTest('verify-authgate-live', () => {
+  const outputRoot = resolve(ROOT, '.authgatelive', 'out');
+  const normal = outputPathForRequest(outputRoot, '/assets/app.js');
+  // Encoded slash survives URL normalization, then decodeURIComponent exposes the real traversal attempt.
+  const traversal = outputPathForRequest(outputRoot, '/%2e%2e%2fsecret.txt');
+  const malformed = outputPathForRequest(outputRoot, '/%ZZ');
+  return [
+    normal === resolve(outputRoot, 'assets', 'app.js') ? null : '정상 출력 파일 요청을 해석하지 못함',
+    traversal === null ? null : '상위 경로 탈출을 거부하지 못함',
+    malformed === null ? null : '잘못된 URL 인코딩을 거부하지 못함',
+  ].filter(Boolean);
+});
 
 let chromium;
 for (const spec of ['playwright', '/opt/node22/lib/node_modules/playwright/index.mjs']) {
@@ -105,11 +131,16 @@ try {
 }
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.map': 'application/json' };
+const OUTPUT_ROOT = resolve(TMP, 'out');
 const server = createServer(async (req, res) => {
-  let p = decodeURIComponent((req.url ?? '/').split('?')[0]).replace(/^\//, '') || 'index.html';
+  const filePath = outputPathForRequest(OUTPUT_ROOT, req.url);
+  if (!filePath) {
+    res.writeHead(404).end('');
+    return;
+  }
   try {
-    res.writeHead(200, { 'cache-control': 'no-store', 'content-type': MIME[extname(p)] ?? 'application/octet-stream' })
-      .end(await readFile(join(TMP, 'out', p)));
+    res.writeHead(200, { 'cache-control': 'no-store', 'content-type': MIME[extname(filePath)] ?? 'application/octet-stream' })
+      .end(await readFile(filePath));
   } catch {
     res.writeHead(404).end('');
   }
