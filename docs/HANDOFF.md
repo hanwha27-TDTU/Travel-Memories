@@ -8,6 +8,20 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0198 · **죽은 라우트 셋을 지우고, 다음 누락을 컴파일 오류로 만들었다**(T-031 · 2026-08-14)
+
+- 세션 시작 점검: `main == HEAD == 0264369`, 작업트리·스태시·미머지 브랜치 없음, 릴리스 잠금 열림. `npm install`이 npm 버전 차이로 `package-lock.json`의 `libc` 필드를 지운 것은 커밋하지 않고 되돌렸다.
+- 정합성 결함 1건을 함께 고쳤다: `docs/BACKLOG.md`의 T-040이 상태 `해냄`인데 **열린 과제 표에 남아 있었다.** 그 표의 허용 상태는 `대기`·`막힘-실기기`·`막힘-사용자` 셋뿐이므로 증거와 함께 완료 아카이브로 옮겼다.
+- T-031 실측: `trips`·`map`·`settings`는 `navigate(...)` 호출이 **0건**이었고 대응 화면도 없었다(여행 목록은 홈, 지도는 상세 안, 설정에 해당하는 것은 홈의 오버레이). URL로 직접 들어가면 홈이 그려지는데 **주소창은 그 라우트를 가리켰다.** 셋을 지웠고 이유를 `router.ts` 머리주석에 남겼다.
+- 구조(§7 2층): 라우트 ↔ URL 세그먼트를 `ROUTE_SEGMENTS` 한 값으로 모아 `pathToRoute`와 새 순수 함수 `routeToPath`가 **둘 다 거기서 파생**되게 했다. `main.ts`의 `default`에는 `const unhandled: never = route`를 두어 case 없는 새 라우트는 **컴파일이 안 된다** — 실제로 `settings`를 주입해 `TS2322` RED를 확인하고 원복했다.
+- 기계(3층): `check-screen-lifecycle`에 검사 ④(라우트 커버리지 + exhaustive 가드)를 신설했다. 모집단은 `ROUTE_SEGMENTS`에서 **AST로** 파생한다 — 머리주석에 옛 라우트 이름이 그대로 남아 있어 정규식이면 주석을 모집단으로 셀 뻔했다. 실제 파일 주입 2방향(가드 삭제 · 화면 없는 라우트 되살림) 모두 `exit 1` RED → 원복 GREEN. 자체검사에 ④-a·b·c 케이스와 라우트 추출 대조군을 추가했다.
+- 유닛은 옛 전제를 **정상 케이스로 못박고 있었다**(`pathToRoute('/map') === 'map'`). 전수 왕복(`routeToPath` → `pathToRoute`)으로 바꾸고 죽은 셋이 홈으로 폴백함을 명시적으로 잠갔다(17건).
+- 검증: 라우터 유닛 17/17, 전체 유닛 **1,692/1,692**, typecheck, 빠른 게이트 **69/69**, production build 통과. §13에 따라 실제 Chromium으로 라우팅 세 갈래를 열어 **10/10**(base 루트·옛 라우트 셋·`/trip/<없는 id>` 각각 화면과 콘솔 오류 0). 🔴 첫 실행에서 `/trip/<id>`가 FAIL이었는데 **앱이 아니라 내 일회성 검사가 이르게 잰 것**이었다(자식 수를 기다리고 글자를 안 기다렸다 — M-0119의 재현). 화면은 「여행을 찾을 수 없어요」를 정상적으로 그리고 있었다.
+- 사용자 화면 동작은 **바뀌지 않았다**(옛 라우트 URL은 전과 같이 홈으로 떨어진다). 그래서 버전을 올리지 않고 §15에 따라 다음 기능 릴리스에 묶는다 — 이 인계는 **「구현됨·릴리스 대기」**이지 배포 증거가 아니다.
+- 다음 착수 우선순위: T-035(칩 닫기 버튼 44px 히트 영역) → T-033(`0002` 마이그레이션의 하드코딩 소유자 이메일 · RLS 침투 검증 동반).
+
+---
+
 ## HANDOFF-0197 · CI live-render read-back race removed (2026-08-14)
 
 - PR #284 first Required CI run (`31795682461`) passed `harness` and CodeQL but its `live-render` failed one v1.97 place-name persistence assertion. The same build had 424/425 checks pass; the failing read showed a stale place row immediately after the form closed.

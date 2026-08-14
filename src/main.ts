@@ -85,6 +85,7 @@ const screens = createScreenSession();
 
 const router: ReturnType<typeof createRouter> = createRouter((route: Route, param?: string, target?: import('./app/router').TripNavigationTarget) => {
   const screen = screens.begin();
+  const showHome = (): void => { screen.mount(renderHome(root, router.navigate)); };
   switch (route) {
     case 'trip-detail':
       void guardTripDetail().then((allowed) => {
@@ -95,9 +96,20 @@ const router: ReturnType<typeof createRouter> = createRouter((route: Route, para
       });
       break;
     case 'home':
-    default:
-      screen.mount(renderHome(root, router.navigate));
+      showHome();
       break;
+    default: {
+      // 🔴 **여기가 T-031의 처방이다**(2026-08-14 · M-0161). 예전엔 `case 'home'`과 `default`가
+      //    한 덩어리라, `Route`에 정의만 되어 있고 화면이 없는 라우트(`trips`·`map`·`settings`)가
+      //    **조용히 홈으로 떨어지면서 주소창은 그 라우트를 가리켰다.** 타입은 통과했다 —
+      //    `default`가 있으면 컴파일러가 「빠진 case」를 물어보지 않기 때문이다.
+      //    이제 새 라우트를 `ROUTE_SEGMENTS`에 더하고 여기 case를 안 붙이면 **아래 줄이
+      //    컴파일 오류**가 난다(§7 2층 — 다음 형제가 규율을 안 물려받는 길을 닫는다).
+      const unhandled: never = route;
+      void unhandled;
+      showHome(); // 런타임 방어: 알 수 없는 값이 와도 빈 화면을 만들지 않는다(라우터의 폴백 계약).
+      break;
+    }
   }
 });
 router.start();
