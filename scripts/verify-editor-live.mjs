@@ -1567,6 +1567,35 @@ check('사진 장소: 사용자가 적은 이름을 사진이 덮지 않는다(�
 // 🔴 배지의 ✕로 **좌표까지** 해제한다. 이름만 지우면 좌표는 남는데(사진 좌표는 이름과
 // 독립이라 그게 맞다) 그러면 「이미 손댔다」로 판정돼 제안이 안 돈다 — 실제 사용자 경로는 ✕다.
 await page.fill('.place-input', '');
+
+// ── T-035(2026-08-14): 위치 해제 ✕의 **실제 누를 수 있는 넓이**를, 「무엇을 덮는가」와 **함께** 잰다.
+//    🔴 왜 함께인가 — `.chip-x`의 머리주석에 이미 적혀 있다: 예전에 히트 영역을 넓혔다가 아래
+//    사진 격자를 덮었고, **보이지 않는 *삭제* 표적이 다른 것 위에 얹히는 것은 미달보다 나쁘다.**
+//    여기서도 실측이 그 판단을 되풀이했다 — 44×44로 키우면 바로 옆 「좌표 복사」를 덮는다.
+//    그래서 계약은 「44×44」가 아니라 **「세로 44px + 덮는 요소 0건」**이다(그 이유는 app.css에).
+const t035 = await page.evaluate(() => {
+  const btn = document.querySelector('.moment-form .place-picked .chip-clear');
+  if (!btn) return null;
+  const box = btn.getBoundingClientRect();
+  const after = getComputedStyle(btn, '::after');
+  const grow = (v) => Math.abs(parseFloat(v) || 0);
+  // 실제 히트 영역 = 보이는 상자 + ::after가 넘긴 만큼.
+  const hit = { w: box.width + grow(after.left) + grow(after.right), h: box.height + grow(after.top) + grow(after.bottom) };
+  // 그 영역의 가장자리·중앙 9점에서 **다른 조작 요소**가 잡히는지 본다(덮음 = 오작동 위험).
+  const cx = box.left + box.width / 2, cy = box.top + box.height / 2;
+  const covered = [];
+  for (const dx of [-hit.w / 2 + 1, 0, hit.w / 2 - 1]) for (const dy of [-hit.h / 2 + 1, 0, hit.h / 2 - 1]) {
+    const el = document.elementFromPoint(cx + dx, cy + dy)?.closest('button, a, input, select, textarea, [role="button"]');
+    const cls = el && el !== btn ? (el.className || el.tagName) : null;
+    if (cls && !covered.includes(cls)) covered.push(cls);
+  }
+  return { w: Math.round(hit.w), h: Math.round(hit.h), visible: Math.round(box.width), covered };
+});
+check('T-035 위치 해제 ✕: 세로 터치 표적 44px 이상 · 보이는 크기는 24px 유지',
+  (t035?.h ?? 0) >= 44 && t035?.visible === 24, JSON.stringify(t035));
+check('T-035 위치 해제 ✕: 넓힌 히트 영역이 다른 조작 요소를 덮지 않는다(복사하려다 해제되면 안 된다)',
+  (t035?.covered.length ?? -1) === 0, JSON.stringify(t035?.covered ?? null));
+
 await page.locator('.moment-form .place-picked .chip-clear').first().click(); // 생성 폼의 것(편집 폼들과 구분)
 await settle(page);
 
@@ -3837,6 +3866,7 @@ const placeClear = await page.evaluate(() => {
   return { exists: Boolean(btn), label: btn?.getAttribute('aria-label') ?? '' };
 });
 check('장소: 지정 해제 버튼이 존재한다', placeClear.exists, JSON.stringify(placeClear));
+
 
 // ── 🔴 v1.24 (M-0050): 검색 결과가 **얼마나 정밀한지 말하는가** ─────────────────────
 // 헌법 §13 4항: *"버튼은 눌러 봐야 확인한 것이다."* 유닛은 `precisionLabel()`이 옳은 문자열을
