@@ -5558,6 +5558,81 @@ await page.evaluate(async (ids) => {
   });
 }, PLACE_RECORD_IDS);
 
+// ── 🔴 좁은 폭 헤더 배치 + 터치 표적 (2026-08-15 · 사용자 실기기 · T-041 · HANDOFF-0202) ──
+//    사용자 지적: *"제목 버전배지 동기화됨 그리고 이메일 배치를 이쁘게 안 될까?"* 그때 헤더는
+//    다섯 줄이었다 — 제목이 「Bugeon / Journey」로 갈라지고 이메일은 잘려 있었다.
+//
+//    🔴 **이 검사는 맨 뒤에 있다**(§3-C): 뷰포트를 바꾸고 홈으로 이동하므로 앞선 시나리오의
+//    전제를 깨뜨리지 않게 마지막에 둔다.
+//
+//    🔴 **로그인 화면을 재현한다** — 계정 영역은 로그인해야 채워지는데 이 검사는 로그인이
+//    없다. 그래서 기존 `.auth-area`의 **내용을 교체**한다(덧붙이면 「로컬 모드」 줄과 겹쳐
+//    **실기기에 없는 줄**을 재게 된다 · §3-E). 교체에 실패하면 판정하지 않고 실패로 적는다.
+await page.setViewportSize({ width: 344, height: 820 });
+await page.goto(`http://localhost:4173${BASE}`);
+await page.waitForFunction(() => (document.getElementById('app')?.innerText ?? '').trim().length > 0, { timeout: 15000 });
+const headerSeeded = await page.evaluate(() => {
+  const area = document.querySelector('.auth-area');
+  if (!area) return false;
+  area.replaceChildren();
+  const who = document.createElement('span');
+  who.className = 'muted small auth-who';
+  who.textContent = 'hanwha27@gmail.com';
+  const out = document.createElement('button');
+  out.className = 'btn-ghost';
+  out.type = 'button';
+  out.textContent = '로그아웃';
+  area.append(who, out);
+  return true;
+});
+check('좁은 헤더: 계정 영역 픽스처를 심었다(모집단 확보 — 못 심으면 아래는 공허하다)', headerSeeded);
+if (headerSeeded) {
+  await settle(page);
+  const header = await page.evaluate(() => {
+    const q = (s) => document.querySelector(s);
+    const title = q('.app-title-home'); const ver = q('.app-version'); const who = q('.auth-who');
+    const lineH = title ? parseFloat(getComputedStyle(title).fontSize) * 1.35 : 0; // line-height가 normal이라 폰트 크기로 환산
+    const hit = (n) => {
+      if (!n) return null;
+      const r = n.getBoundingClientRect();
+      const a = getComputedStyle(n, '::after');
+      const g = (v) => Math.abs(parseFloat(v) || 0);
+      const has = a.content !== 'none' && a.position === 'absolute';
+      return { w: r.width + (has ? g(a.left) + g(a.right) : 0), h: r.height + (has ? g(a.top) + g(a.bottom) : 0), r };
+    };
+    const th = hit(title); const vh = hit(ver);
+    // 넓힌 히트 영역이 다른 조작 요소를 덮는가 — 9점
+    const stolen = [];
+    for (const [n, m] of [[title, th], [ver, vh]]) {
+      if (!n || !m) continue;
+      const cx = m.r.left + m.r.width / 2, cy = m.r.top + m.r.height / 2;
+      for (const dx of [-m.w / 2 + 1, 0, m.w / 2 - 1]) for (const dy of [-m.h / 2 + 1, 0, m.h / 2 - 1]) {
+        const el = document.elementFromPoint(cx + dx, cy + dy)?.closest('button, a[href], input, [role="button"]');
+        if (el && el !== n && !n.contains(el) && !el.contains(n)) stolen.push(el.className || el.tagName);
+      }
+    }
+    return {
+      // 🔴 버튼은 블록이라 줄이 갈라져도 rect가 1개다 — 높이로 잰다(앞선 판이 이걸로 틀렸다).
+      titleLines: title && lineH ? Math.round(title.getBoundingClientRect().height / lineH) : -1,
+      titleTop: title ? Math.round(title.getBoundingClientRect().top) : -1,
+      verTop: ver ? Math.round(ver.getBoundingClientRect().top) : -1,
+      emailClipped: who ? who.scrollWidth > who.clientWidth + 1 : null,
+      titleHit: th ? `${Math.round(th.w)}x${Math.round(th.h)}` : null,
+      verHit: vh ? `${Math.round(vh.w)}x${Math.round(vh.h)}` : null,
+      minHit: Math.min(th?.h ?? 0, vh?.h ?? 0),
+      stolen: [...new Set(stolen)],
+      pageOverflow: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
+    };
+  });
+  check('좁은 헤더 344px: 앱 이름이 한 줄로 서고 버전 배지가 **같은 줄**에 붙는다',
+    header.titleLines === 1 && Math.abs(header.titleTop - header.verTop) <= 12, JSON.stringify(header));
+  check('좁은 헤더 344px: 이메일이 잘리지 않는다(전폭 한 줄이므로 자를 이유가 없다)',
+    header.emailClipped === false, JSON.stringify(header));
+  check('좁은 헤더 344px: 제목·배지의 터치 표적 44px, 그리고 **아무것도 덮지 않는다**',
+    header.minHit >= 44 && header.stolen.length === 0, JSON.stringify(header));
+  check('좁은 헤더 344px: 가로로 넘치지 않는다', header.pageOverflow === 0, String(header.pageOverflow));
+}
+
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 
 await browser.close();
