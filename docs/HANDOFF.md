@@ -8,6 +8,18 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0206 · **닫기 셋을 전부 실측했고, 가로 확장은 되돌렸다** (2026-08-15 · T-041 닫음)
+
+- HANDOFF-0204에서 「재지 못했다」고 남긴 두 자리(`.pe-close`·`.single-photo-moment-close`)의 실측 경로를 라이브에 붙였다. 둘 다 라이브가 이미 그 모달을 열고 있었다(`.pe-overlay` 942줄 · `.single-photo-moment-overlay` 4469줄) — **없던 것은 경로가 아니라 측정이었다.**
+- 측정은 `closeButtonTarget()` **한 함수**로 뽑아 셋이 그것을 지난다(§7 2층). 손으로 세 벌 쓰면 한쪽만 고쳐지는 날이 온다.
+- 🔴 **그리고 실측이 가로 확장을 되돌리게 했다.** 편집기에서 덮음이 잡혔는데 덮는 대상이 `pe-close` **자신의 클래스**였다 — 개수를 함께 재보니 **2개**였다. `pe-close`는 **모양 클래스**라 되돌리기(↺)와 닫기(✕) **두 버튼이 나란히** 쓰고 있었고, 가로로 넓힌 영역이 서로를 훔쳤다. **되돌리려다 창이 닫히는 것**은 미달보다 나쁘다 — M-0162의 형태가 여기서 **세 번째로** 재현됐다.
+- 처방: 셋 다 **세로만** 넓힌다(`.chip-clear`와 같은 형태). 재측정 결과 셋 전부 **세로 46px · 덮음 0 · 보이는 크기 그대로**(34/36/38px 유지). 판정 기준도 `min`이 아니라 **세로 높이**로 바꿨다 — 가로는 애초에 안 넓히므로 `min`으로 재면 영원히 실패한다.
+- **T-041을 닫았다**(5자리 심사 · 3 수정 · 2는 이유 있는 예외). 사진 위 ✕ 둘의 근본 처방은 배치 결정이라 **T-044**로 분리했다 — 칸을 키우거나, 삭제를 칸 밖으로 옮기거나, 현 상태를 결정으로 남기거나 셋 중 하나이고 **추측으로 고르지 않는다.**
+- 🔴 **오탐 하나를 미리 막았다**: 같은 클래스가 여럿일 때 `querySelector`는 첫 번째를 잡고 `elementFromPoint`는 다른 것을 잡아 **「자기 자신을 덮는다」는 이상한 판정**이 나온다. 그래서 개수를 함께 보고하게 했다 — 다음 사람이 이 로그를 보면 5초에 안다.
+- 검증: 편집 라이브 **438/443**(지도 키 결손 5건만 · 신설 6건 포함), 빠른 게이트 69/69, 유닛 1,692/1,692, typecheck, build.
+
+---
+
 ## HANDOFF-0205 · **라이브 흔들림의 원인은 하나였다 — 「행동 직후 즉시 재기」** (2026-08-15 · T-042)
 
 - 이번 세션에서 흔들림을 **세 번** 관측했고(매번 다른 검사), 매번 재실행하면 통과했다. 그때마다 「내 변경 탓인가」를 대조군으로 가려야 했다 — 흔들리는 검사는 FAIL보다 비싸다.
@@ -1762,7 +1774,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.41<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->241<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->144<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.42<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->242<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->144<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->32<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.

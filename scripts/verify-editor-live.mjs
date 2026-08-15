@@ -242,6 +242,44 @@ async function waitUntil(fn, timeoutMs = 15000, stepMs = 100) {
 async function settle(p = page) {
   await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 }
+
+/**
+ * 닫기 버튼의 **누를 수 있는 넓이**와 **그 영역이 덮는 다른 조작 요소**를 함께 잰다(T-041).
+ *
+ * 🔴 **둘을 함께 재는 것이 계약이다.** 넓히기만 재면 이웃의 터치를 훔치면서 통과하고,
+ *    덮음만 재면 아무것도 안 넓히고 통과한다 — M-0162에서 전자를 실제로 만들었다.
+ *    셋(`.pe-close`·`.map-close`·`.single-photo-moment-close`)이 **이 함수 하나를 지난다**:
+ *    손으로 세 벌 쓰면 한쪽만 고쳐지는 날이 온다(§7 2층).
+ */
+async function closeButtonTarget(selector) {
+  return page.evaluate((sel) => {
+    const n = document.querySelector(sel);
+    if (!n) return null;
+    const r = n.getBoundingClientRect();
+    const a = getComputedStyle(n, '::after');
+    const g = (v) => Math.abs(parseFloat(v) || 0);
+    const has = a.content !== 'none' && a.position === 'absolute';
+    const w = r.width + (has ? g(a.left) + g(a.right) : 0);
+    const h = r.height + (has ? g(a.top) + g(a.bottom) : 0);
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const stolen = [];
+    for (const dx of [-w / 2 + 1, 0, w / 2 - 1]) for (const dy of [-h / 2 + 1, 0, h / 2 - 1]) {
+      const el = document.elementFromPoint(cx + dx, cy + dy)?.closest('button, a[href], input, select, textarea, [role="button"]');
+      if (el && el !== n && !n.contains(el) && !el.contains(n)) stolen.push(el.className || el.tagName);
+    }
+    return {
+      visible: `${Math.round(r.width)}x${Math.round(r.height)}`,
+      hit: `${Math.round(w)}x${Math.round(h)}`,
+      min: Math.min(w, h),
+      hitH: h, // 세로만 넓히므로 판정은 이 값으로 한다(가로는 보이는 크기 그대로)
+      stolen: [...new Set(stolen)],
+      // 🔴 같은 클래스가 **여러 개** 있으면 `querySelector`는 첫 번째를 잡고 `elementFromPoint`는
+      //    다른 것을 잡을 수 있다 — 그러면 「자기 자신을 덮는다」는 이상한 판정이 나온다.
+      //    개수를 함께 보고해 그 경우를 사람이 바로 알아보게 한다(오탐과 진짜 결함을 가른다).
+      count: document.querySelectorAll(sel).length,
+    };
+  }, selector);
+}
 await page.route('**://tile.openstreetmap.org/**', (route) => {
   const m = /\/(\d+)\/\d+\/\d+\.png/.exec(route.request().url());
   if (m) tileZooms.push(Number(m[1]));
@@ -754,25 +792,9 @@ check(
 //    `.map-close`는 보이는 크기가 36px이라 44px에 못 미쳤다. 보이는 크기는 그대로 두고
 //    히트 영역만 넓혔는데, **넓히기만 재면 반쪽이다** — M-0162에서 넓힌 영역이 이웃의
 //    터치를 훔쳐 미달보다 나쁜 상태를 만들었다. 그래서 「44px」과 「덮는 것 0」을 함께 잰다.
-const mapCloseTarget = await page.evaluate(() => {
-  const n = document.querySelector('.map-close');
-  if (!n) return null;
-  const r = n.getBoundingClientRect();
-  const a = getComputedStyle(n, '::after');
-  const g = (v) => Math.abs(parseFloat(v) || 0);
-  const has = a.content !== 'none' && a.position === 'absolute';
-  const w = r.width + (has ? g(a.left) + g(a.right) : 0);
-  const h = r.height + (has ? g(a.top) + g(a.bottom) : 0);
-  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-  const stolen = [];
-  for (const dx of [-w / 2 + 1, 0, w / 2 - 1]) for (const dy of [-h / 2 + 1, 0, h / 2 - 1]) {
-    const el = document.elementFromPoint(cx + dx, cy + dy)?.closest('button, a[href], input, [role="button"]');
-    if (el && el !== n && !n.contains(el) && !el.contains(n)) stolen.push(el.className || el.tagName);
-  }
-  return { visible: `${Math.round(r.width)}x${Math.round(r.height)}`, hit: `${Math.round(w)}x${Math.round(h)}`, min: Math.min(w, h), stolen: [...new Set(stolen)] };
-});
-check('지도 닫기 버튼: 보이는 크기는 36px 그대로, 누를 수 있는 넓이는 44px',
-  mapCloseTarget?.visible === '36x36' && (mapCloseTarget?.min ?? 0) >= 44, JSON.stringify(mapCloseTarget));
+const mapCloseTarget = await closeButtonTarget('.map-close');
+check('지도 닫기 버튼: 보이는 36px 그대로, **세로** 터치 표적 44px',
+  mapCloseTarget?.visible === '36x36' && (mapCloseTarget?.hitH ?? 0) >= 44, JSON.stringify(mapCloseTarget));
 check('지도 닫기 버튼: 넓힌 히트 영역이 이웃 버튼을 훔치지 않는다',
   (mapCloseTarget?.stolen.length ?? -1) === 0, JSON.stringify(mapCloseTarget?.stolen ?? null));
 
@@ -942,6 +964,12 @@ await page.getByRole('button', { name: '순간 저장' }).click();
 // ── 편집기 열림 ──
 await page.waitForSelector('.pe-overlay', { timeout: 10000 });
 check('편집기 모달 열림', true);
+// T-041 — 편집기 닫기 버튼(보이는 34px)의 터치 표적. 셋이 같은 함수를 지난다.
+const peCloseTarget = await closeButtonTarget('.pe-close');
+check('편집기 닫기 버튼: 보이는 34px 그대로, **세로** 터치 표적 44px',
+  peCloseTarget?.visible === '34x34' && (peCloseTarget?.hitH ?? 0) >= 44, JSON.stringify(peCloseTarget));
+check('편집기 닫기 버튼: 넓힌 히트 영역이 이웃 버튼을 훔치지 않는다',
+  (peCloseTarget?.stolen.length ?? -1) === 0, JSON.stringify(peCloseTarget?.stolen ?? null));
 
 
 // ── 🔴 v2.07: [초기화]가 **화면 표시 상태까지** 되돌리는가 (사용자 보고 2026-08-09) ──
@@ -4450,6 +4478,12 @@ await page.evaluate(({ b64 }) => {
   zone.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX, clientY, dataTransfer: transfer }));
 }, { b64: withExifGps(imgBuf, '2026:07:16 09:30:00', 16.0544, 108.2022).toString('base64') });
 await page.locator('.single-photo-moment-overlay').waitFor();
+// T-041 — 단일 사진 순간 창의 닫기 버튼(보이는 38px). 셋째이자 마지막 닫기 버튼이다.
+const singleCloseTarget = await closeButtonTarget('.single-photo-moment-close');
+check('한 장 작성 창 닫기 버튼: 보이는 38px 그대로, **세로** 터치 표적 44px',
+  singleCloseTarget?.visible === '38x38' && (singleCloseTarget?.hitH ?? 0) >= 44, JSON.stringify(singleCloseTarget));
+check('한 장 작성 창 닫기 버튼: 넓힌 히트 영역이 이웃 버튼을 훔치지 않는다',
+  (singleCloseTarget?.stolen.length ?? -1) === 0, JSON.stringify(singleCloseTarget?.stolen ?? null));
 const singleComposerOpened = await page.locator('.single-photo-moment-overlay').count() === 1;
 check(
   'Windows 한 장 드롭: 빈 타임라인이면 **사진으로 새 순간 작성 창**을 연다',

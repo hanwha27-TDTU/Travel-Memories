@@ -75,9 +75,12 @@
    넓이만 `--touch-target-min`까지 넓힌다(2026-08-15 · T-041). 시각 밀도와 터치 표적은
    같은 값이 아니다(M-0125).
 
-   이 셋은 헤더 안이라 위아래로 padding 여백이 있고 옆은 gap이 받쳐 준다 — 그래서 **가로도**
-   넓힐 수 있다. 다만 그건 가정이 아니라 실측이어야 하므로, 라이브가 `elementFromPoint`로
-   **「덮는 조작 요소 0」**을 함께 잰다(M-0162에서 넓히기만 재다가 겹침을 만들었다).
+   🔴 **가로는 넓히지 않는다 — 실측이 가로 확장을 되돌리게 했다**(2026-08-15). 처음엔 헤더
+   안이라 옆 gap이 받쳐 줄 것으로 보고 가로도 넓혔는데, 라이브가 편집기에서 **덮음**을 잡았다:
+   `.pe-close`는 **모양 클래스**라 되돌리기(↺)와 닫기(✕) **두 버튼이 나란히** 쓰고 있었고,
+   가로로 넓힌 영역이 서로를 훔쳤다. **되돌리려다 창이 닫히는 것**은 미달보다 나쁘다 —
+   M-0162가 정확히 이 형태였고 여기서 세 번째로 재현됐다.
+   그래서 셋 다 **세로만** 넓힌다(`.chip-clear`와 같은 처방). 가로는 보이는 크기 그대로다.
 
    👉 **새 닫기 버튼이 생기면 여기 목록에 더한다.** 잊어도 라이브의 전수 검사가 44px 미달을
    이름과 함께 잡는다(§7 3층) — 목록은 편의이고 판정은 그쪽이다.
@@ -90,11 +93,9 @@
    일은 T-041에 적어 뒀다. 「같은 구조니까 괜찮다」로 완료라 부르지 않는다(§13 3항). */
 .pe-close, .map-close, .single-photo-moment-close { position: relative; }
 .pe-close::after, .map-close::after, .single-photo-moment-close::after {
-  content: ''; position: absolute;
+  content: ''; position: absolute; left: 0; right: 0; /* 가로는 그대로 — 위 주석의 실측 근거 */
   top: calc((100% - var(--touch-target-min)) / 2);
   bottom: calc((100% - var(--touch-target-min)) / 2);
-  left: calc((100% - var(--touch-target-min)) / 2);
-  right: calc((100% - var(--touch-target-min)) / 2);
 }
 .header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); justify-content: flex-end; }
 
