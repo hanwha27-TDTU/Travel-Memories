@@ -47,21 +47,35 @@ const SUFFIXES = ['', '.ts', '.tsx', '.mjs', '.js', '.md', '.json', '.toml', '.s
  * 역사 문서 — 「지금 없다」가 결함이 아닌 곳.
  * 🔴 이 목록은 **면제가 아니라 성격 선언**이다: 이 문서들은 *그때 무엇이 있었는가*를 적는다.
  */
-const HISTORICAL = [/^docs\/HANDOFF/, /^docs\/records\//, /^docs\/reference\//, /^docs\/CHANGELOG\.md$/];
+const HISTORICAL = [
+  /^docs\/HANDOFF/, /^docs\/records\//, /^docs\/reference\//, /^docs\/CHANGELOG\.md$/,
+  // 🔴 이 게이트 자신 — 파일 전체가 **일부러 틀린 예**(자체검사 픽스처·설명용 반례)로 차 있다.
+  //    자기를 스캔하면 대조군을 위반으로 신고한다. 「검사하는 것도 검사받는다」(§11)는 여기서
+  //    `--selftest`가 맡는다: 스캔이 아니라 **주입**이 이 파일의 검사 방식이다.
+  /^scripts\/check-doc-references\.mjs$/,
+];
 
 /**
- * 🔴 **생성물 — 손으로 고칠 수 없는 문서.** 여기서 잡아도 고칠 자리는 여기가 아니다.
+ * 🔴 **일부러 없는 것을 가리키는 자리** — 「없다」가 그 문장의 **요점**인 곳.
  *
- * `docs/모듈별 설계서/`는 `gen-module-design-docs`가 코드에서 뽑는다. 실제로 이 조사가
- * **코드 주석의 화석을 하나 잡아냈고**(`naming.ts`가 없는 테스트를 가리켰다), 주석을 고치니
- * 재생성으로 사라졌다 — 즉 이 통로에는 값이 있다.
+ * 두 부류뿐이다:
+ *  · **과거 결함을 설명하는 산문** — *"첫 판은 `[a-z]+`였고 그래서 `tests/e2e`를 못 읽었다"*.
+ *    실재하지 않는 것을 가리키는 게 **핵심**이다. 고치면 설명이 무너진다.
+ *  · **이 게이트 자신의 자체검사 픽스처** — 없어야 RED가 나온다(§4). 만들면 대조군이 죽는다.
  *
- * 🔴 그런데 남은 한 건은 **다른 부류였다**: `check-current-doc-facts.mjs`의 **자체검사 픽스처
- * 문자열**(`tests/e2e`)이 설계서로 흘러들었다. 픽스처는 「없는 것을 일부러 적은 것」이라
- * 결함이 아니고, 고칠 자리는 **생성기**다. 여기서 계속 빨간불을 내면 사람이 무시하게 되므로
- * (§11 ③) 제외하되 **정직하게 적는다**: 이 통로는 지금 **안 보고 있다**. → T-046.
+ * 🔴 **경로로 등록한다(파일별이 아니라).** 그래야 `gen-module-design-docs`가 그 주석을 설계서로
+ * 옮겨도 같은 판정이 따라간다 — 생성물은 원본의 그림자이므로 **원본에서 한 번 정하면 끝**이다.
+ * 예전엔 이걸 몰라 **생성물 전체를 제외**했었고(T-046), 그 바람에 코드 주석의 화석을 잡아 주던
+ * 통로가 닫혀 있었다. 지금은 열려 있다.
+ *
+ * ⚠️ **대가를 안다**: 여기 적힌 경로는 **어디에 적혀 있어도 통과한다.** 누가 SECURITY.md에
+ * *"`tests/e2e`를 돌린다"*고 써도 안 잡힌다. 그래서 목록을 **짧게** 유지하고 이유를 적는다.
  */
-const GENERATED = [/^docs\/모듈별 설계서\//];
+const INTENTIONALLY_ABSENT = new Map([
+  ['tests/e2e', '`check-current-doc-facts.mjs`가 **과거 결함**(좁은 문자 클래스가 이 이름을 못 읽었다)을 설명하는 산문. 실재하지 않는 것이 요점이다.'],
+  ['tests/unit/foo', '이 게이트 자체검사의 픽스처 — 확장자 보정이 도는지 재려면 없어야 한다(§4).'],
+  ['src/gone.ts', '이 게이트 자체검사의 픽스처 — 「계약 문서에서는 잡는다」를 재려면 없어야 한다(§4).'],
+]);
 
 /** 빌드가 만드는 것 — 저장소에 없는 것이 정상이다. */
 const BUILD_OUTPUT = [/^dist\//, /^src-tauri\/(target|gen)\//, /^android-shell\/.*\/build\//, /^windows-dist\//];
@@ -106,12 +120,12 @@ export function skippablePath(ref) { return ref.includes('*') || ref.includes('.
 export function violations(docs, has, npmScripts, gateNames, planned = { gates: PLANNED, paths: PLANNED_PATHS }) {
   const out = [];
   for (const { doc, text } of docs) {
-    if (isHistorical(doc) || GENERATED.some((re) => re.test(doc))) continue;
+    if (isHistorical(doc)) continue;
     for (const m of text.matchAll(PATH_RE)) {
       const ref = m[1];
       if (skippablePath(ref)) continue;
       if (SUFFIXES.some((s) => has(ref.replace(/\/$/, '') + s))) continue;
-      if (planned.paths.has(ref)) continue;
+      if (planned.paths.has(ref) || INTENTIONALLY_ABSENT.has(ref)) continue;
       out.push({ doc, kind: '경로', ref });
     }
     for (const m of text.matchAll(NPM_RE)) {
@@ -137,8 +151,14 @@ function walk(dir, out = []) {
 function main() {
   const files = new Set(walk(ROOT));
   const has = (p) => files.has(p) || existsSync(join(ROOT, p));
+  // 🔴 **문서만 보면 반쪽이다.** 이 조사가 잡은 결함 둘(`naming.ts`가 없는 테스트를,
+  //    `time.ts`가 없는 게이트를 가리킴)은 **코드 주석**에 있었다. 그리고 코드 주석이 원본이므로
+  //    여기서 잡으면 **고칠 자리를 정확히 가리킨다** — 생성된 설계서에서 잡는 것보다 낫다.
   const docs = [...files]
-    .filter((f) => f.endsWith('.md') && (f.startsWith('docs/') || f.startsWith('.claude/') || f === 'CLAUDE.md' || f === 'AGENTS.md'))
+    .filter((f) => (
+      (f.endsWith('.md') && (f.startsWith('docs/') || f.startsWith('.claude/') || f === 'CLAUDE.md' || f === 'AGENTS.md'))
+      || ((f.startsWith('src/') || f.startsWith('scripts/')) && /\.(?:ts|mjs)$/.test(f))
+    ))
     .map((f) => ({ doc: f, text: readFileSync(join(ROOT, f), 'utf8') }));
 
   const npmScripts = new Set(Object.keys(JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).scripts ?? {}));
@@ -168,9 +188,9 @@ function main() {
     console.error('  → 실물로 만들거나, 「후보/목표」임을 문장에 적으세요(SYNC_PROTOCOL.md의 「활성 주장 아님」이 그 형식입니다).');
     process.exit(1);
   }
-  console.log(`check-doc-references: 문서 ${docs.length}개가 가리키는 경로·npm·게이트가 모두 실재합니다.`);
+  console.log(`check-doc-references: 문서·소스 ${docs.length}개가 가리키는 경로·npm·게이트가 모두 실재합니다.`);
   console.log('    ↳ 정직한 한계: **가리키는 것이 있는가**까지만 봅니다 — 적힌 **내용이 참인지**는 못 봅니다.');
-  console.log(`    ↳ 안 본 것: 역사 문서·생성물(모듈별 설계서) · 「후보/목표」로 등록된 ${PLANNED.size + PLANNED_PATHS.size}건(이유는 코드에).`);
+  console.log(`    ↳ 안 본 것: 역사 문서(HANDOFF·records·reference) · 「후보/목표」 ${PLANNED.size + PLANNED_PATHS.size}건 · 「일부러 없음」 ${INTENTIONALLY_ABSENT.size}건(이유는 코드에).`);
 }
 
 // 🔴 **자체검사 — 알려진 실패를 주입해 RED를 확인한다(§4).**
@@ -192,11 +212,11 @@ const SELF_TESTS = [
   },
   {
     name: '🔴 역사 문서는 「지금 없다」로 잡지 않는다',
-    run: () => violations([{ doc: 'docs/HANDOFF.md', text: '`src/gone.ts`' }], () => false, new Set(), new Set()).length === 0,
+    run: () => violations([{ doc: 'docs/HANDOFF.md', text: '`src/no-such-file-here.ts`' }], () => false, new Set(), new Set()).length === 0,
   },
   {
     name: '🔴 그러나 계약 문서에서는 잡는다(역사 제외가 너무 넓지 않다)',
-    run: () => violations([{ doc: 'docs/SECURITY.md', text: '`src/gone.ts`' }], () => false, new Set(), new Set()).length === 1,
+    run: () => violations([{ doc: 'docs/SECURITY.md', text: '`src/no-such-file-here.ts`' }], () => false, new Set(), new Set()).length === 1,
   },
   {
     name: '빌드 산출물·글롭은 오탐하지 않는다',
