@@ -70,6 +70,33 @@
   top: calc((100% - var(--touch-target-min)) / 2);
   bottom: calc((100% - var(--touch-target-min)) / 2);
 }
+
+/* 🔴 모달 헤더의 **닫기 버튼 셋** — 보이는 크기(34·36·38px)는 그대로 두고 누를 수 있는
+   넓이만 `--touch-target-min`까지 넓힌다(2026-08-15 · T-041). 시각 밀도와 터치 표적은
+   같은 값이 아니다(M-0125).
+
+   🔴 **가로는 넓히지 않는다 — 실측이 가로 확장을 되돌리게 했다**(2026-08-15). 처음엔 헤더
+   안이라 옆 gap이 받쳐 줄 것으로 보고 가로도 넓혔는데, 라이브가 편집기에서 **덮음**을 잡았다:
+   `.pe-close`는 **모양 클래스**라 되돌리기(↺)와 닫기(✕) **두 버튼이 나란히** 쓰고 있었고,
+   가로로 넓힌 영역이 서로를 훔쳤다. **되돌리려다 창이 닫히는 것**은 미달보다 나쁘다 —
+   M-0162가 정확히 이 형태였고 여기서 세 번째로 재현됐다.
+   그래서 셋 다 **세로만** 넓힌다(`.chip-clear`와 같은 처방). 가로는 보이는 크기 그대로다.
+
+   👉 **새 닫기 버튼이 생기면 여기 목록에 더한다.** 잊어도 라이브의 전수 검사가 44px 미달을
+   이름과 함께 잡는다(§7 3층) — 목록은 편의이고 판정은 그쪽이다.
+
+   🔴 **정직한 상태 — 셋 중 하나만 실측했다.** 라이브가 지도 모달을 열므로 `.map-close`는
+   실제로 쟀다(보이는 36×36 유지 · 히트 **46×46** · 덮는 것 **0**). `.pe-close`(사진 편집기)와
+   `.single-photo-moment-close`(단일 사진 순간)는 **현재 라이브 시나리오가 그 모달을 열지 않아
+   재지 못했다.** 같은 규칙·같은 구조(모달 헤더 flex 한 줄 · space-between · padding 여백)라
+   안전할 것으로 보지만 그건 **추측이고 측정이 아니다** — 그 둘을 여는 지점을 라이브에 붙이는
+   일은 T-041에 적어 뒀다. 「같은 구조니까 괜찮다」로 완료라 부르지 않는다(§13 3항). */
+.pe-close, .map-close, .single-photo-moment-close { position: relative; }
+.pe-close::after, .map-close::after, .single-photo-moment-close::after {
+  content: ''; position: absolute; left: 0; right: 0; /* 가로는 그대로 — 위 주석의 실측 근거 */
+  top: calc((100% - var(--touch-target-min)) / 2);
+  bottom: calc((100% - var(--touch-target-min)) / 2);
+}
 .header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); justify-content: flex-end; }
 
 /* 계절 세그먼트 + 테마 토글 */
@@ -1058,6 +1085,14 @@ select.zone-input { text-overflow: ellipsis; }
   font-size: 0.66rem; line-height: 1; cursor: pointer;
 }
 .pick-x:hover { background: rgba(8, 8, 18, .9); }
+/* 🔴 **이 ✕는 넓히지 않는다 — 이유가 있다**(2026-08-15 · T-041).
+   22×22px로 44px에 못 미치지만, 이 버튼은 **64×64 썸네일 셀 위에 얹혀 있다.** 히트 영역을
+   44px로 키우면 셀 면적의 절반 이상을 덮어 **사진을 누르려던 손이 사진을 지우게 된다.**
+   `.chip-x`가 같은 함정을 실제로 겪고 머리주석에 남겼고(넓힌 영역이 사진 격자를 가렸다),
+   M-0162에서도 같은 형태가 재현됐다 — **파괴적 동작의 히트 영역은 넘치면 안 된다**(§3-E).
+   셀을 키우는 것은 격자 밀도를 바꾸는 일이라 이 작업의 범위가 아니다.
+   👉 **대체 경로**: 잘못 고른 사진은 [전체 해제]로 한 번에 비울 수 있다(`.pick-clear-all`,
+   44px 표적). 즉 이 ✕가 유일한 길이 아니다. 남은 위험은 T-041에 적혀 있다. */
 .pick-clear-all {
   min-height: var(--touch-target-min); padding: 0 var(--space-3); border-radius: var(--radius-pill);
   border: 1px solid var(--line); background: var(--surface); color: var(--ink-soft);
@@ -1171,6 +1206,10 @@ select.zone-input { text-overflow: ellipsis; }
   backdrop-filter: blur(2px);
 }
 .photo-del:hover { background: rgba(6, 6, 14, .8); }
+/* 🔴 **여기도 넓히지 않는다 — 위 `.pick-x`와 같은 이유**(2026-08-15 · T-041).
+   26×26px이고 저장된 사진 격자 칸 위 우상단에 얹혀 있다. 넓히면 **사진을 크게 보려던 탭이
+   삭제로 간다** — 미달보다 나쁜 상태다. 이 둘을 고치려면 **격자 칸 자체를 키우거나** 삭제를
+   칸 밖(선택 모드·길게 누르기)으로 옮겨야 하고, 그건 배치 결정이라 판단이 필요하다(T-041). */
 
 /* 순간 카드 액션(편집·삭제) */
 .moment-head-right { display: flex; align-items: center; gap: var(--space-1); flex: 0 0 auto; }

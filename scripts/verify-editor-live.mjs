@@ -242,6 +242,44 @@ async function waitUntil(fn, timeoutMs = 15000, stepMs = 100) {
 async function settle(p = page) {
   await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 }
+
+/**
+ * 닫기 버튼의 **누를 수 있는 넓이**와 **그 영역이 덮는 다른 조작 요소**를 함께 잰다(T-041).
+ *
+ * 🔴 **둘을 함께 재는 것이 계약이다.** 넓히기만 재면 이웃의 터치를 훔치면서 통과하고,
+ *    덮음만 재면 아무것도 안 넓히고 통과한다 — M-0162에서 전자를 실제로 만들었다.
+ *    셋(`.pe-close`·`.map-close`·`.single-photo-moment-close`)이 **이 함수 하나를 지난다**:
+ *    손으로 세 벌 쓰면 한쪽만 고쳐지는 날이 온다(§7 2층).
+ */
+async function closeButtonTarget(selector) {
+  return page.evaluate((sel) => {
+    const n = document.querySelector(sel);
+    if (!n) return null;
+    const r = n.getBoundingClientRect();
+    const a = getComputedStyle(n, '::after');
+    const g = (v) => Math.abs(parseFloat(v) || 0);
+    const has = a.content !== 'none' && a.position === 'absolute';
+    const w = r.width + (has ? g(a.left) + g(a.right) : 0);
+    const h = r.height + (has ? g(a.top) + g(a.bottom) : 0);
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const stolen = [];
+    for (const dx of [-w / 2 + 1, 0, w / 2 - 1]) for (const dy of [-h / 2 + 1, 0, h / 2 - 1]) {
+      const el = document.elementFromPoint(cx + dx, cy + dy)?.closest('button, a[href], input, select, textarea, [role="button"]');
+      if (el && el !== n && !n.contains(el) && !el.contains(n)) stolen.push(el.className || el.tagName);
+    }
+    return {
+      visible: `${Math.round(r.width)}x${Math.round(r.height)}`,
+      hit: `${Math.round(w)}x${Math.round(h)}`,
+      min: Math.min(w, h),
+      hitH: h, // 세로만 넓히므로 판정은 이 값으로 한다(가로는 보이는 크기 그대로)
+      stolen: [...new Set(stolen)],
+      // 🔴 같은 클래스가 **여러 개** 있으면 `querySelector`는 첫 번째를 잡고 `elementFromPoint`는
+      //    다른 것을 잡을 수 있다 — 그러면 「자기 자신을 덮는다」는 이상한 판정이 나온다.
+      //    개수를 함께 보고해 그 경우를 사람이 바로 알아보게 한다(오탐과 진짜 결함을 가른다).
+      count: document.querySelectorAll(sel).length,
+    };
+  }, selector);
+}
 await page.route('**://tile.openstreetmap.org/**', (route) => {
   const m = /\/(\d+)\/\d+\/\d+\.png/.exec(route.request().url());
   if (m) tileZooms.push(Number(m[1]));
@@ -750,6 +788,16 @@ check(
   '새 위치 지도: 현재 위치는 중심일 뿐, 지도를 누르기 전에는 선택되지 않는다',
   await page.locator('.map-pick-confirm').isDisabled(),
 );
+// ── 🔴 모달 헤더 닫기 버튼의 터치 표적 (2026-08-15 · T-041) ────────────────────────
+//    `.map-close`는 보이는 크기가 36px이라 44px에 못 미쳤다. 보이는 크기는 그대로 두고
+//    히트 영역만 넓혔는데, **넓히기만 재면 반쪽이다** — M-0162에서 넓힌 영역이 이웃의
+//    터치를 훔쳐 미달보다 나쁜 상태를 만들었다. 그래서 「44px」과 「덮는 것 0」을 함께 잰다.
+const mapCloseTarget = await closeButtonTarget('.map-close');
+check('지도 닫기 버튼: 보이는 36px 그대로, **세로** 터치 표적 44px',
+  mapCloseTarget?.visible === '36x36' && (mapCloseTarget?.hitH ?? 0) >= 44, JSON.stringify(mapCloseTarget));
+check('지도 닫기 버튼: 넓힌 히트 영역이 이웃 버튼을 훔치지 않는다',
+  (mapCloseTarget?.stolen.length ?? -1) === 0, JSON.stringify(mapCloseTarget?.stolen ?? null));
+
 await page.locator('.map-close').click();
 await page.waitForSelector('.map-overlay', { state: 'detached' });
 
@@ -916,6 +964,12 @@ await page.getByRole('button', { name: '순간 저장' }).click();
 // ── 편집기 열림 ──
 await page.waitForSelector('.pe-overlay', { timeout: 10000 });
 check('편집기 모달 열림', true);
+// T-041 — 편집기 닫기 버튼(보이는 34px)의 터치 표적. 셋이 같은 함수를 지난다.
+const peCloseTarget = await closeButtonTarget('.pe-close');
+check('편집기 닫기 버튼: 보이는 34px 그대로, **세로** 터치 표적 44px',
+  peCloseTarget?.visible === '34x34' && (peCloseTarget?.hitH ?? 0) >= 44, JSON.stringify(peCloseTarget));
+check('편집기 닫기 버튼: 넓힌 히트 영역이 이웃 버튼을 훔치지 않는다',
+  (peCloseTarget?.stolen.length ?? -1) === 0, JSON.stringify(peCloseTarget?.stolen ?? null));
 
 
 // ── 🔴 v2.07: [초기화]가 **화면 표시 상태까지** 되돌리는가 (사용자 보고 2026-08-09) ──
@@ -3423,7 +3477,13 @@ if (!treeWide.exists) {
     clicked && filtered.nowShown && /개/.test(filtered.nowText) && filtered.pressed >= 1,
     `clicked=${clicked} now="${filtered.nowText}" pressed=${filtered.pressed}`);
   await page.evaluate(() => { const x = document.querySelector('.filter-clear'); if (x instanceof HTMLElement) x.click(); });
-  await settle(page);
+  // 🔴 `settle`은 **프레임 두 장**을 기다릴 뿐 「끝났다」를 기다리지 않는다(T-042 · M-0119).
+  //    목록 원복은 저장소 조회를 거치므로 두 프레임 뒤에 재면 이를 수 있다 — 실제로 이 검사가
+  //    같은 코드에서 한 번 FAIL하고 다음 실행에서 PASS했다. **시간이 아니라 내용을 기다린다.**
+  await waitUntil(async () => await page.evaluate(() => {
+    const now = document.querySelector('.filter-now');
+    return Boolean(now?.hidden);
+  }), 5000);
   const cleared = await page.evaluate(() => ({
     nowHidden: Boolean(document.querySelector('.filter-now')?.hidden),
     cards: document.querySelectorAll('.trip-list > *').length,
@@ -3740,6 +3800,10 @@ const bulkTrashPurge = page.getByRole('button', { name: '휴지통 모두 영구
 check('휴지통 일괄삭제: 현재 보이는 항목을 비우는 버튼이 실제로 있다', await bulkTrashPurge.count() === 1);
 await bulkTrashPurge.click();
 const bulkTrashConfirm = page.locator('.dm-trash-bulk button.btn-danger:not([hidden])').last();
+// 🔴 `isVisible()`은 **즉시 판정**이라 자동 대기가 없다(T-042 · M-0119). 확인 버튼이 펼쳐지기
+//    전에 재면 false가 되고, 더 나쁜 것은 **그 다음 클릭이 30초 timeout으로 죽어** 뒤따르는
+//    검사가 통째로 사라진다는 점이다 — 실제로 한 번 그렇게 죽었다. 펼쳐짐을 먼저 기다린다.
+await bulkTrashConfirm.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {});
 check('휴지통 일괄삭제: 첫 클릭은 지우지 않고 정확한 수의 두 번째 확인을 펼친다',
   await bulkTrashConfirm.isVisible() && /정말 \d+개 모두 지움/.test(await bulkTrashConfirm.textContent() ?? ''),
   await bulkTrashConfirm.textContent() ?? '');
@@ -4414,6 +4478,12 @@ await page.evaluate(({ b64 }) => {
   zone.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX, clientY, dataTransfer: transfer }));
 }, { b64: withExifGps(imgBuf, '2026:07:16 09:30:00', 16.0544, 108.2022).toString('base64') });
 await page.locator('.single-photo-moment-overlay').waitFor();
+// T-041 — 단일 사진 순간 창의 닫기 버튼(보이는 38px). 셋째이자 마지막 닫기 버튼이다.
+const singleCloseTarget = await closeButtonTarget('.single-photo-moment-close');
+check('한 장 작성 창 닫기 버튼: 보이는 38px 그대로, **세로** 터치 표적 44px',
+  singleCloseTarget?.visible === '38x38' && (singleCloseTarget?.hitH ?? 0) >= 44, JSON.stringify(singleCloseTarget));
+check('한 장 작성 창 닫기 버튼: 넓힌 히트 영역이 이웃 버튼을 훔치지 않는다',
+  (singleCloseTarget?.stolen.length ?? -1) === 0, JSON.stringify(singleCloseTarget?.stolen ?? null));
 const singleComposerOpened = await page.locator('.single-photo-moment-overlay').count() === 1;
 check(
   'Windows 한 장 드롭: 빈 타임라인이면 **사진으로 새 순간 작성 창**을 연다',
@@ -5179,8 +5249,10 @@ check('헤더: 가로 넘침 0', headM.overflow === 0, `overflow=${headM.overflo
       const nextClick = await boxOf('ro-wide');
       if (nextClick) {
         await page.mouse.click(nextClick.x, nextClick.y);
-        await settle(page);
-        check('R⑧ 재배열 직후 다른 사진을 누르면 정상적으로 뷰어가 열린다', await page.locator('.photo-viewer').count() === 1);
+        // 🔴 뷰어는 사진 바이트를 불러온 뒤 열리므로 **프레임 두 장으로는 이르다**(T-042 · M-0119).
+        //    같은 코드에서 한 번 FAIL하고 다음 실행에서 PASS했다 — 「열렸다」는 사실을 기다린다.
+        const viewerOpened = await waitUntil(async () => await page.locator('.photo-viewer').count() === 1, 5000);
+        check('R⑧ 재배열 직후 다른 사진을 누르면 정상적으로 뷰어가 열린다', viewerOpened);
         await page.keyboard.press('Escape');
       } else {
         check('R⑧ 후속 정상 클릭 좌표를 찾는다', false);
@@ -5632,6 +5704,54 @@ if (headerSeeded) {
     header.minHit >= 44 && header.stolen.length === 0, JSON.stringify(header));
   check('좁은 헤더 344px: 가로로 넘치지 않는다', header.pageOverflow === 0, String(header.pageOverflow));
 }
+
+// ── 🔴 터치 표적 **전수 검사** (2026-08-15 · T-041) ─────────────────────────────────
+//    지금까지 이 저장소는 표적 미달을 **한 자리씩** 고쳤다(`.chip-x` → `.chip-clear` →
+//    헤더 둘 → 닫기 셋). 그때마다 사용자가 먼저 발견했다는 뜻이기도 하다. 그래서 이제
+//    **화면에 있는 조작 요소를 전부 훑어** 미달을 이름과 함께 잡는다 — 다음 버튼은
+//    사람이 기억하지 않아도 걸린다(§7 3층).
+//
+//    🔴 **오탐을 두 가지 걷어낸다.** ①부모가 클릭을 받는 자식(`.sync-note-go`는 클릭이
+//    부모 줄로 가고 그 줄이 44px이다) ②`::after`로 넓힌 히트 영역(보이는 상자만 재면
+//    고쳐 놓은 것을 결함이라 부른다). 오탐이 많은 게이트는 사람이 무시해서 죽는다(§11 ③).
+//
+//    **예외는 이유와 함께 여기 적는다** — 이유 없는 제외는 결함이다(§7).
+const TOUCH_TARGET_EXCEPTIONS = [
+  // 64×64 썸네일 셀 위에 얹힌 삭제 버튼. 44px로 넓히면 셀의 절반 이상을 덮어 **사진을
+  // 누르려던 손이 사진을 지운다** — 미달보다 나쁘다(§3-E · M-0162). 대체 경로로 [전체 해제]가
+  // 있고 그쪽은 44px이다. 근본 처방(칸을 키우거나 삭제를 칸 밖으로)은 배치 결정이라 T-041.
+  'pick-x',
+  // 위와 같은 형태 — 저장된 사진 격자 칸 위 우상단.
+  'photo-del',
+];
+await page.setViewportSize({ width: 344, height: 820 });
+await page.goto(`http://localhost:4173${BASE}`);
+await page.waitForFunction(() => (document.getElementById('app')?.innerText ?? '').trim().length > 0, { timeout: 15000 });
+const targetSweep = await page.evaluate((exceptions) => {
+  const vis = (n) => n.getClientRects().length > 0 && getComputedStyle(n).visibility !== 'hidden';
+  const hit = (n) => {
+    const r = n.getBoundingClientRect();
+    const a = getComputedStyle(n, '::after');
+    const g = (v) => Math.abs(parseFloat(v) || 0);
+    const has = a.content !== 'none' && a.position === 'absolute';
+    return { w: r.width + (has ? g(a.left) + g(a.right) : 0), h: r.height + (has ? g(a.top) + g(a.bottom) : 0) };
+  };
+  const all = [...document.querySelectorAll('button, a[href], [role="button"]')].filter(vis);
+  const small = [];
+  for (const b of all) {
+    const cls = typeof b.className === 'string' ? b.className : '';
+    if (exceptions.some((e) => cls.split(/\s+/).includes(e))) continue;
+    const anc = b.parentElement?.closest('.is-actionable, button, a[href], [role="button"]');
+    if (anc) { const ah = hit(anc); if (Math.min(ah.w, ah.h) >= 44) continue; } // 부모가 표적이다
+    const { w, h } = hit(b);
+    if (Math.min(w, h) < 44) small.push(`${cls.split(/\s+/)[0] || b.tagName}(${Math.round(w)}x${Math.round(h)})`);
+  }
+  return { total: all.length, small: [...new Set(small)] };
+}, TOUCH_TARGET_EXCEPTIONS);
+check('터치 표적 전수(344px 홈): 모집단을 확보했다 — 0개면 아무것도 안 본 것이다',
+  targetSweep.total >= 8, JSON.stringify({ total: targetSweep.total }));
+check('터치 표적 전수(344px 홈): 44px 미달이 없다(예외는 이유와 함께 코드에 등록)',
+  targetSweep.small.length === 0, JSON.stringify(targetSweep));
 
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 
