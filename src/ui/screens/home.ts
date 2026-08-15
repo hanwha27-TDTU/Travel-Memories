@@ -3,7 +3,7 @@
 // 자유 텍스트(이메일 등)는 textContent만 사용(innerHTML 금지).
 
 import { isConfigured } from '../../services/supabase/client';
-import { canViewLocalRecords } from '../../domain/authGate';
+import { accessVerdict, canViewLocalRecords } from '../../domain/authGate';
 import {
   createTripLocalFirst,
   listTrips,
@@ -19,7 +19,7 @@ import {
   signInWithGoogle,
   signOut,
   onAuthChange,
-  isAllowedUser,
+  probeAllowed,
   type SessionUser,
 } from '../../services/auth';
 import { requestSync, syncStatus as syncEngineStatus, onSyncStatus } from '../../services/autoSync';
@@ -422,15 +422,19 @@ export function applySignedOutLock(
 }
 
 /**
- * 초대제 잠금 게이트(ADR-0021): 허용 목록에 없는 사용자는 자동 로그아웃 안내.
- * DB RLS가 실제 방어이며 이건 UX용. 통과하면 그대로, 아니면 null 반환.
+ * 초대제 잠금 게이트(ADR-0021): 허용 목록에 **없다고 확인된** 사용자만 자동 로그아웃 안내.
  * top-level로 뽑음(함수 크기 래칫, §7 구조적 강제) — `status` 줄만 클로저 대신 인자로 받는다.
+ *
+ * 🔴 **판정은 여기가 아니라 `accessVerdict()`가 한다**(§10 ③). 이 함수에 남은 일은
+ * *물어보고 · 판정에 따라 실행하는 것*뿐이다 — 판정이 순수 함수라야 「비행기 안에서
+ * 로그아웃되는가」 같은 것을 주입으로 잴 수 있다. 예전엔 판정이 이 안에 섞여 있었고,
+ * 그래서 **오프라인이면 소유자를 로그아웃시키는 결함이 유닛에 한 번도 안 걸렸다.**
  */
 async function gateAccess(u: SessionUser | null, status: HTMLElement): Promise<SessionUser | null> {
   if (!u) return null;
-  const ok = await isAllowedUser();
-  if (ok) return u;
-  status.textContent = '🔒 이 앱은 초대된 사용자만 사용할 수 있어요. 접근이 필요하면 관리자에게 문의하세요.';
+  const v = accessVerdict(await probeAllowed());
+  if (v.note) status.textContent = v.note;
+  if (v.keepSession) return u;
   await signOut();
   return null;
 }

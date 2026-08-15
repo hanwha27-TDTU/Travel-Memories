@@ -124,16 +124,53 @@ export function wireShellAuthReturn(): void {
 }
 
 /**
- * 초대 허용 사용자 여부(초대제 잠금 — ADR-0021).
- * DB의 journey.is_allowed()가 진짜 방어이며, 이 호출은 UI 게이트(친절 안내)용이다.
- * 오류/미설정 시 false(보수적).
+ * 초대 여부를 **물어본 결과**. 🔴 `boolean`이 아니라 유니온인 이유가 이 파일의 핵심이다.
+ *
+ * 예전엔 `Promise<boolean>`이었고 머리말에 *"오류/미설정 시 false(보수적)"*라고 적혀 있었다.
+ * 그 한 줄이 **「거절당했다」와 「물어보지 못했다」를 같은 값으로** 만들었고, 호출부는 그 false를
+ * 받아 화면에 「초대된 사용자만 쓸 수 있어요」를 적고 **로그아웃시켰다.** 즉 **비행기 안에서
+ * 앱을 열면 소유자가 「당신은 초대되지 않았습니다」를 읽고 세션을 잃었다** — 그리고 다시
+ * 로그인하려면 네트워크가 필요하다.
+ *
+ * 🔴 이건 §8이 이름 붙인 결함이다 — *"모르는 것은 '확인 불가'다. 정상으로도 문제로도
+ * 반올림하지 않는다."* 그리고 **이 저장소는 이미 이 규율을 세웠다**: T-025/M-0148의
+ * `ProviderProbe`(`{asked:true,…} | {asked:false, why}`)가 같은 모양이고, 그때도 원인은
+ * *"「못 물어봤다」를 「없다」로 접은 것"*이었다. 여기만 그 규율을 안 물려받았다(§7 최빈형).
+ *
+ * **보수적이라는 말이 어느 방향인지 물어야 한다.** DB의 `journey.is_allowed()`가 진짜 방어이고
+ * 이 호출은 **친절 안내**다 — 서버는 초대 안 된 사람에게 어차피 한 행도 주지 않는다. 그러니
+ * 못 물어본 상태에서 세션을 끊는 것은 **안전을 사는 게 아니라 소유자의 접근을 잃는 것**이다.
  */
-export async function isAllowedUser(): Promise<boolean> {
+export type AllowProbe =
+  /** 물어봤고 답을 받았다. `allowed:false`는 **진짜 거절**이다. */
+  | { asked: true; allowed: boolean }
+  /** 못 물어봤다. 이 상태를 「거절」로 반올림하지 않는다. */
+  | { asked: false; why: AllowProbeFailure };
+
+/** 왜 못 물어봤나. 화면 문장은 **이 값 하나에서 파생**된다 — 그래야 모순이 불가능하다(§17 ②). */
+export type AllowProbeFailure =
+  /** 서버 설정이 없다(로컬 전용 모드). 초대 판정 자체가 성립하지 않는다. */
+  | 'no-client'
+  /** 브라우저가 오프라인이라고 말한다. */
+  | 'offline'
+  /** 연결은 있다는데 호출이 실패했다 — 🔴 이때 「연결이 돌아오면」이라고 말하면 거짓이다(§17 ②축). */
+  | 'error';
+
+/**
+ * 초대 허용 사용자 여부를 **물어본다**(초대제 잠금 — ADR-0021).
+ * 🔴 이 함수는 판정을 하지 않는다 — **관측만 돌려주고 판정은 호출부가 한다**(§8).
+ */
+export async function probeAllowed(): Promise<AllowProbe> {
   const c = supabase();
-  if (!c) return false;
+  if (!c) return { asked: false, why: 'no-client' };
+  // 오프라인은 **호출하기 전에** 가른다. 안 그러면 네트워크 실패가 'error'로 뭉뚱그려지고,
+  // 화면이 「연결은 멀쩡한데 서버가 이상해요」라는 틀린 말을 하게 된다.
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return { asked: false, why: 'offline' };
+  }
   const { data, error } = await c.rpc('is_allowed');
-  if (error) return false;
-  return data === true;
+  if (error) return { asked: false, why: 'error' };
+  return { asked: true, allowed: data === true };
 }
 
 /** 로그아웃(세션 종료). H-14 로컬 데이터 keep/delete 선택은 후속 구현. */

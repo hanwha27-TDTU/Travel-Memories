@@ -52,7 +52,22 @@ Google 로그인은 공유 프로젝트에서 회계 앱과 전역 공용이라 
 journey.is_allowed() : SECURITY DEFINER, search_path='', JWT email 소문자 = allowed_users.email 존재?
 journey.allowed_users : RLS on + 정책 없음 + grant 없음(클라이언트 직접 접근 불가, 함수로만 조회)
 ```
-- 진짜 방어는 **DB(RLS)** 이고, 앱 게이트(`services/auth.ts` `isAllowedUser()` → `home.ts` 자동 로그아웃)는 UX용.
+- 진짜 방어는 **DB(RLS)** 이고, 앱 게이트(`services/auth.ts` `probeAllowed()` → `domain/accessVerdict.ts` → `home.ts`)는 UX용.
+- 🔴 **앱 게이트는 세 갈래다 — 둘로 접으면 소유자를 잠근다**(T-033 조사 중 발견 · M-0166).
+  `probeAllowed()`는 `{asked:true, allowed}` 또는 `{asked:false, why}`를 돌려주고, 판정은
+  **순수 함수 `accessVerdict()`** 한 곳이 한다. 예전엔 `isAllowedUser(): Promise<boolean>`이
+  오류·오프라인을 `false`로 접었고 호출부가 그것을 「초대되지 않음」으로 읽어 **로그아웃**시켰다 —
+  즉 **비행기 안에서 앱을 연 소유자가 「초대된 사용자만 쓸 수 있어요」를 읽고 세션을 잃었다.**
+  못 물어본 상태에서는 **세션을 유지한다**: 서버가 초대 안 된 계정에 한 행도 주지 않으므로
+  UX층을 열어 둬도 새로 노출되는 자료가 없고, 반대로 끊으면 재로그인에 네트워크가 필요하다.
+  (§8 — 모르는 것을 정상으로도 문제로도 반올림하지 않는다. 같은 규율이 T-025 `ProviderProbe`에 있다.)
+- 🔴 **소유자 이메일이 `0002` migration에 문자열로 있는 것은 결함이 아니다 — 판단이다**(ADR-0073).
+  ①그 값은 **비밀이 아니다**(자격증명이 아니라 계정 신원이다. 알아도 그 구글 계정으로 실제
+  인증해야 하고 `auth.uid() = user_id`도 함께 통과해야 한다) ②이미 **모든 커밋의 author 이메일**이라
+  공개 저장소에서 되돌릴 수 없이 공개돼 있다 — 이 파일에서 지워도 노출은 **0만큼** 줄어든다
+  ③환경변수로 옮기면 새 프로젝트 복구 때 값이 없을 때 **아무도 초대되지 않은 채 조용히** 서는데,
+  그게 지금보다 나쁘다 ④허용목록 표 자체는 클라이언트에서 **읽을 수 없다**(실측: 정책 0 · anon·authenticated grant 0).
+  ⚠️ 남는 진짜 위험은 **다른 계정으로 새 프로젝트를 복구할 때**뿐이고, 그건 `DISASTER_RECOVERY.md`가 맡는다.
 - **초대 추가**: `insert into journey.allowed_users(email) values ('someone@gmail.com');` · **다시 공개**: 정책에서 `and journey.is_allowed()` 제거(후속 migration). 데이터 손실 없음, 회계(`public`) 무영향.
 - 검증(비공허): `supabase/tests/rls_invite_only_trips.sql` **INVITE_ONLY_PASS** — 비허용 조회 0·INSERT 차단·email 없는 세션 차단.
 
