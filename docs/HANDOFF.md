@@ -8,6 +8,32 @@ shape_reason: 인계는 시간순 서사다. 다음 사람이 「그때 무슨 �
 
 ---
 
+## HANDOFF-0199 · **위치 해제 ✕의 터치 표적 — 지적대로 넓혔으면 옆 버튼을 덮을 뻔했다**(T-035 · 2026-08-14)
+
+- 외부 리뷰가 준 처방은 *"투명 여백으로 히트 영역만 44px로 넓힌다"*였다. 착수 전에 같은 파일의 `.chip-x` 머리주석을 읽었고, 거기에 **정확히 같은 시도가 실패한 이력**이 적혀 있었다(넓힌 영역이 사진 격자를 덮었다). 그래서 「44px인가」보다 **「넓히면 무엇을 덮는가」**를 먼저 실측했다.
+- 실측(실제 Chromium 390×844 · `elementFromPoint` 9점): `.place-picked .chip-clear`는 **24×24px**이고, 44×44로 넓히면 바로 옆 **「좌표 복사」(`.place-picked-copy`)를 덮는다.** 복사하려던 손이 위치를 해제하는 것은 표적 미달보다 나쁘다.
+- 그래서 **가로는 넓히지 않고 세로로만** `--touch-target-min`까지 넓혔다(투명 `::after`, 상수는 토큰에서 `calc`로 파생). 24×44 = 1,056px²로 예전 576px²의 약 1.8배다. 보이는 크기는 24px 그대로이고, 수정 전후 배지 캡처가 동일해 시각 밀도 변화가 없음을 확인했다.
+- 라이브 검사 2건을 신설했다 — **「세로 44px 이상 + 보이는 크기 24px」**와 **「덮는 조작 요소 0건」**을 *함께* 잰다. 한쪽만 재면 다른 쪽으로 샌다. 주입 2방향 RED 확인: 확장 되돌림 → `24×24` FAIL · 가로까지 확장 → `["place-picked-copy"]` FAIL. 원복 뒤 둘 다 GREEN.
+- §7 형제 전수 실측에서 **미달이 더 나왔다**(`.pick-x` 22 · `.photo-del` 26 · `.pe-close` 34 · `.map-close` 36 · `.single-photo-moment-close` 38). 한 번에 넓히면 같은 덮음 위험이 각 자리에서 되풀이되므로 **T-041**로 분리하고 이번에 세운 계약을 그 과제의 방법으로 적었다.
+- 🔴 **`verify-editor-live`의 잔여 흔들림을 관측했다.** 같은 트리 3회 중 2회에서 서로 다른 검사 1건이 추가 실패했고(1회차는 「휴지통 일괄삭제」에서 timeout 사망, 2회차는 「홈 트리 ✕ 해제」, 3회차는 깨끗), 같은 커밋의 대조군 worktree는 2/2 깨끗했다. 원인을 못 봤으므로 「내 변경 탓이 아니다」로 반올림하지 않고 **T-042**로 열었다. 최종 실행 4회는 지도 키 결손 5건(T-036/T-038)만 실패하는 **422/427**이다.
+- 검증: production build, 편집 라이브 422/427(콘솔 오류 0), 주입 2방향 RED→GREEN. 사용자 화면에서 보이는 것은 바뀌지 않았고 **누를 수 있는 넓이만** 넓어졌다. 버전은 올리지 않았다 — §15에 따라 다음 기능 릴리스에 묶는다.
+
+---
+
+## HANDOFF-0198 · **죽은 라우트 셋을 지우고, 다음 누락을 컴파일 오류로 만들었다**(T-031 · 2026-08-14)
+
+- 세션 시작 점검: `main == HEAD == 0264369`, 작업트리·스태시·미머지 브랜치 없음, 릴리스 잠금 열림. `npm install`이 npm 버전 차이로 `package-lock.json`의 `libc` 필드를 지운 것은 커밋하지 않고 되돌렸다.
+- 정합성 결함 1건을 함께 고쳤다: `docs/BACKLOG.md`의 T-040이 상태 `해냄`인데 **열린 과제 표에 남아 있었다.** 그 표의 허용 상태는 `대기`·`막힘-실기기`·`막힘-사용자` 셋뿐이므로 증거와 함께 완료 아카이브로 옮겼다.
+- T-031 실측: `trips`·`map`·`settings`는 `navigate(...)` 호출이 **0건**이었고 대응 화면도 없었다(여행 목록은 홈, 지도는 상세 안, 설정에 해당하는 것은 홈의 오버레이). URL로 직접 들어가면 홈이 그려지는데 **주소창은 그 라우트를 가리켰다.** 셋을 지웠고 이유를 `router.ts` 머리주석에 남겼다.
+- 구조(§7 2층): 라우트 ↔ URL 세그먼트를 `ROUTE_SEGMENTS` 한 값으로 모아 `pathToRoute`와 새 순수 함수 `routeToPath`가 **둘 다 거기서 파생**되게 했다. `main.ts`의 `default`에는 `const unhandled: never = route`를 두어 case 없는 새 라우트는 **컴파일이 안 된다** — 실제로 `settings`를 주입해 `TS2322` RED를 확인하고 원복했다.
+- 기계(3층): `check-screen-lifecycle`에 검사 ④(라우트 커버리지 + exhaustive 가드)를 신설했다. 모집단은 `ROUTE_SEGMENTS`에서 **AST로** 파생한다 — 머리주석에 옛 라우트 이름이 그대로 남아 있어 정규식이면 주석을 모집단으로 셀 뻔했다. 실제 파일 주입 2방향(가드 삭제 · 화면 없는 라우트 되살림) 모두 `exit 1` RED → 원복 GREEN. 자체검사에 ④-a·b·c 케이스와 라우트 추출 대조군을 추가했다.
+- 유닛은 옛 전제를 **정상 케이스로 못박고 있었다**(`pathToRoute('/map') === 'map'`). 전수 왕복(`routeToPath` → `pathToRoute`)으로 바꾸고 죽은 셋이 홈으로 폴백함을 명시적으로 잠갔다(17건).
+- 검증: 라우터 유닛 17/17, 전체 유닛 **1,692/1,692**, typecheck, 빠른 게이트 **69/69**, production build 통과. §13에 따라 실제 Chromium으로 라우팅 세 갈래를 열어 **10/10**(base 루트·옛 라우트 셋·`/trip/<없는 id>` 각각 화면과 콘솔 오류 0). 🔴 첫 실행에서 `/trip/<id>`가 FAIL이었는데 **앱이 아니라 내 일회성 검사가 이르게 잰 것**이었다(자식 수를 기다리고 글자를 안 기다렸다 — M-0119의 재현). 화면은 「여행을 찾을 수 없어요」를 정상적으로 그리고 있었다.
+- 사용자 화면 동작은 **바뀌지 않았다**(옛 라우트 URL은 전과 같이 홈으로 떨어진다). 그래서 버전을 올리지 않고 §15에 따라 다음 기능 릴리스에 묶는다 — 이 인계는 **「구현됨·릴리스 대기」**이지 배포 증거가 아니다.
+- 다음 착수 우선순위: T-035(칩 닫기 버튼 44px 히트 영역) → T-033(`0002` 마이그레이션의 하드코딩 소유자 이메일 · RLS 침투 검증 동반).
+
+---
+
 ## HANDOFF-0197 · CI live-render read-back race removed (2026-08-14)
 
 - PR #284 first Required CI run (`31795682461`) passed `harness` and CodeQL but its `live-render` failed one v1.97 place-name persistence assertion. The same build had 424/425 checks pass; the failing read showed a stale place row immediately after the form closed.
@@ -1662,7 +1688,7 @@ First actions:
 
 > **새 AI(Claude 또는 Codex)는 여기부터 읽는다.** 저장소가 최종 정보원이며, 아래만으로 현재 단계와 다음 행동을 파악할 수 있어야 한다.
 
-**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.39<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->239<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->144<!--/reg-->개).
+**현재 단계**: **실사용 가능한 개인 여행기록 PWA — 작업 트리 v<!--reg:appVersion-->2.40<!--/reg--> · 운영 라이브 버전은 `version.json` read-back이 정본**(https://hanwha27-tdtu.github.io/Travel-Memories/, GitHub Pages, base=/Travel-Memories/). v1.64는 정상 반영된 삭제를 영구 경고하던 M-0095를 서버 read-back 판정으로 고쳤고 PR #170 squash `1b14532`로 main에 병합·배포됐다. 운영 DB 0026·0027 적용과 앱 선배포 호환성(M-0093), 오디오 라이브 게이트 오판(M-0094)은 PR #168 squash `03f97e1`로 반영됐다. 버전 SSOT는 `src/app/changelog.ts`(항목 <!--reg:changelogCount-->240<!--/reg-->개), 연구노트(사람/AI/결정 해시체인)는 `src/app/researchLog.ts`(seq <!--reg:researchCount-->144<!--/reg-->개).
 
 > **다기기 동기화 라이브**: Google OAuth(PKCE, 초대제 allowlist=hanwha27@gmail.com)·GitHub Variables·Exposed schemas(journey)가 실제 작동 중이다. Supabase 프로젝트 **Travel&Accounting**(`ihxiywffzmvrwmqvatzt`)의 journey 스키마 — 여행+회계 한 프로젝트 두 스키마, 메디컬은 별개 프로젝트(`rjhbfgbfhwdhtdzcdvtu`). 7엔티티(trips·places·moments·media·expenses·audio·videos) 동기화 코드가 있으며, 운영은 **migration 0030까지 적용 완료**(저장소 파일 <!--reg:migrationCount-->32<!--/reg-->개)다. 2026-08-03 암호화 스냅샷 뒤 0026→검사→0027→검사 순서를 지켰고, PC 라이브는 여행 5개·올림 0·내림 0으로 회복했다. 0028은 FK 커버링 인덱스, 0029는 Postgres 린트 보강, 0030은 영상 테이블·RLS·7도메인 canonical 확장이다.
 > **주의(정직·중요)**: 이번 Codex 환경의 Supabase MCP·직접 HTTP는 운영 프로젝트에 도달해 DB rollback 공격검사와 Edge Function 무인증 capability/probe까지 확인했다. 그러나 사용자 로그인 세션/JWT와 실기기 두 대는 없으므로 authenticated R2 list/put/get/delete·2기기 왕복·실기기 터치/PWA 설치는 **사용자 실기기 확인 몫**이다. 자동층과 실제로 잰 운영층은 각 Phase 기록처럼 분리해 말한다.
