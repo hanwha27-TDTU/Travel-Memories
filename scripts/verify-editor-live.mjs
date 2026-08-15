@@ -478,6 +478,45 @@ async function createTripFromModal(title, start = '', end = '') {
   await page.locator('.trip-card', { hasText: title }).first().waitFor();
 }
 
+// 🔴 **모달은 불투명 표면을 갖는다 — 형제 전부에게 묻는다** (2026-08-15 · M-0172).
+//
+// 실제 결함: `.trip-editor-modal`의 배경이 `rgba(0,0,0,0)`이라 **뒤 화면 글자가 모달 글자를
+// 뚫고 나왔다**(라이트 테마에서 「새 여행」 제목과 빈 상태 문장이 겹쳤다). 형제 여섯 중
+// 다섯이 같은 네 줄을 **손으로** 갖고 있었고 여섯 번째만 빠진 §7 최빈형이었다.
+//
+// 🔴 **정적 게이트만으로는 부족하다.** `check-verdict-symmetry`는 「CSS에 그렇게 적혀 있다」
+// 까지만 본다 — 선언 순서·특이도·테마 변수가 실제로 어떤 색으로 **계산되는지**는 못 본다.
+// 그래서 여기서는 **계산된 값**을 잰다: 알파가 1이 아니면 뒤가 비친다.
+{
+  await page.locator('.trip-form .btn-primary').click();
+  const modal = page.locator('.trip-editor-modal');
+  await modal.waitFor();
+  const surface = await modal.evaluate((m) => {
+    const g = getComputedStyle(m);
+    const alpha = (c) => {
+      const n = c.match(/[\d.]+/g)?.map(Number) ?? [];
+      return n.length === 4 ? n[3] : 1; // rgb(...)는 불투명
+    };
+    const save = m.querySelector('.btn-primary');
+    const cancel = m.querySelector('.btn-ghost');
+    const w = (e) => (e ? e.getBoundingClientRect().width : 0);
+    return {
+      bg: g.backgroundColor,
+      alpha: alpha(g.backgroundColor),
+      radius: parseFloat(g.borderTopLeftRadius) || 0,
+      pad: parseFloat(g.paddingTop) || 0,
+      ratio: w(cancel) ? +(w(save) / w(cancel)).toFixed(2) : null,
+    };
+  });
+  check('🔴 여행 편집 모달이 **불투명 표면**을 갖는다(뒤 글자가 비치지 않는다)', surface.alpha === 1, JSON.stringify(surface));
+  check('여행 편집 모달이 모서리·안쪽 여백을 물려받는다', surface.radius > 0 && surface.pad > 0, JSON.stringify(surface));
+  // 🔴 폭이 **글자 수**로 정해지면 라벨을 바꾸는 순간 배치가 바뀐다(헌장 3-E ②의 폭 판).
+  //    저장이 주행동이라 더 넓은 것은 옳다 — 잡는 것은 「누르지 말라는 것처럼 보이는」 비율이다.
+  check('저장:취소 폭 비가 4:1을 넘지 않는다(위계는 남기되 취소가 사라지지 않게)', surface.ratio !== null && surface.ratio <= 4, `저장:취소=${surface.ratio}`);
+  await modal.locator('.btn-ghost').click();
+  await modal.waitFor({ state: 'detached' });
+}
+
 // v0.43: 홈 목록에서 여행 삭제(확인 → 카드 제거) + 실행취소 복원
 await createTripFromModal('삭제 테스트 여행');
 const delN0 = await page.locator('.trip-card').count();

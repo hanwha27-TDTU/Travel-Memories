@@ -382,6 +382,33 @@ export function overlayContract(css) {
   if (!modal) bad.push('.modal-base 가 없음');
   else if (!/dvh/.test(modal[1])) bad.push('.modal-base 가 dvh를 쓰지 않음 — vh는 주소창을 포함해 실제보다 크다');
 
+  // 🔴 **표면(surface)은 `.modal-base` 한 곳에만 산다** (2026-08-15 · M-0172).
+  //
+  // 실제 결함: 형제 여섯 중 **다섯이 글자 단위로 같은 네 줄**(background·border·radius·shadow)을
+  // 손으로 갖고 있었고 **여섯 번째에서 통째로 빠졌다.** 그 모달은 배경이 `rgba(0,0,0,0)`이라
+  // 뒤 화면 글자가 모달 글자를 뚫고 나왔다. §2 「손편집 중복 자체가 결함」의 사례다.
+  //
+  // 그래서 두 방향으로 잠근다: ①정본이 사라지면 RED ②형제가 **같은 값으로 다시 쓰면** RED
+  // (그게 갈라짐의 씨앗이다). 🔴 **다른 값을 쓰는 것은 정당한 재정의라 잡지 않는다** — 오탐이
+  // 많은 게이트는 사람이 무시해서 죽는다(§11 ③).
+  const SURFACE = ['background', 'border-radius', 'box-shadow'];
+  // ⚠️ **주석을 먼저 벗긴다.** 처음엔 안 벗겨서 `*/` 바로 뒤의 선언을 못 읽었고, 정본에
+  //    표면을 **넣어 둔 채로** 「없음」이라고 보고했다 — 게이트가 자기가 지키려는 상태를
+  //    위반으로 잡은 것이다(이 파일이 다른 검사에서 이미 밟은 함정 · M-0011 계열).
+  const declOf = (body, prop) => {
+    const clean = body.replace(/\/\*[\s\S]*?\*\//g, ' ');
+    const m = clean.match(new RegExp(`(?:^|;)\\s*${prop}\\s*:([^;]*)`));
+    return m ? m[1].trim() : null;
+  };
+  const baseSurface = {};
+  if (modal) {
+    for (const p of SURFACE) {
+      const v = declOf(modal[1], p);
+      if (!v) bad.push(`.modal-base 에 ${p} 없음 — 모달 표면의 정본이 사라졌다(투명 모달이 태어난다)`);
+      else baseSurface[p] = v;
+    }
+  }
+
   // 개별 오버레이/모달이 계약을 되돌려 자기 규칙을 갖지 않는지.
   for (const m of css.matchAll(/\.([a-z-]*(?:overlay|modal|sheet))\s*\{([^}]*)\}/g)) {
     const [name, decl] = [m[1], m[2]];
@@ -391,6 +418,17 @@ export function overlayContract(css) {
     }
     if (/position:\s*fixed/.test(decl) && /place-items:\s*center/.test(decl)) {
       bad.push(`.${name} 가 자기 중앙정렬 규칙을 가짐 — .overlay-base 를 쓸 것(규칙을 두 번 쓰지 않는다)`);
+    }
+    // 🔴 표면 중복은 **모달 형제에게만** 묻는다. 처음엔 이름 패턴 전체에 물었다가
+    //    `.timeline-drop-overlay`(타임라인 안의 놓기 표적 — 모달이 아니다)를 잡았다.
+    //    그 클래스의 `border-radius`가 `--radius-large`인 것은 **손복사가 아니라 우연**이다.
+    //    오탐은 「빡빡한 게이트」가 아니라 **틀린 게이트**이고, 사람이 무시하면 죽는다(§11 ③).
+    if (/-(?:modal|sheet)$/.test(name)) {
+      for (const p of SURFACE) {
+        if (baseSurface[p] && declOf(decl, p) === baseSurface[p]) {
+          bad.push(`.${name} 가 ${p}를 .modal-base 와 **같은 값**으로 다시 씀 — 손복사는 갈라진다(§2). 지우면 물려받는다`);
+        }
+      }
     }
   }
   return bad;
@@ -690,7 +728,7 @@ if (op === 'list') {
       fn: () =>
         overlayContract(
           `.overlay-base { position: fixed; align-items: flex-start; overflow-y: auto; padding: max(12px, env(safe-area-inset-top,0)); }
-           .modal-base { max-height: calc(100dvh - 24px); }`,
+           .modal-base { max-height: calc(100dvh - 24px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-large); box-shadow: var(--shadow-float); }`,
         ),
       clean: true,
     },
@@ -699,7 +737,7 @@ if (op === 'list') {
       fn: () =>
         overlayContract(
           `.overlay-base { position: fixed; align-items: flex-start; overflow-y: auto; padding: max(12px, env(safe-area-inset-top,0)); }
-           .modal-base { max-height: calc(100dvh - 24px); }
+           .modal-base { max-height: calc(100dvh - 24px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-large); box-shadow: var(--shadow-float); }
            .pe-sheet { max-height: 96vh; }`,
         ),
       clean: false,
@@ -709,7 +747,7 @@ if (op === 'list') {
       fn: () =>
         overlayContract(
           `.overlay-base { position: fixed; place-items: center; overflow-y: auto; padding: max(12px, env(safe-area-inset-top,0)); }
-           .modal-base { max-height: calc(100dvh - 24px); }`,
+           .modal-base { max-height: calc(100dvh - 24px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-large); box-shadow: var(--shadow-float); }`,
         ),
       clean: false,
     },
@@ -718,9 +756,53 @@ if (op === 'list') {
       fn: () =>
         overlayContract(
           `.overlay-base { position: fixed; align-items: flex-start; padding: max(12px, env(safe-area-inset-top,0)); }
-           .modal-base { max-height: calc(100dvh - 24px); }`,
+           .modal-base { max-height: calc(100dvh - 24px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-large); box-shadow: var(--shadow-float); }`,
         ),
       clean: false,
+    },
+    {
+      // 정상형 — 표면은 .modal-base 한 곳, 형제는 자기 것(폭·여백)만 갖는다.
+      name: '표면이 .modal-base 한 곳에만 있으면 정상',
+      fn: () =>
+        overlayContract(
+          `.overlay-base { position: fixed; align-items: flex-start; overflow-y: auto; padding: max(12px, env(safe-area-inset-top,0)); }
+           .modal-base { max-height: calc(100dvh - 24px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-large); box-shadow: var(--shadow-float); }
+           .trip-editor-modal { max-width: 480px; padding: var(--space-4); }`,
+        ),
+      clean: true,
+    },
+    {
+      // 🔴 **실제 결함**(M-0172) — 정본에서 표면이 사라지면 투명 모달이 태어난다.
+      name: '모달 표면 정본 소실 검출(실제 결함 — 투명 모달)',
+      fn: () =>
+        overlayContract(
+          `.overlay-base { position: fixed; align-items: flex-start; overflow-y: auto; padding: max(12px, env(safe-area-inset-top,0)); }
+           .modal-base { max-height: calc(100dvh - 24px); }
+           .trip-editor-modal { max-width: 480px; }`,
+        ),
+      clean: false,
+    },
+    {
+      // 🔴 갈라짐의 씨앗 — 이 저장소는 실제로 이 상태에서 다섯 벌을 손으로 들고 있었다.
+      name: '형제가 같은 값으로 표면을 다시 쓰면 검출(손복사 재발)',
+      fn: () =>
+        overlayContract(
+          `.overlay-base { position: fixed; align-items: flex-start; overflow-y: auto; padding: max(12px, env(safe-area-inset-top,0)); }
+           .modal-base { max-height: calc(100dvh - 24px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-large); box-shadow: var(--shadow-float); }
+           .guide-modal { max-width: 900px; background: var(--surface); border-radius: var(--radius-large); }`,
+        ),
+      clean: false,
+    },
+    {
+      // 오탐 방지 — **다른 값**은 정당한 재정의다(§11 ③ 오탐도 결함이다).
+      name: '형제가 다른 값으로 재정의하는 것은 잡지 않는다(오탐 방지)',
+      fn: () =>
+        overlayContract(
+          `.overlay-base { position: fixed; align-items: flex-start; overflow-y: auto; padding: max(12px, env(safe-area-inset-top,0)); }
+           .modal-base { max-height: calc(100dvh - 24px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-large); box-shadow: var(--shadow-float); }
+           .photo-full-modal { background: #000; border-radius: 0; }`,
+        ),
+      clean: true,
     },
     { name: '-ink 변형을 쓰면 정상', fn: () => semanticTintContrast(`.a { background: color-mix(in srgb, var(--sem-teal) 12%, transparent); color: var(--sem-teal-ink); }`), clean: true },
     {
