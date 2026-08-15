@@ -188,3 +188,55 @@ export function writeLanded(
   if (server.clientOperationId !== sentOperationId || server.version < sentVersion) return false;
   return sentPath === undefined || server.storagePath === sentPath;
 }
+
+/**
+ * **서버 고아를 만났을 때 이 행을 어떻게 할 것인가**(2026-08-15 · T-047에서 꺼냄).
+ *
+ * ── 왜 꺼냈나 ────────────────────────────────────────────────────────────────
+ * 이 판정은 `pullMedia`의 for 루프 안에 인라인으로 있었다. 그런데 이게 지키는 것은
+ * **파괴적 서버 쓰기**다 — 서버 행에 tombstone을 밀고 **R2 바이트를 지운다.**
+ * 그 판정에 **유닛이 하나도 없었다.** IO 클로저 안이라 붙일 수가 없었다(§10 ③).
+ *
+ * ── 🔴 왜 `boolean`이 아니라 유니온인가 (내가 한 번 틀린 자리) ───────────────
+ * 처음엔 `shouldSweepServerOrphan(): boolean`으로 꺼냈다. **그리고 거동이 바뀌었다.**
+ * 원래 코드에서 `server-read-only`는 `continue`였다 — 즉 **그 행의 나머지 처리를 통째로
+ * 건너뛴다.** 그런데 `false`를 돌려주니 호출부가 아래로 **흘러가서** 다운로드·로컬 쓰기까지
+ * 했다(기존 유닛이 `r2: 0`을 기대했는데 `1`이 나와 잡혔다).
+ *
+ * 🔴 **교훈: `boolean`은 두 갈래인데 원래 흐름은 세 갈래였다.** 「순수 추출이니 거동은
+ * 그대로」라는 말은 **반환 타입이 원래 제어흐름을 담을 수 있을 때만** 참이다. 그래서
+ * 세 상태를 이름으로 만든다 — 다음 사람이 `if (x)`로 뭉갤 수 없다.
+ *
+ * ── 무엇을 판정하나 ─────────────────────────────────────────────────────────
+ *  · `not-orphan` — 이 행은 이 부류가 아니다. **평소 처리로 계속 간다.**
+ *  · `skip-row`   — 고아이긴 한데 `server-read-only`다. **아무것도 하지 않고 다음 행으로.**
+ *                   capability 불명에서는 서버 쓰기도, 이미 영구삭제한 부모 아래로 다시
+ *                   받는 것도 금지다(sync-offline-dev 11 · M-0093).
+ *  · `sweep`      — tombstone을 밀고 바이트를 지운다.
+ *
+ * 고아의 조건 셋은 **모두** 참이어야 한다: ①로컬에 행이 없다(있으면 대기열이 처리한다 —
+ * 여기서 손대면 두 손이 겹친다) ②서버가 아직 활성이다 ③그 여행을 **이 기기에서 영구삭제**했다.
+ * 🔴 ③이 가장 위험한 자리다 — 없으면 **남의 멀쩡한 자료를 지운다.**
+ *
+ * ── 🔴 형제 비대칭 (사실만 적는다 · T-050) ──────────────────────────────────
+ * 이 스윕은 **`pullMedia`에만 있다.** 나머지 여섯 pull 루프는 자기 id만 보고 **부모 여행이
+ * 영구삭제됐는지는 안 본다.** 소리·영상도 바이트를 갖는 형제라 같은 사각지대가 있을 수 있다.
+ * 🔴 **그러나 「있을 수 있다」는 확인이 아니다**(§8) — 서버 FK cascade가 데려가는지 재보지
+ * 않았다. 거동을 바꾸는 판단이라 분리했다.
+ */
+export type ServerOrphanAction = 'not-orphan' | 'skip-row' | 'sweep';
+
+export function serverOrphanAction(input: {
+  /** 로컬에 이 id의 행이 없는가. */
+  readonly localMissing: boolean;
+  /** 서버 행의 `deletedAt` — `null`이면 활성이다. */
+  readonly serverDeletedAt: string | null;
+  /** 이 행의 부모 여행이 **이 기기에서** 영구삭제됐는가. */
+  readonly parentPurged: boolean;
+  /** 전환 모드. `server-read-only`면 서버에 아무것도 쓰지 않는다. */
+  readonly mode: 'merge' | 'server-read-only';
+}): ServerOrphanAction {
+  const isOrphan = input.localMissing && input.serverDeletedAt === null && input.parentPurged;
+  if (!isOrphan) return 'not-orphan';
+  return input.mode === 'server-read-only' ? 'skip-row' : 'sweep';
+}

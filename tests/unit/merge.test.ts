@@ -1,6 +1,6 @@
 // 동기화 결정 순수함수 테스트 (SYNC_PROTOCOL 불변식을 게이트로 잠금).
 import { describe, it, expect } from 'vitest';
-import { mergeDecision, isEmptyCloudAnomaly, classifyError, writeLanded } from '../../src/sync/merge';
+import { mergeDecision, isEmptyCloudAnomaly, classifyError, writeLanded, serverOrphanAction } from '../../src/sync/merge';
 import type { LocalTrip } from '../../src/offline/db';
 
 function trip(over: Partial<LocalTrip>): LocalTrip {
@@ -110,4 +110,60 @@ describe('classifyError (재시도 vs 영구)', () => {
     expect(classifyError(403)).toBe('permanent');
   });
   it('400 검증 = 영구', () => expect(classifyError(400)).toBe('permanent'));
+});
+
+/**
+ * 🔴 **파괴적 서버 쓰기를 지키는 판정**(T-047에서 `pullMedia`의 IO 클로저에서 꺼냄).
+ *
+ * 참이면 서버 행에 tombstone을 밀고 **R2 바이트를 지운다.** 그런데 꺼내기 전에는
+ * **유닛이 하나도 없었다** — 클로저 안이라 붙일 수가 없었다(§10 ③). 그게 T-047이
+ * 말하는 「검사할 수 없는 면적」의 실물이다.
+ *
+ * 네 입력의 **모든 조합(2×2×2×2 = 16)을 전수로** 돈다. 손으로 몇 개 고르면 빠뜨린 갈래가
+ * 생기고, 이 자리에서 빠뜨린 갈래는 **남의 자료를 지우는 것**이다.
+ */
+describe('serverOrphanAction — 서버 고아를 만났을 때 이 행을 어떻게 할 것인가', () => {
+  const base = {
+    localMissing: true,
+    serverDeletedAt: null as string | null,
+    parentPurged: true,
+    mode: 'merge' as 'merge' | 'server-read-only',
+  };
+
+  it('세 조건이 모두 참이고 merge 모드면 쓸어낸다', () => {
+    expect(serverOrphanAction(base)).toBe('sweep');
+  });
+
+  it('🔴 server-read-only는 **거짓이 아니라 `skip-row`**다 — 이 행의 나머지 처리도 건너뛴다', () => {
+    // 처음 꺼낼 때 이걸 `false`로 뭉갰다가 다운로드·로컬 쓰기까지 흘러가는 회귀를 만들었다.
+    // 「고아가 아니다」와 「고아지만 지금은 손대지 않는다」는 **다른 말**이다(§8).
+    expect(serverOrphanAction({ ...base, mode: 'server-read-only' })).toBe('skip-row');
+  });
+
+  it('🔴 전수: 16개 조합 중 `sweep`은 하나, `skip-row`도 하나, 나머지 14는 `not-orphan`', () => {
+    const seen = { sweep: 0, 'skip-row': 0, 'not-orphan': 0 };
+    for (const localMissing of [true, false]) {
+      for (const serverDeletedAt of [null, '2026-08-15T00:00:00.000Z']) {
+        for (const parentPurged of [true, false]) {
+          for (const mode of ['merge', 'server-read-only'] as const) {
+            seen[serverOrphanAction({ localMissing, serverDeletedAt, parentPurged, mode })] += 1;
+          }
+        }
+      }
+    }
+    expect(seen).toEqual({ sweep: 1, 'skip-row': 1, 'not-orphan': 14 });
+  });
+
+  it('🔴 로컬에 행이 있으면 이 부류가 아니다 — 정상 경로(대기열)와 두 손이 겹친다', () => {
+    expect(serverOrphanAction({ ...base, localMissing: false })).toBe('not-orphan');
+  });
+
+  it('🔴 부모 여행을 영구삭제하지 않았으면 절대 안 지운다 — 남의 멀쩡한 자료다', () => {
+    expect(serverOrphanAction({ ...base, parentPurged: false })).toBe('not-orphan');
+    expect(serverOrphanAction({ ...base, parentPurged: false, mode: 'server-read-only' })).toBe('not-orphan');
+  });
+
+  it('서버가 이미 tombstone이면 할 일이 없다', () => {
+    expect(serverOrphanAction({ ...base, serverDeletedAt: '2026-08-15T00:00:00.000Z' })).toBe('not-orphan');
+  });
 });
