@@ -203,7 +203,7 @@ export const REGISTRY = {
   /** docs/AGENT_REGISTRY.md의 논리 역할 수. 가이드가 손으로 「139개」를 적지 않게. */
   logicalRoleCount: 139,
   skillCount: 13,
-  screenCount: 12,
+  screenCount: 13,
   migrationCount: 32,
   changelogCount: 243,
   researchCount: 144,

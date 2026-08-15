@@ -7,6 +7,7 @@
 // @live-covers: screens/home.ts, screens/tripDetail.ts, screens/mapView.ts, screens/dataManager.ts,
 // @live-covers: screens/guide.ts, screens/mechChecks.ts, screens/designOverview.ts
 // @live-covers: screens/placeRegistry.ts
+// @live-covers: screens/companionRecords.ts
 // ↑ `check-live-coverage`가 읽는다. **여기 적은 화면은 이 스크립트가 실제로 연다** — 선언과
 //   실제가 어긋나면 게이트는 못 잡는다(정직한 한계). 화면을 더 열면 여기도 늘려라.
 // (Playwright는 devDependency가 아니므로 전역 설치본을 폴백으로 찾는다.)
@@ -5617,6 +5618,106 @@ check('v1.97 연결 이름: 순간 편집이 placeId·당시 좌표를 보존하
         lat: linkedNameReadBack?.moment?.placeLat ?? null,
         lng: linkedNameReadBack?.moment?.placeLng ?? null,
       }));
+
+// ── 🔴 동행인: 사람마다 칩 하나 · 누르면 「이 사람과 함께한 기록」(사용자 지시 2026-08-15) ──
+//    §13 4항 — **버튼은 눌러 봐야 확인한 것이다.** 라벨만 읽으면 M-0046·M-0048의 되풀이다.
+{
+  const card = page.locator(`.moment-card[data-moment-id="${PLACE_RECORD_IDS.moments[0]}"]`);
+  await card.locator('.icon-btn[aria-label="이 순간 편집"]').click();
+  const editForm = card.locator('.moment-edit');
+  await editForm.locator('.companion-input').waitFor();
+  // 한 명씩 넣는다 — Enter로 확정되는가.
+  await editForm.locator('.companion-input').fill('러윈형님');
+  await editForm.locator('.companion-input').press('Enter');
+  await editForm.locator('.companion-input').fill('러원이');
+  await editForm.locator('.companion-input').press('Enter');
+  const tokenCount = await editForm.locator('.companion-token').count();
+  check('동행인 입력: Enter로 **한 명씩** 토큰이 된다', tokenCount === 2, `토큰 ${tokenCount}개`);
+  // 🔴 확정 안 한 마지막 이름도 저장돼야 한다 — 「적었는데 저장 안 됨」은 사용자에겐 유실이다.
+  await editForm.locator('.companion-input').fill('확정안한사람');
+  await editForm.getByRole('button', { name: '저장', exact: true }).click();
+  await card.locator('.moment-edit').waitFor({ state: 'hidden' });
+
+  const chips = card.locator('.chip-person');
+  const chipTexts = await waitUntil(async () => {
+    const t = await chips.allTextContents();
+    return t.length === 3 ? t : null;
+  }) ?? await chips.allTextContents();
+  check('동행인 칩: **사람마다 하나씩** 그려진다(한 덩어리 칩이 아니다)',
+    chipTexts.length === 3, JSON.stringify(chipTexts));
+  check('🔴 동행인 저장: Enter를 안 누른 마지막 이름도 잃지 않는다',
+    chipTexts.some((t) => t.includes('확정안한사람')), JSON.stringify(chipTexts));
+
+  // 🔴 **누른다.** 그리는 것과 도는 것은 다른 층이다(§13 4항).
+  await chips.filter({ hasText: '러원이' }).first().click();
+  await page.waitForSelector('.companion-records-overlay', { timeout: 10000 });
+  const modalText = await waitUntil(async () => {
+    const t = (await page.locator('.companion-records-overlay .pr-records-modal').textContent()) ?? '';
+    return t.includes('함께한 순간') ? t : null;
+  }) ?? (await page.locator('.companion-records-overlay .pr-records-modal').textContent()) ?? '';
+  check('🔴 동행인 칩을 **누르면** 「이 사람과 함께한 기록」 창이 열린다',
+    modalText.includes('이 사람과 함께한 기록') && modalText.includes('러원이'), modalText.slice(0, 160));
+  check('동행인 창: **몇 개인지 세어서** 말한다(원자료 덤프가 아니다 — §8)',
+    /함께한 순간 \d+개/.test(modalText), modalText.slice(0, 160));
+  // 🔴 이름이 비슷한 기록이 따로 있으면 **단정하지 않고** 알린다(§8 · M-0056).
+  check('동행인 창: 비슷한 이름을 「같은 사람입니다」로 단정하지 않는다',
+    !/같은 사람입니다/.test(modalText), modalText.slice(0, 200));
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('.companion-records-overlay', { state: 'detached' });
+  check('동행인 창: Esc로 닫히고 아래 화면은 그대로 남는다',
+    (await page.locator('.moment-card').count()) > 0);
+}
+
+// ── 🔴 타임라인 순서 토글(사용자 지시 2026-08-15) ────────────────────────────
+{
+  // 🔴 **모집단을 먼저 만든다**(§4). 첫 판은 날짜 묶음이 **1개**라 뒤집어도 같았고 —
+  //    즉 **뒤집기가 아예 고장 나도 초록**이었다. 「초록」이 「없다」가 아니라 「안 봤다」인
+  //    전형이다(§17). 다른 날 순간을 하나 심어 **뒤집힘이 관측 가능한 상태**를 만든다.
+  await page.evaluate(async (tripId) => await new Promise((resolve, reject) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction('localMoments', 'readwrite');
+      const now = new Date().toISOString();
+      tx.objectStore('localMoments').put({
+        id: 'live-order-second-day', tripId, occurredAt: '2026-08-16T04:00:00.000Z',
+        title: '순서 확인용 다음날 순간', note: '', emotion: '', placeName: '', placeLat: null, placeLng: null,
+        placeId: null, companionNames: '', version: 1, baseVersion: 0, createdAt: now, updatedAt: now,
+        deletedAt: null, clientOperationId: 'live-order-second-day-op',
+      });
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => { db.close(); reject(tx.error); };
+    };
+    req.onerror = () => reject(req.error);
+  }), 'pr-nav-trip-direct');
+  // 🔴 `reload()`가 아니라 **목표 없는 주소**로 간다. 지금 URL에는 `?moment=…&media=…`가
+  //    남아 있어 새로고침하면 **사진 뷰어가 다시 열리고** 그게 토글 클릭을 가로챈다
+  //    (라이브가 57번 재시도하다 죽어서 알았다 — 「열려 있는 것」도 화면 상태다).
+  await page.goto(`http://localhost:4173${BASE}trip/pr-nav-trip-direct`);
+  await page.waitForFunction(() => (document.getElementById('app')?.innerText ?? '').trim().length > 0, { timeout: 15000 });
+  const bar = page.locator('.timeline-order');
+  await bar.waitFor();
+  await waitUntil(async () => (await page.locator('.day-head').count()) >= 2);
+  const before = await page.locator('.day-head').allTextContents();
+  // 🔴 **모집단 판정을 먼저 한다** — 1개면 아래 「뒤집혔다」는 아무것도 증명하지 않는다.
+  check('순서 토글: 날짜 묶음이 **둘 이상**이다(하나면 뒤집기를 잴 수 없다 — §4)',
+    before.length >= 2, JSON.stringify(before));
+  const labelBefore = (await bar.textContent()) ?? '';
+  await bar.click();
+  await settle(page);
+  const after = await page.locator('.day-head').allTextContents();
+  const labelAfter = (await page.locator('.timeline-order').textContent()) ?? '';
+  check('순서 토글: 누르면 날짜 묶음 순서가 **실제로 뒤집힌다**',
+    before.length > 0 && JSON.stringify(after) === JSON.stringify([...before].reverse()),
+    JSON.stringify({ before, after }));
+  check('🔴 순서 토글: 라벨이 「지금 상태」가 아니라 **「누르면 무엇이 되는가」**를 말한다',
+    labelBefore !== labelAfter && labelBefore.length > 0 && labelAfter.length > 0,
+    `${labelBefore} → ${labelAfter}`);
+  await page.locator('.timeline-order').click(); // 뒤따르는 검사를 위해 되돌린다(§3-C)
+  await settle(page);
+  check('순서 토글: 다시 누르면 제자리로 돌아온다(§3-C 되돌리기)',
+    JSON.stringify(await page.locator('.day-head').allTextContents()) === JSON.stringify(before));
+}
 
 // ── v2.11 영상: 실제 브라우저 생성 파일 → 변환 → Dexie → 재생 ──────────────
 // 정적 픽스처를 저장소에 넣지 않고 Chromium의 MediaRecorder로 1초 WebM을 만든다. 이 파일을
