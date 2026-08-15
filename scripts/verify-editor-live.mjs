@@ -5614,7 +5614,15 @@ check('v1.97 연결 이름: 순간 편집이 placeId·당시 좌표를 보존하
   await editForm.locator('.companion-input').press('Enter');
   await editForm.locator('.companion-input').fill('러원이');
   await editForm.locator('.companion-input').press('Enter');
-  const tokenCount = await editForm.locator('.companion-token').count();
+  // 🔴 **`count()`에는 자동 대기가 없다**(헌장 §3-C-2 · M-0164·M-0171에 이은 네 번째 재발).
+  //    `press('Enter')`는 토큰을 만드는 일을 **시작**할 뿐이고, 즉시 세면 CI처럼 느린 곳에서
+  //    두 번째 토큰이 아직 안 그려져 있다. 실측(CI run 31893662392): **토큰 1개**로 빨간불이
+  //    났고, 그 뒤 칩 검사도 이름 셋 중 둘만 봤다 — 하나의 이른 측정이 두 검사를 무너뜨렸다.
+  //    내용으로 기다린다. 🔴 그리고 **기다림이 실패해도 판정은 현실을 읽는다**(T-045의 규율).
+  const tokenCount = (await waitUntil(async () => {
+    const n = await editForm.locator('.companion-token').count();
+    return n === 2 ? n : null;
+  })) ?? await editForm.locator('.companion-token').count();
   check('동행인 입력: Enter로 **한 명씩** 토큰이 된다', tokenCount === 2, `토큰 ${tokenCount}개`);
   // 🔴 확정 안 한 마지막 이름도 저장돼야 한다 — 「적었는데 저장 안 됨」은 사용자에겐 유실이다.
   await editForm.locator('.companion-input').fill('확정안한사람');
