@@ -53,6 +53,23 @@
   line-height: 1.4; white-space: nowrap;
 }
 .app-version:hover { color: var(--a1d); border-color: var(--a1); }
+/* 🔴 헤더의 두 작은 버튼(앱 이름 · 버전 배지)은 **보이는 크기를 키우지 않고** 누를 수 있는
+   넓이만 세로로 `--touch-target-min`까지 넓힌다(2026-08-15 · T-041 · 폴드 커버 실측에서
+   각각 182×24 · 51×24였다). 시각 밀도와 터치 표적은 같은 값이 아니다(M-0125).
+
+   ⚠️ **가로는 넓히지 않는다** — 둘은 같은 줄에 나란히 서므로 가로로 넓히면 서로의 터치를
+   훔친다(M-0162에서 실측으로 겪은 함정).
+
+   🔴 **이 처방은 한 번 실패했다가 배치를 고친 뒤에 성립했다.** 처음 넣었을 때는 344·360px에서
+   둘이 세로로 **쌓여 있어서** 세로 확장이 서로를 덮었다. 헤더를 세 줄로 정리해 제목과 배지가
+   **같은 줄에 서게** 되자 그 겹침이 사라졌다 — 즉 **배치가 터치 표적의 전제였다.**
+   라이브가 `elementFromPoint` 9점으로 「덮는 것 0」을 함께 잰다(넓히기만 재면 반쪽이다). */
+.app-title-home, .app-version { position: relative; }
+.app-title-home::after, .app-version::after {
+  content: ''; position: absolute; left: 0; right: 0;
+  top: calc((100% - var(--touch-target-min)) / 2);
+  bottom: calc((100% - var(--touch-target-min)) / 2);
+}
 .header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); justify-content: flex-end; }
 
 /* 계절 세그먼트 + 테마 토글 */
@@ -455,10 +472,33 @@
   .app-title-row { flex-wrap: wrap; }
   .app-title-row > .sync-note { flex: 1 0 100%; max-width: none; }
 }
+/* 🔴 아주 좁은 폭(폴드 커버·소형 폰)의 헤더 배치 — 사용자 실기기 지적 2026-08-15:
+   *"제목 버전배지 동기화됨 그리고 이메일 배치를 이쁘게 안 될까?"*
+
+   그때 화면은 **다섯 줄**이었다: 제목이 「Bugeon / Journey」로 갈라져 두 줄, 그 아래 배지,
+   그 아래 동기화됨, 오른쪽 위에 잘린 이메일. 원인이 둘이다.
+
+   ① **이 분기가 제목을 오히려 키우고 있었다**(1.2rem → 1.25rem). 좁을수록 크게 만들면
+      갈라질 확률만 올라간다 — 「작게 만들기」가 답은 아니지만(§5) **키우는 것은 더 아니다**.
+   ② 제목 줄과 계정 영역이 **같은 줄을 다투다** 제목 칸이 좁아졌다. `flex: 1 1 0`이라
+      오그라들었고, 그 결과가 낱말 단위 줄바꿈이었다.
+
+   그래서 **줄을 다투게 하지 않는다**: 위는 제목+배지, 아래는 계정 한 줄, 그 아래 상태 한 줄.
+   세 줄로 정리되고(다섯 → 세 줄), 계정이 전폭을 쓰므로 이메일을 11자로 자를 이유도 사라진다.
+   🔴 **새 breakpoint를 만들지 않았다** — 이미 있던 400px 분기 안에서만 바꾼다. */
 @media (max-width: 400px) {
-  .app-title { font-size: 1.25rem; }
-  /* 아주 좁으면 이메일이 두 버튼을 밀어낸다 — 더 짧게 자른다(숨기지는 않는다). */
-  .auth-who { max-width: 11ch; }
+  /* 제목은 한 줄로 선다. 낱말이 갈라지면 헤더가 통째로 한 줄 더 먹는다. */
+  .app-title { font-size: 1.08rem; }
+  .app-title-home { white-space: nowrap; }
+  /* 제목 줄과 계정 줄이 서로의 폭을 빼앗지 않게 세로로 나눈다. */
+  .app-head-top { flex-direction: column; align-items: stretch; gap: var(--space-1); }
+  .app-head-tools { margin-left: 0; align-items: stretch; }
+  /* 계정은 전폭 한 줄 — 이메일은 왼쪽, 로그아웃은 오른쪽 끝. 세로는 가운데로 맞춘다
+     (stretch로 두면 글자와 버튼의 기준선이 서로 어긋나 보인다). */
+  .auth-area { width: 100%; justify-content: space-between; align-items: center; flex-wrap: nowrap; }
+  .auth-area .btn-ghost { flex: 0 0 auto; }
+  /* 전폭을 쓰므로 11자로 자르지 않는다. 그래도 아주 긴 주소는 말줄임이 받는다(§3-B ①). */
+  .auth-who { max-width: none; min-width: 0; flex: 1 1 auto; }
 }
 
 /* ============================================================= */
@@ -881,7 +921,8 @@ select.zone-input { text-overflow: ellipsis; }
 .moment-photo-count { color: var(--a1d); }
 /* 편집 모드: 저장된 순간에 사진 추가 */
 .moment-addphoto {
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* 위 `.photo-pick-actions`와 같은 규율 — 좁으면 열 수가 줄고, 글자는 쪼개지지 않는다. */
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
   align-items: stretch; gap: var(--space-2); margin-top: var(--space-2);
 }
 .moment-addphoto > :is(label, button) { width: 100%; min-width: 0; }
@@ -902,7 +943,19 @@ select.zone-input { text-overflow: ellipsis; }
 /* 📁 원본에서 — 사진 선택기가 GPS를 지우므로 파일 선택기로 가는 길(M-0054).
    보조 경로이므로 사진 추가 버튼 옆에 **작게** 둔다: 평소 흐름을 밀어내지 않는다. */
 .pick-original { align-self: flex-start; margin-top: var(--space-2); }
-.photo-pick-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+/* 첨부 버튼 세 형제(📷 사진 · 🖼️ 갤러리 · 🎬 영상)의 **공용 얼굴**.
+   구조는 `pickerFace()`가 한 곳에서 만들고, 모양은 여기가 한 곳에서 정한다(§7 2층).
+
+   🔴 왜(2026-08-15 · 사용자 실기기 · M-0163): 셋이 각자 마크업이라 글꼴 크기·굵기가 달랐고
+   (0.85rem/700 ↔ 0.8rem/기본), 글자가 **텍스트 안의 공백에서 갈라져** 좁은 화면에서
+   「📷 사진 / 추가」처럼 두 줄로 어그러졌다. 이제 글자는 한 덩어리로 서고, 칸이 좁으면
+   **글자를 쪼개는 대신 줄 수를 줄인다**(아래 auto-fit). */
+.moment-picker { font-family: inherit; }
+.moment-picker .moment-picker-text { white-space: nowrap; }
+/* 🔴 고정 열 수를 쓰지 않는다 — 좁은 화면(폴드 커버·소형 폰)에서 칸이 글자보다 작아지면
+   글자가 깨지거나 가로로 넘친다. `auto-fit`은 **넓으면 한 줄 셋, 좁으면 스스로 접힌다**.
+   최소폭은 가장 긴 라벨(「🖼️ 갤러리에서」)이 한 줄로 서는 실측값이다. */
+.photo-pick-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: var(--space-2); }
 .photo-pick-actions > :is(label, button) { width: 100%; min-width: 0; align-self: stretch; margin-top: 0; }
 .place-results {
   display: flex; flex-direction: column; gap: 4px;

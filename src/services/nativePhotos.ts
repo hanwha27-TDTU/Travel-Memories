@@ -18,6 +18,7 @@
 // 두 번째 파이프라인을 만들면 그 순간부터 한쪽이 낡는다(M-0060이 정확히 그 형태였다).
 
 import { shellPlugin } from './capacitorShell';
+import { BYPASS_NATIVE_ATTR } from '../ui/pickOriginal';
 
 /** 셸이 주입하는 브리지의 모양 — 플러그인(OriginalPhotosPlugin.java)과 1:1이다. */
 interface OriginalPhotosBridge {
@@ -120,16 +121,26 @@ export async function pickIntoInput(input: HTMLInputElement): Promise<boolean> {
 /**
  * 사진 입력칸을 셸에 잇는다 — 생성 폼·편집 폼이 **같은 문**을 지난다(§7).
  *
- * capture 단계에서 가로채는 이유: input.click()은 label 경유·[🖼️ 갤러리에서]의
- * `wireAltPick` 경유 등 여러 길로 온다. 셸 안에서는 **어느 길로 와도** 시스템 선택기 대신
- * 네이티브 문이 열려야 한다 — 셸에서 시스템 선택기를 열면 위치가 지워진 사본이 오고,
- * 그 결함은 조용하다(이 조용함이 나흘 걸렸다).
+ * capture 단계에서 가로채는 이유: input.click()은 label 경유 등 여러 길로 온다. 셸 안에서는
+ * **기본적으로 어느 길로 와도** 시스템 선택기 대신 네이티브 문이 열려야 한다 — 셸에서 시스템
+ * 선택기를 열면 위치가 지워진 사본이 오고, 그 결함은 조용하다(이 조용함이 나흘 걸렸다).
+ *
+ * 🔴 **예외는 하나, 그리고 그것은 라벨이 약속한 것이다**(2026-08-15 · M-0163).
+ *    [🖼️ 갤러리에서]는 *"갤러리로 고르겠다 — 위치가 빠져도 좋다"*를 사용자가 **명시적으로**
+ *    고르는 버튼이고, `pickOriginal.ts`가 그렇게 설계했다고 적어 뒀다. 그런데 이 가로채기가
+ *    그 길까지 삼켜서, 눌러도 갤러리가 아니라 원본(문서) 선택기가 열렸다 — **버튼이 자기
+ *    이름과 다른 일을 하고 있었다.** 두 파일의 주석이 서로 모순이었고(§17 축 ④), 모순은
+ *    화면에서만 보였다. 그래서 `wireAltPick`이 켜는 표시가 있을 때만 비켜선다.
+ *
+ *    이 예외는 **그 클릭 한 번**에만 산다(표시는 고르거나 취소하면 지워진다). 기본 경로는
+ *    그대로 네이티브 문이다 — 기본값이 조용히 뒤집히는 것이 이 영역에서 가장 비싼 결함이다.
  */
 export function wireNativeIntake(input: HTMLInputElement): void {
   input.addEventListener(
     'click',
     (e) => {
       if (!bridge()) return; // 크롬 — 손대지 않는다
+      if (input.dataset[BYPASS_NATIVE_ATTR]) return; // [🖼️ 갤러리에서] — 사용자가 명시적으로 고른 길
       e.preventDefault();
       void pickIntoInput(input);
     },
