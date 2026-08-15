@@ -464,10 +464,33 @@
   .app-title-row { flex-wrap: wrap; }
   .app-title-row > .sync-note { flex: 1 0 100%; max-width: none; }
 }
+/* 🔴 아주 좁은 폭(폴드 커버·소형 폰)의 헤더 배치 — 사용자 실기기 지적 2026-08-15:
+   *"제목 버전배지 동기화됨 그리고 이메일 배치를 이쁘게 안 될까?"*
+
+   그때 화면은 **다섯 줄**이었다: 제목이 「Bugeon / Journey」로 갈라져 두 줄, 그 아래 배지,
+   그 아래 동기화됨, 오른쪽 위에 잘린 이메일. 원인이 둘이다.
+
+   ① **이 분기가 제목을 오히려 키우고 있었다**(1.2rem → 1.25rem). 좁을수록 크게 만들면
+      갈라질 확률만 올라간다 — 「작게 만들기」가 답은 아니지만(§5) **키우는 것은 더 아니다**.
+   ② 제목 줄과 계정 영역이 **같은 줄을 다투다** 제목 칸이 좁아졌다. `flex: 1 1 0`이라
+      오그라들었고, 그 결과가 낱말 단위 줄바꿈이었다.
+
+   그래서 **줄을 다투게 하지 않는다**: 위는 제목+배지, 아래는 계정 한 줄, 그 아래 상태 한 줄.
+   세 줄로 정리되고(다섯 → 세 줄), 계정이 전폭을 쓰므로 이메일을 11자로 자를 이유도 사라진다.
+   🔴 **새 breakpoint를 만들지 않았다** — 이미 있던 400px 분기 안에서만 바꾼다. */
 @media (max-width: 400px) {
-  .app-title { font-size: 1.25rem; }
-  /* 아주 좁으면 이메일이 두 버튼을 밀어낸다 — 더 짧게 자른다(숨기지는 않는다). */
-  .auth-who { max-width: 11ch; }
+  /* 제목은 한 줄로 선다. 낱말이 갈라지면 헤더가 통째로 한 줄 더 먹는다. */
+  .app-title { font-size: 1.08rem; }
+  .app-title-home { white-space: nowrap; }
+  /* 제목 줄과 계정 줄이 서로의 폭을 빼앗지 않게 세로로 나눈다. */
+  .app-head-top { flex-direction: column; align-items: stretch; gap: var(--space-1); }
+  .app-head-tools { margin-left: 0; align-items: stretch; }
+  /* 계정은 전폭 한 줄 — 이메일은 왼쪽, 로그아웃은 오른쪽 끝. 세로는 가운데로 맞춘다
+     (stretch로 두면 글자와 버튼의 기준선이 서로 어긋나 보인다). */
+  .auth-area { width: 100%; justify-content: space-between; align-items: center; flex-wrap: nowrap; }
+  .auth-area .btn-ghost { flex: 0 0 auto; }
+  /* 전폭을 쓰므로 11자로 자르지 않는다. 그래도 아주 긴 주소는 말줄임이 받는다(§3-B ①). */
+  .auth-who { max-width: none; min-width: 0; flex: 1 1 auto; }
 }
 
 /* ============================================================= */
