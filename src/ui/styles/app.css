@@ -550,7 +550,11 @@
 }
 .hero-back {
   position: absolute; z-index: 3; top: max(16px, env(safe-area-inset-top, 0)); left: 16px;
-  width: 40px; height: 40px; border-radius: 50%;
+  /* T-043 — 40px는 표적 최소(44px)에 4px 모자랐다. 형제인 `.hero-map`·`.hero-edit`는 이미
+     `min-height: var(--touch-target-min)`을 쓰고 있었는데 **이것만 숫자로 굳어 있었다**(§7).
+     오른쪽 두 버튼은 `right: 16px`/`96px`(좁은 화면 90px)에 있어 왼쪽 16px에서 44px까지
+     늘려도 만나지 않는다 — 넓히기가 이웃의 터치를 훔치는지는 라이브가 잰다(M-0162). */
+  width: var(--touch-target-min); height: var(--touch-target-min); border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, .35);
   background: rgba(255, 255, 255, .2);
   backdrop-filter: blur(6px);
@@ -565,9 +569,16 @@
   text-shadow: 0 2px 14px rgba(0, 0, 0, .35); text-wrap: balance;
 }
 .detail-period { margin: 0; font-size: 0.9rem; font-weight: 600; opacity: 0.95; }
-.detail-stats { position: relative; z-index: 2; display: flex; gap: var(--space-2); margin-top: 14px; }
+/* 🔴 **폴드 커버 폭(344px)에서 통계가 잘려 사라지고 있었다**(T-043 · 2026-08-15 실측 +262px).
+   `.detail-hero`는 `overflow: hidden`이고 이 줄은 `flex: 0 0 auto`였다 — 즉 각 칸이
+   **max-content 폭**을 갖고 줄바꿈도 축소도 못 해, 넘친 만큼이 **스크롤도 없이 그냥 사라졌다.**
+   가장 잘 넘치는 칸은 「비용」이다(`totals.join(' · ')`이라 통화가 늘면 한 줄이 길어진다).
+   ⚠️ 이건 미관이 아니라 **정보 유실**이다 — 사용자는 잘렸다는 사실조차 볼 수 없었다(§12).
+   처방은 폭 분기가 아니라 **폭에 무관한 두 줄**이다(사용자 지시: 임의 중단점을 늘리지 않는다):
+   `wrap`으로 칸이 다음 줄로 내려가고, `0 1 auto`로 긴 칸의 글자가 스스로 접힌다. */
+.detail-stats { position: relative; z-index: 2; display: flex; gap: var(--space-2); margin-top: 14px; flex-wrap: wrap; }
 .detail-stat {
-  flex: 0 0 auto; min-width: 62px; text-align: center;
+  flex: 0 1 auto; min-width: 62px; max-width: 100%; text-align: center;
   background: rgba(255, 255, 255, .18); backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 255, 255, .26); border-radius: var(--radius-medium);
   padding: 8px 12px;
@@ -824,7 +835,12 @@ button.chip { border: 0; font-family: inherit; }
 .dm-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin: var(--space-2) 0; }
 
 /* 환율 상세(배지 탭 → 펼침) — 사용자가 직접 검산할 수 있게 적용일·환율·계산식·출처를 보인다. */
-.chip-approx { border: 0; background: none; cursor: pointer; font: inherit; color: inherit; }
+/* T-043 — 이것도 **칩 안의 작은 버튼**인데(환율 상세 펼치기) 형제 `.chip-x`가 이미 배운
+   *"보이는 것은 그대로, 누를 넓이는 칩 높이를 꽉 채운다"*를 안 물려받아 19px이었다(§7).
+   위 `.chip-x` 머리말의 판단이 여기에도 그대로 걸린다 — **칩 바깥으로는 넘치지 않는다**
+   (넘기면 보이지 않는 표적이 아래 사진 격자에 얹혀, 미달보다 나쁜 상태가 된다). */
+.chip-approx { border: 0; background: none; cursor: pointer; font: inherit; color: inherit;
+  align-self: stretch; margin-block: -5px; }
 .chip-approx:hover { opacity: 1; text-decoration: underline dotted; }
 .chip-approx[aria-expanded='true'] { opacity: 1; font-weight: 700; }
 .fx-detail {
@@ -1952,6 +1968,18 @@ select.zone-input { text-overflow: ellipsis; }
 .map-pop-title { margin: 0; font-size: 0.9rem; font-weight: 700; color: var(--ink); line-height: 1.4; }
 .map-pop-meta { margin: 0; font-size: 0.75rem; color: var(--ink-soft); }
 .maplibregl-popup-content { border-radius: var(--radius-medium); padding: 10px; }
+/* 🔴 제3자(MapLibre) 기본 확대/축소 버튼은 **29×29px**이라 표적 최소(44px)에 한참 못 미친다
+   (T-043 실측). 남이 만든 것이라고 규율에서 빼지 않는다 — **화면에 있으면 사용자의 손가락은
+   그걸 누른다.** 지도는 오른쪽 위 모서리라 넓혀도 만날 이웃이 없고, 아이콘은 배경이미지
+   가운데 정렬이라 상자만 커진다. 그래도 이웃을 훔치는지는 라이브가 잰다(M-0162).
+
+   🔴 **선택자를 `.map-canvas`로 감싼 이유는 미관이 아니라 순서다.** MapLibre의 CSS는
+   `mapRenderer.ts`가 **런타임에 동적 import**하므로 `<head>`에 우리 것보다 **나중에** 꽂힌다.
+   같은 특이도(0,1,1)면 나중이 이긴다 — 처음 이 규칙을 그대로 썼더니 라이브가 여전히
+   29×29로 읽었다(실측). 한 칸 더 감아 특이도를 올리면 **로드 순서와 무관하게** 참이다. */
+.map-canvas .maplibregl-ctrl-group button {
+  width: var(--touch-target-min); height: var(--touch-target-min);
+}
 
 @media (max-width: 560px) {
   .map-overlay { padding: 0; }
@@ -2054,7 +2082,11 @@ select.zone-input { text-overflow: ellipsis; }
   background: linear-gradient(120deg, var(--accent-strong), color-mix(in srgb, var(--accent-strong) 80%, #000));
 }
 .pe-zoom-wrap { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 120px; }
-.pe-zoom { flex: 1; }
+/* 🔴 `min-width: 0`이 **형제에만 있었다**(§7 · T-043 실측: 344px에서 모달을 15px 밀어냈다).
+   `input[type=range]`는 고유 최소폭(~129px)이 있어 `flex: 1`만으로는 그 아래로 못 줄어든다 —
+   아래 `.pe-slider input[type="range"]`는 그걸 알고 `min-width: 0`을 갖고 있는데, 확대
+   슬라이더만 그 규율을 물려받지 않았다. 새로 만든 것이 형제의 계약을 모르고 태어난 형태다. */
+.pe-zoom { flex: 1; min-width: 0; }
 .pe-sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; }
 .pe-slider { display: flex; align-items: center; gap: 8px; }
 .pe-slider-label { font-size: 0.72rem; font-weight: 800; color: var(--ink-soft); width: 44px; flex: 0 0 auto; }
