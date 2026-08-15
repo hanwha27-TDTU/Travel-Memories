@@ -56,7 +56,7 @@ import { momentCoord } from '../../domain/place/geojson';
 import { STATUS_LABEL, STATUS_ORDER } from '../../domain/trip/homeSections';
 import { isWindowsPlatform, partitionDroppedPhotos, photoDropIntent } from '../../domain/media/windowsDrop';
 // 보조 화면은 반드시 lazyScreens를 거친다(정적 import 금지 — check-lazy-screens).
-import { openMapView, openMapPicker, openDiagnosticsHub } from '../lazyScreens';
+import { openMapView, openMapPicker, openDiagnosticsHub, openCompanionRecords } from '../lazyScreens';
 import type { MapPoint } from './mapView';
 import {
   ensureProviders,
@@ -222,15 +222,88 @@ function placeInputOf(field: PlaceField): {
   };
 }
 
-/** 생성·사진 단건 생성·편집이 같은 동행인 입력 계약을 공유한다(§7 화면 대칭). */
-function companionField(initial = ''): HTMLInputElement {
+/**
+ * 동행인 입력 — **한 명씩 넣는다**(사용자 지시 2026-08-15).
+ *
+ * 🔴 **왜 자유 텍스트를 버렸나**: 예전엔 `<input>` 하나에 「아버지, 어머니」를 통째로
+ * 적었다. 그러면 *앱이 사람을 세지 못한다* — 「이 사람과 함께한 기록」도, 사람별 칩도
+ * 불가능하다. 문제는 저장 형태가 아니라 **입력이 사람을 구분하지 않았다는 것**이다.
+ *
+ * 🔴 **그래도 저장은 예전 그대로**(`"아버지, 어머니"`)다. 화면만 토큰으로 바꾸고
+ * 경계에서 `formatCompanions`로 되돌린다 — 마이그레이션도 동기화 변경도 없다(ADR-0074).
+ *
+ * 🔴 **`.value`를 그대로 읽던 호출부 셋이 있었다.** 그래서 반환 타입을 바꾸지 않고
+ * `HTMLInputElement`처럼 `.value`를 읽을 수 있게 두면 **조용히 옛 동작이 남는다** —
+ * 그래서 일부러 **다른 모양**(`{ el, getValue }`)으로 돌려준다. 호출부가 안 고쳐지면
+ * **컴파일이 깨진다**(§7 2층 — 다음 형제가 규율을 몰라도 따라오게).
+ */
+interface CompanionField {
+  readonly el: HTMLElement;
+  /** 저장할 한 덩어리. 예전 계약 그대로다. */
+  getValue: () => string;
+  /** 저장 뒤 폼 비우기 — 형제(`placeField.reset()`·`money.reset()`)와 같은 이름·같은 계약(§7). */
+  reset: () => void;
+}
+
+function companionField(initial = ''): CompanionField {
+  const wrap = el('div', 'companion-field');
+  let names = parseCompanions(initial);
+
+  const chips = el('div', 'companion-chips');
   const input = el('input', 'edit-input companion-input') as HTMLInputElement;
   input.type = 'text';
-  input.value = initial;
-  input.maxLength = 200;
-  input.placeholder = '👥 함께 한 사람 (예: 아버지, 어머니)';
-  input.setAttribute('aria-label', '함께 한 사람(선택)');
-  return input;
+  input.maxLength = 60; // 한 사람 이름. 목록 전체가 아니므로 200자가 필요 없다.
+  input.placeholder = '👥 함께 한 사람 (한 명씩 · Enter)';
+  input.setAttribute('aria-label', '함께 한 사람 추가(선택)');
+
+  const paint = (): void => {
+    chips.replaceChildren();
+    for (const name of names) {
+      const chip = el('span', 'chip companions companion-token', name);
+      const x = el('button', 'chip-x', '✕') as HTMLButtonElement;
+      x.type = 'button';
+      x.setAttribute('aria-label', `${name} 빼기`);
+      x.addEventListener('click', () => { names = removeCompanion(names, name); paint(); });
+      chip.appendChild(x);
+      chips.appendChild(chip);
+    }
+    chips.hidden = names.length === 0;
+  };
+
+  const commit = (): void => {
+    const raw = input.value;
+    if (!raw.trim()) return;
+    names = addCompanion(names, raw);
+    input.value = '';
+    paint();
+  };
+  input.addEventListener('keydown', (e) => {
+    // Enter와 쉼표 둘 다 확정 — 사용자가 어느 쪽 습관이든 통한다.
+    if (e.key !== 'Enter' && e.key !== ',') return;
+    e.preventDefault();
+    commit();
+  });
+  // 🔴 **`blur`에서는 확정하지 않는다 — 라이브가 잡은 진짜 결함이다**(2026-08-15).
+  //    처음엔 `blur`에도 걸어 뒀다. 그랬더니 [저장]을 누르는 순간 이렇게 됐다:
+  //    mousedown → 입력칸 blur → 칩이 하나 생김 → **줄이 늘어나 [저장] 버튼이 아래로 밀림**
+  //    → mouseup이 버튼 밖에 떨어져 **클릭이 아예 안 일어남**. 라이브가 30초를 기다리다 죽었다.
+  //    사용자에게는 *"저장을 눌렀는데 아무 일도 안 난다"*로 보인다 — M-0162와 같은 식구다
+  //    (컨트롤이 손가락 밑에서 움직인다).
+  //    **그래서 확정은 명시적인 자리에서만 한다**: Enter·쉼표, 그리고 `getValue()`.
+  //    적다 만 이름은 `getValue()`가 반드시 집어 가므로 **유실은 없다** — 화면에 칩으로
+  //    보이지 않을 뿐이고, 그건 저장 직전 한순간이다.
+
+  paint();
+  wrap.append(chips, input);
+  return {
+    el: wrap,
+    getValue: () => {
+      // 저장 순간에도 한 번 더 확정한다 — blur가 안 온 경로(엔터 없이 바로 저장)가 있다.
+      const pending = input.value.trim();
+      return formatCompanions(pending ? addCompanion(names, pending) : names);
+    },
+    reset: () => { names = []; input.value = ''; paint(); },
+  };
 }
 
 /**
@@ -602,8 +675,19 @@ function wireAddVideo(
  *    (`.moment-photo-label` 0.85rem/700 ↔ `.btn-ghost` 0.8rem/기본).
  *    사용자 지적: *"버튼 글자 어그러져있으니 깔끔히 맞춰주세요."*
  *
- *    구조를 **한 곳에서** 만든다(§7 2층) — 다음 첨부 버튼이 생겨도 이 함수를 지나면
- *    같은 모양이 되고, 안 지나면 `check-picker-face`가 RED로 잡는다(3층).
+ *    구조를 **한 곳에서** 만든다(§7 2층) — 다음 첨부 버튼이 생겨도 이 함수를 지나면 같은
+ *    모양이 된다.
+ *
+ *    🔴 **정정(2026-08-15 전수조사)**: 예전엔 여기에 *"안 지나면 「check-picker-face」가 RED로
+ *    잡는다(3층)"*라고 적혀 있었다. **그 이름을 백틱으로 감싸지 않은 것은 일부러다** —
+ *    없는 게이트를 백틱으로 적으면 `check-doc-references`가 「있다고 주장한다」로 읽는다.
+ *
+ *    **그 게이트를 만든 적이 없다** — 내가 v2.41에서 쓴 문장이다. M-0051이 경고하는 바로 그
+ *    형태이고(「막는다」고 적힌 규칙이 없으면 다음 사람은 그 자리를 안 본다), 하필 **그 경고를
+ *    읽고 게이트를 만들던 사람이 같은 걸 저질렀다.**
+ *    실제로 지키는 것은 **라이브 검사**다: 「네 첨부 행동이 같은 폭 2×2」와 「폴드 커버 344px에서
+ *    글자가 한 줄로 서고 버튼 밖으로 안 넘친다」가 **그려진 결과**를 잰다 — 정적 게이트보다 강한
+ *    층이지만, **함수를 안 지나도 모양만 같으면 통과**한다는 것은 알고 있어야 한다.
  *
  * @returns 글자 span — 개수 표시처럼 나중에 바뀌는 것은 이것만 갈아 끼운다.
  */
@@ -1690,6 +1774,59 @@ import {
 } from '../../domain/time';
 import { homeZone, setHomeZone } from '../../services/homeZone';
 import { groupMomentsByDay, type DayGroup } from '../../domain/moment/timeline';
+import { orderToggleLabel, timelineOrder, type TimelineOrder, type TimelineOrderChoice } from '../../domain/moment/timelineOrder';
+import { addCompanion, formatCompanions, parseCompanions, removeCompanion } from '../../domain/moment/companions';
+
+
+/**
+ * 타임라인 순서 토글 줄. 🔴 **`renderTripDetail`에서 뽑았다** — 길이 래칫(`check-fn-size`)이
+ * 걸렸고, 우회하는 대신 덜어냈다. 판정은 `timelineOrder.ts`가 하고 여기는 **그리고 저장만** 한다.
+ *
+ * 🔴 라벨·화면읽기 문구·다음 값이 **한 함수(`orderToggleLabel`)에서 나온다** — 버튼이
+ * 「처음부터」라고 적어 놓고 최신으로 가는 모순이 구조적으로 불가능하다(§17 ②).
+ */
+function orderBar(tripId: string, current: TimelineOrder, rerender: () => void): HTMLElement {
+  const toggle = orderToggleLabel(current);
+  const btn = el('button', 'btn-ghost timeline-order', toggle.label) as HTMLButtonElement;
+  btn.type = 'button';
+  btn.setAttribute('aria-label', toggle.ariaLabel);
+  btn.dataset['order'] = current;
+  btn.addEventListener('click', () => { writeTimelineOrderChoice(tripId, toggle.next); rerender(); });
+  const bar = el('div', 'timeline-order-bar');
+  bar.appendChild(btn);
+  return bar;
+}
+
+/**
+ * 타임라인 순서의 **사용자 선택**을 여행별로 기억한다.
+ *
+ * 🔴 **localStorage에 둔다 — IndexedDB도 서버도 아니다.** 이건 사용자의 *기억*이 아니라
+ * **표시 선호**다(테마·계절과 같은 부류 · `ui/theme.ts`가 같은 규율을 쓴다). 서버로 보내면
+ * 새 형제가 되어 동기화·tombstone·백업을 전부 상속해야 하는데, 잃어도 기본값으로 돌아갈
+ * 뿐인 값에 그 값을 치를 이유가 없다.
+ *
+ * 🔴 **모르는 값은 「안 골랐다」로 읽는다.** 저장소가 막혔거나(프라이빗 모드) 옛 값이
+ * 이상하면 `null`이고, 그러면 상태 기본값이 이긴다 — 추측한 값을 선택인 척하지 않는다(§8).
+ */
+function orderKey(tripId: string): string {
+  return `bj.timelineOrder.${tripId}`;
+}
+function readTimelineOrderChoice(tripId: string): TimelineOrderChoice {
+  try {
+    const v = localStorage.getItem(orderKey(tripId));
+    return v === 'oldest' || v === 'newest' ? v : null;
+  } catch {
+    return null; // 프라이빗 모드 등 — 「안 골랐다」와 같게 다룬다
+  }
+}
+function writeTimelineOrderChoice(tripId: string, value: TimelineOrderChoice): void {
+  try {
+    if (value === null) localStorage.removeItem(orderKey(tripId));
+    else localStorage.setItem(orderKey(tripId), value);
+  } catch {
+    /* 저장 실패는 무시 — 이번 화면에서는 이미 적용됐고, 다음에 기본값으로 돌아갈 뿐이다 */
+  }
+}
 import { requestSync, syncStatus } from '../../services/autoSync';
 import type { Route, TripNavigationTarget } from '../../app/router';
 import type { LocalMoment, LocalTrip, LocalMedia, LocalExpense, LocalPlace, LocalVideo } from '../../offline/db';
@@ -2003,7 +2140,7 @@ async function openSinglePhotoMomentComposer(
     const status = el('p', 'sync-note single-photo-moment-status', '');
     status.setAttribute('role', 'status');
     actions.append(cancel, save);
-    form.append(previewWrap, title, emotion.el, whenField.el, placeField.el, companions, actions, status);
+    form.append(previewWrap, title, emotion.el, whenField.el, placeField.el, companions.el, actions, status);
     body.replaceChildren(form);
     whenField.suggestFrom([meta]);
     placeField.suggestFrom([meta]);
@@ -2033,7 +2170,7 @@ async function openSinglePhotoMomentComposer(
             tripId: context.trip.id,
             title: title.value,
             emotion: emotion.value(),
-            companionNames: companions.value,
+            companionNames: companions.getValue(),
             note: '',
             ...placeInputOf(placeField),
             ...(whenField.value() ? { occurredAt: whenField.value()! } : {}),
@@ -2607,7 +2744,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     const whenField = buildWhenField(trip, clock, () => latestMomentAt);
     whenField.suggestFrom([]); // 사진 전에도 근거를 보여준다(직전 순간 / 여행 시작일)
 
-    form.append(input, emotion.el, whenField.el, placeField.el, companions, money.el, photoActions, picks.el, save);
+    form.append(input, emotion.el, whenField.el, placeField.el, companions.el, money.el, photoActions, picks.el, save);
     compose.appendChild(form);
 
     const note = el('p', 'sync-note', '');
@@ -2659,36 +2796,8 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       const totals = formatTotals(sumByCurrency(expenses));
       if (totals.length) statRow.append(stat(totals.join(' · '), '비용'));
 
-      // 환산 합계(보조): 각 비용을 **자기 사용일** 환율로 환산해 더한다(한 날 환율로 뭉뚱그리지 않음).
-      // 환산 못 한 통화가 있으면 숨기지 않고 라벨에 남긴다(정직).
-      const base = fxBase();
-      const mixed = totals.length > 1 || !Object.keys(sumByCurrency(expenses)).includes(base);
-      if (expenses.length && mixed) {
-        const byId = new Map(moments.map((m) => [m.id, m]));
-        let sum = 0;
-        let converted = 0;
-        const missing = new Set<string>();
-        for (const ex of expenses) {
-          const cur = ex.originalCurrency.toUpperCase();
-          if (cur === base) {
-            sum += ex.originalAmount;
-            converted++;
-            continue;
-          }
-          const mo = byId.get(ex.momentId);
-          const t = mo ? fxTableForCached(mo.occurredAt, clock, fxCache) : null;
-          const v = t ? convertAmount(ex.originalAmount, cur, base, t) : null;
-          if (v === null) missing.add(cur);
-          else {
-            sum += v;
-            converted++;
-          }
-        }
-        if (converted > 0) {
-          const label = missing.size ? `환산 합계 (${[...missing].join('·')} 제외)` : '환산 합계';
-          statRow.append(stat(`≈ ${formatMoney(sum, base)}`, label));
-        }
-      }
+      const converted = convertedTotalStat(expenses, moments, totals, clock, fxCache);
+      if (converted) statRow.append(converted);
 
       // 캐시에 없던 날짜의 환율을 받아오고, 새로 채워졌으면 한 번만 다시 그린다(무한루프 없음).
       void hydrateFxTables(moments, expenses, clock, fxCache).then((added) => {
@@ -2726,10 +2835,19 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
         timeline.appendChild(empty);
         return;
       }
-      for (const g of groupMomentsByDay(moments, clock, trip!.startDate || undefined)) {
+      const order = timelineOrder(trip!.status, readTimelineOrderChoice(trip!.id));
+      timeline.appendChild(orderBar(trip!.id, order, () => {
+        renderTimeline(moments, byMoment, expByMoment, audioByMoment, videoByMoment, placeCountryById);
+      }));
+
+      const days = groupMomentsByDay(moments, clock, trip!.startDate || undefined);
+      // 🔴 **날짜만 뒤집으면 반쪽이다.** 「최신부터」인데 그날 안에서는 이른 시각이 위면,
+      //    가장 최근에 남긴 순간이 **맨 위 묶음의 맨 아래**에 앉는다 — 스크롤을 줄이려던
+      //    목적이 그 자리에서 무너진다. 두 층을 함께 뒤집는다.
+      for (const g of order === 'newest' ? [...days].reverse() : days) {
         timeline.appendChild(el('h3', 'day-head', dayHeaderLabel(g)));
         const items = el('div', 'timeline');
-        for (const m of g.items) {
+        for (const m of order === 'newest' ? [...g.items].reverse() : g.items) {
           items.appendChild(buildMomentCard(
             m,
             byMoment.get(m.id) ?? [],
@@ -2856,7 +2974,21 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
       if (hasPlace || m.companionNames || expenseList.length || audioList.length) {
         const chips = el('div', 'chips');
         if (hasPlace) chips.appendChild(placeChip(m, m.placeId ? placeCountryById.get(m.placeId) ?? null : null));
-        if (m.companionNames) chips.appendChild(el('span', 'chip companions', `👥 ${m.companionNames}`));
+        // 🔴 **사람마다 칩 하나**(사용자 지시 2026-08-15). 예전엔 「👥 러윈형님, 러원이」가
+        //    칩 **한 개**였다 — 그러면 누를 수 있는 대상이 「그 줄 전체」뿐이라 *누구*를
+        //    골랐는지 앱이 알 수 없다. 장소가 이미 배지 하나당 한 곳인 것과 같은 모양이다(§7).
+        for (const person of parseCompanions(m.companionNames)) {
+          const chip = el('button', 'chip companions chip-person', `👥 ${person}`) as HTMLButtonElement;
+          chip.type = 'button';
+          chip.setAttribute('aria-label', `${person}과 함께한 기록 보기`);
+          chip.addEventListener('click', (e) => {
+            e.stopPropagation();
+            void openCompanionRecords(person, {
+              goToTrip: (tripId, target) => navigate('trip-detail', tripId, target),
+            });
+          });
+          chips.appendChild(chip);
+        }
         appendAudioChips(chips, audioList, refresh);
         // 환율 상세(탭하면 펼쳐짐) — 툴팁(title)은 모바일에서 안 보이므로 실제 패널로 보여준다.
         const fxDetail = el('div', 'fx-detail');
@@ -2929,7 +3061,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
             tripId: trip!.id,
             title: input.value,
             emotion: emotion.value(),
-            companionNames: companions.value,
+            companionNames: companions.getValue(),
             note: '',
             ...placeInputOf(placeField),
             // 비었으면 넘기지 않는다 — 서비스가 `now`로 채운다(계약을 두 곳에 쓰지 않는다).
@@ -2947,7 +3079,7 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
           await processVideosIntoMoment(videoFiles, moment.id, trip!.id, (message) => setNote(note, message, 'info', null));
           input.value = '';
           placeField.reset();
-          companions.value = '';
+          companions.reset();
           emotion.reset();
           money.reset();
           // 미리보기 URL 회수 + 개수 문구까지 한 번에(초기화 경로를 두 개 만들지 않는다).
@@ -3584,7 +3716,7 @@ function buildMomentEditForm(
     ...labeledField('한 줄 기록', titleIn),
     emotion.el,
     ...labeledField('장소', placeField.el),
-    ...labeledField('함께 한 사람', companions),
+    ...labeledField('함께 한 사람', companions.el),
     ...labeledField('메모', noteIn),
     ...labeledField('비용', money.el),
     ...labeledField('발생 시각', timeField.el),
@@ -3599,7 +3731,7 @@ function buildMomentEditForm(
     const patch: UpdateMomentPatch = {
       title: titleIn.value,
       emotion: emotion.value(),
-      companionNames: companions.value,
+      companionNames: companions.getValue(),
       ...placeInputOf(placeField),
       note: noteIn.value,
     };
@@ -3665,6 +3797,44 @@ function fxDetailRows(
   );
   rows.push(note);
   return rows;
+}
+
+/**
+ * 환산 합계 칸 — 각 비용을 **자기 사용일** 환율로 환산해 더한다(한 날 환율로 뭉뚱그리지 않는다).
+ *
+ * 🔴 **`renderTripDetail`에서 뽑았다** — 길이 래칫(`check-fn-size`)이 걸렸고, 주석을 줄이는
+ * 대신 덜어냈다. 게이트가 설계를 밀어준 자리다(§11 마지막 문단).
+ *
+ * 🔴 **환산 못 한 통화를 숨기지 않는다**(§8): 라벨에 `(USD 제외)`처럼 남긴다 — 「≈ 합계」가
+ * 전부를 담았다고 **오해하게 두는 것**이 숫자를 안 보여 주는 것보다 나쁘다.
+ * 하나도 환산 못 했으면 `null`이다 — **0원이라고 말하지 않는다.**
+ */
+function convertedTotalStat(
+  expenses: LocalExpense[],
+  moments: LocalMoment[],
+  totals: string[],
+  clock: TripClock,
+  fxCache: Map<string, FxRateTable | null>,
+): HTMLElement | null {
+  const base = fxBase();
+  const mixed = totals.length > 1 || !Object.keys(sumByCurrency(expenses)).includes(base);
+  if (!expenses.length || !mixed) return null;
+  const byId = new Map(moments.map((m) => [m.id, m]));
+  let sum = 0;
+  let converted = 0;
+  const missing = new Set<string>();
+  for (const ex of expenses) {
+    const cur = ex.originalCurrency.toUpperCase();
+    if (cur === base) { sum += ex.originalAmount; converted += 1; continue; }
+    const mo = byId.get(ex.momentId);
+    const t = mo ? fxTableForCached(mo.occurredAt, clock, fxCache) : null;
+    const v = t ? convertAmount(ex.originalAmount, cur, base, t) : null;
+    if (v === null) missing.add(cur);
+    else { sum += v; converted += 1; }
+  }
+  if (converted === 0) return null;
+  const label = missing.size ? `환산 합계 (${[...missing].join('·')} 제외)` : '환산 합계';
+  return stat(`≈ ${formatMoney(sum, base)}`, label);
 }
 
 function stat(value: string, label: string): HTMLElement {

@@ -7,6 +7,7 @@
 // @live-covers: screens/home.ts, screens/tripDetail.ts, screens/mapView.ts, screens/dataManager.ts,
 // @live-covers: screens/guide.ts, screens/mechChecks.ts, screens/designOverview.ts
 // @live-covers: screens/placeRegistry.ts
+// @live-covers: screens/companionRecords.ts
 // ↑ `check-live-coverage`가 읽는다. **여기 적은 화면은 이 스크립트가 실제로 연다** — 선언과
 //   실제가 어긋나면 게이트는 못 잡는다(정직한 한계). 화면을 더 열면 여기도 늘려라.
 // (Playwright는 devDependency가 아니므로 전역 설치본을 폴백으로 찾는다.)
@@ -5376,16 +5377,56 @@ check('헤더: 가로 넘침 0', headM.overflow === 0, `overflow=${headM.overflo
       await page.mouse.up();
       await settle(page);
       check('R⑦ Windows 마우스 재배열 완료 때 사진 뷰어가 열리지 않는다', await page.locator('.photo-viewer').count() === 0);
+
+      // 🔴 **놓자마자 누르지 않는다** — 앱이 시작한 일이 아직 안 끝났다 (T-048 · 2026-08-15).
+      //
+      // `onReorder`는 `void (async () => { await reorderMomentPhotos(); await refresh(); })()`다.
+      // 즉 놓는 순간 **IndexedDB 쓰기 + 격자 다시 그리기**가 시작되고, `settle`(프레임 두 장)은
+      // 그 끝을 기다리지 않는다. 그 사이에 누르면 `mousedown`과 `mouseup`의 대상이 갈려
+      // **`click` 자체가 안 난다** — 뷰어가 안 열리고, 검사는 이유를 모른 채 빨개진다.
+      // 이 저장소가 세 번째로 만나는 같은 근본형이다(T-042 · M-0119 — 「행동 직후 즉시 재기」).
+      //
+      // 그래서 **내용으로 기다린다**: 내가 심은 세 칸의 DOM 순서가 재배열 결과와 같아질 때까지.
+      const mineOrder = async () =>
+        await grid.evaluate((g) =>
+          [...g.querySelectorAll('.photo-thumb-wrap[data-media-id]')]
+            .map((e) => e.getAttribute('data-media-id'))
+            .filter((id) => id && id.startsWith('ro-')),
+        );
+      const WANT = 'ro-wide,ro-square,ro-tall'; // ro-tall을 ro-square 자리로 옮긴 결과
+      const redrawn = await waitUntil(async () => (await mineOrder()).join(',') === WANT, 5000);
+      check('R⑦-1 놓은 뒤 격자가 새 순서로 다시 그려졌다', redrawn, (await mineOrder()).join(' → '));
+
       const nextClick = await boxOf('ro-wide');
       if (nextClick) {
         await page.mouse.click(nextClick.x, nextClick.y);
         // 🔴 뷰어는 사진 바이트를 불러온 뒤 열리므로 **프레임 두 장으로는 이르다**(T-042 · M-0119).
         //    같은 코드에서 한 번 FAIL하고 다음 실행에서 PASS했다 — 「열렸다」는 사실을 기다린다.
         const viewerOpened = await waitUntil(async () => await page.locator('.photo-viewer').count() === 1, 5000);
-        check('R⑧ 재배열 직후 다른 사진을 누르면 정상적으로 뷰어가 열린다', viewerOpened);
+        // 🔴 **실패하면 무엇을 봤는지가 남아야 한다**(§8 · T-045와 같은 규율). 예전엔 판정만
+        //    남아 CI가 빨개져도 배울 것이 없었다. 특히 `postDragClickBlock`은 놓은 자리에서
+        //    **SLOP_PX(10) 안쪽 · 180ms 안쪽**의 click 한 번을 삼키므로, 그 거리를 함께 적는다 —
+        //    거리가 10보다 크면 이 클릭은 애초에 삼켜질 수 없는 것이 **값으로** 증명된다.
+        const seen = viewerOpened
+          ? ''
+          : JSON.stringify({
+              뷰어수: await page.locator('.photo-viewer').count(),
+              누른자리: nextClick,
+              놓은자리: mouseTo,
+              놓은자리와거리: Math.round(Math.hypot(nextClick.x - mouseTo.x, nextClick.y - mouseTo.y)),
+              지금순서: (await mineOrder()).join(' → '),
+              그점에있는것: await page.evaluate(
+                (p) =>
+                  document.elementFromPoint(p.x, p.y)?.closest('[data-media-id]')?.getAttribute('data-media-id') ??
+                  document.elementFromPoint(p.x, p.y)?.className ??
+                  '(없음)',
+                nextClick,
+              ),
+            });
+        check('R⑧ 재배열 직후 다른 사진을 누르면 정상적으로 뷰어가 열린다', viewerOpened, seen);
         await page.keyboard.press('Escape');
       } else {
-        check('R⑧ 후속 정상 클릭 좌표를 찾는다', false);
+        check('R⑧ 후속 정상 클릭 좌표를 찾는다', false, (await mineOrder()).join(' → '));
       }
     } else {
       check('R⑦ Windows 마우스 재배열 좌표를 찾는다', false, JSON.stringify({ mouseFrom, mouseTo }));
@@ -5556,32 +5597,167 @@ await targetCard.locator('.moment-edit').getByRole('button', { name: '저장', e
 await page.waitForSelector(`.moment-card[data-moment-id="${PLACE_RECORD_IDS.moments[0]}"] .moment-edit`, { state: 'hidden' });
 // 폼이 닫힌 것은 재렌더 사실일 뿐, 별도 IndexedDB 읽기 트랜잭션이 같은 커밋을 관측했다는
 // 증거는 아니다. 고정 시간 대신 장소·순간의 실제 read-back이 함께 새 이름이 된 사실을 기다린다.
-const linkedNameReadBack = await page.waitForFunction(async (ids) => await new Promise((resolve) => {
+//
+// 🔴 **T-045 — 이 자리가 CI에서 흔들렸다**(2026-08-15 · v2.43 배포 중). 같은 커밋에서
+//    1차 462/463(여기만 빨강 · 보고값 `null`), 재실행 463/463. 로컬은 3회 모두 통과였다.
+//    고치면서 확인된 결함 둘을 적는다 — **원인은 확정하지 못했고, 그 사실도 적는다**(§8 · M-0056).
+//
+//    ① **폴링 안에서 DB를 여는 유일한 자리였고, 연결을 닫지도 않았다.** 형제 20여 곳은 전부
+//       `evaluate` **한 번** 안에서 열고 끝난다. 여기만 `waitForFunction`의 rAF 폴링마다
+//       새 연결을 열어 그대로 두었다 — 초당 수십 개가 쌓인다. §7의 최빈형이다(형제가 지키는
+//       규율을 이 자리만 안 물려받았다).
+//    ② 🔴 **실패했을 때 화면에 `null` 한 글자만 남았다.** 그건 「값이 달랐다」와
+//       「읽지 못했다」를 **같은 말로** 적은 것이다(§8 — 모르는 것을 정상으로도 문제로도
+//       반올림하지 않는다). 그래서 CI가 빨개져도 **아무것도 배울 수 없었다.**
+//       이제 마지막으로 **관측한 상태를 그대로** 들고 나온다.
+//
+//    폴링은 `waitUntil`을 쓴다 — T-042가 세운 자리이고, **끝내 거짓이어도 던지지 않고
+//    마지막 값을 돌려준다.** 그래서 실패가 사고가 아니라 **판정할 값**이 된다.
+const NAME_SYNCED = '라이브 이름 동기화 장소';
+const readLinkedName = async () => page.evaluate(async (ids) => await new Promise((resolve) => {
+  let db = null;
+  const done = (v) => { try { db?.close(); } catch { /* 이미 닫혔으면 그만이다 */ } resolve(v); };
   const req = indexedDB.open('journey-archive');
   req.onsuccess = () => {
-    const tx = req.result.transaction(['localPlaces', 'localMoments'], 'readonly');
-    const placeReq = tx.objectStore('localPlaces').get(ids.place);
-    const momentReq = tx.objectStore('localMoments').get(ids.moments[0]);
-    tx.oncomplete = () => {
-      const readBack = { place: placeReq.result, moment: momentReq.result };
-      resolve(
-        readBack.place?.name === '라이브 이름 동기화 장소'
-          && readBack.moment?.placeName === '라이브 이름 동기화 장소'
-          ? readBack
-          : null,
-      );
-    };
-    tx.onerror = () => resolve(null);
+    db = req.result;
+    try {
+      const tx = db.transaction(['localPlaces', 'localMoments'], 'readonly');
+      const placeReq = tx.objectStore('localPlaces').get(ids.place);
+      const momentReq = tx.objectStore('localMoments').get(ids.moments[0]);
+      tx.oncomplete = () => done({ read: true, place: placeReq.result ?? null, moment: momentReq.result ?? null });
+      tx.onerror = () => done({ read: false, why: `tx: ${tx.error?.name ?? '알 수 없음'}` });
+    } catch (e) {
+      done({ read: false, why: `transaction 열기 실패: ${String(e)}` });
+    }
   };
-  req.onerror = () => resolve(null);
-}), PLACE_RECORD_IDS).then((handle) => handle.jsonValue());
+  req.onerror = () => done({ read: false, why: `open: ${req.error?.name ?? '알 수 없음'}` });
+  req.onblocked = () => done({ read: false, why: 'open blocked' });
+}), PLACE_RECORD_IDS);
+// 이름 둘이 함께 새 이름이 될 때까지. 좌표·placeId 판정은 아래 `check`가 한다 — 기다림의
+// 조건과 판정의 조건을 같게 두면, 조건이 틀렸을 때 **영원히 기다리다 timeout**으로 끝나고
+// 무엇이 달랐는지는 안 남는다.
+const linkedNameReadBack = await waitUntil(async () => {
+  const r = await readLinkedName();
+  return r.read && r.place?.name === NAME_SYNCED && r.moment?.placeName === NAME_SYNCED ? r : null;
+}) ?? await readLinkedName(); // 🔴 끝내 안 맞았으면 **마지막으로 본 것**을 들고 나온다
 check('v1.97 연결 이름: 순간 편집이 placeId·당시 좌표를 보존하고 대장 이름까지 함께 바꾼다',
-  linkedNameReadBack?.place?.name === '라이브 이름 동기화 장소'
-    && linkedNameReadBack?.moment?.placeName === '라이브 이름 동기화 장소'
+  linkedNameReadBack?.read === true
+    && linkedNameReadBack?.place?.name === NAME_SYNCED
+    && linkedNameReadBack?.moment?.placeName === NAME_SYNCED
     && linkedNameReadBack?.moment?.placeId === PLACE_RECORD_IDS.place
     && linkedNameReadBack?.moment?.placeLat === 41.3111
     && linkedNameReadBack?.moment?.placeLng === 69.2797,
-  JSON.stringify(linkedNameReadBack));
+  // 🔴 실패하면 **무엇을 봤는지**가 남아야 한다. `read:false`면 그건 「값이 다르다」가 아니라
+  //    **「읽지 못했다」**이고, 둘은 처방이 다르다.
+  JSON.stringify(linkedNameReadBack?.read === false
+    ? { 읽지못함: linkedNameReadBack.why }
+    : {
+        placeName: linkedNameReadBack?.place?.name ?? null,
+        momentPlaceName: linkedNameReadBack?.moment?.placeName ?? null,
+        placeId: linkedNameReadBack?.moment?.placeId ?? null,
+        lat: linkedNameReadBack?.moment?.placeLat ?? null,
+        lng: linkedNameReadBack?.moment?.placeLng ?? null,
+      }));
+
+// ── 🔴 동행인: 사람마다 칩 하나 · 누르면 「이 사람과 함께한 기록」(사용자 지시 2026-08-15) ──
+//    §13 4항 — **버튼은 눌러 봐야 확인한 것이다.** 라벨만 읽으면 M-0046·M-0048의 되풀이다.
+{
+  const card = page.locator(`.moment-card[data-moment-id="${PLACE_RECORD_IDS.moments[0]}"]`);
+  await card.locator('.icon-btn[aria-label="이 순간 편집"]').click();
+  const editForm = card.locator('.moment-edit');
+  await editForm.locator('.companion-input').waitFor();
+  // 한 명씩 넣는다 — Enter로 확정되는가.
+  await editForm.locator('.companion-input').fill('러윈형님');
+  await editForm.locator('.companion-input').press('Enter');
+  await editForm.locator('.companion-input').fill('러원이');
+  await editForm.locator('.companion-input').press('Enter');
+  const tokenCount = await editForm.locator('.companion-token').count();
+  check('동행인 입력: Enter로 **한 명씩** 토큰이 된다', tokenCount === 2, `토큰 ${tokenCount}개`);
+  // 🔴 확정 안 한 마지막 이름도 저장돼야 한다 — 「적었는데 저장 안 됨」은 사용자에겐 유실이다.
+  await editForm.locator('.companion-input').fill('확정안한사람');
+  await editForm.getByRole('button', { name: '저장', exact: true }).click();
+  await card.locator('.moment-edit').waitFor({ state: 'hidden' });
+
+  const chips = card.locator('.chip-person');
+  const chipTexts = await waitUntil(async () => {
+    const t = await chips.allTextContents();
+    return t.length === 3 ? t : null;
+  }) ?? await chips.allTextContents();
+  check('동행인 칩: **사람마다 하나씩** 그려진다(한 덩어리 칩이 아니다)',
+    chipTexts.length === 3, JSON.stringify(chipTexts));
+  check('🔴 동행인 저장: Enter를 안 누른 마지막 이름도 잃지 않는다',
+    chipTexts.some((t) => t.includes('확정안한사람')), JSON.stringify(chipTexts));
+
+  // 🔴 **누른다.** 그리는 것과 도는 것은 다른 층이다(§13 4항).
+  await chips.filter({ hasText: '러원이' }).first().click();
+  await page.waitForSelector('.companion-records-overlay', { timeout: 10000 });
+  const modalText = await waitUntil(async () => {
+    const t = (await page.locator('.companion-records-overlay .pr-records-modal').textContent()) ?? '';
+    return t.includes('함께한 순간') ? t : null;
+  }) ?? (await page.locator('.companion-records-overlay .pr-records-modal').textContent()) ?? '';
+  check('🔴 동행인 칩을 **누르면** 「이 사람과 함께한 기록」 창이 열린다',
+    modalText.includes('이 사람과 함께한 기록') && modalText.includes('러원이'), modalText.slice(0, 160));
+  check('동행인 창: **몇 개인지 세어서** 말한다(원자료 덤프가 아니다 — §8)',
+    /함께한 순간 \d+개/.test(modalText), modalText.slice(0, 160));
+  // 🔴 이름이 비슷한 기록이 따로 있으면 **단정하지 않고** 알린다(§8 · M-0056).
+  check('동행인 창: 비슷한 이름을 「같은 사람입니다」로 단정하지 않는다',
+    !/같은 사람입니다/.test(modalText), modalText.slice(0, 200));
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('.companion-records-overlay', { state: 'detached' });
+  check('동행인 창: Esc로 닫히고 아래 화면은 그대로 남는다',
+    (await page.locator('.moment-card').count()) > 0);
+}
+
+// ── 🔴 타임라인 순서 토글(사용자 지시 2026-08-15) ────────────────────────────
+{
+  // 🔴 **모집단을 먼저 만든다**(§4). 첫 판은 날짜 묶음이 **1개**라 뒤집어도 같았고 —
+  //    즉 **뒤집기가 아예 고장 나도 초록**이었다. 「초록」이 「없다」가 아니라 「안 봤다」인
+  //    전형이다(§17). 다른 날 순간을 하나 심어 **뒤집힘이 관측 가능한 상태**를 만든다.
+  await page.evaluate(async (tripId) => await new Promise((resolve, reject) => {
+    const req = indexedDB.open('journey-archive');
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction('localMoments', 'readwrite');
+      const now = new Date().toISOString();
+      tx.objectStore('localMoments').put({
+        id: 'live-order-second-day', tripId, occurredAt: '2026-08-16T04:00:00.000Z',
+        title: '순서 확인용 다음날 순간', note: '', emotion: '', placeName: '', placeLat: null, placeLng: null,
+        placeId: null, companionNames: '', version: 1, baseVersion: 0, createdAt: now, updatedAt: now,
+        deletedAt: null, clientOperationId: 'live-order-second-day-op',
+      });
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => { db.close(); reject(tx.error); };
+    };
+    req.onerror = () => reject(req.error);
+  }), 'pr-nav-trip-direct');
+  // 🔴 `reload()`가 아니라 **목표 없는 주소**로 간다. 지금 URL에는 `?moment=…&media=…`가
+  //    남아 있어 새로고침하면 **사진 뷰어가 다시 열리고** 그게 토글 클릭을 가로챈다
+  //    (라이브가 57번 재시도하다 죽어서 알았다 — 「열려 있는 것」도 화면 상태다).
+  await page.goto(`http://localhost:4173${BASE}trip/pr-nav-trip-direct`);
+  await page.waitForFunction(() => (document.getElementById('app')?.innerText ?? '').trim().length > 0, { timeout: 15000 });
+  const bar = page.locator('.timeline-order');
+  await bar.waitFor();
+  await waitUntil(async () => (await page.locator('.day-head').count()) >= 2);
+  const before = await page.locator('.day-head').allTextContents();
+  // 🔴 **모집단 판정을 먼저 한다** — 1개면 아래 「뒤집혔다」는 아무것도 증명하지 않는다.
+  check('순서 토글: 날짜 묶음이 **둘 이상**이다(하나면 뒤집기를 잴 수 없다 — §4)',
+    before.length >= 2, JSON.stringify(before));
+  const labelBefore = (await bar.textContent()) ?? '';
+  await bar.click();
+  await settle(page);
+  const after = await page.locator('.day-head').allTextContents();
+  const labelAfter = (await page.locator('.timeline-order').textContent()) ?? '';
+  check('순서 토글: 누르면 날짜 묶음 순서가 **실제로 뒤집힌다**',
+    before.length > 0 && JSON.stringify(after) === JSON.stringify([...before].reverse()),
+    JSON.stringify({ before, after }));
+  check('🔴 순서 토글: 라벨이 「지금 상태」가 아니라 **「누르면 무엇이 되는가」**를 말한다',
+    labelBefore !== labelAfter && labelBefore.length > 0 && labelAfter.length > 0,
+    `${labelBefore} → ${labelAfter}`);
+  await page.locator('.timeline-order').click(); // 뒤따르는 검사를 위해 되돌린다(§3-C)
+  await settle(page);
+  check('순서 토글: 다시 누르면 제자리로 돌아온다(§3-C 되돌리기)',
+    JSON.stringify(await page.locator('.day-head').allTextContents()) === JSON.stringify(before));
+}
 
 // ── v2.11 영상: 실제 브라우저 생성 파일 → 변환 → Dexie → 재생 ──────────────
 // 정적 픽스처를 저장소에 넣지 않고 Chromium의 MediaRecorder로 1초 WebM을 만든다. 이 파일을

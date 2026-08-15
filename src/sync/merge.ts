@@ -188,3 +188,154 @@ export function writeLanded(
   if (server.clientOperationId !== sentOperationId || server.version < sentVersion) return false;
   return sentPath === undefined || server.storagePath === sentPath;
 }
+
+/**
+ * **서버 고아를 만났을 때 이 행을 어떻게 할 것인가**(2026-08-15 · T-047에서 꺼냄).
+ *
+ * ── 왜 꺼냈나 ────────────────────────────────────────────────────────────────
+ * 이 판정은 `pullMedia`의 for 루프 안에 인라인으로 있었다. 그런데 이게 지키는 것은
+ * **파괴적 서버 쓰기**다 — 서버 행에 tombstone을 밀고 **R2 바이트를 지운다.**
+ * 그 판정에 **유닛이 하나도 없었다.** IO 클로저 안이라 붙일 수가 없었다(§10 ③).
+ *
+ * ── 🔴 왜 `boolean`이 아니라 유니온인가 (내가 한 번 틀린 자리) ───────────────
+ * 처음엔 `shouldSweepServerOrphan(): boolean`으로 꺼냈다. **그리고 거동이 바뀌었다.**
+ * 원래 코드에서 `server-read-only`는 `continue`였다 — 즉 **그 행의 나머지 처리를 통째로
+ * 건너뛴다.** 그런데 `false`를 돌려주니 호출부가 아래로 **흘러가서** 다운로드·로컬 쓰기까지
+ * 했다(기존 유닛이 `r2: 0`을 기대했는데 `1`이 나와 잡혔다).
+ *
+ * 🔴 **교훈: `boolean`은 두 갈래인데 원래 흐름은 세 갈래였다.** 「순수 추출이니 거동은
+ * 그대로」라는 말은 **반환 타입이 원래 제어흐름을 담을 수 있을 때만** 참이다. 그래서
+ * 세 상태를 이름으로 만든다 — 다음 사람이 `if (x)`로 뭉갤 수 없다.
+ *
+ * ── 무엇을 판정하나 ─────────────────────────────────────────────────────────
+ *  · `not-orphan` — 이 행은 이 부류가 아니다. **평소 처리로 계속 간다.**
+ *  · `skip-row`   — 고아이긴 한데 `server-read-only`다. **아무것도 하지 않고 다음 행으로.**
+ *                   capability 불명에서는 서버 쓰기도, 이미 영구삭제한 부모 아래로 다시
+ *                   받는 것도 금지다(sync-offline-dev 11 · M-0093).
+ *  · `sweep`      — tombstone을 밀고 바이트를 지운다.
+ *
+ * 고아의 조건 셋은 **모두** 참이어야 한다: ①로컬에 행이 없다(있으면 대기열이 처리한다 —
+ * 여기서 손대면 두 손이 겹친다) ②서버가 아직 활성이다 ③그 여행을 **이 기기에서 영구삭제**했다.
+ * 🔴 ③이 가장 위험한 자리다 — 없으면 **남의 멀쩡한 자료를 지운다.**
+ *
+ * ── 🔴 왜 `pullMedia`에만 있는가 — 재보고 답했다 (T-050 · 2026-08-15) ────────
+ * 이 스윕은 **`pullMedia`에만 있다.** 나머지 여섯 pull은 자기 id만 보고 부모 여행의
+ * 영구삭제는 안 본다. 처음엔 이걸 **형제 비대칭(§7 위반)으로 의심**했는데, 운영 DB를
+ * 읽기 전용으로 재보니 **정당한 비대칭**이었다:
+ *
+ *     trips ──CASCADE──> moments ──CASCADE──> media · audio · videos · expenses
+ *
+ * 네 형제 모두 `moment_id`가 **NOT NULL**이고(실측: null 행 0), `trips`를 직접 참조하는
+ * 것은 `moments`뿐이다. 즉 **여행 행이 지워지면 서버가 자식을 전부 데려간다** — 연쇄를
+ * 빠져나갈 구멍이 없다. 헌장 §7-A(*"영구삭제의 가족 범위는 서버 FK가 데려가는 범위와
+ * 같아야 한다"* · M-0107)가 이미 지켜지고 있는 상태다.
+ *
+ * 🔴 **그럼 이 스윕은 무엇인가**: FK 연쇄가 닿지 않는 **역사적 잔재**를 위한 안전망이다
+ * (연쇄가 생기기 전에 지운 것, 또는 DELETE가 부분 실패한 것). 실측 결과 **다섯 도메인 전부
+ * 활성 고아 0건**이었고, 모집단은 실재했다(`purged_ids` 102건).
+ *
+ * 🔴 **그러므로 형제에 확장하지 않는다.** 확장하면 FK가 이미 막는 경우를 위해 **파괴적 서버
+ * 쓰기 경로를 넷 더 만드는 것**이고, 그건 안전을 사는 게 아니라 위험을 늘리는 것이다.
+ * ⚠️ **이 이유가 참인 사정권**: 위 FK 연쇄와 `moment_id NOT NULL`이 유지되는 동안만이다
+ * (M-0060 — 이유는 산문이고, 산문은 스키마가 바뀔 때 같이 안 바뀐다). 자식 테이블의
+ * `moment_id`를 nullable로 바꾸거나 `trips` 직접 FK를 추가하면 **이 판단부터 다시 하라.**
+ *
+ * 🔴 **정직한 한계**: 소리·영상은 **서버 행이 0개**라 「고아 0건」은 그쪽에서 공허하다.
+ * 위 판단이 기대는 것은 행 수가 아니라 **스키마 구조**다(FK + NOT NULL) — 그건 행이 0이어도 참이다.
+ */
+export type ServerOrphanAction = 'not-orphan' | 'skip-row' | 'sweep';
+
+export function serverOrphanAction(input: {
+  /** 로컬에 이 id의 행이 없는가. */
+  readonly localMissing: boolean;
+  /** 서버 행의 `deletedAt` — `null`이면 활성이다. */
+  readonly serverDeletedAt: string | null;
+  /** 이 행의 부모 여행이 **이 기기에서** 영구삭제됐는가. */
+  readonly parentPurged: boolean;
+  /** 전환 모드. `server-read-only`면 서버에 아무것도 쓰지 않는다. */
+  readonly mode: 'merge' | 'server-read-only';
+}): ServerOrphanAction {
+  const isOrphan = input.localMissing && input.serverDeletedAt === null && input.parentPurged;
+  if (!isOrphan) return 'not-orphan';
+  return input.mode === 'server-read-only' ? 'skip-row' : 'sweep';
+}
+
+/**
+ * **로컬은 지웠는데 서버는 아직 살아 있다** — 그 삭제를 다시 대기열에 올릴 것인가.
+ *
+ * ── 왜 꺼냈나 (T-047 · 2026-08-15) ──────────────────────────────────────────
+ * 이 판정은 **일곱 pull 루프 전부**가 부른다(trip·moment·expense·media·place·audio·video).
+ * 그런데 **유닛이 한 건도 없었다** — Dexie 큐 조회와 같은 함수 안에 있어 붙일 수가 없었다.
+ * 그리고 이 판정이 참이면 만들어지는 것은 **`delete` op**이다. 즉 **서버 행을 지우는 길의
+ * 입구**이고, 이 저장소에서 유닛 없이 두면 안 되는 부류다.
+ *
+ * ── 왜 pull 자리에서 판정하나 ───────────────────────────────────────────────
+ * pull은 서버 상태를 **이미 받아왔으므로** 추가 비용 0으로 정확히 판정한다.
+ * 「로컬 tombstone + 서버 활성」은 그 삭제가 서버에 **도달하지 못했다는 직접 증거**다.
+ * 로컬만 보면 「이미 서버에 갔는지」를 알 수 없다 — 그 모호함이 2026-07-25에 실제 결함이었다
+ * (1회 표식 방식은 표식 뒤에 생긴 고아를 영영 못 잡았고, 사용자는 지운 사진이 R2에 남는 것을 봤다).
+ *
+ * ── 🔴 왜 `boolean`이 아닌가 ────────────────────────────────────────────────
+ * 갈래는 둘로 보이지만 **「안 한다」의 뜻이 둘**이다. 그리고 그 둘은 성격이 정반대다:
+ *
+ *  · `skip-read-only`   — **계약이라서** 안 한다. capability 불명 전환 모드에서는 서버뿐
+ *                         아니라 **로컬 큐도 read-only**다(M-0095). 서버 활성을 봤다는
+ *                         이유로 새 op을 만들면 「큐 보존」 계약이 **거짓말이 된다.**
+ *  · `skip-not-stranded` — **해당 사항이 없어서** 안 한다(로컬에 행이 있거나·로컬이 안 지웠거나·
+ *                         서버도 이미 지웠거나).
+ *  · `queue-if-absent`   — 올린다. 단 **같은 대상의 op이 이미 있으면 안 올린다**(중복 방지) —
+ *                         그 확인은 큐 조회라 여기 없다. 이름에 `if-absent`를 남겨 호출부가
+ *                         그 단계를 빠뜨리면 이름과 코드가 어긋나 보이게 했다.
+ *
+ * 🔴 **`boolean`으로 뭉치면 계약이 사고와 섞인다** — 다음 사람이 `skip`을 「할 일 없음」으로
+ * 읽고 read-only 갈래를 지운다. 그게 M-0170에서 실제로 일어난 일이다(같은 파일, 4일 전).
+ */
+export type RequeueDeleteAction = 'queue-if-absent' | 'skip-read-only' | 'skip-not-stranded';
+
+export function requeueDeleteAction(input: {
+  /** 로컬 행이 있는가 — 없으면 대기열이 손댈 대상이 아니다. */
+  readonly hasLocal: boolean;
+  /** 로컬 행의 `deletedAt` — `null`이면 사용자가 안 지운 것이다. */
+  readonly localDeletedAt: string | null;
+  /** 서버 행의 `deletedAt` — `null`이면 아직 살아 있다(= 삭제가 도달 못 함). */
+  readonly serverDeletedAt: string | null;
+  /** 전환 모드. `server-read-only`면 서버도 로컬 큐도 건드리지 않는다(M-0095). */
+  readonly mode: 'merge' | 'server-read-only';
+}): RequeueDeleteAction {
+  // 🔴 순서가 계약이다 — read-only를 **먼저** 본다. 뒤에 두면 「대상이 아니다」와
+  //    「계약상 안 한다」가 섞여, 진단에서 둘을 갈라 셀 수 없다(§8).
+  if (input.mode === 'server-read-only') return 'skip-read-only';
+  const stranded = input.hasLocal && input.localDeletedAt !== null && input.serverDeletedAt === null;
+  return stranded ? 'queue-if-absent' : 'skip-not-stranded';
+}
+
+/**
+ * **DB가 더 이상 가리키지 않는 옛 객체 키를 지울 것인가**(T-047 · 2026-08-15).
+ *
+ * operation별 객체 키를 쓰므로 같은 사진이 다시 올라가면 **옛 키가 R2에 남는다.** 그걸 걷는
+ * 자리인데, 판정을 잘못하면 **DB가 지금 가리키고 있는 바이트를 지운다** — 행은 살아 있는데
+ * 바이트만 사라지는, 이 앱에서 가장 나쁜 상태다(비타협 원칙 #1).
+ *
+ * ── 🔴 왜 두 침묵을 갈라 부르나 ────────────────────────────────────────────
+ *  · `no-candidate`     — 걷을 옛 키 자체가 없다(첫 업로드 등). **정상이고 흔하다.**
+ *  · `still-referenced` — 옛 키와 지금 키가 **같다.** 즉 이건 고아가 아니라 **현역**이다.
+ *                         🔴 이 갈래가 무너지면 사용자의 사진 바이트가 사라진다.
+ *  · `remove`           — 가리키는 데가 없다. 지운다.
+ *
+ * 둘을 `boolean`으로 뭉치면 「없어서 안 지운다」와 「현역이라 안 지운다」가 같은 말이 되고,
+ * 다음 사람이 「어차피 안 지우는데」로 가드를 단순화한다 — 그 순간 현역이 지워진다(M-0170).
+ *
+ * **삭제 실패는 여기 판정이 아니다.** 실패하면 고아 사본을 남기고 재시도에 맡긴다 —
+ * 기억(사용자 자료)보다 사본 하나가 싸다.
+ */
+export type UnreferencedByteAction = 'remove' | 'no-candidate' | 'still-referenced';
+
+export function unreferencedByteAction(
+  /** 걷을 후보 — 이번 operation 이전에 쓰던 객체 키. */
+  candidate: string | undefined | null,
+  /** DB가 **지금** 가리키는 객체 키. */
+  referenced: string | null | undefined,
+): UnreferencedByteAction {
+  if (!candidate) return 'no-candidate';
+  return candidate === referenced ? 'still-referenced' : 'remove';
+}

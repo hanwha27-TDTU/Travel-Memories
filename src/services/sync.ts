@@ -17,7 +17,7 @@ import { operationStoragePath, videoPosterStoragePath } from '../domain/media/na
 import { toPlaceRow, fromPlaceRow, type PlaceRow } from '../domain/place/rowmap';
 import { isRealCoord } from '../domain/place/coordInput';
 import { compressForStorage } from '../media/compress';
-import { mergeDecision, isEmptyCloudAnomaly, classifyError, retryDelayMs, isRetryDue, mustUploadBytes, writeLanded } from '../sync/merge';
+import { mergeDecision, isEmptyCloudAnomaly, classifyError, retryDelayMs, isRetryDue, mustUploadBytes, writeLanded, serverOrphanAction, requeueDeleteAction, unreferencedByteAction } from '../sync/merge';
 import type { JourneyClient } from './supabase/client';
 import { r2BlobStore, r2ListObjects } from './r2';
 // 바이트 대조가 「이 기기에 사본이 있는 id」를 물어본다. `storeState`는 Dexie만 읽는
@@ -436,13 +436,17 @@ async function rebaseRejectedLocal<T extends SyncMeta>(
   });
 }
 
-/** DB가 가리키지 않는 작업별 R2 키만 걷는다. 삭제 실패는 기억보다 고아 사본을 택해 재시도에 맡긴다. */
+/**
+ * DB가 가리키지 않는 작업별 R2 키만 걷는다. 삭제 실패는 기억보다 고아 사본을 택해 재시도에 맡긴다.
+ *
+ * 🔴 **판정은 여기 없다**(`unreferencedByteAction`이 한다 · T-047). 이 함수는 **실행만** 한다.
+ */
 async function removeUnreferencedBytes(
   remote: Pick<MediaRemote, 'remove'> | Pick<AudioRemote, 'remove'> | Pick<VideoRemote, 'remove'>,
   candidate: string | undefined,
   referenced: string | null | undefined,
 ): Promise<void> {
-  if (!candidate || candidate === referenced) return;
+  if (unreferencedByteAction(candidate, referenced) !== 'remove' || !candidate) return;
   try {
     const removed = await remote.remove(candidate);
     if (removed.error) console.warn(`동기화 고아 바이트 정리 보류: ${removed.error}`);
@@ -905,6 +909,42 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
  * (로컬에 없으면 skip). 활성은 표시본을 다운로드해 재구성하되 다운로드 실패 시 로컬을 그대로 둔다.
  * 표시본이 클라우드 정본이므로 소비 기기는 별도 원본 복사본을 만들지 않는다.
  */
+/**
+ * 부모 여행이 영구삭제된 **서버 고아 사진**을 서버에서 지운다 — tombstone을 밀고 바이트를 지운다.
+ *
+ * 🔴 **판정은 여기 없다**(`serverOrphanAction`이 한다). 이 함수는 **실행만** 한다 — 그래서
+ * 「지울까?」와 「어떻게 지우나」가 갈라지고, 앞의 것은 유닛으로 전수 검사된다(§10 ③).
+ *
+ * 🔴 **왜 사진에만 있는가**: 서버 FK가 `trips → moments → 자식`으로 연쇄하고 자식들의
+ * `moment_id`가 NOT NULL이라, **여행이 지워지면 서버가 자식을 전부 데려간다**(T-050 실측).
+ * 이 함수는 그 연쇄가 닿지 않는 **역사적 잔재**만 맡는다 — 형제에 복제하지 않는 이유가
+ * `sync/merge.ts`의 `serverOrphanAction` 머리말에 적혀 있다.
+ *
+ * 🔴 **되살리지 않는다.** 로컬 행을 만들지 않고, 실패해도 로컬을 건드리지 않는다(비파괴).
+ * upsert가 실패하면 바이트도 그대로 둔다 — **행은 살아 있는데 바이트만 사라지는 상태**를
+ * 만들지 않기 위해서다(순서가 계약이다).
+ *
+ * @returns 실제로 쓸어냈으면 `true`(진단·로그용 카운트).
+ */
+async function sweepServerOrphanMedia(
+  remote: MediaRemote,
+  row: MediaRow,
+  storagePath: string | null,
+): Promise<boolean> {
+  const tombstoneAt = new Date().toISOString();
+  const res = await remote.upsert({
+    ...row,
+    deleted_at: tombstoneAt,
+    updated_at: tombstoneAt,
+    version: row.version + 1,
+    base_version: row.version,
+    client_operation_id: crypto.randomUUID(),
+  });
+  if (res.error) return false;
+  if (storagePath) await remote.remove(storagePath);
+  return true;
+}
+
 export async function pullMedia(remote: MediaRemote, mode: PullMode): Promise<{ pulled: number; skippedEmptyCloud: boolean }> {
   const d = db();
   const res = await remote.listAll();
@@ -935,22 +975,19 @@ export async function pullMedia(remote: MediaRemote, mode: PullMode): Promise<{ 
     // 로컬 행이 없으므로 대기열 op를 만들 수도, `pushPendingMedia`가 처리할 수도 없다 —
     // 재큐잉으로는 **원리적으로 닿지 않는 사각지대**다(사용자가 겪은 바로 그 상태).
     // 여기서만 직접 tombstone을 밀고 바이트를 지운다. 되살려 로컬에 만들지 않는다.
-    if (!local && server.deletedAt === null && purged.has(r.trip_id)) {
-      // 전환 모드는 서버 cleanup을 시도하지도, 이미 영구삭제한 부모 아래로 다시 받지도 않는다.
-      if (mode === 'server-read-only') continue;
-      const tombstoneAt = new Date().toISOString();
-      const res = await remote.upsert({
-        ...r,
-        deleted_at: tombstoneAt,
-        updated_at: tombstoneAt,
-        version: r.version + 1,
-        base_version: r.version,
-        client_operation_id: crypto.randomUUID(),
-      });
-      if (!res.error) {
-        if (server.storagePath) await remote.remove(server.storagePath);
-        swept++;
-      }
+    // 🔴 판정은 `sync/merge.ts`가 한다(T-047에서 꺼냄) — 파괴적 서버 쓰기를 지키는 조건인데
+    //    IO 클로저 안에 있어 **유닛이 하나도 못 붙던** 자리다. 거동은 그대로다.
+    // 🔴 **세 갈래를 그대로 옮긴다.** `skip-row`는 원래 코드의 `continue`이고, 이걸 `boolean`으로
+    //    뭉갰다가 다운로드·로컬 쓰기까지 흘러가는 회귀를 만들었다(M-0170 — 기존 유닛이 잡았다).
+    const orphan = serverOrphanAction({
+      localMissing: !local,
+      serverDeletedAt: server.deletedAt,
+      parentPurged: purged.has(r.trip_id),
+      mode,
+    });
+    if (orphan === 'skip-row') continue;
+    if (orphan === 'sweep') {
+      if (await sweepServerOrphanMedia(remote, r, server.storagePath)) swept++;
       continue; // 되살리지 않는다
     }
 
@@ -1853,10 +1890,16 @@ async function requeueIfServerStillActive(
   server: { deletedAt: string | null },
   mode: PullMode,
 ): Promise<void> {
-  // capability 불명 전환 모드는 서버뿐 아니라 **로컬 큐도 read-only**다(M-0095).
-  // 서버 active를 봤다는 이유로 새 delete op을 만들면 "큐 보존" 계약이 거짓이 된다.
-  if (mode === 'server-read-only') return;
-  if (!local || local.deletedAt === null || server.deletedAt !== null) return;
+  // 🔴 **판정은 여기 없다**(`requeueDeleteAction`이 한다 · T-047). 이 함수는 **실행만** 한다.
+  //    갈래 이름이 계약을 담는다 — `skip-read-only`(M-0095: 큐도 read-only)와
+  //    `skip-not-stranded`(해당 없음)는 뜻이 다르므로 `boolean`으로 뭉치지 않는다(M-0170).
+  const action = requeueDeleteAction({
+    hasLocal: Boolean(local),
+    localDeletedAt: local?.deletedAt ?? null,
+    serverDeletedAt: server.deletedAt,
+    mode,
+  });
+  if (action !== 'queue-if-absent' || !local) return;
   const d = db();
   const already = (await d.syncQueue.where('entityId').equals(local.id).toArray()).some(
     (q) => q.entityType === entityType,

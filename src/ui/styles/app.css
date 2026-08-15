@@ -620,6 +620,10 @@
 
 /* 타임라인 */
 .timeline-wrap { position: relative; display: flex; flex-direction: column; gap: var(--space-3); }
+/* 순서 토글 — 오른쪽 끝. 타임라인을 읽는 데 방해되지 않게 조용히 두되, 늘 같은 자리에 둔다
+   (§7 사용자 대면 대칭 — 주행동이 아닌 보조 조작은 화면마다 자리를 바꾸지 않는다). */
+.timeline-order-bar { display: flex; justify-content: flex-end; }
+.timeline-order { min-height: var(--touch-target-min); padding: 0 var(--space-3); font-size: 0.8rem; white-space: nowrap; }
 .timeline-drop-help {
   margin: 0; padding: 9px 12px;
   border: 1px dashed color-mix(in srgb, var(--a1) 48%, var(--line));
@@ -731,6 +735,18 @@
 }
 .chip.gps { background: color-mix(in srgb, var(--sem-sky) 15%, transparent); color: var(--sem-sky-ink); }
 .chip.companions { background: color-mix(in srgb, var(--sem-pink) 13%, transparent); color: var(--sem-pink-ink); }
+/* 사람 칩은 **누를 수 있다** — 누르면 그 사람과 함께한 기록이 열린다(§7 — 장소 배지와 같은 계약).
+   장소 칩(`.chip-tap`)이 이미 쓰는 어휘를 그대로 쓴다: 사용자는 화면마다 규칙을 새로 배우지 않는다. */
+.chip-person { border: 0; font: inherit; cursor: pointer; }
+.chip-person:hover { background: color-mix(in srgb, var(--sem-pink) 26%, transparent); }
+.chip-person:focus-visible { outline: 2px solid var(--sem-pink-ink); outline-offset: 2px; }
+
+/* 동행인 토큰 입력 — 한 명씩 넣는다. 칩 줄은 사람이 없으면 아예 없다(빈 상자를 남기지 않는다). */
+.companion-field { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.companion-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.companion-chips[hidden] { display: none; }
+/* 🔴 `.companion-token`의 ✕는 `.chip-x`를 그대로 쓴다 — 크기·히트 영역 판단이 이미 그 자리에
+   적혀 있고(T-044·ADR-0075), 여기서 다른 답을 내면 같은 성격의 컨트롤이 화면마다 달라진다. */
 /* 누를 수 있는 칩(장소 → 지도). **모양은 형제 칩과 똑같이 두고** 버튼 기본 장식만 지운다 —
    칩 줄에서 어떤 것은 span이고 어떤 것은 button이라는 사실이 화면에 드러나면 안 된다(§7). */
 button.chip { border: 0; font-family: inherit; }

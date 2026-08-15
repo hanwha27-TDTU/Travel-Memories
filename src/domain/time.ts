@@ -8,7 +8,11 @@
 //
 // 계약: 이 앱에서 "그 날"은 **사용자의 로컬 달력 날짜**다(그 사람이 실제로 겪은 날).
 //   ISO 문자열을 잘라(slice) 날짜를 만들지 않는다 — 그건 UTC 날짜이지 사용자의 날짜가 아니다.
-//   `scripts/check-local-date.mjs` 게이트가 이 규칙을 기계적으로 강제한다.
+//   `scripts/check-timezone.mjs` 게이트가 이 규칙을 기계적으로 강제한다(정적: ISO 문자열을
+//   잘라 날짜를 만드는 패턴 금지 · 동적: 유닛을 UTC가 아닌 시간대에서도 돌린다).
+//   🔴 예전엔 여기가 **없는 게이트**(`check-local-date.mjs`)를 가리켰다. 규율 자체는 살아
+//   있었으니 운이 좋았을 뿐이고, 형태는 M-0051과 같다 — 「이 게이트가 막는다」고 적힌 이름이
+//   없으면 다음 사람은 **그 자리를 안 본다.** 2026-08-15 전수조사에서 `check-doc-references`가 잡았다.
 
 const p2 = (n: number): string => String(n).padStart(2, '0');
 const CALENDAR_WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'] as const;

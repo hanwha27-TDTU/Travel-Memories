@@ -57,3 +57,15 @@ export async function openMapPicker(
   const m = await import('./screens/mapView');
   return m.openMapPicker(initial);
 }
+
+/**
+ * 「이 사람과 함께한 기록」 — 동행인 칩을 누르면 열린다(사용자 지시 2026-08-15).
+ * 여행 상세에서 여는 보조 화면이므로 **정적 import를 만들지 않는다**(§7 2층 · check-lazy-screens).
+ */
+export async function openCompanionRecords(
+  person: string,
+  opts: { goToTrip: (tripId: string, target?: { momentId?: string; mediaId?: string }) => void },
+): Promise<void> {
+  const m = await import('./screens/companionRecords');
+  await m.openCompanionRecords(person, opts);
+}

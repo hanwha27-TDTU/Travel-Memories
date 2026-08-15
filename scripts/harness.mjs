@@ -164,6 +164,7 @@ const gates = [
   // 새 `docs/*.md`가 지도에 없거나(실측 25개 중 4개가 그랬다), 새 AI 지시문이 어댑터로
   // 등록되지 않으면 그 도구만 다른 계약을 읽는다(CONSTITUTION 「지시·계약 문서를 바꿀 때」).
   { name: 'check-doc-governance', cmd: 'node scripts/check-doc-governance.mjs' },
+  { name: 'check-doc-references', cmd: 'node scripts/check-doc-references.mjs' },
   // 「모듈별 설계서」는 손으로 유지하지 않는다. 실행 코드의 파일·API·의존·I/O·해시에서
   // 재생성하고, 새 실행 파일이 미분류되거나 커밋본이 낡으면 RED다. 설계서가 정본처럼 보이는
   // 순간 코드와 갈라지므로, 이 게이트는 문서 내용보다 **파생 관계**를 지킨다.
