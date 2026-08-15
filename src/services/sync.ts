@@ -911,6 +911,11 @@ export async function pushPendingMedia(remote: MediaRemote, userId: string): Pro
  * 🔴 **판정은 여기 없다**(`serverOrphanAction`이 한다). 이 함수는 **실행만** 한다 — 그래서
  * 「지울까?」와 「어떻게 지우나」가 갈라지고, 앞의 것은 유닛으로 전수 검사된다(§10 ③).
  *
+ * 🔴 **왜 사진에만 있는가**: 서버 FK가 `trips → moments → 자식`으로 연쇄하고 자식들의
+ * `moment_id`가 NOT NULL이라, **여행이 지워지면 서버가 자식을 전부 데려간다**(T-050 실측).
+ * 이 함수는 그 연쇄가 닿지 않는 **역사적 잔재**만 맡는다 — 형제에 복제하지 않는 이유가
+ * `sync/merge.ts`의 `serverOrphanAction` 머리말에 적혀 있다.
+ *
  * 🔴 **되살리지 않는다.** 로컬 행을 만들지 않고, 실패해도 로컬을 건드리지 않는다(비파괴).
  * upsert가 실패하면 바이트도 그대로 둔다 — **행은 살아 있는데 바이트만 사라지는 상태**를
  * 만들지 않기 위해서다(순서가 계약이다).
