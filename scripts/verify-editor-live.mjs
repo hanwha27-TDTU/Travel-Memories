@@ -5556,32 +5556,67 @@ await targetCard.locator('.moment-edit').getByRole('button', { name: '저장', e
 await page.waitForSelector(`.moment-card[data-moment-id="${PLACE_RECORD_IDS.moments[0]}"] .moment-edit`, { state: 'hidden' });
 // 폼이 닫힌 것은 재렌더 사실일 뿐, 별도 IndexedDB 읽기 트랜잭션이 같은 커밋을 관측했다는
 // 증거는 아니다. 고정 시간 대신 장소·순간의 실제 read-back이 함께 새 이름이 된 사실을 기다린다.
-const linkedNameReadBack = await page.waitForFunction(async (ids) => await new Promise((resolve) => {
+//
+// 🔴 **T-045 — 이 자리가 CI에서 흔들렸다**(2026-08-15 · v2.43 배포 중). 같은 커밋에서
+//    1차 462/463(여기만 빨강 · 보고값 `null`), 재실행 463/463. 로컬은 3회 모두 통과였다.
+//    고치면서 확인된 결함 둘을 적는다 — **원인은 확정하지 못했고, 그 사실도 적는다**(§8 · M-0056).
+//
+//    ① **폴링 안에서 DB를 여는 유일한 자리였고, 연결을 닫지도 않았다.** 형제 20여 곳은 전부
+//       `evaluate` **한 번** 안에서 열고 끝난다. 여기만 `waitForFunction`의 rAF 폴링마다
+//       새 연결을 열어 그대로 두었다 — 초당 수십 개가 쌓인다. §7의 최빈형이다(형제가 지키는
+//       규율을 이 자리만 안 물려받았다).
+//    ② 🔴 **실패했을 때 화면에 `null` 한 글자만 남았다.** 그건 「값이 달랐다」와
+//       「읽지 못했다」를 **같은 말로** 적은 것이다(§8 — 모르는 것을 정상으로도 문제로도
+//       반올림하지 않는다). 그래서 CI가 빨개져도 **아무것도 배울 수 없었다.**
+//       이제 마지막으로 **관측한 상태를 그대로** 들고 나온다.
+//
+//    폴링은 `waitUntil`을 쓴다 — T-042가 세운 자리이고, **끝내 거짓이어도 던지지 않고
+//    마지막 값을 돌려준다.** 그래서 실패가 사고가 아니라 **판정할 값**이 된다.
+const NAME_SYNCED = '라이브 이름 동기화 장소';
+const readLinkedName = async () => page.evaluate(async (ids) => await new Promise((resolve) => {
+  let db = null;
+  const done = (v) => { try { db?.close(); } catch { /* 이미 닫혔으면 그만이다 */ } resolve(v); };
   const req = indexedDB.open('journey-archive');
   req.onsuccess = () => {
-    const tx = req.result.transaction(['localPlaces', 'localMoments'], 'readonly');
-    const placeReq = tx.objectStore('localPlaces').get(ids.place);
-    const momentReq = tx.objectStore('localMoments').get(ids.moments[0]);
-    tx.oncomplete = () => {
-      const readBack = { place: placeReq.result, moment: momentReq.result };
-      resolve(
-        readBack.place?.name === '라이브 이름 동기화 장소'
-          && readBack.moment?.placeName === '라이브 이름 동기화 장소'
-          ? readBack
-          : null,
-      );
-    };
-    tx.onerror = () => resolve(null);
+    db = req.result;
+    try {
+      const tx = db.transaction(['localPlaces', 'localMoments'], 'readonly');
+      const placeReq = tx.objectStore('localPlaces').get(ids.place);
+      const momentReq = tx.objectStore('localMoments').get(ids.moments[0]);
+      tx.oncomplete = () => done({ read: true, place: placeReq.result ?? null, moment: momentReq.result ?? null });
+      tx.onerror = () => done({ read: false, why: `tx: ${tx.error?.name ?? '알 수 없음'}` });
+    } catch (e) {
+      done({ read: false, why: `transaction 열기 실패: ${String(e)}` });
+    }
   };
-  req.onerror = () => resolve(null);
-}), PLACE_RECORD_IDS).then((handle) => handle.jsonValue());
+  req.onerror = () => done({ read: false, why: `open: ${req.error?.name ?? '알 수 없음'}` });
+  req.onblocked = () => done({ read: false, why: 'open blocked' });
+}), PLACE_RECORD_IDS);
+// 이름 둘이 함께 새 이름이 될 때까지. 좌표·placeId 판정은 아래 `check`가 한다 — 기다림의
+// 조건과 판정의 조건을 같게 두면, 조건이 틀렸을 때 **영원히 기다리다 timeout**으로 끝나고
+// 무엇이 달랐는지는 안 남는다.
+const linkedNameReadBack = await waitUntil(async () => {
+  const r = await readLinkedName();
+  return r.read && r.place?.name === NAME_SYNCED && r.moment?.placeName === NAME_SYNCED ? r : null;
+}) ?? await readLinkedName(); // 🔴 끝내 안 맞았으면 **마지막으로 본 것**을 들고 나온다
 check('v1.97 연결 이름: 순간 편집이 placeId·당시 좌표를 보존하고 대장 이름까지 함께 바꾼다',
-  linkedNameReadBack?.place?.name === '라이브 이름 동기화 장소'
-    && linkedNameReadBack?.moment?.placeName === '라이브 이름 동기화 장소'
+  linkedNameReadBack?.read === true
+    && linkedNameReadBack?.place?.name === NAME_SYNCED
+    && linkedNameReadBack?.moment?.placeName === NAME_SYNCED
     && linkedNameReadBack?.moment?.placeId === PLACE_RECORD_IDS.place
     && linkedNameReadBack?.moment?.placeLat === 41.3111
     && linkedNameReadBack?.moment?.placeLng === 69.2797,
-  JSON.stringify(linkedNameReadBack));
+  // 🔴 실패하면 **무엇을 봤는지**가 남아야 한다. `read:false`면 그건 「값이 다르다」가 아니라
+  //    **「읽지 못했다」**이고, 둘은 처방이 다르다.
+  JSON.stringify(linkedNameReadBack?.read === false
+    ? { 읽지못함: linkedNameReadBack.why }
+    : {
+        placeName: linkedNameReadBack?.place?.name ?? null,
+        momentPlaceName: linkedNameReadBack?.moment?.placeName ?? null,
+        placeId: linkedNameReadBack?.moment?.placeId ?? null,
+        lat: linkedNameReadBack?.moment?.placeLat ?? null,
+        lng: linkedNameReadBack?.moment?.placeLng ?? null,
+      }));
 
 // ── v2.11 영상: 실제 브라우저 생성 파일 → 변환 → Dexie → 재생 ──────────────
 // 정적 픽스처를 저장소에 넣지 않고 Chromium의 MediaRecorder로 1초 WebM을 만든다. 이 파일을
