@@ -5696,8 +5696,15 @@ check('v1.97 연결 이름: 순간 편집이 placeId·당시 좌표를 보존하
       const db = req.result;
       const tx = db.transaction('localMoments', 'readwrite');
       const now = new Date().toISOString();
+      // 🔴 **날짜를 손으로 못박지 않는다**(2026-08-16 · §18-I 「자동 옆의 수동」).
+      //    여기 있던 값은 `'2026-08-16T04:00:00.000Z'` 리터럴이었다. 다른 날짜 묶음은
+      //    **「오늘」에서 나오는데** 이 값만 고정이라, **KST로 날이 8월 16일로 넘어간 순간**
+      //    둘이 같은 날이 되어 묶음이 **1개**가 됐다 — 그리고 이 검사는 스스로
+      //    *"묶음이 하나면 뒤집기를 잴 수 없다"*고 적어 둔 자리에서 정확히 그렇게 빨개졌다.
+      //    이제 **「오늘 + 1일」로 파생**하므로 시계가 언제 넘어가도 다른 날이다.
+      const nextDay = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
       tx.objectStore('localMoments').put({
-        id: 'live-order-second-day', tripId, occurredAt: '2026-08-16T04:00:00.000Z',
+        id: 'live-order-second-day', tripId, occurredAt: nextDay,
         title: '순서 확인용 다음날 순간', note: '', emotion: '', placeName: '', placeLat: null, placeLng: null,
         placeId: null, companionNames: '', version: 1, baseVersion: 0, createdAt: now, updatedAt: now,
         deletedAt: null, clientOperationId: 'live-order-second-day-op',
