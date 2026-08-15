@@ -750,6 +750,32 @@ check(
   '새 위치 지도: 현재 위치는 중심일 뿐, 지도를 누르기 전에는 선택되지 않는다',
   await page.locator('.map-pick-confirm').isDisabled(),
 );
+// ── 🔴 모달 헤더 닫기 버튼의 터치 표적 (2026-08-15 · T-041) ────────────────────────
+//    `.map-close`는 보이는 크기가 36px이라 44px에 못 미쳤다. 보이는 크기는 그대로 두고
+//    히트 영역만 넓혔는데, **넓히기만 재면 반쪽이다** — M-0162에서 넓힌 영역이 이웃의
+//    터치를 훔쳐 미달보다 나쁜 상태를 만들었다. 그래서 「44px」과 「덮는 것 0」을 함께 잰다.
+const mapCloseTarget = await page.evaluate(() => {
+  const n = document.querySelector('.map-close');
+  if (!n) return null;
+  const r = n.getBoundingClientRect();
+  const a = getComputedStyle(n, '::after');
+  const g = (v) => Math.abs(parseFloat(v) || 0);
+  const has = a.content !== 'none' && a.position === 'absolute';
+  const w = r.width + (has ? g(a.left) + g(a.right) : 0);
+  const h = r.height + (has ? g(a.top) + g(a.bottom) : 0);
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  const stolen = [];
+  for (const dx of [-w / 2 + 1, 0, w / 2 - 1]) for (const dy of [-h / 2 + 1, 0, h / 2 - 1]) {
+    const el = document.elementFromPoint(cx + dx, cy + dy)?.closest('button, a[href], input, [role="button"]');
+    if (el && el !== n && !n.contains(el) && !el.contains(n)) stolen.push(el.className || el.tagName);
+  }
+  return { visible: `${Math.round(r.width)}x${Math.round(r.height)}`, hit: `${Math.round(w)}x${Math.round(h)}`, min: Math.min(w, h), stolen: [...new Set(stolen)] };
+});
+check('지도 닫기 버튼: 보이는 크기는 36px 그대로, 누를 수 있는 넓이는 44px',
+  mapCloseTarget?.visible === '36x36' && (mapCloseTarget?.min ?? 0) >= 44, JSON.stringify(mapCloseTarget));
+check('지도 닫기 버튼: 넓힌 히트 영역이 이웃 버튼을 훔치지 않는다',
+  (mapCloseTarget?.stolen.length ?? -1) === 0, JSON.stringify(mapCloseTarget?.stolen ?? null));
+
 await page.locator('.map-close').click();
 await page.waitForSelector('.map-overlay', { state: 'detached' });
 
@@ -5632,6 +5658,54 @@ if (headerSeeded) {
     header.minHit >= 44 && header.stolen.length === 0, JSON.stringify(header));
   check('좁은 헤더 344px: 가로로 넘치지 않는다', header.pageOverflow === 0, String(header.pageOverflow));
 }
+
+// ── 🔴 터치 표적 **전수 검사** (2026-08-15 · T-041) ─────────────────────────────────
+//    지금까지 이 저장소는 표적 미달을 **한 자리씩** 고쳤다(`.chip-x` → `.chip-clear` →
+//    헤더 둘 → 닫기 셋). 그때마다 사용자가 먼저 발견했다는 뜻이기도 하다. 그래서 이제
+//    **화면에 있는 조작 요소를 전부 훑어** 미달을 이름과 함께 잡는다 — 다음 버튼은
+//    사람이 기억하지 않아도 걸린다(§7 3층).
+//
+//    🔴 **오탐을 두 가지 걷어낸다.** ①부모가 클릭을 받는 자식(`.sync-note-go`는 클릭이
+//    부모 줄로 가고 그 줄이 44px이다) ②`::after`로 넓힌 히트 영역(보이는 상자만 재면
+//    고쳐 놓은 것을 결함이라 부른다). 오탐이 많은 게이트는 사람이 무시해서 죽는다(§11 ③).
+//
+//    **예외는 이유와 함께 여기 적는다** — 이유 없는 제외는 결함이다(§7).
+const TOUCH_TARGET_EXCEPTIONS = [
+  // 64×64 썸네일 셀 위에 얹힌 삭제 버튼. 44px로 넓히면 셀의 절반 이상을 덮어 **사진을
+  // 누르려던 손이 사진을 지운다** — 미달보다 나쁘다(§3-E · M-0162). 대체 경로로 [전체 해제]가
+  // 있고 그쪽은 44px이다. 근본 처방(칸을 키우거나 삭제를 칸 밖으로)은 배치 결정이라 T-041.
+  'pick-x',
+  // 위와 같은 형태 — 저장된 사진 격자 칸 위 우상단.
+  'photo-del',
+];
+await page.setViewportSize({ width: 344, height: 820 });
+await page.goto(`http://localhost:4173${BASE}`);
+await page.waitForFunction(() => (document.getElementById('app')?.innerText ?? '').trim().length > 0, { timeout: 15000 });
+const targetSweep = await page.evaluate((exceptions) => {
+  const vis = (n) => n.getClientRects().length > 0 && getComputedStyle(n).visibility !== 'hidden';
+  const hit = (n) => {
+    const r = n.getBoundingClientRect();
+    const a = getComputedStyle(n, '::after');
+    const g = (v) => Math.abs(parseFloat(v) || 0);
+    const has = a.content !== 'none' && a.position === 'absolute';
+    return { w: r.width + (has ? g(a.left) + g(a.right) : 0), h: r.height + (has ? g(a.top) + g(a.bottom) : 0) };
+  };
+  const all = [...document.querySelectorAll('button, a[href], [role="button"]')].filter(vis);
+  const small = [];
+  for (const b of all) {
+    const cls = typeof b.className === 'string' ? b.className : '';
+    if (exceptions.some((e) => cls.split(/\s+/).includes(e))) continue;
+    const anc = b.parentElement?.closest('.is-actionable, button, a[href], [role="button"]');
+    if (anc) { const ah = hit(anc); if (Math.min(ah.w, ah.h) >= 44) continue; } // 부모가 표적이다
+    const { w, h } = hit(b);
+    if (Math.min(w, h) < 44) small.push(`${cls.split(/\s+/)[0] || b.tagName}(${Math.round(w)}x${Math.round(h)})`);
+  }
+  return { total: all.length, small: [...new Set(small)] };
+}, TOUCH_TARGET_EXCEPTIONS);
+check('터치 표적 전수(344px 홈): 모집단을 확보했다 — 0개면 아무것도 안 본 것이다',
+  targetSweep.total >= 8, JSON.stringify({ total: targetSweep.total }));
+check('터치 표적 전수(344px 홈): 44px 미달이 없다(예외는 이유와 함께 코드에 등록)',
+  targetSweep.small.length === 0, JSON.stringify(targetSweep));
 
 check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 
