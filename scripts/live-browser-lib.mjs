@@ -184,3 +184,150 @@ export async function proveOverflowScanner(page) {
     throw new Error('SELF-TEST 실패: 대조군이 심은 것을 못 치웠다 — 본 검사가 오염된다.');
   }
 }
+
+
+/** rAF 두 장 — 「끝났다」가 아니라 「프레임이 두 장 지났다」이다(§3-C-2). */
+async function settlePage(p) {
+  await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+}
+
+// 🔴 **아래 둘은 `verify-editor-live`에만 있었다** — 그래서 진단 라이브는 커버 폭을 **한 번도
+//    안 쟀다**(T-049). 화면마다 손으로 재면 항목이 갈라지듯, **파일마다** 갖고 있어도 갈라진다.
+//    공용으로 올려 두 라이브가 **같은 자**를 쓰게 한다(§7 2층 · §2 SSOT).
+/**
+ * 44px 표적 검사에서 **빼는 것과 그 이유**. 🔴 **한 곳에만 둔다** — `coverSweep`이 화면마다
+ * 쓰고 홈 전수 검사도 쓴다. 두 벌로 두면 한쪽만 고쳐지는 날이 온다(§2 · §7 2층).
+ * 🔴 **이유 없는 제외는 결함이다**(§7).
+ */
+export const TOUCH_TARGET_EXCEPTIONS = [
+  // 64×64 썸네일 셀 위에 얹힌 삭제 버튼. 44px로 넓히면 셀의 절반 이상을 덮어 **사진을
+  // 누르려던 손이 사진을 지운다** — 미달보다 나쁘다(§3-E · M-0162). 대체 경로로 [전체 해제]가
+  // 있고 그쪽은 44px이다. 근본 처방(칸을 키우거나 삭제를 칸 밖으로)은 배치 결정이라 T-044.
+  'pick-x',
+  // 위와 같은 형태 — 저장된 사진 격자 칸 위 우상단.
+  'photo-del',
+  // 비용 칩 안의 환율 상세 펼치기(≈ 환산값). 형제 `.chip-x`와 같은 처방(칩 높이를 꽉 채우되
+  // **칩 밖으로는 안 나간다**)을 받아 19px → 칩 높이가 됐지만, 알약 칩 자체가 30px이라
+  // 44px에는 못 미친다. 밖으로 넓히면 아래 사진 격자에 보이지 않는 표적이 얹힌다(M-0162).
+  // 근본 처방(칩을 키우거나 컨트롤을 칩 밖으로)은 배치 결정이라 T-044에 함께 묶었다.
+  'chip-approx',
+  // 🔴 아래 셋은 **면제가 아니라 더 엄한 검사로 보내는 것**이다(§11 ③ — 오탐도 결함이다).
+  //    `closeButtonTarget()`이 이 셋을 ①세로 히트 44px ②**덮는 것 0**으로 각각 잰다.
+  //    여기서 `min(w,h)`로 재면 가로 36px을 미달이라 부르는데, 가로로 넓히는 것은 M-0162에서
+  //    **이웃의 터치를 훔쳐** 미달보다 나쁜 상태를 만들었다 — 그래서 세로만 넓힌 결정이다.
+  //    두 검사가 서로 다른 답을 내면 그게 §17이 말하는 모순이다. 판정은 한 곳에서 한다.
+  'pe-close',
+  'map-close',
+  'single-photo-moment-close',
+  // 🔴 아래 셋은 **넓히려다 실측에 막힌 것**이다(T-049 · 2026-08-15). 형제와 같은 처방
+  //    (투명 `::after`로 세로만 44px)을 실제로 넣어 재보니 `closeButtonTarget()`이
+  //    `stolen: ["chip companions chip-person"]`을 냈다 — 칩 줄이 `flex-wrap`으로 접히고
+  //    `gap`이 확장분보다 작아 **이웃 칩의 터치를 훔쳤다.** 「러원이」를 누르려던 손에
+  //    다른 사람의 기록이 열리는 것은 미달보다 나쁘다(M-0162와 같은 판정).
+  //    🔴 **그 대신 「덮음 0」을 라이브가 계속 잰다** — 면제가 아니라 다른 축으로 보낸 것이다.
+  //    근본 처방(칩 줄의 밀도)은 배치 결정이라 T-044와 같은 자리에 둔다.
+  'chip-person',
+  'place-chip-map',
+  'place-chip-copy',
+];
+
+/**
+ * 🔴 **폴드 커버 폭(344px)에서 지금 열려 있는 화면을 훑는다**(T-043 · 2026-08-15).
+ *
+ * 왜 헬퍼인가: 사용자가 요청한 커버 화면 최적화에서 **홈만 재고 나머지는 「안 봤다」**로 남았다.
+ * 화면마다 손으로 측정을 쓰면 항목이 갈라지므로, **재는 것을 한 곳에서 정한다**(§7 2층).
+ *
+ * 재는 것(`ui-responsive-dev` §2 규율):
+ *  ① 페이지 가로 넘침 — 모든 폭에서 0이어야 한다
+ *  ② **자르는 상자**의 가로 넘침 — 자식이 아니라 자르는 쪽에서 잰다(§3 1.32-B)
+ *  ③ 버튼·칩 글자가 두 줄로 갈라졌는가
+ *  ④ 44px 미달 터치 표적(부모가 클릭을 받는 자식과 `::after` 확장은 오탐이므로 제외)
+ *
+ * 🔴 **뷰포트를 바꾸고 반드시 되돌린다**(§3-C — 뒤따르는 검사가 보는 화면을 바꾸지 않는다).
+ * 🔴 **모집단을 먼저 판정한다** — 화면이 안 열렸으면 0을 재고 통과할 수 있다(§4).
+ */
+export async function coverSweep(page, check, label, rootSelector, exceptions = TOUCH_TARGET_EXCEPTIONS) {
+  const keep = page.viewportSize();
+  await page.setViewportSize({ width: 344, height: 820 });
+  await settlePage(page);
+  const m = await page.evaluate(({ root, exc, optOut }) => {
+    const scope = root ? document.querySelector(root) : document.body;
+    if (!scope) return null;
+    const vis = (n) => n.getClientRects().length > 0 && getComputedStyle(n).visibility !== 'hidden';
+    const name = (n) => `${n.tagName.toLowerCase()}${typeof n.className === 'string' && n.className ? '.' + n.className.trim().split(/\s+/)[0] : ''}`;
+    const hit = (n) => {
+      const r = n.getBoundingClientRect();
+      const a = getComputedStyle(n, '::after');
+      const g = (v) => Math.abs(parseFloat(v) || 0);
+      const has = a.content !== 'none' && a.position === 'absolute';
+      return { w: r.width + (has ? g(a.left) + g(a.right) : 0), h: r.height + (has ? g(a.top) + g(a.bottom) : 0) };
+    };
+    // 🔴 **자르는 상자만 말하면 원자료 덤프다**(§8). 「무엇이 튀어나왔나」까지 말해야
+    //    사람이 고칠 자리를 안다 — 상자는 결과이고 원인은 그 안의 자식이다.
+    const clipped = [];
+    for (const box of scope.querySelectorAll('*')) {
+      if (!vis(box)) continue;
+      const cs = getComputedStyle(box);
+      if (cs.overflowX === 'visible') continue;
+      // 🔴 **의도된 가로 스크롤은 넘침이 아니다** — 그리고 그 판정은 형제 스캐너와 같아야 한다
+      //    (T-049 · 2026-08-15). `scanOverflowContainers`는 `data-allow-xscroll`로 이미 빼고
+      //    있었는데 이 함수는 그 표식을 **안 봤다** — 스캐너 둘이 같은 질문에 다른 답을 내는
+      //    상태였다(§17 모순 · §2 손편집 중복). 실제로 사진 띠(`.pr-record-photos`)가
+      //    「10px 잘림」으로 잡혔는데, 그건 자르는 게 아니라 **스크롤로 닿는** 자리다.
+      if (box.closest(`[${optOut}]`)) continue;
+      // 🔴 `text-overflow: ellipsis`는 **자르겠다고 선언한 상자**다(`…`가 그 자리에 보인다).
+      //    그걸 넘침이라 부르면 고쳐 둔 것을 결함이라 부르는 오탐이고, 오탐이 많은 게이트는
+      //    사람이 무시해서 죽는다(§11 ③). 자르는 것과 **말없이 사라지는 것**은 다른 일이다.
+      if (cs.textOverflow === 'ellipsis') continue;
+      const over = box.scrollWidth - box.clientWidth;
+      if (over <= 1) continue;
+      const edge = box.getBoundingClientRect().left + box.clientWidth;
+      let worst = null;
+      for (const kid of box.querySelectorAll('*')) {
+        if (!vis(kid)) continue;
+        const past = Math.round(kid.getBoundingClientRect().right - edge);
+        if (past > 1 && (!worst || past > worst.past)) worst = { n: name(kid), past };
+      }
+      clipped.push(`${name(box)}(+${over} ← ${worst ? `${worst.n} +${worst.past}` : '자식 없음'})`);
+    }
+    const split = [];
+    for (const b of scope.querySelectorAll('button, label, .chip, .status-chip, .moment-picker')) {
+      if (!vis(b)) continue;
+      const span = b.querySelector('.moment-picker-text') ?? b;
+      const txt = (b.textContent ?? '').trim();
+      if (span.getClientRects().length > 1 && txt.length > 0 && txt.length <= 24) split.push(`"${txt.slice(0, 14)}"`);
+    }
+    const controls = [...scope.querySelectorAll('button, a[href], [role="button"]')].filter(vis);
+    const small = [];
+    for (const b of controls) {
+      const cls = typeof b.className === 'string' ? b.className : '';
+      if (exc.some((e) => cls.split(/\s+/).includes(e))) continue;
+      const anc = b.parentElement?.closest('.is-actionable, button, a[href], [role="button"]');
+      if (anc) { const ah = hit(anc); if (Math.min(ah.w, ah.h) >= 44) continue; }
+      const { w, h } = hit(b);
+      if (Math.min(w, h) < 44) small.push(`${cls.split(/\s+/)[0] || b.tagName}(${Math.round(w)}x${Math.round(h)})`);
+    }
+    return {
+      controls: controls.length,
+      pageOverflow: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
+      clipped: [...new Set(clipped)],
+      split: [...new Set(split)],
+      small: [...new Set(small)],
+    };
+  }, { root: rootSelector, exc: exceptions, optOut: XSCROLL_OPT_OUT });
+  if (keep) await page.setViewportSize(keep);
+  await settlePage(page);
+
+  check(`폴드 커버 344px · ${label}: 화면을 실제로 열었다(모집단 0은 통과가 아니다)`,
+    (m?.controls ?? 0) > 0, JSON.stringify(m));
+  if ((m?.controls ?? 0) > 0) {
+    check(`폴드 커버 344px · ${label}: 가로로 넘치지 않는다(페이지·자르는 상자 둘 다)`,
+      m.pageOverflow === 0 && m.clipped.length === 0, JSON.stringify({ pageOverflow: m.pageOverflow, clipped: m.clipped }));
+    check(`폴드 커버 344px · ${label}: 버튼·칩 글자가 두 줄로 갈라지지 않는다`,
+      m.split.length === 0, JSON.stringify(m.split));
+    check(`폴드 커버 344px · ${label}: 44px 미달 터치 표적이 없다(예외는 이유와 함께 등록)`,
+      m.small.length === 0, JSON.stringify(m.small));
+  }
+  return m;
+}
+
