@@ -1,6 +1,6 @@
 // 동기화 결정 순수함수 테스트 (SYNC_PROTOCOL 불변식을 게이트로 잠금).
 import { describe, it, expect } from 'vitest';
-import { mergeDecision, isEmptyCloudAnomaly, classifyError, writeLanded, serverOrphanAction } from '../../src/sync/merge';
+import { mergeDecision, isEmptyCloudAnomaly, classifyError, writeLanded, serverOrphanAction, requeueDeleteAction, unreferencedByteAction } from '../../src/sync/merge';
 import type { LocalTrip } from '../../src/offline/db';
 
 function trip(over: Partial<LocalTrip>): LocalTrip {
@@ -165,5 +165,89 @@ describe('serverOrphanAction — 서버 고아를 만났을 때 이 행을 어�
 
   it('서버가 이미 tombstone이면 할 일이 없다', () => {
     expect(serverOrphanAction({ ...base, serverDeletedAt: '2026-08-15T00:00:00.000Z' })).toBe('not-orphan');
+  });
+});
+
+/**
+ * 🔴 **일곱 pull 루프 전부가 부르는데 유닛이 한 건도 없던 판정**(T-047 · 2026-08-15).
+ *
+ * 이 판정이 참이면 만들어지는 것은 **`delete` op**이다 — 서버 행을 지우는 길의 입구다.
+ * 그리고 여기 사는 계약 하나(`server-read-only`면 **로컬 큐도** 안 건드린다 · M-0095)는
+ * 산문으로만 있었다. 산문은 다음 사람이 지운다.
+ *
+ * 네 입력의 **모든 조합(2×2×2×2 = 16)을 전수로** 돈다.
+ */
+describe('requeueDeleteAction — 로컬은 지웠는데 서버가 살아 있을 때 다시 큐에 올릴 것인가', () => {
+  const base = {
+    hasLocal: true,
+    localDeletedAt: '2026-08-15T00:00:00.000Z' as string | null,
+    serverDeletedAt: null as string | null,
+    mode: 'merge' as 'merge' | 'server-read-only',
+  };
+
+  it('로컬 tombstone + 서버 활성 + merge면 다시 올린다', () => {
+    expect(requeueDeleteAction(base)).toBe('queue-if-absent');
+  });
+
+  it('🔴 server-read-only는 **「할 일 없음」이 아니라 「계약상 안 한다」**다(M-0095)', () => {
+    // 서버 활성을 봤다는 이유로 새 op을 만들면 「큐 보존」 계약이 거짓말이 된다.
+    // 이름이 갈려 있으므로 진단에서 두 침묵을 갈라 셀 수 있다(§8).
+    expect(requeueDeleteAction({ ...base, mode: 'server-read-only' })).toBe('skip-read-only');
+  });
+
+  it('🔴 read-only는 **다른 조건보다 먼저** 본다 — 대상이 아니어도 사유는 read-only다', () => {
+    // 순서가 뒤집히면 「대상이 아니다」와 「계약상 안 한다」가 섞여 셀 수 없게 된다.
+    expect(requeueDeleteAction({ ...base, hasLocal: false, mode: 'server-read-only' })).toBe('skip-read-only');
+  });
+
+  it('🔴 전수: 16개 조합 중 `queue-if-absent` 하나 · `skip-read-only` 여덟 · 나머지 일곱', () => {
+    const seen = { 'queue-if-absent': 0, 'skip-read-only': 0, 'skip-not-stranded': 0 };
+    for (const hasLocal of [true, false]) {
+      for (const localDeletedAt of ['2026-08-15T00:00:00.000Z', null]) {
+        for (const serverDeletedAt of [null, '2026-08-15T00:00:00.000Z']) {
+          for (const mode of ['merge', 'server-read-only'] as const) {
+            seen[requeueDeleteAction({ hasLocal, localDeletedAt, serverDeletedAt, mode })] += 1;
+          }
+        }
+      }
+    }
+    expect(seen).toEqual({ 'queue-if-absent': 1, 'skip-read-only': 8, 'skip-not-stranded': 7 });
+  });
+
+  it('로컬 행이 없으면 대상이 아니다 — 대기열이 손댈 것이 없다', () => {
+    expect(requeueDeleteAction({ ...base, hasLocal: false })).toBe('skip-not-stranded');
+  });
+
+  it('🔴 사용자가 안 지웠으면 절대 삭제 op을 만들지 않는다', () => {
+    expect(requeueDeleteAction({ ...base, localDeletedAt: null })).toBe('skip-not-stranded');
+  });
+
+  it('서버도 이미 tombstone이면 삭제가 도달한 것이다 — 다시 올리지 않는다', () => {
+    expect(requeueDeleteAction({ ...base, serverDeletedAt: '2026-08-15T00:00:00.000Z' })).toBe('skip-not-stranded');
+  });
+});
+
+/**
+ * 🔴 **DB가 지금 가리키는 바이트를 지우면 「행은 있는데 바이트가 없는」 상태가 된다**(T-047).
+ * 이 앱에서 가장 나쁜 상태이고(비타협 원칙 #1), 그것을 막는 것이 이 두 줄이었다 — 유닛 없이.
+ */
+describe('unreferencedByteAction — 옛 객체 키를 지울 것인가', () => {
+  it('가리키는 데가 없으면 지운다', () => {
+    expect(unreferencedByteAction('u/old.webp', 'u/new.webp')).toBe('remove');
+  });
+
+  it('🔴 DB가 **지금 가리키는** 키는 고아가 아니라 현역이다 — 지우면 사용자 사진이 사라진다', () => {
+    expect(unreferencedByteAction('u/same.webp', 'u/same.webp')).toBe('still-referenced');
+  });
+
+  it('🔴 「없어서 안 지운다」와 「현역이라 안 지운다」를 갈라 부른다(`boolean`이면 섞인다)', () => {
+    expect(unreferencedByteAction(undefined, 'u/new.webp')).toBe('no-candidate');
+    expect(unreferencedByteAction('', 'u/new.webp')).toBe('no-candidate');
+    expect(unreferencedByteAction(null, null)).toBe('no-candidate');
+  });
+
+  it('DB가 아무것도 안 가리켜도 후보가 있으면 고아다', () => {
+    expect(unreferencedByteAction('u/old.webp', null)).toBe('remove');
+    expect(unreferencedByteAction('u/old.webp', undefined)).toBe('remove');
   });
 });

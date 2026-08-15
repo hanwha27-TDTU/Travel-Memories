@@ -17,7 +17,7 @@ import { operationStoragePath, videoPosterStoragePath } from '../domain/media/na
 import { toPlaceRow, fromPlaceRow, type PlaceRow } from '../domain/place/rowmap';
 import { isRealCoord } from '../domain/place/coordInput';
 import { compressForStorage } from '../media/compress';
-import { mergeDecision, isEmptyCloudAnomaly, classifyError, retryDelayMs, isRetryDue, mustUploadBytes, writeLanded, serverOrphanAction } from '../sync/merge';
+import { mergeDecision, isEmptyCloudAnomaly, classifyError, retryDelayMs, isRetryDue, mustUploadBytes, writeLanded, serverOrphanAction, requeueDeleteAction, unreferencedByteAction } from '../sync/merge';
 import type { JourneyClient } from './supabase/client';
 import { r2BlobStore, r2ListObjects } from './r2';
 // 바이트 대조가 「이 기기에 사본이 있는 id」를 물어본다. `storeState`는 Dexie만 읽는
@@ -436,13 +436,17 @@ async function rebaseRejectedLocal<T extends SyncMeta>(
   });
 }
 
-/** DB가 가리키지 않는 작업별 R2 키만 걷는다. 삭제 실패는 기억보다 고아 사본을 택해 재시도에 맡긴다. */
+/**
+ * DB가 가리키지 않는 작업별 R2 키만 걷는다. 삭제 실패는 기억보다 고아 사본을 택해 재시도에 맡긴다.
+ *
+ * 🔴 **판정은 여기 없다**(`unreferencedByteAction`이 한다 · T-047). 이 함수는 **실행만** 한다.
+ */
 async function removeUnreferencedBytes(
   remote: Pick<MediaRemote, 'remove'> | Pick<AudioRemote, 'remove'> | Pick<VideoRemote, 'remove'>,
   candidate: string | undefined,
   referenced: string | null | undefined,
 ): Promise<void> {
-  if (!candidate || candidate === referenced) return;
+  if (unreferencedByteAction(candidate, referenced) !== 'remove' || !candidate) return;
   try {
     const removed = await remote.remove(candidate);
     if (removed.error) console.warn(`동기화 고아 바이트 정리 보류: ${removed.error}`);
@@ -1886,10 +1890,16 @@ async function requeueIfServerStillActive(
   server: { deletedAt: string | null },
   mode: PullMode,
 ): Promise<void> {
-  // capability 불명 전환 모드는 서버뿐 아니라 **로컬 큐도 read-only**다(M-0095).
-  // 서버 active를 봤다는 이유로 새 delete op을 만들면 "큐 보존" 계약이 거짓이 된다.
-  if (mode === 'server-read-only') return;
-  if (!local || local.deletedAt === null || server.deletedAt !== null) return;
+  // 🔴 **판정은 여기 없다**(`requeueDeleteAction`이 한다 · T-047). 이 함수는 **실행만** 한다.
+  //    갈래 이름이 계약을 담는다 — `skip-read-only`(M-0095: 큐도 read-only)와
+  //    `skip-not-stranded`(해당 없음)는 뜻이 다르므로 `boolean`으로 뭉치지 않는다(M-0170).
+  const action = requeueDeleteAction({
+    hasLocal: Boolean(local),
+    localDeletedAt: local?.deletedAt ?? null,
+    serverDeletedAt: server.deletedAt,
+    mode,
+  });
+  if (action !== 'queue-if-absent' || !local) return;
   const d = db();
   const already = (await d.syncQueue.where('entityId').equals(local.id).toArray()).some(
     (q) => q.entityType === entityType,
