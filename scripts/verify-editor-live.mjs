@@ -5377,16 +5377,56 @@ check('헤더: 가로 넘침 0', headM.overflow === 0, `overflow=${headM.overflo
       await page.mouse.up();
       await settle(page);
       check('R⑦ Windows 마우스 재배열 완료 때 사진 뷰어가 열리지 않는다', await page.locator('.photo-viewer').count() === 0);
+
+      // 🔴 **놓자마자 누르지 않는다** — 앱이 시작한 일이 아직 안 끝났다 (T-048 · 2026-08-15).
+      //
+      // `onReorder`는 `void (async () => { await reorderMomentPhotos(); await refresh(); })()`다.
+      // 즉 놓는 순간 **IndexedDB 쓰기 + 격자 다시 그리기**가 시작되고, `settle`(프레임 두 장)은
+      // 그 끝을 기다리지 않는다. 그 사이에 누르면 `mousedown`과 `mouseup`의 대상이 갈려
+      // **`click` 자체가 안 난다** — 뷰어가 안 열리고, 검사는 이유를 모른 채 빨개진다.
+      // 이 저장소가 세 번째로 만나는 같은 근본형이다(T-042 · M-0119 — 「행동 직후 즉시 재기」).
+      //
+      // 그래서 **내용으로 기다린다**: 내가 심은 세 칸의 DOM 순서가 재배열 결과와 같아질 때까지.
+      const mineOrder = async () =>
+        await grid.evaluate((g) =>
+          [...g.querySelectorAll('.photo-thumb-wrap[data-media-id]')]
+            .map((e) => e.getAttribute('data-media-id'))
+            .filter((id) => id && id.startsWith('ro-')),
+        );
+      const WANT = 'ro-wide,ro-square,ro-tall'; // ro-tall을 ro-square 자리로 옮긴 결과
+      const redrawn = await waitUntil(async () => (await mineOrder()).join(',') === WANT, 5000);
+      check('R⑦-1 놓은 뒤 격자가 새 순서로 다시 그려졌다', redrawn, (await mineOrder()).join(' → '));
+
       const nextClick = await boxOf('ro-wide');
       if (nextClick) {
         await page.mouse.click(nextClick.x, nextClick.y);
         // 🔴 뷰어는 사진 바이트를 불러온 뒤 열리므로 **프레임 두 장으로는 이르다**(T-042 · M-0119).
         //    같은 코드에서 한 번 FAIL하고 다음 실행에서 PASS했다 — 「열렸다」는 사실을 기다린다.
         const viewerOpened = await waitUntil(async () => await page.locator('.photo-viewer').count() === 1, 5000);
-        check('R⑧ 재배열 직후 다른 사진을 누르면 정상적으로 뷰어가 열린다', viewerOpened);
+        // 🔴 **실패하면 무엇을 봤는지가 남아야 한다**(§8 · T-045와 같은 규율). 예전엔 판정만
+        //    남아 CI가 빨개져도 배울 것이 없었다. 특히 `postDragClickBlock`은 놓은 자리에서
+        //    **SLOP_PX(10) 안쪽 · 180ms 안쪽**의 click 한 번을 삼키므로, 그 거리를 함께 적는다 —
+        //    거리가 10보다 크면 이 클릭은 애초에 삼켜질 수 없는 것이 **값으로** 증명된다.
+        const seen = viewerOpened
+          ? ''
+          : JSON.stringify({
+              뷰어수: await page.locator('.photo-viewer').count(),
+              누른자리: nextClick,
+              놓은자리: mouseTo,
+              놓은자리와거리: Math.round(Math.hypot(nextClick.x - mouseTo.x, nextClick.y - mouseTo.y)),
+              지금순서: (await mineOrder()).join(' → '),
+              그점에있는것: await page.evaluate(
+                (p) =>
+                  document.elementFromPoint(p.x, p.y)?.closest('[data-media-id]')?.getAttribute('data-media-id') ??
+                  document.elementFromPoint(p.x, p.y)?.className ??
+                  '(없음)',
+                nextClick,
+              ),
+            });
+        check('R⑧ 재배열 직후 다른 사진을 누르면 정상적으로 뷰어가 열린다', viewerOpened, seen);
         await page.keyboard.press('Escape');
       } else {
-        check('R⑧ 후속 정상 클릭 좌표를 찾는다', false);
+        check('R⑧ 후속 정상 클릭 좌표를 찾는다', false, (await mineOrder()).join(' → '));
       }
     } else {
       check('R⑦ Windows 마우스 재배열 좌표를 찾는다', false, JSON.stringify({ mouseFrom, mouseTo }));
