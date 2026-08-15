@@ -98,6 +98,12 @@ function momentCard(
   const media = mediaByMoment?.get(moment.id) ?? [];
   if (media.length) {
     const photos = el('div', 'pr-record-photos');
+    // 🔴 **의도된 가로 스크롤이라고 말한다**(T-049 · 2026-08-15). 사진 띠는 장수가 정해져
+    // 있지 않아 좁은 폭에서 반드시 넘치고, 그래서 `overflow-x: auto`로 **스크롤해 닿게** 했다.
+    // 그건 「말없이 사라지는 것」이 아니므로 넘침 검사에서 빼야 하는데, 표식이 없으면
+    // 스캐너는 그걸 **알 길이 없다** — 실제로 344px에서 「10px 잘림」으로 잡혔다.
+    // 표식 없는 넘침은 전부 위반이다(`live-browser-lib.mjs`의 `XSCROLL_OPT_OUT`).
+    photos.setAttribute('data-allow-xscroll', '');
     for (const item of media) {
       const thumb = item.thumbBlob;
       if (!thumb) continue;

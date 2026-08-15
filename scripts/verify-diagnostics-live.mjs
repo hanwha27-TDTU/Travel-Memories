@@ -38,7 +38,7 @@ import { execFileSync } from 'node:child_process';
 import { join, extname, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runSelfTest } from './gate-selftest-lib.mjs';
-import { proveCheckCounts, proveOverflowScanner, scanOverflowContainers } from './live-browser-lib.mjs';
+import { proveCheckCounts, proveOverflowScanner, scanOverflowContainers, coverSweep } from './live-browser-lib.mjs';
 
 // 대조군(§4): 판정 기록기가 **실패를 실제로 세는가.** 안 세면 이 게이트는 무슨 일이 있어도 초록이다.
 // 🔴 이 줄은 **템플릿 문자열 밖**이어야 한다 — 안에 넣으면 실행되지 않는 가짜 대조군이 된다(M-0155).
@@ -448,6 +448,14 @@ if (toolNames.length === 0) {
     if (m.badges === 0 || m.glyphless > 0) noGlyph.push(name);
     if (!m.headlineAbove) headlineBelow.push(name);
     if (m.overflow !== 0) overflowed.push(`${name}(${m.overflow})`);
+    // 🔴 **폴드 커버 폭(344px)에서도 잰다**(T-049 · 2026-08-15).
+    //
+    // 이 파일은 375px 하나로만 재고 있었다 — 그런데 이 앱의 최난이도 폭은 **344px**이고,
+    // `coverSweep`은 `verify-editor-live` **안에만** 있어서 진단 도구는 그 자를 **한 번도
+    // 못 받았다.** 화면마다 손으로 재면 항목이 갈라지듯, **파일마다** 갖고 있어도 갈라진다.
+    // 이제 정의는 `live-browser-lib.mjs` 한 곳이고, 여기는 **등록부를 도는 이 반복 안**에서
+    // 부르므로 **새 도구가 생기면 자동으로 따라온다**(§7 2층 — 다음 형제가 자동으로).
+    await coverSweep(page, check, `진단 도구 ${name}`, '[data-verdict-tool]');
     await page.locator('.guide-back').click();
     await page.waitForSelector('[data-rollup]', { timeout: 10000 });
   }

@@ -738,6 +738,20 @@
 .chip.companions { background: color-mix(in srgb, var(--sem-pink) 13%, transparent); color: var(--sem-pink-ink); }
 /* 사람 칩은 **누를 수 있다** — 누르면 그 사람과 함께한 기록이 열린다(§7 — 장소 배지와 같은 계약).
    장소 칩(`.chip-tap`)이 이미 쓰는 어휘를 그대로 쓴다: 사용자는 화면마다 규칙을 새로 배우지 않는다. */
+/* 🔴 **넓히려다 실측에 막혔다 — 그 사실을 여기 적는다**(T-049 · 2026-08-15).
+ *
+ * 이 칩은 34px이라 44px에 못 미친다. v2.44에서 만들며 형제의 규율을 안 물려받은 자리이고,
+ * 「이 사람과 함께한 기록」으로 가는 **유일한 길**이라 예외로 접기 아까웠다. 그래서 형제
+ * (`.chip-clear`·`.chip-x`·`.chip-approx`)와 같은 처방 — 보이는 크기는 두고 투명 `::after`로
+ * **세로만** 44px까지 — 을 실제로 넣어 봤다.
+ *
+ * 🔴 **그리고 라이브가 막았다.** `closeButtonTarget()`이 잰 값: 히트는 108×44로 커졌는데
+ * `stolen: ["chip companions chip-person"]` — **옆/아래 사람 칩의 터치를 훔쳤다.** 칩 줄은
+ * `flex-wrap`으로 접히고 `gap`이 확장분(±5px)보다 작다. 그러면 「러원이」를 누르려던 손에
+ * **다른 사람의 기록**이 열린다 — 미달보다 나쁘다(M-0162와 같은 판정).
+ *
+ * 그러므로 **넓히지 않는다.** 근본 처방은 칩 줄의 밀도를 바꾸는 **배치 결정**이라 T-044와
+ * 같은 자리에 둔다. ⚠️ 이유 없이 「통일」하지 마라 — 위 값은 추측이 아니라 실측이다. */
 .chip-person { border: 0; font: inherit; cursor: pointer; }
 .chip-person:hover { background: color-mix(in srgb, var(--sem-pink) 26%, transparent); }
 .chip-person:focus-visible { outline: 2px solid var(--sem-pink-ink); outline-offset: 2px; }
@@ -753,9 +767,20 @@
 button.chip { border: 0; font-family: inherit; }
 .chip-tap { cursor: pointer; }
 .place-chip { display: inline-flex; align-items: center; gap: 6px; flex-wrap: nowrap; max-width: 100%; }
+/* 🔴 **칩 안의 버튼은 칩 높이를 채운다 — 형제가 이미 그 처방을 받았다**(T-049 · 2026-08-15).
+ * 실측: 이 둘의 히트 높이가 **17px**이었다. 형제 `.chip-x`(`align-self: stretch; margin: -5px 0`)와
+ * `.chip-approx`(`align-self: stretch; margin-block: -5px`)는 같은 처방을 받았는데 **이 둘만
+ * 빠져 있었다** — §7 최빈형(형제 중 하나만 조용히 빠짐)이 칩 가족에서 세 번째로 나온 자리다.
+ * 🔴 **칩 밖으로는 안 나간다.** 밖으로 넓히면 아래 사진 격자에 보이지 않는 표적이 얹힌다(M-0162). */
 .place-chip-map, .place-chip-copy {
   border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; padding: 0;
+  align-self: stretch; margin-block: -5px;
+  position: relative; /* 아래 ::after(히트 영역)의 기준 */
 }
+/* 칩 높이를 채워도 30px이라 아직 44px에 못 미친다 — `.chip-person`과 **같은 처방**으로
+ * 세로만 마저 넓힌다. 가로는 건드리지 않는다: 이 둘은 한 칩 안에 **나란히** 서 있어서
+ * 가로로 넓히면 서로의 터치를 훔친다(M-0162가 `.pe-close`에서 만든 바로 그 상태다).
+ * 덮음 0은 라이브가 `closeButtonTarget()`으로 실측한다 — 선언이 아니라 값으로 안다. */
 .place-chip-map { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
 .place-chip-copy { flex: none; white-space: nowrap; color: var(--sem-sky-ink); text-decoration: underline; font-variant-numeric: tabular-nums; }
 .chip-tap:hover { background: color-mix(in srgb, var(--sem-sky) 26%, transparent); }

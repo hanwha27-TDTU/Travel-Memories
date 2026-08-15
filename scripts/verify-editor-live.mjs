@@ -12,7 +12,7 @@
 //   실제가 어긋나면 게이트는 못 잡는다(정직한 한계). 화면을 더 열면 여기도 늘려라.
 // (Playwright는 devDependency가 아니므로 전역 설치본을 폴백으로 찾는다.)
 import { createServer } from 'node:http';
-import { launchLiveBrowser } from './live-browser-lib.mjs';
+import { launchLiveBrowser, coverSweep as sweepAtCoverWidth, TOUCH_TARGET_EXCEPTIONS } from './live-browser-lib.mjs';
 import { readFile } from 'node:fs/promises';
 import { readdirSync, statSync } from 'node:fs';
 import { join, extname, dirname, resolve } from 'node:path';
@@ -245,125 +245,12 @@ async function settle(p = page) {
 }
 
 /**
- * 44px 표적 검사에서 **빼는 것과 그 이유**. 🔴 **한 곳에만 둔다** — `coverSweep`이 화면마다
- * 쓰고 홈 전수 검사도 쓴다. 두 벌로 두면 한쪽만 고쳐지는 날이 온다(§2 · §7 2층).
- * 🔴 **이유 없는 제외는 결함이다**(§7).
+ * 🔴 **정의는 `live-browser-lib.mjs`에 있다**(T-049 · 2026-08-15). 예전엔 이 파일 안에만
+ * 있어서 **진단 라이브는 커버 폭을 한 번도 안 쟀다** — 화면마다 손으로 재면 항목이 갈라지듯
+ * **파일마다** 갖고 있어도 갈라진다. 여기 남은 것은 `page`·`check`를 채워 주는 얇은 껍데기뿐이다.
  */
-const TOUCH_TARGET_EXCEPTIONS = [
-  // 64×64 썸네일 셀 위에 얹힌 삭제 버튼. 44px로 넓히면 셀의 절반 이상을 덮어 **사진을
-  // 누르려던 손이 사진을 지운다** — 미달보다 나쁘다(§3-E · M-0162). 대체 경로로 [전체 해제]가
-  // 있고 그쪽은 44px이다. 근본 처방(칸을 키우거나 삭제를 칸 밖으로)은 배치 결정이라 T-044.
-  'pick-x',
-  // 위와 같은 형태 — 저장된 사진 격자 칸 위 우상단.
-  'photo-del',
-  // 비용 칩 안의 환율 상세 펼치기(≈ 환산값). 형제 `.chip-x`와 같은 처방(칩 높이를 꽉 채우되
-  // **칩 밖으로는 안 나간다**)을 받아 19px → 칩 높이가 됐지만, 알약 칩 자체가 30px이라
-  // 44px에는 못 미친다. 밖으로 넓히면 아래 사진 격자에 보이지 않는 표적이 얹힌다(M-0162).
-  // 근본 처방(칩을 키우거나 컨트롤을 칩 밖으로)은 배치 결정이라 T-044에 함께 묶었다.
-  'chip-approx',
-  // 🔴 아래 셋은 **면제가 아니라 더 엄한 검사로 보내는 것**이다(§11 ③ — 오탐도 결함이다).
-  //    `closeButtonTarget()`이 이 셋을 ①세로 히트 44px ②**덮는 것 0**으로 각각 잰다.
-  //    여기서 `min(w,h)`로 재면 가로 36px을 미달이라 부르는데, 가로로 넓히는 것은 M-0162에서
-  //    **이웃의 터치를 훔쳐** 미달보다 나쁜 상태를 만들었다 — 그래서 세로만 넓힌 결정이다.
-  //    두 검사가 서로 다른 답을 내면 그게 §17이 말하는 모순이다. 판정은 한 곳에서 한다.
-  'pe-close',
-  'map-close',
-  'single-photo-moment-close',
-];
-
-/**
- * 🔴 **폴드 커버 폭(344px)에서 지금 열려 있는 화면을 훑는다**(T-043 · 2026-08-15).
- *
- * 왜 헬퍼인가: 사용자가 요청한 커버 화면 최적화에서 **홈만 재고 나머지는 「안 봤다」**로 남았다.
- * 화면마다 손으로 측정을 쓰면 항목이 갈라지므로, **재는 것을 한 곳에서 정한다**(§7 2층).
- *
- * 재는 것(`ui-responsive-dev` §2 규율):
- *  ① 페이지 가로 넘침 — 모든 폭에서 0이어야 한다
- *  ② **자르는 상자**의 가로 넘침 — 자식이 아니라 자르는 쪽에서 잰다(§3 1.32-B)
- *  ③ 버튼·칩 글자가 두 줄로 갈라졌는가
- *  ④ 44px 미달 터치 표적(부모가 클릭을 받는 자식과 `::after` 확장은 오탐이므로 제외)
- *
- * 🔴 **뷰포트를 바꾸고 반드시 되돌린다**(§3-C — 뒤따르는 검사가 보는 화면을 바꾸지 않는다).
- * 🔴 **모집단을 먼저 판정한다** — 화면이 안 열렸으면 0을 재고 통과할 수 있다(§4).
- */
-async function coverSweep(label, rootSelector, exceptions = TOUCH_TARGET_EXCEPTIONS) {
-  const keep = page.viewportSize();
-  await page.setViewportSize({ width: 344, height: 820 });
-  await settle(page);
-  const m = await page.evaluate(({ root, exc }) => {
-    const scope = root ? document.querySelector(root) : document.body;
-    if (!scope) return null;
-    const vis = (n) => n.getClientRects().length > 0 && getComputedStyle(n).visibility !== 'hidden';
-    const name = (n) => `${n.tagName.toLowerCase()}${typeof n.className === 'string' && n.className ? '.' + n.className.trim().split(/\s+/)[0] : ''}`;
-    const hit = (n) => {
-      const r = n.getBoundingClientRect();
-      const a = getComputedStyle(n, '::after');
-      const g = (v) => Math.abs(parseFloat(v) || 0);
-      const has = a.content !== 'none' && a.position === 'absolute';
-      return { w: r.width + (has ? g(a.left) + g(a.right) : 0), h: r.height + (has ? g(a.top) + g(a.bottom) : 0) };
-    };
-    // 🔴 **자르는 상자만 말하면 원자료 덤프다**(§8). 「무엇이 튀어나왔나」까지 말해야
-    //    사람이 고칠 자리를 안다 — 상자는 결과이고 원인은 그 안의 자식이다.
-    const clipped = [];
-    for (const box of scope.querySelectorAll('*')) {
-      if (!vis(box)) continue;
-      const cs = getComputedStyle(box);
-      if (cs.overflowX === 'visible') continue;
-      // 🔴 `text-overflow: ellipsis`는 **자르겠다고 선언한 상자**다(`…`가 그 자리에 보인다).
-      //    그걸 넘침이라 부르면 고쳐 둔 것을 결함이라 부르는 오탐이고, 오탐이 많은 게이트는
-      //    사람이 무시해서 죽는다(§11 ③). 자르는 것과 **말없이 사라지는 것**은 다른 일이다.
-      if (cs.textOverflow === 'ellipsis') continue;
-      const over = box.scrollWidth - box.clientWidth;
-      if (over <= 1) continue;
-      const edge = box.getBoundingClientRect().left + box.clientWidth;
-      let worst = null;
-      for (const kid of box.querySelectorAll('*')) {
-        if (!vis(kid)) continue;
-        const past = Math.round(kid.getBoundingClientRect().right - edge);
-        if (past > 1 && (!worst || past > worst.past)) worst = { n: name(kid), past };
-      }
-      clipped.push(`${name(box)}(+${over} ← ${worst ? `${worst.n} +${worst.past}` : '자식 없음'})`);
-    }
-    const split = [];
-    for (const b of scope.querySelectorAll('button, label, .chip, .status-chip, .moment-picker')) {
-      if (!vis(b)) continue;
-      const span = b.querySelector('.moment-picker-text') ?? b;
-      const txt = (b.textContent ?? '').trim();
-      if (span.getClientRects().length > 1 && txt.length > 0 && txt.length <= 24) split.push(`"${txt.slice(0, 14)}"`);
-    }
-    const controls = [...scope.querySelectorAll('button, a[href], [role="button"]')].filter(vis);
-    const small = [];
-    for (const b of controls) {
-      const cls = typeof b.className === 'string' ? b.className : '';
-      if (exc.some((e) => cls.split(/\s+/).includes(e))) continue;
-      const anc = b.parentElement?.closest('.is-actionable, button, a[href], [role="button"]');
-      if (anc) { const ah = hit(anc); if (Math.min(ah.w, ah.h) >= 44) continue; }
-      const { w, h } = hit(b);
-      if (Math.min(w, h) < 44) small.push(`${cls.split(/\s+/)[0] || b.tagName}(${Math.round(w)}x${Math.round(h)})`);
-    }
-    return {
-      controls: controls.length,
-      pageOverflow: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
-      clipped: [...new Set(clipped)],
-      split: [...new Set(split)],
-      small: [...new Set(small)],
-    };
-  }, { root: rootSelector, exc: exceptions });
-  if (keep) await page.setViewportSize(keep);
-  await settle(page);
-
-  check(`폴드 커버 344px · ${label}: 화면을 실제로 열었다(모집단 0은 통과가 아니다)`,
-    (m?.controls ?? 0) > 0, JSON.stringify(m));
-  if ((m?.controls ?? 0) > 0) {
-    check(`폴드 커버 344px · ${label}: 가로로 넘치지 않는다(페이지·자르는 상자 둘 다)`,
-      m.pageOverflow === 0 && m.clipped.length === 0, JSON.stringify({ pageOverflow: m.pageOverflow, clipped: m.clipped }));
-    check(`폴드 커버 344px · ${label}: 버튼·칩 글자가 두 줄로 갈라지지 않는다`,
-      m.split.length === 0, JSON.stringify(m.split));
-    check(`폴드 커버 344px · ${label}: 44px 미달 터치 표적이 없다(예외는 이유와 함께 등록)`,
-      m.small.length === 0, JSON.stringify(m.small));
-  }
-  return m;
-}
+const coverSweep = (label, rootSelector, exceptions = TOUCH_TARGET_EXCEPTIONS) =>
+  sweepAtCoverWidth(page, check, label, rootSelector, exceptions);
 
 /**
  * 닫기 버튼의 **누를 수 있는 넓이**와 **그 영역이 덮는 다른 조작 요소**를 함께 잰다(T-041).
@@ -899,6 +786,12 @@ await page.locator('[data-probe-r2]').click();
 await page.waitForSelector('.r2-probe-note:not([hidden])', { timeout: 3000 });
 const probeText = await page.$eval('.r2-probe-note', (n) => n.textContent ?? '');
 check('R2 가이드: 연결 확인이 상태를 알려줌', probeText.length > 0, probeText);
+
+// T-049 — **가이드 본문**을 커버 폭에서 잰다. 여기는 단계 카드·경고·키 표(`.r2-key`)가
+// 들어 있어 **긴 영문 토큰**(`R2_PUBLIC_BASE` 같은)이 좁은 폭에서 가장 먼저 넘칠 자리다.
+// T-043에서 이 오버레이의 **껍데기**만 쟀고 본문이 펼쳐진 상태는 안 쟀다.
+await coverSweep('데이터 관리 · R2 설정 가이드 본문', '.guide-overlay');
+
 await page.keyboard.press('Escape');
 await settle(page);
 while ((await page.locator('.guide-overlay').count()) > 0) {
@@ -3394,6 +3287,12 @@ const emotionOff = await emotionButton.getAttribute('aria-pressed');
 check('감정 선택: 같은 버튼을 다시 누르면 해제됨', emotionOn === 'true' && emotionOff === 'false',
   `${emotionOn}→${emotionOff}`);
 
+// T-049 — 🔴 **순간 폼 전체**를 커버 폭에서 잰다. 여기가 이 앱에서 한 화면에 조작 요소가
+// 가장 많은 자리다: 감정 12칸(`.emo`) · 장소 줄 3버튼 · 사진 담기 줄 · 시각 · 비용 · 동행인.
+// T-043은 「여행 상세·타임라인」을 쟀는데 그건 **저장된 결과**이고, 이 폼은 **입력 중**이라
+// 그릇이 다르다 — 한쪽이 통과해도 다른 쪽은 모른다.
+await coverSweep('순간 폼 전체(감정·장소·사진·시각)', '.moment-form');
+
 // ── v0.53: 넓은 화면(태블릿 가로·데스크톱) 레이아웃 ──
 // 문제였던 것: 본문이 780px 고정이라 2000px대 태블릿에서 가운데만 쓰고 양옆이 비었다.
 // 계약: ①어느 폭에서도 가로 넘침 0 ②1100px 이상에서 [기록 폼 | 타임라인] 2단 ③그 미만은 세로.
@@ -3977,6 +3876,11 @@ await bulkTrashConfirm.waitFor({ state: 'visible', timeout: 10_000 }).catch(() =
 check('휴지통 일괄삭제: 첫 클릭은 지우지 않고 정확한 수의 두 번째 확인을 펼친다',
   await bulkTrashConfirm.isVisible() && /정말 \d+개 모두 지움/.test(await bulkTrashConfirm.textContent() ?? ''),
   await bulkTrashConfirm.textContent() ?? '');
+// T-049 — **휴지통**을 커버 폭에서 잰다. 여기는 항목마다 [복원]·[영구삭제] 두 버튼이 제목과
+// 한 줄에 서고, 일괄 확인 버튼의 문구가 「정말 N개 모두 지움」으로 **개수에 따라 길어진다** —
+// 좁은 폭에서 갈라질 후보가 둘이나 있는 자리인데 T-043에서 못 쟀다.
+await coverSweep('데이터 관리 · 휴지통', '.guide-overlay');
+
 await page.locator('.dm-trash-bulk button.btn-ghost').click();
 const trashText = await page.evaluate(() => {
   const modal = document.querySelector('.guide-modal');
@@ -5741,10 +5645,36 @@ check('v1.97 연결 이름: 순간 편집이 placeId·당시 좌표를 보존하
   // 🔴 이름이 비슷한 기록이 따로 있으면 **단정하지 않고** 알린다(§8 · M-0056).
   check('동행인 창: 비슷한 이름을 「같은 사람입니다」로 단정하지 않는다',
     !/같은 사람입니다/.test(modalText), modalText.slice(0, 200));
+  // T-049 — 🔴 **사람 칩이 셋인 상태**로 커버 폭에서 잰다. v2.44에서 동행인을 한 덩어리에서
+  // **사람마다 칩 하나**로 바꿨는데, 칩이 늘어나면 줄바꿈이 생긴다는 것을 344px에서 **안 쟀다.**
+  // 이 창은 순간 카드 목록도 담으므로 「함께한 기록」 본문까지 함께 훑는다.
+  await coverSweep('동행인 · 이 사람과 함께한 기록', '.companion-records-overlay');
+
   await page.keyboard.press('Escape');
   await page.waitForSelector('.companion-records-overlay', { state: 'detached' });
   check('동행인 창: Esc로 닫히고 아래 화면은 그대로 남는다',
     (await page.locator('.moment-card').count()) > 0);
+
+  // T-049 — 칩 셋이 **순간 카드 안에** 있는 상태의 여행 상세도 같은 폭에서 잰다.
+  // 창 안(위)과 카드 위(여기)는 **다른 그릇**이라 한쪽이 통과해도 다른 쪽은 모른다.
+  await coverSweep('여행 상세 · 동행인 칩 3개', null);
+
+  // 🔴 **넓혔으면 「무엇을 덮었는지」를 함께 잰다**(T-041이 세운 계약 · M-0162).
+  //    넓히기만 재면 이웃의 터치를 훔치면서 통과하고, 덮음만 재면 아무것도 안 넓히고 통과한다.
+  //    셋 다 `closeButtonTarget()` **한 함수**를 지난다 — 손으로 세 벌 쓰면 갈라진다(§7 2층).
+  // 🔴 이 셋은 44px 예외로 **등록돼 있다**(넓히면 이웃 칩의 터치를 훔친다 — 위 실측).
+  //    그러므로 재는 축이 다르다: **크기가 아니라 「덮지 않는가」**이다. 예외로 뺀 것을
+  //    아무도 안 보게 두면 그건 면제이고, 면제된 자리는 조용히 나빠진다(§8).
+  //    🔴 그리고 이 검사는 **되돌림 감시자**이기도 하다 — 다음 사람이 선의로 `::after`를
+  //    다시 넣으면 여기서 `stolen`이 다시 차서 RED가 된다(그 상태를 실제로 만들어 확인했다).
+  for (const sel of ['.chip-person', '.place-chip-map', '.place-chip-copy']) {
+    const t = await closeButtonTarget(sel);
+    check(`칩 안 조작 ${sel}: 넓히지 않아 **이웃의 터치를 훔치지 않는다**(44px 예외 · 이유 등록됨)`,
+      t !== null && t.stolen.length === 0, JSON.stringify(t));
+    // 칩 안 버튼은 **칩 높이를 채운다** — 17px이던 자리를 형제 처방으로 30px까지 올린 것.
+    check(`칩 안 조작 ${sel}: 칩 높이를 채운다(형제 처방 · 17px 방치 금지)`,
+      t !== null && t.hitH >= 30, JSON.stringify(t));
+  }
 }
 
 // ── 🔴 타임라인 순서 토글(사용자 지시 2026-08-15) ────────────────────────────
@@ -6060,7 +5990,7 @@ if (headerSeeded) {
 //    부모 줄로 가고 그 줄이 44px이다) ②`::after`로 넓힌 히트 영역(보이는 상자만 재면
 //    고쳐 놓은 것을 결함이라 부른다). 오탐이 많은 게이트는 사람이 무시해서 죽는다(§11 ③).
 //
-//    **예외 목록은 이 파일 위쪽 `TOUCH_TARGET_EXCEPTIONS` 한 곳에 있다**(§2 — 손편집 중복
+//    **예외 목록은 `live-browser-lib.mjs`의 `TOUCH_TARGET_EXCEPTIONS` 한 곳에 있다**(§2 — 손편집 중복
 //    자체가 결함이다). `coverSweep`이 화면마다 같은 목록을 쓰므로 두 벌을 두면 갈라진다.
 await page.setViewportSize({ width: 344, height: 820 });
 await page.goto(`http://localhost:4173${BASE}`);
