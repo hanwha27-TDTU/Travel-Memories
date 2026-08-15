@@ -66,6 +66,8 @@ export const GATE_DESC: Record<string, string> = {
     'Claude와 Codex가 **같은 계약**을 읽는지(두 지시문서가 갈라지면 두 AI가 다르게 판단한다)',
   'check-doc-governance':
     '새 규정·기준 문서와 새 AI 지시문이 **등록 없이 생기지 않는지**(등록 안 되면 비교 대상에도 못 들어온다)',
+  'check-doc-references':
+    '문서가 가리키는 경로·npm 스크립트·게이트가 **실재하는지**(「막는다」고 적힌 규칙이 없으면 그 자리는 아무도 안 본다 — M-0051)',
   'check-module-design-docs':
     '모듈별 설계서가 실행 코드의 파일·API·의존·I/O·내용 해시에서 재생성됐는지(손편집 설계 드리프트 차단)',
   'check-gate-integrity':
@@ -179,6 +181,7 @@ export const GATE_AXIS: Record<string, string> = {
   'check-constitution-gen': '조문 수가 아니라, 화면이 헌법을 손으로 옮겨 적지 않고 **생성으로 파생**하는지',
   'check-adapter-parity': '문서 수가 아니라, 커밋본과 재생성본이 **글자 단위**로 같은지 — 두 AI가 다른 계약을 읽지 못한다',
   'check-doc-governance': '문서 수가 아니라, 등록되지 않은 문서·지시문이 조용히 생기지 않는지',
+  'check-doc-references': '문서 수가 아니라, 문서가 가리키는 경로·npm·게이트가 **실재하는지**(내용이 참인지는 못 본다)',
   'check-module-design-docs':
     '문서 수가 아니라, 실행 파일 **전수**가 단일 모듈 소유를 갖고 커밋 설계서가 현재 코드에서 재생성한 결과와 같은지',
   'check-gate-integrity':
@@ -289,6 +292,7 @@ export const GATE_WORLD: Record<string, string> = {
   'check-constitution-gen': '',
   'check-adapter-parity': '',
   'check-doc-governance': '',
+  'check-doc-references': '',
   'check-module-design-docs': '',
   'check-gate-integrity': '',
   'check-diag-blindspots': '',
@@ -337,6 +341,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-ci-policy': 'static',
   'check-workflow-pins': 'static',
   'check-dependabot-policy': 'static',
+  'check-doc-references': 'static',
   'check-shared-skill-contract': 'generated',
   // 생성물을 대조하지 않고 **원장이 온전한가**를 본다(디렉터리 ↔ 원장). 그래서 static이다.
   'check-input-closeout': 'static',

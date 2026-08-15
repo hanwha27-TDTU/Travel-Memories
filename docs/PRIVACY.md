@@ -23,7 +23,13 @@ shape: prose-debt
 
 사진 EXIF는 GPS 좌표와 촬영시각을 담는다. 이를 **민감 PII로 취급**한다.
 - 업로드 시 EXIF GPS 처리를 **확정**한다: **앱 내부 저장은 보존**, **공유·내보내기 산출물에서는 GPS 제거**(반올림 옵션 제공). 이 계약은 `check-exif-strip-on-share` 게이트로 강제하며, **사진 수집이 들어오는 Phase 3**에서 확인한다(Phase 4 아님).
-- **EXIF whitelist (H-09)**: 원본 EXIF 전체 JSON을 저장하지 않는다. 허용된 필드만 `media_assets.exif_whitelist`에 담고 **MakerNote·기기 일련번호·얼굴영역·불필요한 전체 EXIF는 제외**한다. 게이트 후보 `check-exif-whitelist`. 상세 `docs/MEDIA_PIPELINE.md`·`docs/SECURITY.md`.
+- 🔴 **EXIF whitelist (H-09) — 아래는 「목표」이고 실제 구현은 다르다**(2026-08-15 전수조사에서 발견).
+  `exif_whitelist` 컬럼은 **스키마에 없고**, 실제로 서버에 가는 것은 `gps_lat`·`gps_lng`·`taken_at`
+  **개별 컬럼뿐**이다 — 즉 whitelist의 목적은 **더 보수적으로 달성돼 있다**(`MEDIA_PIPELINE.md`의
+  미구현 고지가 같은 사실을 적고 있다). 🔴 **이 문서만 현재형으로 적고 있었다** — 형제 문서는
+  알고 있는데 여기만 몰랐던 것이라, 개인정보 계약에서 **가장 나쁜 종류의 비대칭**이었다(§7 · §17).
+  아래 원문은 목표로 남긴다:
+- **EXIF whitelist (H-09) 〔목표〕**: 원본 EXIF 전체 JSON을 저장하지 않는다. 허용된 필드만 `media_assets.exif_whitelist`에 담고 **MakerNote·기기 일련번호·얼굴영역·불필요한 전체 EXIF는 제외**한다. 게이트 후보 `check-exif-whitelist`. 상세 `docs/MEDIA_PIPELINE.md`·`docs/SECURITY.md`.
 - 이 동작은 "나중에 반대로 바뀌기 쉬운" 침묵 동작 주장 부류이므로, 관련 코드를 바꾸기 전 문서집합에서 반대 주장이 없는지 grep한다(LESSONS §2, §7).
 
 ## 데이터 저장 경계

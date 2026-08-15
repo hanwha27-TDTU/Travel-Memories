@@ -198,16 +198,31 @@ repo migration 아티팩트 → 영향 테이블/역할/동사/롤백/손실위�
 
 ## Hook / 게이트 후보 (지시문 아닌 강제)
 
-`.claude/settings.json` 및 CI에 구현:
+> 🔴 **2026-08-15 실측으로 갈라 적었다.** 예전엔 이 자리가 *"`.claude/settings.json` 및 CI에
+> **구현**:"* 한 줄 밑에 아홉 개를 나열했고, **그중 여섯은 저장소 어디에도 없었다**(등록부에도
+> 스크립트에도 0건). 절 제목은 「후보」인데 본문은 「구현」이라 **한 절 안에서 두 문장이
+> 어긋나 있었다**(§17).
+>
+> 이게 왜 위험한가: 보안 계약이 *"이 게이트가 막는다"*고 적어 두면 다음 사람(사람이든 AI든)은
+> **그 자리를 안 본다.** M-0051이 정확히 그 값을 치렀다 — 「막는다」고 적힌 규칙이 구현되지
+> 않은 채 **반년치 코드를 통과시켰다.** 그래서 「지금 도는 것」과 「후보」를 절대 섞지 않는다.
+>
+> 형제 문서들은 이미 정직했다: `SYNC_PROTOCOL.md`는 *"게이트 후보(활성화 예정 — 현재는 계약
+> 명세, **활성 주장 아님**)"*, `MEDIA_PIPELINE.md`는 *"게이트 **후보**"*라고 적는다. 이 문서만
+> 달랐다 — §7의 비대칭이었다.
+
+**지금 실제로 도는 것**(등록부·`.githooks`에서 확인 · `check-doc-references`가 드리프트를 막는다):
 - `check-secret-leak` — 배포 아티팩트에서 자격증명 형태 스캔.
-- `check-supabase-sql-safe` — 자동 적용 SQL의 `drop|delete from|truncate|update…set|alter…disable row level security|revoke` 차단.
-- `check-rls-present` — 사용자 소유 테이블에 RLS·소유자 정책 존재 확인.
-- `check-service-role-in-bundle` — 번들/프론트에 service_role/postgres URL 부재 확인.
-- `check-no-hard-delete` — 동기화 엔티티에 하드 삭제(`delete from`) 부재 확인, 삭제는 `deleted_at` tombstone 경로만(DEL-CONTRACT).
 - `check-exif-strip-on-share` — 공유·내보내기 산출물에서 EXIF GPS 제거/반올림 강제(내부 저장은 보존).
+- `commit-msg`(`.githooks/`) — 커밋 메시지 규약 + `[skip ci]` 류 우회 차단(가장 이른 지점).
+
+**후보 — 아직 없다. 「막고 있다」고 읽지 마라**(이름은 만들 때 쓸 이름일 뿐이다):
+- `check-supabase-sql-safe` — 자동 적용 SQL의 `drop|delete from|truncate|update…set|alter…disable row level security|revoke` 차단. ⚠️ 다만 **파괴적 SQL은 지금도 막힌다** — `.claude/settings.json`의 PreToolUse 훅이 실행 직전 명령을 본다(§18 강제 3층 ③). 🔴 그 훅은 **Claude만** 묶는다(코덱스·사람의 터미널은 못 본다).
+- `check-rls-present` — 사용자 소유 테이블에 RLS·소유자 정책 존재 확인. ⚠️ **일부는 이미 `check-migration-grants`가 본다**(정책 형태·`search_path`·역할). 만들 때 중복부터 확인할 것.
+- `check-service-role-in-bundle` — 번들/프론트에 service_role/postgres URL 부재 확인. ⚠️ **`check-secret-leak`이 이미 상당 부분 덮는다.**
+- `check-no-hard-delete` — 동기화 엔티티에 하드 삭제 부재 확인(DEL-CONTRACT). ⚠️ 영구삭제(ADR-0030)는 **의도된 예외**이므로 만들 때 그 갈래를 먼저 설계할 것 — 안 그러면 정상을 위반으로 잡는 오탐 게이트가 된다(§11 ③).
 - `check-storage-immutable` — Storage 업로드가 `upsert:false`인지, 앱이 일반 UPDATE·MOVE 권한을 요구하지 않는지 확인(H-11).
-- `check-exif-whitelist` — 저장 EXIF가 whitelist(§H-09)로 제한되고 MakerNote·일련번호 등이 포함되지 않는지 확인.
-- `commit-msg` — 커밋 메시지 규약 + `[skip ci]` 류 우회 차단(가장 이른 지점).
+- `check-exif-whitelist` — 저장 EXIF가 whitelist(§H-09)로 제한되는지 확인. 🔴 **전제가 이미 다르다**: `exif_whitelist` 컬럼은 스키마에 없고, 실제는 `gps_lat`/`gps_lng`·`taken_at` 개별 컬럼만 서버로 가서 **목적이 더 보수적으로 달성돼 있다**(`MEDIA_PIPELINE.md` 미구현 고지). 만들기 전에 **무엇을 잴 것인지부터** 다시 정할 것.
 
 ## XSS / 입력 방어
 

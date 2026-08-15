@@ -149,7 +149,10 @@ export function audioObjectName(
 /**
  * 녹음 MIME → 파일 확장자. **Edge Function의 `AUDIO_EXTS`와 같은 목록이어야 한다** —
  * 앱이 `.webm`으로 올리는데 함수가 그 확장자를 거부하면 소리는 영영 서버에 못 간다.
- * `tests/unit/audioNaming.test.ts`가 그 목록을 대조한다.
+ * `tests/unit/audioRowmap.test.ts`가 그 목록을 대조한다(Edge의 `AUDIO_EXTS`를 실제로 import해 비교).
+ * 🔴 예전엔 여기가 **없는 파일**(`audioNaming.test.ts`)을 가리켰다 — 대조는 실제로 돌고 있었으니
+ *    안전망은 진짜였고 **이름표만 낡아 있었다**(M-0006의 화석 주석 형태). 그래도 위험은 같다:
+ *    다음 사람이 그 파일을 찾다 못 찾으면 「검사가 없구나」로 읽는다.
  *
  * 모르는 형식은 `bin`이 아니라 **`webm`으로 떨어뜨리지 않는다** — 거짓 확장자를 붙이면
  * 재생기가 잘못된 디코더를 고른다. 대신 null을 돌려 **업로드하지 않는다**(로컬엔 그대로 남고
