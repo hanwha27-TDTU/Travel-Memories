@@ -544,12 +544,11 @@ function updateVideoPickerLabel(input: HTMLInputElement): void {
 
 function buildVideoPicker(extraClass = ''): { input: HTMLInputElement; label: HTMLLabelElement } {
   const input = videoFileInput();
-  const label = el('label', `moment-photo-label moment-video-label form-utility ${extraClass}`.trim()) as HTMLLabelElement;
-  const icon = el('span', 'moment-picker-icon', '🎬');
-  icon.setAttribute('aria-hidden', 'true');
-  const text = el('span', 'moment-video-label-text', '영상 추가');
+  const label = el('label', `moment-photo-label moment-video-label form-utility moment-picker ${extraClass}`.trim()) as HTMLLabelElement;
+  const text = pickerFace(label, '🎬', '영상 추가');
+  text.classList.add('moment-video-label-text');
   text.setAttribute('aria-live', 'polite');
-  label.append(icon, text, input);
+  label.append(input);
   input.addEventListener('change', () => updateVideoPickerLabel(input));
   return { input, label };
 }
@@ -594,17 +593,52 @@ function wireAddVideo(
 }
 
 /**
- * 📁 **원본에서** 버튼 — 사진 선택기를 우회해 파일 선택기로 고른다(v1.34).
+ * 첨부 버튼 세 형제(📷 사진 · 🖼️ 갤러리 · 🎬 영상)의 **한 벌 껍데기**.
+ *
+ * 🔴 왜 생겼나(2026-08-15 · 사용자 실기기 · M-0163): 셋이 **각자 마크업을 갖고 있었다** —
+ *    사진은 텍스트 노드 하나(`'📷 사진 추가 '`), 갤러리는 `button`의 문자열, 영상만
+ *    아이콘·글자 span이었다. 그래서 좁은 화면에서 **줄바꿈이 제각각으로 깨졌고**
+ *    (텍스트 안의 공백에서 갈라진다) 글꼴 크기·굵기까지 서로 달랐다
+ *    (`.moment-photo-label` 0.85rem/700 ↔ `.btn-ghost` 0.8rem/기본).
+ *    사용자 지적: *"버튼 글자 어그러져있으니 깔끔히 맞춰주세요."*
+ *
+ *    구조를 **한 곳에서** 만든다(§7 2층) — 다음 첨부 버튼이 생겨도 이 함수를 지나면
+ *    같은 모양이 되고, 안 지나면 `check-picker-face`가 RED로 잡는다(3층).
+ *
+ * @returns 글자 span — 개수 표시처럼 나중에 바뀌는 것은 이것만 갈아 끼운다.
+ */
+function pickerFace(host: HTMLElement, icon: string, text: string): HTMLSpanElement {
+  const ic = el('span', 'moment-picker-icon', icon);
+  ic.setAttribute('aria-hidden', 'true');
+  const label = el('span', 'moment-picker-text', text);
+  host.append(ic, label);
+  return label;
+}
+
+/**
+ * 🖼️ **갤러리에서** 버튼 — 안드로이드 사진 선택기(갤러리)로 고른다.
  *
  * 생성 폼과 「사진 추가」 **두 곳이 같은 부품을 쓴다**(§7 2층). 라벨·설명·배선을 손으로
  * 두 벌 만들면 한쪽만 고쳐지는 날이 오고, 이 저장소는 그 사고를 이미 세 번 겪었다.
+ *
+ * 🔴 **셸(APK) 안에서는 네이티브 가로채기를 비켜서야 한다**(2026-08-15 · M-0163).
+ *    `wireNativeIntake`가 입력칸의 click을 capture 단계에서 전부 삼키므로, 예전에는 이
+ *    버튼을 눌러도 **갤러리가 아니라 원본(문서) 선택기가 열렸다** — 라벨이 거짓말을 했다.
+ *    두 파일의 주석이 서로 모순이었다: `pickOriginal.ts`는 *"갤러리 선택기는 명시적으로
+ *    고를 때만 쓴다"*, `nativePhotos.ts`는 *"어느 길로 와도 네이티브 문이 열려야 한다"*.
+ *    **명시적 선택이 이깁니다** — 위치가 빠질 수 있다는 것은 이 버튼이 이미 경고하고 있고,
+ *    사용자가 그 대가를 알고 고르는 길이기 때문이다(§16 ⑥ — 원저자의 설계 의도 그대로).
  */
 function galleryPickButton(input: HTMLInputElement): HTMLButtonElement {
-  const btn = el('button', 'btn-ghost pick-original form-utility', '🖼️ 갤러리에서') as HTMLButtonElement;
+  // 🔴 `btn-ghost`가 아니라 형제와 **같은** `moment-photo-label`을 입는다 — 사용자 요구가
+  //    *"사진추가와 영상추가처럼 갤러리에서 디자인을 동일하게"*였고, 실제로 글꼴 크기·굵기가
+  //    달랐다(0.8rem/기본 ↔ 0.85rem/700). 모양은 한 곳(`.moment-picker`)에서 온다.
+  const btn = el('button', 'moment-photo-label pick-original form-utility moment-picker') as HTMLButtonElement;
   btn.type = 'button';
+  pickerFace(btn, '🖼️', '갤러리에서');
   btn.setAttribute('aria-label', '갤러리에서 고르기 — 고르기는 편하지만 위치 정보가 빠질 수 있어요');
   btn.title = '고르기는 편하지만 위치 정보가 빠질 수 있어요';
-  wireAltPick(input, btn, GALLERY_ACCEPT);
+  wireAltPick(input, btn, GALLERY_ACCEPT, { bypassNativeIntake: true });
   return btn;
 }
 
@@ -2536,8 +2570,8 @@ export function renderTripDetail(mount: HTMLElement, tripId: string, navigate: N
     /** 이 여행에서 가장 늦은 순간의 발생 시각. `refresh()`가 채운다. */
     let latestMomentAt: string | null = null;
     const photoInput = photoFileInput();
-    const photoLabel = el('label', 'moment-photo-label form-utility');
-    photoLabel.append(document.createTextNode('📷 사진 추가 '));
+    const photoLabel = el('label', 'moment-photo-label form-utility moment-picker');
+    pickerFace(photoLabel, '📷', '사진 추가');
     // 🔴 사진이 EXIF로 직접 말한 시간대 오프셋(환승·국경일 때 여행 시간대와 다르다 — M-1).
     // 저장 시 순간에 실어 준다. 예전엔 이 값이 photoHintOf에서 계산만 되고 버려졌다.
     let photoTzOffsetMin: number | null = null;

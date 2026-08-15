@@ -57,7 +57,27 @@ export const GALLERY_ACCEPT = 'image/*';
  * 고른 경우(`change`)와 취소한 경우(`focus` 복귀) 둘 다 되돌린다 — 취소를 안 다루면
  * **취소했을 때만** 설정이 남는다.
  */
-export function wireAltPick(input: HTMLInputElement, btn: HTMLButtonElement, accept: string): void {
+/**
+ * 이 열기가 **셸의 네이티브 가로채기를 비켜서는가**(`nativePhotos.wireNativeIntake`).
+ *
+ * 🔴 **기본값을 두지 않는다**(M-0060 — 갈라질 수 있는 판정은 이유를 붙여 인자로 넘긴다).
+ *    새 호출부는 이 값을 적을 수밖에 없고, 그때 *"셸에서 이 버튼은 무슨 문을 열어야 하나"*를
+ *    반드시 한 번 판단하게 된다. 이 표시가 없어서 「갤러리에서」가 갤러리를 못 열었다.
+ */
+export interface AltPickIntent {
+  /** true면 셸 안에서도 시스템 선택기가 열린다 — 사용자가 그 대가(위치 누락)를 알고 고른 길일 때만. */
+  bypassNativeIntake: boolean;
+}
+
+/** 셸 가로채기가 읽는 표시. 켜져 있는 동안의 click 한 번만 비켜선다. */
+export const BYPASS_NATIVE_ATTR = 'bjBypassNative';
+
+export function wireAltPick(
+  input: HTMLInputElement,
+  btn: HTMLButtonElement,
+  accept: string,
+  intent: AltPickIntent,
+): void {
   btn.addEventListener('click', () => {
     const keep = input.accept;
     let restored = false;
@@ -65,8 +85,12 @@ export function wireAltPick(input: HTMLInputElement, btn: HTMLButtonElement, acc
       if (restored) return;
       restored = true;
       input.accept = keep;
+      // 🔴 표시도 **함께** 되돌린다. 남으면 다음에 평소처럼 [📷 사진 추가]를 눌러도 셸이
+      //    비켜서서 위치가 조용히 사라진다 — `accept`를 되돌리는 것과 같은 이유다.
+      delete input.dataset[BYPASS_NATIVE_ATTR];
     };
     input.accept = accept;
+    if (intent.bypassNativeIntake) input.dataset[BYPASS_NATIVE_ATTR] = '1';
     input.addEventListener('change', restore, { once: true });
     // 취소하면 `change`가 오지 않는다. 파일 대화상자가 닫히며 창이 초점을 되찾는 것을 쓴다.
     window.addEventListener('focus', restore, { once: true });

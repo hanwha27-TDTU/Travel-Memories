@@ -881,7 +881,8 @@ select.zone-input { text-overflow: ellipsis; }
 .moment-photo-count { color: var(--a1d); }
 /* 편집 모드: 저장된 순간에 사진 추가 */
 .moment-addphoto {
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* 위 `.photo-pick-actions`와 같은 규율 — 좁으면 열 수가 줄고, 글자는 쪼개지지 않는다. */
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
   align-items: stretch; gap: var(--space-2); margin-top: var(--space-2);
 }
 .moment-addphoto > :is(label, button) { width: 100%; min-width: 0; }
@@ -902,7 +903,19 @@ select.zone-input { text-overflow: ellipsis; }
 /* 📁 원본에서 — 사진 선택기가 GPS를 지우므로 파일 선택기로 가는 길(M-0054).
    보조 경로이므로 사진 추가 버튼 옆에 **작게** 둔다: 평소 흐름을 밀어내지 않는다. */
 .pick-original { align-self: flex-start; margin-top: var(--space-2); }
-.photo-pick-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+/* 첨부 버튼 세 형제(📷 사진 · 🖼️ 갤러리 · 🎬 영상)의 **공용 얼굴**.
+   구조는 `pickerFace()`가 한 곳에서 만들고, 모양은 여기가 한 곳에서 정한다(§7 2층).
+
+   🔴 왜(2026-08-15 · 사용자 실기기 · M-0163): 셋이 각자 마크업이라 글꼴 크기·굵기가 달랐고
+   (0.85rem/700 ↔ 0.8rem/기본), 글자가 **텍스트 안의 공백에서 갈라져** 좁은 화면에서
+   「📷 사진 / 추가」처럼 두 줄로 어그러졌다. 이제 글자는 한 덩어리로 서고, 칸이 좁으면
+   **글자를 쪼개는 대신 줄 수를 줄인다**(아래 auto-fit). */
+.moment-picker { font-family: inherit; }
+.moment-picker .moment-picker-text { white-space: nowrap; }
+/* 🔴 고정 열 수를 쓰지 않는다 — 좁은 화면(폴드 커버·소형 폰)에서 칸이 글자보다 작아지면
+   글자가 깨지거나 가로로 넘친다. `auto-fit`은 **넓으면 한 줄 셋, 좁으면 스스로 접힌다**.
+   최소폭은 가장 긴 라벨(「🖼️ 갤러리에서」)이 한 줄로 서는 실측값이다. */
+.photo-pick-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: var(--space-2); }
 .photo-pick-actions > :is(label, button) { width: 100%; min-width: 0; align-self: stretch; margin-top: 0; }
 .place-results {
   display: flex; flex-direction: column; gap: 4px;

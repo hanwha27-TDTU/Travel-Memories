@@ -3092,6 +3092,13 @@ const memoryFields = await page.evaluate(() => {
     photoOneRow: photoRects.length === 3 && new Set(photoRects.map((r) => Math.round(r.top))).size === 1,
     photoWidthSpread: photoRects.length ? Math.max(...photoRects.map((r) => r.width)) - Math.min(...photoRects.map((r) => r.width)) : -1,
     photoHeights: photoRects.map((r) => r.height),
+    // 🔴 사용자가 지적한 것은 **글자가 두 줄로 갈라지는 것**이다(M-0163). 버튼 높이는 44px로
+    //    고정이라 높이로는 안 잡힌다 — 글자 자체가 몇 줄에 걸쳐 그려지는지를 재야 한다.
+    //    줄바꿈되면 인라인 상자가 둘로 갈라져 `getClientRects()`가 2를 준다.
+    photoTextLines: Math.max(0, ...photoActions.map((n) => n.querySelector('.moment-picker-text')?.getClientRects().length ?? 0)),
+    photoOverflow: photoActions.length
+      ? Math.max(...photoActions.map((n) => n.scrollWidth - Math.round(n.getBoundingClientRect().width)))
+      : -1,
     period: document.querySelector('.detail-period')?.textContent ?? '',
   };
 });
@@ -3105,9 +3112,50 @@ check('순간 폼 장소: 입력 아래 **검색·지도·내 위치가 같은 �
   memoryFields.placeCount === 3 && memoryFields.placeOneRow && memoryFields.placeBelowInput
     && memoryFields.placeWidthSpread <= 1,
   JSON.stringify(memoryFields));
-check('순간 폼 미디어: **사진 추가·갤러리에서·영상 추가가 같은 폭 한 줄**',
-  memoryFields.photoCount === 3 && memoryFields.photoOneRow && memoryFields.photoWidthSpread <= 1,
+// 🔴 계약이 바뀌었다(2026-08-15 · M-0163). 예전 계약은 **「무조건 한 줄」**이었는데, 좁은 화면에서
+//    그것을 지키려면 칸이 글자보다 작아져 **글자가 두 줄로 어그러진다**(사용자 실기기 지적).
+//    이제 재는 것은 「몇 줄인가」가 아니라 **「글자가 쪼개지지 않는가 · 폭과 높이가 같은가 ·
+//    가로로 넘치지 않는가」**다. 열 수는 폭이 정한다(넓은 화면 한 줄은 아래 desktop 검사가 잰다).
+check('순간 폼 미디어: **사진 추가·갤러리에서·영상 추가의 글자가 쪼개지지 않고 폭이 같다**',
+  memoryFields.photoCount === 3 && memoryFields.photoWidthSpread <= 1
+    // 넘침은 **양수일 때만** 넘친 것이다(반올림 때문에 음수가 정상이다 — 0으로 못박으면 오탐).
+    && memoryFields.photoTextLines === 1 && memoryFields.photoOverflow <= 0,
   JSON.stringify(memoryFields));
+// ── 🔴 폴드 커버 폭(344px)의 **생성 폼** — 사용자가 실제로 본 그 행이다 (2026-08-15 · M-0163)
+//    사용자 스크린샷은 새 순간을 적는 화면의 [📷 사진 추가 · 🖼️ 갤러리에서 · 🎬 영상 추가]
+//    세 버튼이었고, 거기서 글자가 두 줄로 갈라져 있었다. 412px에서는 이 결함이 **나지 않으므로**
+//    그 폭에서만 재는 초록은 「없다」가 아니라 **「안 봤다」**이다(§17).
+const coverViewport = page.viewportSize();
+await page.setViewportSize({ width: 344, height: 800 });
+await settle(page);
+const coverCreateActions = await page.evaluate(() => {
+  const actions = [...document.querySelectorAll('.moment-form .photo-pick-actions > :is(label, button)')];
+  const rects = actions.map((a) => a.getBoundingClientRect());
+  return {
+    count: actions.length,
+    textLines: Math.max(0, ...actions.map((a) => a.querySelector('.moment-picker-text')?.getClientRects().length ?? 0)),
+    // 글자가 버튼 밖으로 삐져나오는 것은 `scrollWidth`로 안 보인다 — 실제 좌표로 잰다.
+    textOutside: Math.max(0, ...actions.map((a) => {
+      const t = a.querySelector('.moment-picker-text')?.getBoundingClientRect();
+      const b = a.getBoundingClientRect();
+      return t ? Math.max(0, Math.round(b.left - t.left), Math.round(t.right - b.right)) : 0;
+    })),
+    pageOverflow: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
+    widthSpread: rects.length ? Math.max(...rects.map((r) => r.width)) - Math.min(...rects.map((r) => r.width)) : -1,
+    minHeight: rects.length ? Math.min(...rects.map((r) => r.height)) : -1,
+    fonts: [...new Set(actions.map((a) => `${getComputedStyle(a).fontSize}/${getComputedStyle(a).fontWeight}`))],
+  };
+});
+check('폴드 커버 344px 생성 폼: 세 첨부 버튼의 글자가 한 줄이고 버튼 밖으로 넘치지 않는다',
+  coverCreateActions.count === 3 && coverCreateActions.textLines === 1
+    && coverCreateActions.textOutside === 0 && coverCreateActions.pageOverflow === 0
+    && coverCreateActions.widthSpread <= 1 && coverCreateActions.minHeight >= 44,
+  JSON.stringify(coverCreateActions));
+check('폴드 커버 344px 생성 폼: 세 버튼이 **같은 글꼴 크기·굵기**를 쓴다(사용자 요구: 디자인 동일)',
+  coverCreateActions.fonts.length === 1, JSON.stringify(coverCreateActions.fonts));
+if (coverViewport) await page.setViewportSize(coverViewport); // §3-C — 내가 바꾼 뷰포트를 되돌린다
+await settle(page);
+
 check('순간 폼 보조 버튼: 터치 44px을 지키며 **46px 이하 공용 밀도**',
   [...memoryFields.emotionHeights, ...memoryFields.placeHeights, ...memoryFields.photoHeights]
     .every((height) => height >= 44 && height <= 46),
@@ -5390,6 +5438,39 @@ check('영상 추가 UI: 폰에서 네 첨부 행동이 같은 폭 2×2이고 �
     && phoneAttachmentActions.widthSpread <= 1 && phoneAttachmentActions.hiddenInputs
     && !phoneAttachmentActions.text.includes('선택된 파일 없음'),
   JSON.stringify(phoneAttachmentActions));
+// ── 🔴 폴드 커버 폭(344px)에서 **글자가 쪼개지지 않는가** (2026-08-15 · M-0163) ──────────
+//    사용자 실기기 지적: *"버튼 글자 어그러져있으니 깔끔히 맞춰주세요."* 412px에서는 칸이
+//    충분해 이 결함이 **나지 않는다** — 즉 412px에서만 재는 검사의 초록은 「없다」가 아니라
+//    **「안 봤다」**이다(§17). 그래서 이 저장소가 이미 쓰는 가장 좁은 폭에서 한 번 더 잰다.
+await page.setViewportSize({ width: 344, height: 800 });
+await settle(page);
+const coverAttachmentActions = await videoCard.locator('.moment-addphoto').evaluate((row) => {
+  const actions = [...row.querySelectorAll('.form-utility')];
+  const rects = actions.map((a) => a.getBoundingClientRect());
+  return {
+    count: actions.length,
+    // 글자가 줄바꿈되면 인라인 상자가 갈라져 rect가 2개가 된다.
+    textLines: Math.max(0, ...actions.map((a) => a.querySelector('.moment-picker-text')?.getClientRects().length ?? 0)),
+    // 🔴 `scrollWidth`로는 **글자가 버튼 밖으로 삐져나오는 것을 못 본다**(overflow가 visible이면
+    //    scrollWidth는 padding box를 넘지 않는다 — 주입해 보고 알았다). 실제 좌표로 잰다.
+    textOutside: Math.max(0, ...actions.map((a) => {
+      const t = a.querySelector('.moment-picker-text')?.getBoundingClientRect();
+      const b = a.getBoundingClientRect();
+      return t ? Math.max(0, Math.round(b.left - t.left), Math.round(t.right - b.right)) : 0;
+    })),
+    overflow: Math.max(...actions.map((a) => a.scrollWidth - Math.round(a.getBoundingClientRect().width))),
+    rowOverflow: row.scrollWidth - Math.round(row.getBoundingClientRect().width),
+    widthSpread: Math.max(...rects.map((r) => r.width)) - Math.min(...rects.map((r) => r.width)),
+    minHeight: Math.min(...rects.map((r) => r.height)),
+  };
+});
+check('폴드 커버 344px: 첨부 버튼 글자가 한 줄로 서고 버튼 밖으로 넘치지 않는다',
+  coverAttachmentActions.count === 4 && coverAttachmentActions.textLines === 1
+    && coverAttachmentActions.textOutside === 0
+    && coverAttachmentActions.overflow <= 0 && coverAttachmentActions.rowOverflow <= 0
+    && coverAttachmentActions.widthSpread <= 1 && coverAttachmentActions.minHeight >= 44,
+  JSON.stringify(coverAttachmentActions));
+
 await page.setViewportSize({ width: 1440, height: 900 });
 await settle(page);
 const desktopAttachmentActions = await videoCard.locator('.moment-addphoto').evaluate((row) => {
