@@ -3449,7 +3449,13 @@ if (!treeWide.exists) {
     clicked && filtered.nowShown && /개/.test(filtered.nowText) && filtered.pressed >= 1,
     `clicked=${clicked} now="${filtered.nowText}" pressed=${filtered.pressed}`);
   await page.evaluate(() => { const x = document.querySelector('.filter-clear'); if (x instanceof HTMLElement) x.click(); });
-  await settle(page);
+  // 🔴 `settle`은 **프레임 두 장**을 기다릴 뿐 「끝났다」를 기다리지 않는다(T-042 · M-0119).
+  //    목록 원복은 저장소 조회를 거치므로 두 프레임 뒤에 재면 이를 수 있다 — 실제로 이 검사가
+  //    같은 코드에서 한 번 FAIL하고 다음 실행에서 PASS했다. **시간이 아니라 내용을 기다린다.**
+  await waitUntil(async () => await page.evaluate(() => {
+    const now = document.querySelector('.filter-now');
+    return Boolean(now?.hidden);
+  }), 5000);
   const cleared = await page.evaluate(() => ({
     nowHidden: Boolean(document.querySelector('.filter-now')?.hidden),
     cards: document.querySelectorAll('.trip-list > *').length,
@@ -3766,6 +3772,10 @@ const bulkTrashPurge = page.getByRole('button', { name: '휴지통 모두 영구
 check('휴지통 일괄삭제: 현재 보이는 항목을 비우는 버튼이 실제로 있다', await bulkTrashPurge.count() === 1);
 await bulkTrashPurge.click();
 const bulkTrashConfirm = page.locator('.dm-trash-bulk button.btn-danger:not([hidden])').last();
+// 🔴 `isVisible()`은 **즉시 판정**이라 자동 대기가 없다(T-042 · M-0119). 확인 버튼이 펼쳐지기
+//    전에 재면 false가 되고, 더 나쁜 것은 **그 다음 클릭이 30초 timeout으로 죽어** 뒤따르는
+//    검사가 통째로 사라진다는 점이다 — 실제로 한 번 그렇게 죽었다. 펼쳐짐을 먼저 기다린다.
+await bulkTrashConfirm.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {});
 check('휴지통 일괄삭제: 첫 클릭은 지우지 않고 정확한 수의 두 번째 확인을 펼친다',
   await bulkTrashConfirm.isVisible() && /정말 \d+개 모두 지움/.test(await bulkTrashConfirm.textContent() ?? ''),
   await bulkTrashConfirm.textContent() ?? '');
@@ -5205,8 +5215,10 @@ check('헤더: 가로 넘침 0', headM.overflow === 0, `overflow=${headM.overflo
       const nextClick = await boxOf('ro-wide');
       if (nextClick) {
         await page.mouse.click(nextClick.x, nextClick.y);
-        await settle(page);
-        check('R⑧ 재배열 직후 다른 사진을 누르면 정상적으로 뷰어가 열린다', await page.locator('.photo-viewer').count() === 1);
+        // 🔴 뷰어는 사진 바이트를 불러온 뒤 열리므로 **프레임 두 장으로는 이르다**(T-042 · M-0119).
+        //    같은 코드에서 한 번 FAIL하고 다음 실행에서 PASS했다 — 「열렸다」는 사실을 기다린다.
+        const viewerOpened = await waitUntil(async () => await page.locator('.photo-viewer').count() === 1, 5000);
+        check('R⑧ 재배열 직후 다른 사진을 누르면 정상적으로 뷰어가 열린다', viewerOpened);
         await page.keyboard.press('Escape');
       } else {
         check('R⑧ 후속 정상 클릭 좌표를 찾는다', false);
