@@ -44,6 +44,8 @@ export const GATE_DESC: Record<string, string> = {
   'check-sync-parallelism':
     '동기화가 독립 도메인은 병렬로 실행하고, 직렬 경계는 구체적인 FK 사유를 가지며, 실패해도 같은 단계 작업을 전부 정산하는지',
   'check-verdict-symmetry': '진단 도구가 자기 렌더 코드를 갖지 않고 단일 렌더러를 거치는지',
+  'check-reduced-motion-scope':
+    '「움직임 줄이기」 미디어 블록 안에 움직임이 아닌 선언이 섞이지 않는지(배려가 정보를 뺏는 형태 차단)',
   'check-skill-routing': '모든 코드 영역이 착수 전 읽을 스킬 문서를 갖는지',
   // 「덮였다」가 아니라 「덮도록 **선언**됐다」까지만 말한다 — 라이브 게이트는 SKIP될 수 있고
   // 이 정적 게이트는 그걸 모른다(§8 모르는 것은 확인 불가).
@@ -163,6 +165,8 @@ export const GATE_AXIS: Record<string, string> = {
     '함수 개수가 아니라, 로컬 쓰기 함수 **전부**가 op을 만들거나 등록된 예외인지 — 하나만 조용히 빠지는 형태를 잡는다',
   'check-sync-parallelism': '단계 수가 아니라, 직렬 간선마다 사유가 있고 실패가 **join-all**로 정산되는지',
   'check-verdict-symmetry': '도구 개수가 아니라, 모든 판정이 **단일 렌더러**를 지나는지 — 자기 렌더 코드를 갖는 선택지가 없다',
+  'check-reduced-motion-scope':
+    '블록 개수가 아니라, 그 안의 **모든 선언**이 움직임 속성이거나 **이유 있는** 예외인지 — `no-preference`에 든 것은 reduce 사용자에게 통째로 사라진다',
   'check-skill-routing': '규칙 수가 아니라, 모든 코드 영역이 읽을 문서를 갖거나 **이유 있는** 제외인지',
   'check-live-coverage':
     '화면 수가 아니라, 안 덮인 화면이 **조용히 생기지 않는지** — 덮였음의 보증이 아니라 누락의 차단이다',
@@ -276,6 +280,7 @@ export const GATE_WORLD: Record<string, string> = {
   'check-domain-symmetry': '',
   'check-sync-parallelism': '',
   'check-verdict-symmetry': '',
+  'check-reduced-motion-scope': '',
   'check-skill-routing': '',
   'check-live-coverage': '',
   'check-self-eval': '',
@@ -360,6 +365,7 @@ export const GATE_CATEGORY: Record<string, GateCategory> = {
   'check-domain-symmetry': 'static',
   'check-sync-parallelism': 'static',
   'check-verdict-symmetry': 'static',
+  'check-reduced-motion-scope': 'static',
   'check-skill-routing': 'generated',
   // 형제(`check-skill-routing`)와 같은 부류다: 손으로 쓴 **선언**을 디렉터리라는 **현실**에
   // 대조한다. 화면이 늘거나 사라지면 선언 쪽이 조용히 낡는 것을 잡는 자리.
