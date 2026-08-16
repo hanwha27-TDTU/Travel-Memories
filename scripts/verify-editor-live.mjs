@@ -12,7 +12,7 @@
 //   실제가 어긋나면 게이트는 못 잡는다(정직한 한계). 화면을 더 열면 여기도 늘려라.
 // (Playwright는 devDependency가 아니므로 전역 설치본을 폴백으로 찾는다.)
 import { createServer } from 'node:http';
-import { launchLiveBrowser, coverSweep as sweepAtCoverWidth, TOUCH_TARGET_EXCEPTIONS } from './live-browser-lib.mjs';
+import { launchLiveBrowser, coverSweep as sweepAtCoverWidth, TOUCH_TARGET_EXCEPTIONS, underReducedMotion } from './live-browser-lib.mjs';
 import { readFile } from 'node:fs/promises';
 import { readdirSync, statSync } from 'node:fs';
 import { join, extname, dirname, resolve } from 'node:path';
@@ -2870,6 +2870,35 @@ const playState = await page.evaluate(() => {
 });
 check('소리 칩: 재생 상태가 aria-pressed로 전해진다', playState.pressed === 'true', String(playState.pressed));
 
+// 🔴 **「움직임 줄이기」에서 재생 중임을 여전히 알 수 있는가**(T-052 · 2026-08-16).
+//
+// 이 설정을 켜면 `.eq i { animation: none }`으로 이퀄라이저 막대가 **멈춘다.** CSS 주석은
+// *"막대를 고정한다(**정보는 남고** 움직임만 사라진다)"*라고 단정하는데, **그 말이 참인지는
+// 아무도 안 재고 있었다** — 주석은 산문이고 산문은 코드가 바뀔 때 같이 안 바뀐다(§17).
+// 코드를 읽어 보면 참이다: 이퀄라이저는 **멈춤(🔊)의 자리를 대신**하므로 존재 자체가 상태다.
+// 🔴 그러나 「읽어서 참」과 「재서 참」은 다른 말이므로 여기서 잰다.
+await underReducedMotion(page, async () => {
+  const rm = await page.evaluate(() => {
+    const c = document.querySelector('.chip.audio');
+    const ic = c?.querySelector('.chip-audio-ic');
+    const eq = ic?.querySelector('.eq');
+    const bar = eq?.querySelector('i');
+    return {
+      줄이기인식: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      애니메이션: bar ? getComputedStyle(bar).animationName : null,
+      이퀄라이저있음: !!eq,
+      글리프: (ic?.textContent ?? '').trim(),
+      pressed: c?.querySelector('.chip-audio-play')?.getAttribute('aria-pressed'),
+    };
+  });
+  check('소리 칩(줄이기): 전제 — 앱이 인식하고 **막대 애니메이션이 실제로 꺼졌다**',
+    rm.줄이기인식 === true && rm.애니메이션 === 'none', JSON.stringify(rm));
+  // 🔴 본론: 움직임이 없어도 **재생 중임이 남는가.** 이퀄라이저가 🔊 자리를 대신하므로
+  //    「막대가 보인다 = 재생 중」이고, 화면을 못 보는 사용자에게는 `aria-pressed`가 전한다.
+  check('🔴 소리 칩(줄이기): 움직임이 멈춰도 **재생 중임을 알 수 있다**(막대가 🔊 자리를 대신한다)',
+    rm.이퀄라이저있음 === true && rm.글리프 !== '🔊' && rm.pressed === 'true', JSON.stringify(rm));
+});
+
 // 🔴 **끝까지 재생한 뒤** 라벨을 본다(2026-07-28 사용자 실기기: *"재생불가가 아닌데
 // 재생불가라고 안내하네요"*). 정리 과정이 `error`를 발화시켜, 정상 재생을 마친 **직후에만**
 // 「🔇 재생 불가」로 덮이고 있었다. 재생 중만 재면 이 부류는 영원히 안 잡힌다 —
@@ -5374,6 +5403,60 @@ check('헤더: 가로 넘침 0', headM.overflow === 0, `overflow=${headM.overflo
     } else {
       check('R⑦ Windows 마우스 재배열 좌표를 찾는다', false, JSON.stringify({ mouseFrom, mouseTo }));
     }
+
+    // ── 🔴 R⑨ 「움직임 줄이기」를 켠 사용자에서도 **기능이 남는가** (T-052 · 2026-08-16) ──
+    //
+    // 물어야 할 것은 「전환이 사라지는가」가 아니라 **「기능이 사라지는가」**다. 이 설정을 켜면
+    // 이 앱은 **두 가지를 끈다**: `.photo-thumbs.drag-active .photo-thumb-wrap`의 전환(CSS)과
+    // `liftScale`(JS — 들어올린 칸의 1.06배 확대). 🔴 **둘 다 「알려주는 것」이라** 끄고 나서
+    // ①끌기가 여전히 되는가 ②들어올렸다는 것을 **여전히 알 수 있는가**를 재야 한다.
+    // 접근성 설정이 기능을 뺏으면 그건 배려가 아니라 결함이다.
+    // 내가 심은 세 칸의 DOM 순서 — 앞 블록의 것은 그 `if` 스코프 안이라 여기서 못 본다.
+    const mineOrderNow = async () =>
+      await grid.evaluate((g) =>
+        [...g.querySelectorAll('.photo-thumb-wrap[data-media-id]')]
+          .map((e) => e.getAttribute('data-media-id'))
+          .filter((id) => id && id.startsWith('ro-')),
+      );
+    await underReducedMotion(page, async () => {
+      // 전제 확인 — 앱이 실제로 「줄이기」로 인식하는가. 아니면 아래는 평상시를 재는 것이다(§4).
+      const reduced = await page.evaluate(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      check('R⑨-0 앱이 「움직임 줄이기」를 실제로 인식한다(전제 — 아니면 아래가 공허하다)', reduced === true, `matches=${reduced}`);
+
+      await grid.scrollIntoViewIfNeeded();
+      const from = await boxOf('ro-wide');
+      const to = await boxOf('ro-tall');
+      if (!from || !to) { check('R⑨ 재배열 좌표를 찾는다', false, JSON.stringify({ from, to })); return; }
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await grid.locator('.drag-lift').waitFor();
+      // 🔴 **들어올림이 보이는가** — 확대(`liftScale`)가 꺼졌으니 남는 신호는 테두리 색이다.
+      //    `.drag-lift .photo-thumb { border-color: var(--accent-strong) }`가 그 자리다.
+      const lift = await grid.evaluate(() => {
+        const el = document.querySelector('.photo-thumb-wrap.drag-lift');
+        const thumb = el?.querySelector('.photo-thumb');
+        const other = document.querySelector('.photo-thumb-wrap:not(.drag-lift) .photo-thumb');
+        return {
+          scale: el ? getComputedStyle(el).transform : null,
+          들린것테두리: thumb ? getComputedStyle(thumb).borderColor : null,
+          평소테두리: other ? getComputedStyle(other).borderColor : null,
+        };
+      });
+      check('🔴 R⑨-1 확대가 꺼져도 **들어올렸다는 것이 보인다**(테두리 색이 이웃과 다르다)',
+        lift.들린것테두리 !== null && lift.평소테두리 !== null && lift.들린것테두리 !== lift.평소테두리,
+        JSON.stringify(lift));
+
+      await page.mouse.move(to.x, to.y, { steps: 10 });
+      await page.mouse.up();
+      // 🔴 **결과를 기다린다 — 전제가 아니라 내용으로**(M-0171). 전환이 꺼져 있어도 저장·재그리기는 돈다.
+      const WANT = 'ro-square,ro-tall,ro-wide'; // ro-wide를 ro-tall 자리로 옮긴 결과
+      const moved = await waitUntil(async () => (await mineOrderNow()).join(',') === WANT, 5000);
+      check('🔴 R⑨-2 「움직임 줄이기」에서도 **끌어서 재배열이 실제로 된다**(기능이 사라지지 않는다)',
+        moved, (await mineOrderNow()).join(' → '));
+    });
+    // 되돌림 확인 — 헬퍼가 `finally`로 풀지만, 안 풀리면 **뒤따르는 검사 전부**가 다른 앱을 잰다.
+    check('R⑨-3 「움직임 줄이기」를 되돌렸다(뒤 검사를 오염시키지 않는다)',
+      (await page.evaluate(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)) === false);
 
     // 뒷정리 — 심은 픽스처를 지운다(§3-C, 내 상태를 남기지 않는다).
     await page.evaluate(() =>

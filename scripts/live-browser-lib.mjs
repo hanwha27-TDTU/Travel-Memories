@@ -394,3 +394,26 @@ export async function coverSweep(page, check, label, rootSelector, exceptions = 
   return m;
 }
 
+
+/**
+ * 🔴 **「움직임 줄이기」를 켠 사용자에서 한 번 재고 반드시 되돌린다**(T-052 · 2026-08-16).
+ *
+ * 물어야 할 것은 **「전환이 사라지는가」가 아니라 「기능이 사라지는가」**다. 접근성 설정이
+ * 기능을 뺏으면 그건 배려가 아니라 결함이다.
+ *
+ * 🔴 **왜 새 컨텍스트를 만들지 않나**: `browser.newContext({ reducedMotion })`은 IndexedDB가
+ * **빈 상태**로 시작한다 — 이 저장소의 라이브는 심어 둔 여행·순간 위에서 도므로 그 상태를
+ * 통째로 잃는다. `emulateMedia`는 **같은 페이지에서 미디어 질의만** 바꾸므로 상태가 남고,
+ * `matchMedia`를 읽는 JS(`prefersReducedMotion()`)에도 그대로 걸린다.
+ *
+ * 🔴 **반드시 되돌린다**(§3-C) — `finally`로 묶는다. 안 되돌리면 뒤따르는 검사 전부가
+ * 「움직임 줄이기」 상태에서 돌고, 그건 조용히 다른 앱을 재는 것이다.
+ */
+export async function underReducedMotion(page, fn) {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  try {
+    return await fn();
+  } finally {
+    await page.emulateMedia({ reducedMotion: null });
+  }
+}
