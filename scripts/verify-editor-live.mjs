@@ -128,6 +128,36 @@ await new Promise((r) => server.listen(4173, r));
 const results = [];
 const check = (name, ok, extra = '') => { results.push({ name, ok, extra }); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' — ' + extra : ''}`); };
 
+/**
+ * 🔴 **전제가 없으면 판정하지 말고 말한다**(§18-G 1항 · §8 — 모르는 것은 '확인 불가'다).
+ *
+ * 이 자리가 왜 생겼나(2026-08-16 · M-0180 · **사용자 지적에서**): 지도 키가 없는 환경에서
+ * 검사 5건이 **FAIL**로 나오고 있었다. 그건 결함이 아니라 **안 잰 것**인데, 판정문은
+ * 「위반을 찾았다」고 말했다 — §8이 금지하는 반올림의 *반대* 방향이다.
+ *
+ * 그리고 그 값은 이미 치르고 있었다: **늘 빨간 5건**은 사람이 곧 무시하게 되고
+ * (§11 ③ — 오탐은 「빡빡한 검사」가 아니라 **틀린 검사**다), 그러면 **진짜** 지도 결함이
+ * 나도 「늘 그 5개」로 넘어간다. M-0178에서 브리핑이 정상을 🔴라 부른 것과 **같은 근본형**이다.
+ */
+const skip = (name, why) => { results.push({ name, ok: true, skipped: true, extra: why }); console.log(`SKIP ${name} — 확인 불가: ${why}`); };
+
+/**
+ * 지도 키가 이 번들에 들어갔는가.
+ *
+ * 🔴 **정직한 한계 — 이것은 대리 지표다**(§18-A). 진짜 물어야 할 것은 *"`dist`가 키를
+ * 품었는가"*인데, `import.meta.env`는 빌드 시점에 **문자열로 치환돼** 번들 안으로 사라지므로
+ * 실행 중에 되물을 방법이 없다. 그래서 **빌드와 같은 환경에서 돈다**는 전제로 `process.env`를
+ * 읽는다 — `npm run build && npm run live`가 같은 셸·같은 CI job이라 실무에서는 빈틈이 없지만,
+ * **키를 넣고 빌드한 뒤 키 없이 이 검사만 돌리면 잘못 건너뛴다.** 그 창을 알고 쓴다.
+ * (`version.json`에 심는 방법도 있으나 그건 `appUpdate`가 읽는 **배포 계약**이라
+ *  검사 편의로 오염시키지 않는다.)
+ */
+const mapKey = (name) => (process.env[name] ?? '').trim().length > 0;
+const HAS_KAKAO = mapKey('VITE_KAKAO_JAVASCRIPT_KEY');
+const HAS_TOMTOM = mapKey('VITE_TOMTOM_API_KEY');
+const NO_KAKAO = '이 환경에 VITE_KAKAO_JAVASCRIPT_KEY가 없어 앱이 MapLibre로 내려갑니다 — 결함이 아니라 **안 잰 것**입니다(CI에는 Repository Variable로 있습니다).';
+const NO_TOMTOM = '이 환경에 VITE_TOMTOM_API_KEY가 없어 앱이 MapLibre로 내려갑니다 — 결함이 아니라 **안 잰 것**입니다(CI에는 Repository Variable로 있습니다).';
+
 async function observeViewerObjectUrls(targetPage) {
   await targetPage.evaluate(() => {
     window.__liveOriginalCreateObjectURL = URL.createObjectURL.bind(URL);
@@ -853,7 +883,8 @@ await page.locator('.moment-form .place-map').click();
 await page.waitForSelector('.map-overlay');
 await waitUntil(async () => (await page.locator('.map-canvas').getAttribute('data-map-provider')) !== null, 15000);
 const seoulPicker = await page.locator('.map-canvas').getAttribute('data-map-provider');
-check('새 위치 지도: 서울 현재 위치면 Kakao가 기본이다', seoulPicker === 'kakao', String(seoulPicker));
+if (!HAS_KAKAO) skip('새 위치 지도: 서울 현재 위치면 Kakao가 기본이다', NO_KAKAO);
+else check('새 위치 지도: 서울 현재 위치면 Kakao가 기본이다', seoulPicker === 'kakao', String(seoulPicker));
 check(
   '새 위치 지도: 현재 위치는 중심일 뿐, 지도를 누르기 전에는 선택되지 않는다',
   await page.locator('.map-pick-confirm').isDisabled(),
@@ -896,7 +927,8 @@ await page.locator('.moment-form .place-map').click();
 await page.waitForSelector('.map-overlay');
 await waitUntil(async () => (await page.locator('.map-canvas').getAttribute('data-map-provider')) !== null, 15000);
 const tashkentPicker = await page.locator('.map-canvas').getAttribute('data-map-provider');
-check(
+if (!HAS_TOMTOM) skip('새 위치 지도: 타슈켄트 현재 위치면 TomTom이 기본이다', NO_TOMTOM);
+else check(
   '새 위치 지도: 타슈켄트 현재 위치면 TomTom이 기본이다',
   tashkentPicker === 'tomtom' && tomtomTileRequests > tomtomBefore,
   `provider=${tashkentPicker} · tile=${tomtomTileRequests - tomtomBefore}`,
@@ -3077,16 +3109,21 @@ const mapProviderSeen = await page.locator('.map-canvas').evaluate((node) => ({
   provider: node.dataset.mapProvider ?? '',
   kakaoLevel: Number(node.dataset.kakaoLevel ?? '-1'),
 }));
-check(
-  '지도: 한국 좌표가 Kakao SDK를 실제로 요청하고 Kakao 제공자로 준비된다',
-  kakaoSdkRequests > 0 && mapProviderSeen.provider === 'kakao',
-  `SDK ${kakaoSdkRequests}건 · provider=${mapProviderSeen.provider || '(없음)'}`,
-);
-check(
-  '🔴 지도: Kakao에서도 지점이 하나면 그 지점까지 확대한다',
-  mapProviderSeen.kakaoLevel === 5,
-  `Kakao level=${mapProviderSeen.kakaoLevel} (기대: 5)`,
-);
+if (!HAS_KAKAO) {
+  skip('지도: 한국 좌표가 Kakao SDK를 실제로 요청하고 Kakao 제공자로 준비된다', NO_KAKAO);
+  skip('🔴 지도: Kakao에서도 지점이 하나면 그 지점까지 확대한다', NO_KAKAO);
+} else {
+  check(
+    '지도: 한국 좌표가 Kakao SDK를 실제로 요청하고 Kakao 제공자로 준비된다',
+    kakaoSdkRequests > 0 && mapProviderSeen.provider === 'kakao',
+    `SDK ${kakaoSdkRequests}건 · provider=${mapProviderSeen.provider || '(없음)'}`,
+  );
+  check(
+    '🔴 지도: Kakao에서도 지점이 하나면 그 지점까지 확대한다',
+    mapProviderSeen.kakaoLevel === 5,
+    `Kakao level=${mapProviderSeen.kakaoLevel} (기대: 5)`,
+  );
+}
 // 지도는 **닫지 않는다** — 바로 아래 바깥지도 버튼 검사가 이 오버레이 안의 버튼을 누른다.
 // (처음에 여기서 닫았다가 그 4건을 통째로 죽였다. 검사끼리도 형제다 — 하나가 상태를 치우면
 //  다음 형제가 조용히 빈손이 된다.)
@@ -3180,7 +3217,8 @@ await tomtomChipButton.click();
 await page.waitForSelector('.map-overlay', { timeout: 10000 });
 await waitUntil(async () => (await page.locator('.map-canvas').getAttribute('data-map-provider')) !== null, 15000);
 const tomtomChipProvider = await page.locator('.map-canvas').getAttribute('data-map-provider');
-check(
+if (!HAS_TOMTOM) skip('🔴 TomTom 장소 칩: 연결된 UZ 국가코드를 보존해 TomTom 타일을 실제 요청한다', NO_TOMTOM);
+else check(
   '🔴 TomTom 장소 칩: 연결된 UZ 국가코드를 보존해 TomTom 타일을 실제 요청한다',
   tomtomChipProvider === 'tomtom' && tomtomTileRequests > tomtomChipBefore,
   `provider=${tomtomChipProvider || '(없음)'} · tile=${tomtomTileRequests - tomtomChipBefore}`,
@@ -6139,5 +6177,15 @@ check('콘솔 에러 0', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();
 server.close();
 const fails = results.filter((r) => !r.ok);
-console.log(`\n${results.length - fails.length}/${results.length} PASS`);
+// 🔴 **SKIP을 PASS로 반올림하지 않는다**(§2-G · §18-G). 예전엔 총계가 `N/M PASS` 한 줄이라
+//    건너뛴 것이 통과와 **같은 칸에 섞였다.** 판정문이 스스로 「무엇을 안 쟀는지」를 이름으로
+//    말해야 다음 사람이 그 초록의 뜻을 오해하지 않는다(`npm run gates`가 하는 그대로).
+const skipped = results.filter((r) => r.skipped);
+const measured = results.length - skipped.length;
+console.log(`\n${measured - fails.length}/${measured} PASS`);
+if (skipped.length > 0) {
+  console.log(`  🔴 **${skipped.length}개는 전제가 없어 아예 재지 않았습니다** — SKIP은 통과가 아닙니다(§2-G).`);
+  for (const s of skipped) console.log(`     · ${s.name}`);
+  console.log('     → 지도 키가 있는 환경(CI·운영 빌드)에서만 이 축이 재집니다.');
+}
 process.exit(fails.length ? 1 : 0);
