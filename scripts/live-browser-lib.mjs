@@ -279,8 +279,16 @@ export async function coverSweep(page, check, label, rootSelector, exceptions = 
     await page.evaluate((p) => { document.documentElement.style.fontSize = `${(16 * p) / 100}px`; }, pct);
     await settlePage(page);
     scaleResults.push([pct, await page.evaluate(({ root, exc, optOut }) => {
-    const scope = root ? document.querySelector(root) : document.body;
+    // 🔴 **첫 번째가 아니라 마지막이다**(2026-08-16 · M-0179). 이 앱의 오버레이는 **겹친다** —
+    //    「개발자 정보」 위에 「설계 개요도」가 열리면 `.guide-overlay`가 **2개**가 되고,
+    //    `querySelector`는 **밑에 깔린 것**을 준다. 그러면 검사는 사용자가 보는 화면이 아니라
+    //    **가려진 화면**을 재고, 그 초록의 뜻은 「괜찮다」가 아니라 **「엉뚱한 걸 쟀다」**이다.
+    //    DOM 순서가 곧 쌓임 순서이므로 **마지막이 맨 위**다.
+    const all = root ? document.querySelectorAll(root) : null;
+    const scope = all ? all[all.length - 1] : document.body;
     if (!scope) return null;
+    // 겹친 개수를 판정문까지 들려 보낸다 — 안 보이면 다음 사람이 같은 자리에서 또 속는다.
+    const roots = all ? all.length : 1;
     const vis = (n) => n.getClientRects().length > 0 && getComputedStyle(n).visibility !== 'hidden';
     const name = (n) => `${n.tagName.toLowerCase()}${typeof n.className === 'string' && n.className ? '.' + n.className.trim().split(/\s+/)[0] : ''}`;
     const hit = (n) => {
@@ -351,6 +359,7 @@ export async function coverSweep(page, check, label, rootSelector, exceptions = 
     past.sort((a, b) => b.p - a.p);
     return {
       controls: controls.length,
+      roots,
       pageOverflow: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
       culprits: past.slice(0, 4).map((x) => `${x.n}(+${x.p} w${x.w}${x.minW !== '0px' ? ` min${x.minW}` : ''})`),
       clipped: [...new Set(clipped)],

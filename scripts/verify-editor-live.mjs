@@ -462,6 +462,10 @@ const bpTrip = await page.evaluate(() => {
   return row?.querySelector('.bp-src-val')?.textContent ?? '?';
 });
 check('설계 개요도: 실카운트(여행=1) 자동 채움', bpTrip === '1', `trips=${bpTrip}`);
+// 🔴 개발자 화면도 **같은 자를 받는다**(§7 — 형제에게 대칭은 기본값이고 차별이 예외다).
+//    사용자 화면이 아니라는 것은 「안 재도 된다」의 이유가 아니다: 이 화면은 폴드 커버에서
+//    열리고, 표가 넓어 **가로 넘침이 가장 나기 쉬운 모양**이다.
+await coverSweep('설계 개요도', '.guide-overlay');
 await page.keyboard.press('Escape');
 await settle(page);
 while ((await page.locator('.guide-overlay').count()) > 0) {
@@ -610,6 +614,12 @@ await page.getByRole('button', { name: /위치관리대장/ }).click();
 await page.waitForSelector('.pr-list .pr-row', { timeout: 10000 });
 const prRows = await page.locator('.pr-row').count();
 check('위치관리대장: 목록이 그려진다', prRows >= 2, `행 ${prRows}개`);
+
+// 🔴 **자기 로직만 검사받고 「자」는 못 받고 있던 사용자 화면**(2026-08-16). 이 화면은
+//    좌표·검색·되돌리기를 촘촘히 재면서 **폭·글꼴 배율·터치 표적은 한 번도 안 쟀다** —
+//    T-049가 진단 도구에서 겪은 것과 같은 형태다(*"가장 큰 것은 화면이 아니라 자였다"*).
+//    걸러지기 **전**에 잰다: 검색이 한 행만 남기면 남은 행이 좁아 축이 쉬워진다(§4).
+await coverSweep('위치관리대장', '.guide-overlay');
 
 // 검색 — 한 글자로도 걸러지는가(사용자 요청: "한글자라도 동일하면")
 await page.fill('.pr-search', '모호');
@@ -807,6 +817,9 @@ const mcSteps = await page.locator('.mc-step').count();
 check('기계화 검증 흐름도: 4단계 렌더', mcSteps === 4, `steps=${mcSteps}`);
 const mcBadge = await page.$eval('.mc-badge', (e) => e.textContent);
 check('기계화 검증 흐름도: 게이트 개수 배지(자동 집계)', /자동 검사 \d+가지/.test(mcBadge ?? ''), mcBadge ?? '');
+// 게이트 카드가 71장 깔리는 화면이다 — 좁은 폭·큰 글꼴에서 가장 먼저 밀려날 모양인데
+// 지금까지 **한 번도 안 쟀다**(위 「설계 개요도」와 같은 이유로 대칭을 준다).
+await coverSweep('기계화 검증 흐름도', '.guide-overlay');
 // 카테고리별 게이트 카드 개수 합 = 배지의 개수. **전부 REGISTRY 파생이어야 한다.**
 //
 // 2026-07-27 전제 변경: 예전엔 `+ 라이브 렌더 1`이었다 — 라이브 게이트가 등록부 밖에 있어
