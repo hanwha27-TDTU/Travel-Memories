@@ -244,7 +244,8 @@ const gates = [
  */
 const EXIT_PRECONDITION = 2;
 
-let failed = 0;
+/** 🔴 개수가 아니라 **이름**을 모은다 — 「1개 실패」는 다음에 할 일을 정해 주지 않는다(M-0167). */
+const failedNames = [];
 const skipped = [];
 const notMeasured = [];
 /** 통과했지만 **스스로 「일부는 못 쟀다」고 말한** 게이트. 마지막 판정문이 이것을 센다. */
@@ -276,26 +277,41 @@ for (const g of gates) {
   }
   console.log('FAIL');
   if (out) process.stderr.write(out);
-  failed++;
-}
-
-if (failed > 0) {
-  console.error(`\nharness: ${failed} gate(s) FAILED`);
-  process.exit(1);
+  failedNames.push(g.name);
 }
 
 // 마지막 줄이 이 실행의 **판정문**이다. 건너뛴 것이 있는데 "모두 통과"라고 쓰면 거짓말이 된다.
+//
+// 🔴 **실패해도 여기까지 온다**(2026-08-16 · M-0181). 예전 판은 실패하면
+//    `harness: N gate(s) FAILED` 한 줄을 찍고 **곧바로 exit**했다. 그래서 빨간 실행에서는
+//    **무엇을 건너뛰었는지·무엇을 반쪽만 쟀는지를 아예 못 들었다** — 그런데 §21(머지 강행)의
+//    판단은 정확히 그 빨간 실행에서 내려진다. 실패 판정문이 성공 판정문보다 말이 적으면
+//    **가장 필요할 때 가장 모르게 된다**(M-0167 — *"빨간불의 값어치는 「무엇을 봤는가」에 있다"*).
+if (failedNames.length > 0) {
+  console.log(`\nharness: 🔴 **${failedNames.length}개 게이트가 빨간불입니다** — ${failedNames.join(', ')}`);
+  console.log('  → 위 각 게이트의 출력이 무엇이 어긋났는지 말합니다. §21(머지 단계 강행)을 쓸지는');
+  console.log('    **사용자 기억의 유실·§0 위반인지**로 가릅니다 — 그 밖은 강행하고 BACKLOG에 올립니다.');
+}
 if (FAST) {
   // 「통과」라고 쓰지 않는다 — 이 실행은 무거운 층을 **아예 안 돌렸다.**
-  console.log(`\nharness(빠른 차선): 재본 ${gates.length - notMeasured.length}개 통과 · **${notMeasured.length}개는 아예 안 쟀습니다**`);
+  const 재본 = gates.length - notMeasured.length;
+  const 결과 = failedNames.length === 0 ? `재본 ${재본}개 통과` : `재본 ${재본}개 중 **${failedNames.length}개 빨간불**`;
+  console.log(`\nharness(빠른 차선): ${결과} · **${notMeasured.length}개는 아예 안 쟀습니다**`);
   console.log(`  · 안 잰 것: ${notMeasured.join(', ')}`);
   console.log('  → 릴리스(머지·배포)할 때만 앱 build 뒤 전체를 재세요: npm run build && npm run harness');
-} else if (skipped.length > 0) {
-  console.log(`\nharness: Required 게이트 통과 · 선택 ${skipped.length}개 **건너뜀**`);
-  for (const s of skipped) console.log(`  · ${s.name} — 재지 못했습니다: ${s.why}`);
-  console.log('  → 이 실행은 위 층을 확인하지 않았습니다. 갖추고 돌리려면: npm run build && npm run live');
-} else {
+} else if (failedNames.length === 0 && skipped.length === 0) {
   console.log('\nharness: 모든 게이트 통과(선택 게이트 포함 — 건너뛴 것 없음)');
+}
+
+// 🔴 **건너뜀은 차선과 무관하게 말한다**(§2-G · 2026-08-16 · M-0181). 예전엔 이 보고가
+//    `if (FAST) … else if (skipped.length)` 사슬 안에 있어 **빠른 차선에서는 도달 불가**였다 —
+//    즉 빠른 차선에서 전제 미충족으로 건너뛴 게이트는 판정문에서 **통째로 사라졌다.**
+//    「안 잰 것」(차선이 빼놓은 것)과 「건너뛴 것」(전제가 없어 못 잰 것)은 **다른 칸**이고,
+//    둘 다 통과가 아니다.
+if (skipped.length > 0) {
+  console.log(`  · 전제가 없어 **건너뛴 게이트 ${skipped.length}개**(통과 아님):`);
+  for (const s of skipped) console.log(`     · ${s.name} — 재지 못했습니다: ${s.why}`);
+  console.log('    → 이 실행은 위 층을 확인하지 않았습니다. 갖추고 돌리려면: npm run build && npm run live');
 }
 
 // 🔴 「통과」와 「온전히 쟀다」는 다른 말이다. 통과했더라도 게이트가 스스로 못 잰 것을 말했으면
@@ -304,3 +320,6 @@ if (partial.length) {
   console.log(`  · 통과했지만 **일부만 쟀다고 스스로 말한 게이트 ${partial.length}개**: ${partial.join(', ')}`);
   console.log('    → 위 ↳ 줄이 그 게이트가 재지 못한 것입니다. 초록이 곧 전수 검증은 아닙니다.');
 }
+
+// 🔴 종료코드는 **판정문을 전부 찍은 뒤** 낸다. 조기 종료는 그 자체가 정보 손실이다.
+process.exit(failedNames.length > 0 ? 1 : 0);
