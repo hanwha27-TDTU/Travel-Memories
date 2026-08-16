@@ -26,7 +26,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runSelfTest } from './gate-selftest-lib.mjs';
-import { proveCheckCounts, proveOverflowScanner, scanOverflowContainers } from './live-browser-lib.mjs';
+import { proveCheckCounts, proveOverflowScanner, scanOverflowContainers, coverSweep } from './live-browser-lib.mjs';
 
 // 대조군(§4): 판정 기록기가 **실패를 실제로 세는가.** 안 세면 이 게이트는 무슨 일이 있어도 초록이다.
 // 🔴 이 줄은 **템플릿 문자열 밖**이어야 한다 — 안에 넣으면 실행되지 않는 가짜 대조군이 된다(M-0155).
@@ -81,11 +81,34 @@ if (!chromium) {
 // ────────────────────────────────────────────────────────────────────────────
 const SRC = join(ROOT, 'src').replace(/\\/g, '/');
 const FIXTURE = `
+// 🔴 **스타일을 먼저 부른다**(2026-08-16 · M-0182). 앱의 CSS는 main.ts가 부르는데
+//    이 픽스처는 자기 진입점을 쓰므로, 안 부르면 **무스타일 페이지**를 재게 된다 —
+//    그러면 넘침·터치 표적 판정이 전부 허상이다(브라우저 기본 버튼은 24px이라
+//    44px 미달이 늘 뜬다). 실측으로 확인했다: 부르기 전 24px → 부른 뒤 실제 값.
+import '${SRC}/ui/styles/tokens.css';
+import '${SRC}/ui/styles/app.css';
 import { openDataManager } from '${SRC}/ui/screens/dataManager';
+import { renderHomeAuth } from '${SRC}/ui/screens/home';
 import { isConfigured } from '${SRC}/services/supabase/client';
 
 // 검사가 전제를 직접 읽는다 — 선언이 아니라 실제 값이다(§4 비공허).
 (window as unknown as { __cloudConfigured: boolean }).__cloudConfigured = isConfigured();
+
+// 🔴 **사용자가 실제로 보는 헤더**를 실제 렌더러로 그린다(§13 1항 · M-0182).
+//    dist 빌드에는 Supabase 값이 없어 isConfigured()가 거짓이므로, 큰 라이브 검사는
+//    내내 '📴 로컬 모드' 한 줄만 그려 왔다 — **이메일 + [로그아웃] 헤더는 어느 축에서도
+//    안 쟀다.** 여기는 가짜 환경변수로 빌드해 isConfigured()가 참이므로 그릴 수 있다.
+//    검사가 켤 때까지 숨겨 둔다(데이터 관리 오버레이와 섞이지 않게).
+const authHost = document.createElement('header');
+authHost.className = 'auth-area';
+authHost.id = 'live-home-auth';
+authHost.hidden = true;
+document.body.appendChild(authHost);
+(window as unknown as { __showHomeAuth: (email: string | null) => void }).__showHomeAuth = (email) => {
+  for (const o of Array.from(document.querySelectorAll('.overlay-base, .guide-overlay'))) o.remove();
+  authHost.hidden = false;
+  renderHomeAuth(authHost, email === null ? null : ({ id: 'live', email } as never), document.createElement('div'));
+};
 
 openDataManager({ onChanged: () => undefined, goToTrip: () => undefined });
 `;
@@ -224,6 +247,16 @@ try {
       over.length ? over.slice(0, 3).map((o) => `${o.sel} +${o.over}px`).join(' | ') : '대조군으로 검출력 확인함',
     );
   }
+
+  // ── 🔴 사용자가 실제로 보는 헤더 — 여기서만 잴 수 있다 (2026-08-16 · M-0182) ──────
+  //    `verify-editor-live`는 `dist`(Supabase 미설정)를 재므로 이 상태를 **원리적으로**
+  //    만들 수 없다. 이 게이트만 `isConfigured()===true`로 빌드하므로 여기가 유일한 자리다.
+  //    긴 이메일을 쓴다 — 짧은 값으로 재면 좁은 폭 축이 저절로 쉬워진다(§4).
+  for (const [label, email] of [['로그인됨', 'hanwha27.travel.memories@example-provider.com'], ['로그인 전', null]]) {
+    await page.evaluate((e) => window.__showHomeAuth(e), email);
+    await coverSweep(page, check, `홈 헤더(${label})`, '#live-home-auth');
+  }
+
 } finally {
   await browser.close();
   server.close();
