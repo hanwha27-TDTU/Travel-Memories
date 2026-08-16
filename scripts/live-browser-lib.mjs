@@ -199,6 +199,22 @@ async function settlePage(p) {
  * 쓰고 홈 전수 검사도 쓴다. 두 벌로 두면 한쪽만 고쳐지는 날이 온다(§2 · §7 2층).
  * 🔴 **이유 없는 제외는 결함이다**(§7).
  */
+/**
+ * 🔴 **글꼴 배율 기준 — 내가 고른 숫자가 아니다**(T-051 · 2026-08-15).
+ *
+ *  · `100` — 기준선
+ *  · `130` — 안드로이드 One UI 「글자 크기」 최대 단계(실사용에서 가장 흔한 상한)
+ *  · `200` — **WCAG 1.4.4 Resize Text**: *"내용·기능 손실 없이 200%까지"*
+ *
+ * 🔴 **왜 이 앱에 이 축이 걸리는가(실측)**: `font-size` 선언 **238개가 전부 `rem`, `px`는 0개**이고
+ * `html { font-size }` 선언이 없다 — 브라우저·OS 기본 글꼴을 **그대로 따라간다.** 반면
+ * `--touch-target-min`은 `44px`이라 **글자만 커지고 상자는 안 커진다.** 그 어긋남이 깨지는 자리다.
+ *
+ * 숫자를 바꾸려면 **근거부터 바꾼다** — 기준 없는 배율은 초록의 뜻을 「지켰다」가 아니라
+ * 「안 봤다」로 만든다(§19가 게이트를 두지 않은 것과 같은 자세).
+ */
+export const SCALE_STEPS = [100, 130, 200];
+
 export const TOUCH_TARGET_EXCEPTIONS = [
   // 64×64 썸네일 셀 위에 얹힌 삭제 버튼. 44px로 넓히면 셀의 절반 이상을 덮어 **사진을
   // 누르려던 손이 사진을 지운다** — 미달보다 나쁘다(§3-E · M-0162). 대체 경로로 [전체 해제]가
@@ -250,7 +266,19 @@ export async function coverSweep(page, check, label, rootSelector, exceptions = 
   const keep = page.viewportSize();
   await page.setViewportSize({ width: 344, height: 820 });
   await settlePage(page);
-  const m = await page.evaluate(({ root, exc, optOut }) => {
+  // 🔴 **글꼴 배율 축**(T-051 · 2026-08-15). 기준은 내가 고른 숫자가 아니다:
+  //    · **130%** — 안드로이드 One UI 「글자 크기」 최대 단계(실사용 범위)
+  //    · **200%** — **WCAG 1.4.4 Resize Text**: *"내용·기능 손실 없이 200%"*
+  //    실측 근거로 이 축이 이 앱에 걸린다는 것이 확정됐다: `font-size` 선언 **238개가 전부
+  //    `rem`이고 `px`는 0개**이며 `html { font-size }` 선언이 없다 — 즉 브라우저·OS 기본 글꼴을
+  //    **그대로 따라간다.** 반면 `--touch-target-min`은 `44px`이라 **글자만 커지고 상자는 안 커진다.**
+  //    🔴 그래서 루트 `font-size`를 바꾸는 것이 이 앱에서는 **충실한 시뮬레이션**이다.
+  //    (정직한 한계: px 글꼴을 쓰는 앱에서는 충실하지 않다 — 안드로이드 textZoom은 px도 곱한다.)
+  const scaleResults = [];
+  for (const pct of SCALE_STEPS) {
+    await page.evaluate((p) => { document.documentElement.style.fontSize = `${(16 * p) / 100}px`; }, pct);
+    await settlePage(page);
+    scaleResults.push([pct, await page.evaluate(({ root, exc, optOut }) => {
     const scope = root ? document.querySelector(root) : document.body;
     if (!scope) return null;
     const vis = (n) => n.getClientRects().length > 0 && getComputedStyle(n).visibility !== 'hidden';
@@ -307,27 +335,85 @@ export async function coverSweep(page, check, label, rootSelector, exceptions = 
       const { w, h } = hit(b);
       if (Math.min(w, h) < 44) small.push(`${cls.split(/\s+/)[0] || b.tagName}(${Math.round(w)}x${Math.round(h)})`);
     }
+    // 🔴 **페이지가 넘쳤으면 「무엇이 튀어나왔나」까지 말한다**(§8 · T-051).
+    //    자르는 상자에는 이미 원인 자식을 적고 있었는데 **페이지 넘침에만 안 적고 있었다** —
+    //    그래서 `page+39`만 남았고, 그 숫자로는 고칠 자리를 알 수 없었다(내 계측기의 결함).
+    const vw = document.documentElement.clientWidth;
+    const past = [];
+    // 🔴 **범위는 `scope`가 아니라 문서 전체다.** 페이지 넘침은 문서의 성질이므로 원인이
+    //    scope 밖에 있을 수 있다 — 실제로 「순간 폼」과 「동행인 창」이 원인 이름 없이 빨개졌다.
+    for (const e of document.body.querySelectorAll('*')) {
+      if (!vis(e)) continue;
+      const r = e.getBoundingClientRect();
+      const p = Math.round(r.right - vw);
+      if (p > 1) past.push({ n: name(e), p, w: Math.round(r.width), minW: getComputedStyle(e).minWidth });
+    }
+    past.sort((a, b) => b.p - a.p);
     return {
       controls: controls.length,
       pageOverflow: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
+      culprits: past.slice(0, 4).map((x) => `${x.n}(+${x.p} w${x.w}${x.minW !== '0px' ? ` min${x.minW}` : ''})`),
       clipped: [...new Set(clipped)],
       split: [...new Set(split)],
       small: [...new Set(small)],
     };
-  }, { root: rootSelector, exc: exceptions, optOut: XSCROLL_OPT_OUT });
+  }, { root: rootSelector, exc: exceptions, optOut: XSCROLL_OPT_OUT })]);
+  }
+  // 🔴 **반드시 되돌린다** — 뒤따르는 검사가 보는 화면을 바꾸지 않는다(§3-C).
+  await page.evaluate(() => { document.documentElement.style.removeProperty('font-size'); });
   if (keep) await page.setViewportSize(keep);
   await settlePage(page);
 
+  // 판정 **개수는 그대로 두고** 각 축이 세 배율을 함께 본다 — 검사 줄이 세 배가 되면 사람이
+  // 읽지 않고, 안 읽는 판정문은 없는 것과 같다(§8). 대신 **깨진 배율을 이름으로** 적는다.
+  const m = scaleResults[0][1];
+  const worst = (pick) => {
+    for (const [pct, r] of scaleResults) {
+      const v = r ? pick(r) : null;
+      if (v && (Array.isArray(v) ? v.length : v) > 0) return { 배율: `${pct}%`, 값: v };
+    }
+    return null;
+  };
+
+  const steps = SCALE_STEPS.join('/');
   check(`폴드 커버 344px · ${label}: 화면을 실제로 열었다(모집단 0은 통과가 아니다)`,
     (m?.controls ?? 0) > 0, JSON.stringify(m));
   if ((m?.controls ?? 0) > 0) {
-    check(`폴드 커버 344px · ${label}: 가로로 넘치지 않는다(페이지·자르는 상자 둘 다)`,
-      m.pageOverflow === 0 && m.clipped.length === 0, JSON.stringify({ pageOverflow: m.pageOverflow, clipped: m.clipped }));
-    check(`폴드 커버 344px · ${label}: 버튼·칩 글자가 두 줄로 갈라지지 않는다`,
-      m.split.length === 0, JSON.stringify(m.split));
+    const over = worst((r) => (r.pageOverflow > 0 ? [`page+${r.pageOverflow}`, ...r.culprits, ...r.clipped] : r.clipped));
+    check(`폴드 커버 344px(글꼴 ${steps}%) · ${label}: 가로로 넘치지 않는다(페이지·자르는 상자 둘 다)`,
+      over === null, JSON.stringify(over ?? { 배율전부: '넘침 0' }));
+    const sp = worst((r) => r.split);
+    check(`폴드 커버 344px(글꼴 ${steps}%) · ${label}: 버튼·칩 글자가 두 줄로 갈라지지 않는다`,
+      sp === null, JSON.stringify(sp ?? []));
+    // 🔴 44px 표적은 **기준 배율에서만** 잰다. 글자가 커지면 상자도 같이 커져 미달이 저절로
+    //    사라지므로, 배율을 걸면 이 축은 **더 쉬워진다** — 쉬워진 검사로 통과를 사는 것은
+    //    §4가 말하는 공허함이다. 어려운 쪽(100%)에서 판정한다.
     check(`폴드 커버 344px · ${label}: 44px 미달 터치 표적이 없다(예외는 이유와 함께 등록)`,
       m.small.length === 0, JSON.stringify(m.small));
   }
   return m;
 }
 
+
+/**
+ * 🔴 **「움직임 줄이기」를 켠 사용자에서 한 번 재고 반드시 되돌린다**(T-052 · 2026-08-16).
+ *
+ * 물어야 할 것은 **「전환이 사라지는가」가 아니라 「기능이 사라지는가」**다. 접근성 설정이
+ * 기능을 뺏으면 그건 배려가 아니라 결함이다.
+ *
+ * 🔴 **왜 새 컨텍스트를 만들지 않나**: `browser.newContext({ reducedMotion })`은 IndexedDB가
+ * **빈 상태**로 시작한다 — 이 저장소의 라이브는 심어 둔 여행·순간 위에서 도므로 그 상태를
+ * 통째로 잃는다. `emulateMedia`는 **같은 페이지에서 미디어 질의만** 바꾸므로 상태가 남고,
+ * `matchMedia`를 읽는 JS(`prefersReducedMotion()`)에도 그대로 걸린다.
+ *
+ * 🔴 **반드시 되돌린다**(§3-C) — `finally`로 묶는다. 안 되돌리면 뒤따르는 검사 전부가
+ * 「움직임 줄이기」 상태에서 돌고, 그건 조용히 다른 앱을 재는 것이다.
+ */
+export async function underReducedMotion(page, fn) {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  try {
+    return await fn();
+  } finally {
+    await page.emulateMedia({ reducedMotion: null });
+  }
+}

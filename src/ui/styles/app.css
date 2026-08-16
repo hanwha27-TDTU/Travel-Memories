@@ -726,8 +726,20 @@
    ⚠️ 2026-07-27 사용자 실기기(*"칩 디자인이 조잡하네요"*): 예전엔 flex가 아니어서
    소리 칩 안의 ✕가 **둘째 줄로 밀려났고**, 그 칩만 형제보다 두 배 높아 줄이 어긋났다.
    `margin-left:auto`(해제 버튼)도 flex가 아니면 아무 일도 하지 않는다. */
+/* 🔴 **글자 배율이 올라가면 칩은 넘치는 대신 접힌다**(T-051 · 2026-08-15 실측).
+ *
+ * 실측: 글꼴 200%(WCAG 1.4.4 기준)에서 344px 화면을 `span.chip(+39 w312)`가 밀어냈다.
+ * 원인은 `white-space: nowrap` — 평상시엔 옳다(짧은 칩이 중간에서 끊기지 않게). 그런데
+ * **글자가 두 배가 되면 접힐 수가 없어** 화면 밖으로 나간다. 결함군 등록부 **1.32·1.33**과
+ * 같은 근본형이다: *그릇을 안 바꾸고 내용만 키우면 넘친다.* 여기서 「내용을 키우는 것」은
+ * 사용자의 접근성 설정이다.
+ *
+ * 처방도 그 두 항목과 같다 — **자르지 않고 접는다.** `max-width: 100%`로 그릇을 넘지 못하게
+ * 하고, 끊을 데가 없는 긴 토큰은 `anywhere`로 끊는다. 🔴 100%에서는 칩이 짧아 줄바꿈이
+ * 일어나지 않는다(실측으로 확인) — 즉 평상시 모양은 그대로다. */
 .chip {
-  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 5px; white-space: normal;
+  max-width: 100%; overflow-wrap: anywhere;
   /* 높이를 **못 박는다.** 안 그러면 글자만 든 칩(29.3px)과 버튼이 든 칩(27.3px)이 line-height
      차이로 2px 어긋나 줄이 들쭉날쭉해진다 — 우연히 같기를 바라지 않는다(§7 화면 대칭). */
   min-height: 30px;
@@ -766,6 +778,12 @@
    칩 줄에서 어떤 것은 span이고 어떤 것은 button이라는 사실이 화면에 드러나면 안 된다(§7). */
 button.chip { border: 0; font-family: inherit; }
 .chip-tap { cursor: pointer; }
+/* 🔴 **`nowrap`을 유지한다 — 한 번 `wrap`으로 바꿨다가 되돌렸다**(T-051 · 2026-08-15).
+ * 글꼴 200% 넘침을 부모에서 접어 풀려 했더니, `flex-wrap: wrap`은 **줄마다 교차축 크기를 따로**
+ * 계산해서 자식들의 `align-self: stretch`가 무력해졌다 — T-049에서 17px → 30px로 올려놓은
+ * 히트 높이가 **17px로 되돌아갔고**, 그 위에 `.place-chip-map`이 `.place-chip-copy`의 터치까지
+ * 훔쳤다. 🔴 **기존 검사 셋이 그걸 잡았다**(넓히면 덮는다 · 칩 높이 · 17px 방치 금지).
+ * 그래서 접는 일은 **자식이 자기 안에서** 한다(아래 `.place-chip-copy`). 부모는 한 줄 그대로. */
 .place-chip { display: inline-flex; align-items: center; gap: 6px; flex-wrap: nowrap; max-width: 100%; }
 /* 🔴 **칩 안의 버튼은 칩 높이를 채운다 — 형제가 이미 그 처방을 받았다**(T-049 · 2026-08-15).
  * 실측: 이 둘의 히트 높이가 **17px**이었다. 형제 `.chip-x`(`align-self: stretch; margin: -5px 0`)와
@@ -782,7 +800,11 @@ button.chip { border: 0; font-family: inherit; }
  * 가로로 넓히면 서로의 터치를 훔친다(M-0162가 `.pe-close`에서 만든 바로 그 상태다).
  * 덮음 0은 라이브가 `closeButtonTarget()`으로 실측한다 — 선언이 아니라 값으로 안다. */
 .place-chip-map { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
-.place-chip-copy { flex: none; white-space: nowrap; color: var(--sem-sky-ink); text-decoration: underline; font-variant-numeric: tabular-nums; }
+/* 🔴 `nowrap` → `normal`(T-051 · 2026-08-15 실측). 부모(`.place-chip`)를 접히게 한 뒤에도
+ * **이 버튼 자신이** 글꼴 200%에서 269~284px이라 화면을 밀어냈다 — 부모를 고쳐도 자식이
+ * 안 접히면 소용이 없다. 라벨은 「41.3111, 69.2797 · 복사」라 **띄어쓰기에서 자연스럽게**
+ * 접힌다. `max-width: 100%`로 그릇을 넘지 못하게 못박는다. 100%에서는 한 줄 그대로다(실측). */
+.place-chip-copy { flex: 0 1 auto; max-width: 100%; white-space: normal; overflow-wrap: anywhere; color: var(--sem-sky-ink); text-decoration: underline; font-variant-numeric: tabular-nums; }
 .chip-tap:hover { background: color-mix(in srgb, var(--sem-sky) 26%, transparent); }
 .chip-tap:focus-visible { outline: 2px solid var(--sem-sky-ink); outline-offset: 2px; }
 
@@ -1430,7 +1452,10 @@ select.zone-input { text-overflow: ellipsis; }
   background: var(--surface); color: var(--ink-soft); font-size: 1rem; cursor: pointer;
 }
 .guide-close:hover { color: var(--ink); }
-.guide-body { padding: var(--space-4) var(--space-5) var(--space-5); overflow-y: auto; }
+/* `overflow-wrap: anywhere` — 이 본문에는 `VITE_TOMTOM_API_KEY`·`R2_PUBLIC_BASE` 같은
+ * **끊을 데가 없는 긴 영문 토큰**이 들어간다. 글꼴 200%에서 `span`이 91px 튀어나와 본문을
+ * 107px 넘치게 했다(T-051 실측). 자르면 사용자가 키 이름을 못 읽으므로 **접는다**. */
+.guide-body { padding: var(--space-4) var(--space-5) var(--space-5); overflow-y: auto; overflow-wrap: anywhere; }
 
 .guide-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--space-3); }
 .guide-group { border: 1px solid var(--line); border-radius: var(--radius-medium); background: var(--bg); padding: var(--space-4); }
