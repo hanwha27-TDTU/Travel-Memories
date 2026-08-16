@@ -28,6 +28,7 @@ export const REGISTRY = {
   'check-domain-symmetry',
   'check-sync-parallelism',
   'check-verdict-symmetry',
+  'check-reduced-motion-scope',
   'check-skill-routing',
   'check-live-coverage',
   'check-self-eval',
@@ -81,7 +82,7 @@ export const REGISTRY = {
   'verify-diagnostics-live',
   'verify-authgate-live',
   ] as const,
-  gateCount: 75,
+  gateCount: 76,
   /**
    * 게이트의 **대조군 현황**(§4). 세 축 — 대조군 보유 · 밖에서 돌려 볼 수 있음 ·
    * 실패를 판정(exit 2)으로 알림.
@@ -113,6 +114,7 @@ export const REGISTRY = {
     { name: 'check-domain-symmetry', control: true, runnable: false, cleanExit: true },
     { name: 'check-sync-parallelism', control: true, runnable: true, cleanExit: true },
     { name: 'check-verdict-symmetry', control: true, runnable: false, cleanExit: true },
+    { name: 'check-reduced-motion-scope', control: true, runnable: false, cleanExit: true },
     { name: 'check-skill-routing', control: true, runnable: false, cleanExit: true },
     { name: 'check-live-coverage', control: true, runnable: false, cleanExit: true },
     { name: 'check-self-eval', control: true, runnable: false, cleanExit: true },
@@ -166,11 +168,11 @@ export const REGISTRY = {
     { name: 'verify-authgate-live', control: true, runnable: false, cleanExit: true },
     { name: 'verify-sync-release-live', control: true, runnable: false, cleanExit: true },
   ] as const,
-  gateControlCount: 74,
+  gateControlCount: 75,
   gateRunnableCount: 19,
-  gateCleanExitCount: 74,
+  gateCleanExitCount: 75,
   /** 최신 앱 버전(정본: src/app/changelog.ts의 첫 항목). 첫 로드 화면은 이걸 읽는다. */
-  appVersion: '2.46',
+  appVersion: '2.47',
   /** 에이전트 정의 이름(정본: .claude/agents/ — frontmatter가 있는 파일만). */
   agents: [
   'accessibility-design-auditor',
@@ -207,6 +209,6 @@ export const REGISTRY = {
   skillCount: 13,
   screenCount: 13,
   migrationCount: 32,
-  changelogCount: 246,
+  changelogCount: 247,
   researchCount: 144,
 } as const;

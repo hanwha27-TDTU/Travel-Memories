@@ -92,6 +92,62 @@ export function caveatsOf(text) {
 // 「일부만 쟀다」**이다(§2-G · §8).
 const FAST = process.argv.includes('--fast');
 
+// ─────────────────────────────────────────────────────────────────────────────
+// §18-J 자동 고침 — **검사가 답을 알고 있으면 고쳐 놓고 보고한다**
+// (사용자 지시 2026-08-16: *"리뷰어가 직접 고치고 … 동의하면 다음 단계, 미동의면 되돌린다"*)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// **여기 있는 게이트는 전부 「커밋본 != 재생성본」 하나만 본다.** 고침은 언제나 `npm run gen`
+// 한 줄이고, 그건 **재계산**이지 설계 결정이 아니다 — §18-J의 경계표에서 「고쳐도 되는」 칸이다.
+// 재계산이 안전한 이유: **원본이 틀렸으면 다시 만들어도 여전히 틀려서** 사람 눈에 그대로 남는다.
+//
+// 🔴 **왜 게이트 안이 아니라 여기인가**(§7 2층): 넷이 각자 자기 고침을 부르면 **네 벌의 규율**이
+//    생기고, 그중 하나가 조용히 갈라진다. 고치는 일은 **한 곳**에만 있고, 게이트는 판정만 한다.
+const AUTOFIX_REASON = Object.freeze({
+  'check-registry-gen': '게이트가 보는 것은 「registry.gen.ts == 재집계본」 하나뿐 — gen-registry가 답을 안다',
+  'check-adapter-parity': '「커밋본 == 재생성본」 하나뿐 — gen-adapters가 정본에서 다시 심는다',
+  'check-module-design-docs': '설계서는 실행 코드에서 추출한 생성물 — gen-module-design-docs가 답을 안다',
+  'check-doc-counts': '문서 마커 값은 registry 파생 — gen-registry가 다시 심는다',
+});
+
+// 🔴 **CI에서는 끈다.** CI는 **그 커밋**을 판정하는 자리다(§15 — 「그 초록은 그 커밋의 것」).
+//    거기서 작업트리를 고쳐 초록을 만들면, 초록이 가리키는 트리와 머지되는 커밋이 **달라진다.**
+//    그리고 §18-J가 요구하는 *"§4 주입증명은 자동 고침을 끈 상태에서"*도 CI가 늘 만족시킨다 —
+//    낡은 생성물은 CI에서 **언제나 빨간불로 남는다.**
+//    `--no-fix`는 로컬에서 그 상태를 손으로 만들 때 쓴다(주입증명용).
+const AUTOFIX = !process.env.CI && !process.argv.includes('--no-fix');
+
+/**
+ * 작업트리에서 바뀐 파일의 **내용 지문**. `path → hash`. 실패하면 `null`(§8 — 0으로 반올림 금지).
+ *
+ * 🔴 **파일 목록이 아니라 지문인 이유**(실측으로 잡았다): 처음엔 「새로 dirty해진 파일」로
+ * 근사했는데, **이미 수정 상태였던 파일을 생성기가 다시 써도 목록은 그대로**다. 세션 중에는
+ * 생성물이 대개 이미 dirty하므로 **가장 흔한 경우를 통째로 놓쳤다** — 실제로 첫 실행이
+ * *"고쳐졌는데 다시 쓰인 파일 0개"*를 냈고, §4로 넣어 둔 그 경고가 자기 구멍을 잡았다.
+ *
+ * 🔴 `core.quotepath=false` — 안 주면 git이 한글 경로를 `\353\252\250…`로 이스케이프해
+ * **되돌리기 명령이 그대로는 안 붙는다.** §18-J의 안전장치가 「되돌리기가 싸다」이므로,
+ * 붙여넣어 안 도는 명령을 주는 것은 그 조항을 어기는 것이다.
+ */
+function dirtyFingerprints() {
+  try {
+    const paths = execSync('git -c core.quotepath=false status --porcelain', { encoding: 'utf8' })
+      .split('\n').filter(Boolean).map((l) => l.slice(3).trim().replace(/^"|"$/g, ''));
+    const out = new Map();
+    for (const f of paths) {
+      // 삭제된 파일은 해시를 못 낸다 — 그 사실 자체를 값으로 남긴다(추측하지 않는다).
+      try {
+        out.set(f, execSync(`git hash-object -- ${JSON.stringify(f)}`, { encoding: 'utf8' }).trim());
+      } catch {
+        out.set(f, '(없음)');
+      }
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 const gates = [
   { name: 'typecheck', cmd: 'npm run -s typecheck' },
   { name: 'check-secret-leak', cmd: 'node scripts/check-secret-leak.mjs' },
@@ -137,6 +193,7 @@ const gates = [
   { name: 'check-domain-symmetry', cmd: 'node scripts/check-domain-symmetry.mjs' },
   { name: 'check-sync-parallelism', cmd: 'node scripts/check-sync-parallelism.mjs' },
   { name: 'check-verdict-symmetry', cmd: 'node scripts/check-verdict-symmetry.mjs' },
+  { name: 'check-reduced-motion-scope', cmd: 'node scripts/check-reduced-motion-scope.mjs' },
   { name: 'check-skill-routing', cmd: 'node scripts/check-skill-routing.mjs' },
   // 아래 둘은 형제다: 하나는 「이 코드는 누가 읽고 고치나(문서)」를, 다른 하나는
   // 「이 화면은 누가 눈으로 보나(라이브)」를 묻는다. 둘 다 *덮였음의 보증*이 아니라
@@ -243,9 +300,31 @@ const gates = [
  */
 const EXIT_PRECONDITION = 2;
 
-let failed = 0;
+/** 🔴 개수가 아니라 **이름**을 모은다 — 「1개 실패」는 다음에 할 일을 정해 주지 않는다(M-0167). */
+const failedNames = [];
+/** §18-J — 자동 고침이 **실제로 다시 쓴 파일**. 이 목록이 곧 빨간불이다(안 적으면 게이트가 죽는다). */
+let autofixed = [];
+/** 자동 고침으로 초록이 된 게이트 이름. 「원래 초록」과 **같은 칸에 세지 않는다.** */
+const autofixHealed = [];
+let autofixRan = false;
+let autofixNote = '';
 const skipped = [];
 const notMeasured = [];
+
+// 🔴 **등록부를 먼저 판정한다**(§4 · §2-J ①). 이름을 잘못 적으면 자동 고침은 **아무 게이트에도
+//    안 걸리고**, 그 침묵은 「고칠 게 없었다」와 구별되지 않는다 — 등록부가 조용히 죽는 형태다.
+//    그리고 이유가 빈 등록은 §7이 금지하는 「이유 없는 예외」다.
+{
+  const names = new Set(gates.map((g) => g.name));
+  const bad = Object.entries(AUTOFIX_REASON).flatMap(([n, why]) =>
+    [!names.has(n) ? `${n}: 그런 게이트가 없습니다(등록부가 유령을 가리킵니다)` : null,
+     String(why ?? '').trim() ? null : `${n}: 이유가 비었습니다(§7 — 이유 없는 등록은 결함)`].filter(Boolean));
+  if (bad.length) {
+    console.error('harness: §18-J 자동 고침 등록부가 잘못됐습니다 — 게이트를 돌리기 전에 멈춥니다.');
+    for (const b of bad) console.error(`  · ${b}`);
+    process.exit(1);
+  }
+}
 /** 통과했지만 **스스로 「일부는 못 쟀다」고 말한** 게이트. 마지막 판정문이 이것을 센다. */
 const partial = [];
 for (const g of gates) {
@@ -273,28 +352,92 @@ for (const g of gates) {
     skipped.push({ name: g.name, why });
     continue;
   }
+  // ── §18-J 자동 고침 — 답을 아는 게이트면 고쳐 놓고 **이름으로** 보고한다 ──────────
+  if (AUTOFIX && AUTOFIX_REASON[g.name]) {
+    // 🔴 **한 번만 돌린다.** 넷이 같은 생성기를 공유하므로, 두 번째 게이트부터는 이미 고쳐져
+    //    있다 — 그때 또 돌리면 시간만 쓰고 「고친 파일」 집계가 갈린다.
+    if (!autofixRan) {
+      autofixRan = true;
+      const before = dirtyFingerprints();
+      const gen = spawnSync('npm run -s gen', { shell: true, encoding: 'utf8' });
+      const after = dirtyFingerprints();
+      if (gen.status !== 0) {
+        autofixNote = `생성기가 실패했습니다(exit ${gen.status}) — 고치지 못했습니다.`;
+      } else if (before === null || after === null) {
+        // git을 못 읽었다. 「안 고쳤다」와 「못 셌다」는 다른 말이다(§8).
+        autofixNote = 'git 상태를 읽지 못해 **무엇이 바뀌었는지 세지 못했습니다** — 직접 확인하세요.';
+      } else {
+        // 새로 나타났거나 **내용이 달라진** 것 = 생성기가 다시 쓴 것.
+        autofixed = [...after.keys()].filter((f) => before.get(f) !== after.get(f));
+      }
+    }
+    // 고친 뒤 **다시 판정한다** — 「고쳤다」고 말하지 말고 다시 읽는다(§8).
+    const again = spawnSync(g.cmd, { shell: true, encoding: 'utf8' });
+    if (again.status === 0) {
+      console.log('PASS(자동 고침)');
+      autofixHealed.push(g.name);
+      continue;
+    }
+    console.log('FAIL(자동 고침으로도 안 됨)');
+    process.stderr.write(`${again.stdout ?? ''}${again.stderr ?? ''}`);
+    failedNames.push(g.name);
+    continue;
+  }
   console.log('FAIL');
   if (out) process.stderr.write(out);
-  failed++;
-}
-
-if (failed > 0) {
-  console.error(`\nharness: ${failed} gate(s) FAILED`);
-  process.exit(1);
+  failedNames.push(g.name);
 }
 
 // 마지막 줄이 이 실행의 **판정문**이다. 건너뛴 것이 있는데 "모두 통과"라고 쓰면 거짓말이 된다.
+//
+// 🔴 **실패해도 여기까지 온다**(2026-08-16 · M-0181). 예전 판은 실패하면
+//    `harness: N gate(s) FAILED` 한 줄을 찍고 **곧바로 exit**했다. 그래서 빨간 실행에서는
+//    **무엇을 건너뛰었는지·무엇을 반쪽만 쟀는지를 아예 못 들었다** — 그런데 §21(머지 강행)의
+//    판단은 정확히 그 빨간 실행에서 내려진다. 실패 판정문이 성공 판정문보다 말이 적으면
+//    **가장 필요할 때 가장 모르게 된다**(M-0167 — *"빨간불의 값어치는 「무엇을 봤는가」에 있다"*).
+if (failedNames.length > 0) {
+  console.log(`\nharness: 🔴 **${failedNames.length}개 게이트가 빨간불입니다** — ${failedNames.join(', ')}`);
+  console.log('  → 위 각 게이트의 출력이 무엇이 어긋났는지 말합니다. §21(머지 단계 강행)을 쓸지는');
+  console.log('    **사용자 기억의 유실·§0 위반인지**로 가릅니다 — 그 밖은 강행하고 BACKLOG에 올립니다.');
+}
 if (FAST) {
   // 「통과」라고 쓰지 않는다 — 이 실행은 무거운 층을 **아예 안 돌렸다.**
-  console.log(`\nharness(빠른 차선): 재본 ${gates.length - notMeasured.length}개 통과 · **${notMeasured.length}개는 아예 안 쟀습니다**`);
+  const 재본 = gates.length - notMeasured.length;
+  const 결과 = failedNames.length === 0 ? `재본 ${재본}개 통과` : `재본 ${재본}개 중 **${failedNames.length}개 빨간불**`;
+  console.log(`\nharness(빠른 차선): ${결과} · **${notMeasured.length}개는 아예 안 쟀습니다**`);
   console.log(`  · 안 잰 것: ${notMeasured.join(', ')}`);
   console.log('  → 릴리스(머지·배포)할 때만 앱 build 뒤 전체를 재세요: npm run build && npm run harness');
-} else if (skipped.length > 0) {
-  console.log(`\nharness: Required 게이트 통과 · 선택 ${skipped.length}개 **건너뜀**`);
-  for (const s of skipped) console.log(`  · ${s.name} — 재지 못했습니다: ${s.why}`);
-  console.log('  → 이 실행은 위 층을 확인하지 않았습니다. 갖추고 돌리려면: npm run build && npm run live');
-} else {
+} else if (failedNames.length === 0 && skipped.length === 0) {
   console.log('\nharness: 모든 게이트 통과(선택 게이트 포함 — 건너뛴 것 없음)');
+}
+
+// ── §18-J 보고 계약 — 「미동의하면 되돌린다」가 성립하려면 되돌리기가 싸야 한다 ─────────
+//    ①이름으로 나열(「N건」은 정보가 없다) ②한 덩어리로 되돌릴 수 있게 명령을 그대로 준다
+//    ③다음 단계 전에 사람이 읽는다. 그리고 🔴 **자동 고침 게이트는 빨간불을 낼 수 없으므로
+//    이 블록이 곧 그 게이트의 빨간불이다** — 안 적으면 조용히 죽는다(§18-J).
+if (autofixHealed.length > 0 || autofixed.length > 0 || autofixNote) {
+  console.log(`  · §18-J **자동 고침**: ${autofixHealed.length}개 게이트가 재생성으로 초록이 됐습니다(원래 초록과 다른 칸입니다).`);
+  if (autofixHealed.length) console.log(`     · 고쳐진 게이트: ${autofixHealed.join(', ')}`);
+  if (autofixNote) console.log(`     🔴 ${autofixNote}`);
+  if (autofixed.length) {
+    console.log(`     · 다시 쓰인 파일 ${autofixed.length}개: ${autofixed.join(', ')}`);
+    console.log(`     · 미동의면 되돌리세요: git checkout -- ${autofixed.map((f) => JSON.stringify(f)).join(' ')}`);
+  } else if (!autofixNote) {
+    // 🔴 「고칠 게 없었다」와 「고쳤는데 파일이 안 바뀌었다」는 다른 말이다(§4 모집단).
+    console.log('     🔴 그런데 **다시 쓰인 파일이 0개**입니다 — 게이트가 재생성 드리프트가 아닌 것을 보고 있었거나, git이 변화를 못 봤습니다. 직접 확인하세요.');
+  }
+  console.log('     🔴 **작업트리만 고쳐졌고 커밋되지 않았습니다** — 커밋해야 이 초록이 그 커밋의 것이 됩니다(§15).');
+}
+
+// 🔴 **건너뜀은 차선과 무관하게 말한다**(§2-G · 2026-08-16 · M-0181). 예전엔 이 보고가
+//    `if (FAST) … else if (skipped.length)` 사슬 안에 있어 **빠른 차선에서는 도달 불가**였다 —
+//    즉 빠른 차선에서 전제 미충족으로 건너뛴 게이트는 판정문에서 **통째로 사라졌다.**
+//    「안 잰 것」(차선이 빼놓은 것)과 「건너뛴 것」(전제가 없어 못 잰 것)은 **다른 칸**이고,
+//    둘 다 통과가 아니다.
+if (skipped.length > 0) {
+  console.log(`  · 전제가 없어 **건너뛴 게이트 ${skipped.length}개**(통과 아님):`);
+  for (const s of skipped) console.log(`     · ${s.name} — 재지 못했습니다: ${s.why}`);
+  console.log('    → 이 실행은 위 층을 확인하지 않았습니다. 갖추고 돌리려면: npm run build && npm run live');
 }
 
 // 🔴 「통과」와 「온전히 쟀다」는 다른 말이다. 통과했더라도 게이트가 스스로 못 잰 것을 말했으면
@@ -303,3 +446,9 @@ if (partial.length) {
   console.log(`  · 통과했지만 **일부만 쟀다고 스스로 말한 게이트 ${partial.length}개**: ${partial.join(', ')}`);
   console.log('    → 위 ↳ 줄이 그 게이트가 재지 못한 것입니다. 초록이 곧 전수 검증은 아닙니다.');
 }
+
+// 🔴 종료코드는 **판정문을 전부 찍은 뒤** 낸다. 조기 종료는 그 자체가 정보 손실이다.
+process.exit(failedNames.length > 0 ? 1 : 0);
+
+
+

@@ -561,7 +561,6 @@ console.log('  → 라이브로 잴 때: 그 검사가 **모순이 날 수 있�
   };
   const dirty = count('git status --porcelain');
   const stashed = count('git stash list');
-  const unmerged = count('git log --oneline origin/main..HEAD');
 
   // 🔴 **내 HEAD만 세면 「남이 두고 간 것」은 영원히 안 보인다.** 예전엔 여기가 산문 한 줄
   //    ("브랜치는 따로 본다")이었고, 그래서 실제로 새어 나갔다 — 릴리스 후보를 브랜치에 올려
@@ -593,19 +592,45 @@ console.log('  → 라이브로 잴 때: 그 검사가 **모순이 날 수 있�
     return out;
   })();
 
-  const unknown = [dirty, stashed, unmerged].some((n) => n === null);
-  const total = [dirty, stashed, unmerged].reduce((a, n) => a + (n ?? 0), 0);
+  // 🔴 **머지 안 된 커밋을 한 칸에 세면 두 상태를 한 이름으로 부르게 된다**(§16 · M-0178).
+  //    「미완성」(작업 도중 멈춤)과 「구현됨·릴리스 대기」(§15 축적)는 **처방이 정반대**다 —
+  //    전자는 wip으로 보존하고 묻는 것이고, 후자는 **끝난 것**이라 다음 릴리스에 묶는다.
+  //    §15가 축적을 기본값으로 만든 뒤로 후자는 **정상 상태**이므로, 그것을 🔴로 부르면
+  //    빨간불이 평상시에 뜨고 사람이 무시하기 시작해 죽는다(§11 ③).
+  //    가르는 표식은 추측이 아니라 **읽기**다: `chore(wip):`은 `.githooks/commit-msg`가
+  //    「미완성 · 머지 금지」와 함께 **강제**하므로(§16 ③), 그 접두사가 곧 상태다.
+  const unmergedSubjects = lines('git log --format=%s origin/main..HEAD');
+  const wipCount = unmergedSubjects === null ? null : unmergedSubjects.filter((s) => /^chore\(wip\):/.test(s)).length;
+  const pendingCount = unmergedSubjects === null || wipCount === null ? null : unmergedSubjects.length - wipCount;
+
+  const unknown = [dirty, stashed, wipCount].some((n) => n === null);
+  // 🔴 **총계에는 릴리스 대기를 넣지 않는다** — 넣으면 위에서 가른 것이 여기서 다시 합쳐진다.
+  const total = [dirty, stashed, wipCount].reduce((a, n) => a + (n ?? 0), 0);
 
   console.log('\n⑧ 미완성 작업(§16) — 세션 시작·종료마다 확인:');
   console.log(
-    `  · 커밋 안 됨 ${dirty ?? '확인 불가'} · 숨김 ${stashed ?? '확인 불가'} · 머지 안 됨 ${unmerged ?? '확인 불가'}`,
+    `  · 커밋 안 됨 ${dirty ?? '확인 불가'} · 숨김 ${stashed ?? '확인 불가'} · 미완성 커밋(chore(wip):) ${wipCount ?? '확인 불가'}`,
   );
   if (unknown) console.log('  ⚠️ 일부를 못 셌습니다 — 0으로 읽지 마세요(§8). 직접 확인하세요.');
   if (total > 0) {
     console.log('  🔴 미완성이 있습니다. **보존(chore(wip): … 미완성 · 머지 금지) → 재고 → 사용자에게 묻는다.**');
     console.log('     "미완성 X가 있습니다. 이어서 마무리할까요?" — 안 물으면 그건 내가 만든 미완성이다(§16 ④).');
   } else if (!unknown) {
-    console.log('  ✓ 작업트리·숨김·내 커밋은 비었습니다.');
+    console.log('  ✓ 작업트리·숨김·미완성 커밋은 비었습니다.');
+  }
+  // 🔴 **§16의 네 항목 중 「열린 Draft PR」은 여기서 안 본다 — 그 사실을 화면에 적는다**(§8).
+  //    안 보는 이유는 의도된 설계다: 이 브리핑은 git만 읽고 network를 가정하지 않는다.
+  //    가정하면 없는 세계(오프라인·얕은 체크아웃)에서 죽는다(§18-G). 그러나 **안 본 것을
+  //    말하지 않으면 위의 ✓가 「전부 봤다」로 읽힌다** — 그게 §8이 금지하는 반올림이다.
+  //    (Draft PR도 §15 ①에 따르면 축적의 정상 상태다. 가르는 것은 그 안의 `chore(wip):` 커밋이다.)
+  console.log('  · 안 봄: 열린 Draft PR — 이 브리핑은 git만 읽습니다(network 미가정 · §18-G). 사람이 직접 봅니다.');
+
+  // 🔴 **릴리스 대기는 「문제」가 아니라 「상태」다 — 그러나 침묵하지도 않는다.**
+  //    사라질 위험은 미완성과 **똑같다**: squash 머지 뒤 브랜치를 origin/main에서 다시 세우면
+  //    끝난 커밋도 소리 없이 사라진다. 갈라진 것은 **처방**이지 경고가 아니다.
+  if (pendingCount !== null && pendingCount > 0) {
+    console.log(`  · 구현됨·릴리스 대기(§15 축적) ${pendingCount}개 — **끝난 것이므로 wip으로 되돌리지 않는다.**`);
+    console.log('     다음 기능 릴리스에 묶는다. 🔴 단, 푸시해 두고 브랜치를 다시 세울 때 함께 옮긴다(미완성과 같은 위험).');
   }
 
   // 🔴 **남이 두고 간 브랜치는 「미완성」과 **다른 칸**에 센다.**

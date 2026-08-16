@@ -807,8 +807,20 @@ function clearHomeSubscriptions(): void {
   unsubscribeParityChange = null;
 }
 
-/** 로그인 상태만 그리는 작은 셸. 홈 목록 refresh의 비동기 소유권과 섞지 않는다. */
-function renderHomeAuth(authArea: HTMLElement, user: SessionUser | null, status: HTMLElement): void {
+/**
+ * 로그인 상태만 그리는 작은 셸. 홈 목록 refresh의 비동기 소유권과 섞지 않는다.
+ *
+ * 🔴 **왜 export인가 — 실기기의 기본 상태를 아무도 안 재고 있었다**(2026-08-16 · M-0182).
+ * `verify-editor-live`는 `dist`를 재는데 그 빌드에는 Supabase 환경변수가 없어
+ * `isConfigured()`가 **거짓**이다. 그래서 517건짜리 라이브가 내내 그린 헤더는
+ * **`📴 로컬 모드` 한 줄**이었고, 사용자가 실제로 보는 **이메일 + [로그아웃]** 헤더는
+ * 폭·글꼴 배율·터치 표적 어느 축에서도 **한 번도 안 쟀다.**
+ * 그 자리는 사용자가 직접 지적한 적도 있다(*"이메일 배치를 이쁘게 안 될까?"*).
+ *
+ * 실제 앱에서 그 상태를 만들려면 서버가 필요하므로, §13 1항이 정한 길을 쓴다 —
+ * **값을 먹여 실제 렌더러로 그린다.** 그래서 검사 전용 우회로가 아니라 **이 함수 자체**를 연다.
+ */
+export function renderHomeAuth(authArea: HTMLElement, user: SessionUser | null, status: HTMLElement): void {
   authArea.innerHTML = '';
   if (!isConfigured()) {
     authArea.appendChild(el('span', 'muted small', '📴 로컬 모드'));
